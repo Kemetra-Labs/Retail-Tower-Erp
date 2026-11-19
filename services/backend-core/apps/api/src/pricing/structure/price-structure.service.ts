@@ -84,6 +84,7 @@ const BOOK_COLUMNS = `b.id::text AS id, b.code, b.name, b.currency_code, b.tax_p
 const ZONE_COLUMNS = `z.id::text AS id, z.price_book_id::text AS price_book_id, z.code, z.name, z.is_default,
        z.retired_at, z.retire_reason, z.created_by_user_id::text AS created_by_user_id, z.created_at`;
 const ZONE_RETURNING = ZONE_COLUMNS.replace(/\bz\./g, "");
+const BOOK_RETURNING = BOOK_COLUMNS.replace(/\bb\./g, "");
 
 /** The 0121 visibility rule at revision `$rev` (null: nothing is visible). */
 const VISIBLE_AT = (rev: string): string =>
@@ -99,9 +100,14 @@ function isUniqueViolation(err: unknown, constraint: string): boolean {
   return e.code === "23505" && e.constraint === constraint;
 }
 
+/** The request id when it is a UUID (the audit row's `request_id` is uuid), else null. */
+function uuidRequestId(input: StructureWriteInput): string | null {
+  return input.requestId !== null && UUID_RE.test(input.requestId) ? input.requestId : null;
+}
+
 /** `correlation_id` is NOT NULL uuid: the request id when it is one, else a fresh id. */
 function correlationOf(input: StructureWriteInput): string {
-  return input.requestId !== null && UUID_RE.test(input.requestId) ? input.requestId : newId();
+  return uuidRequestId(input) ?? newId();
 }
 
 @Injectable()
@@ -279,13 +285,16 @@ export class PriceStructureService {
       if (existing.rows.length > 0) throw new PriceStructureConflictError("price_book_code_taken");
       const bookId = newId();
       const correlationId = correlationOf(input);
+      let book: PriceBookRow;
       try {
-        await client.query(
+        const r = await client.query<PriceBookRow>(
           `INSERT INTO price_books (id, tenant_id, code, name, currency_code, tax_price_basis, pricing_context,
                                     is_default, created_by_user_id, correlation_id)
-           VALUES ($1, $2, $3, $4, $5, $6, 'retail', true, $7, $8)`,
+           VALUES ($1, $2, $3, $4, $5, $6, 'retail', true, $7, $8)
+           RETURNING ${BOOK_RETURNING}`,
           [bookId, input.tenantId, body.code, body.name, body.currencyCode, body.taxPriceBasis, input.actorUserId, correlationId],
         );
+        book = r.rows[0]!;
       } catch (err) {
         if (isUniqueViolation(err, "uq_price_books_one_active_per_context")) {
           throw new PriceStructureConflictError("price_book_exists");
@@ -294,9 +303,10 @@ export class PriceStructureService {
         throw err;
       }
       const zoneId = newId();
-      await client.query(
+      const zone = await client.query<PriceZoneRow>(
         `INSERT INTO price_zones (id, tenant_id, price_book_id, code, name, is_default, created_by_user_id, correlation_id)
-         VALUES ($1, $2, $3, $4, $5, true, $6, $7)`,
+         VALUES ($1, $2, $3, $4, $5, true, $6, $7)
+         RETURNING ${ZONE_RETURNING}`,
         [zoneId, input.tenantId, bookId, DEFAULT_ZONE_CODE, body.defaultZoneName ?? DEFAULT_ZONE_NAME, input.actorUserId, correlationId],
       );
       await this.audit(client, input, "pricing.price_book.created", "price_book", bookId, {
@@ -306,9 +316,7 @@ export class PriceStructureService {
         currency_code: body.currencyCode,
         tax_price_basis: body.taxPriceBasis,
       });
-      const book = await this.bookOf(client, input.tenantId, bookId, false);
-      const def = await this.defaultZonesOf(client, input.tenantId, [bookId]);
-      return toPriceBookBody(book, requireDefault(def, bookId));
+      return toPriceBookBody(book, zone.rows[0]!);
     });
   }
 
@@ -495,7 +503,7 @@ export class PriceStructureService {
       action,
       targetType,
       targetId,
-      requestId: input.requestId !== null && UUID_RE.test(input.requestId) ? input.requestId : null,
+      requestId: uuidRequestId(input),
       metadata,
     });
   }
