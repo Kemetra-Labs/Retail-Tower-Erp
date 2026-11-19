@@ -354,4 +354,5 @@ Contract-first order. Each slice is one bounded issue; the gated kinds are named
 - [x] Slices named, none created.
 - [x] 83329059 §8 points that touch import answered or listed for the owner (§11.1).
 - [ ] Reviewed and merged as docs (this PR).
-- [ ] Linked Confluence draft (owner to publish).
+- [x] Linked Confluence draft: RETAIL page 86343681 (unpublished draft under the Catalog page 23461894; the owner
+  publishes it on approval).
