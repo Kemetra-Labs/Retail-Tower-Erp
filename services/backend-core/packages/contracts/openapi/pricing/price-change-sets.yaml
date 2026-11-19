@@ -1232,8 +1232,7 @@ components:
       required: [reason]
       properties:
         from:
-          type: string
-          format: date-time
+          $ref: "#/components/schemas/Instant"
           description: Restore from this instant forward. Default now. History before it is never rewritten.
         reason:
           type: string

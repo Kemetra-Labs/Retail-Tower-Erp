@@ -351,6 +351,12 @@ describe("price-change-sets — preview and header fixtures", () => {
     expect(v({ ...header, tenantId: ID_1 })).toBe(false);
   });
 
+  it("a rollback's from is a strict instant", () => {
+    const v = validator("price-change-sets", "RollbackPriceChangeSetRequest");
+    expect(v({ reason: "r", from: "2026-11-01T00:00:00+02:00" })).toBe(true);
+    expect(v({ reason: "r", from: "2026-11-01T00:00" })).toBe(false);
+  });
+
   it("rollback_blocked names the blocking revisions", () => {
     const v = validator("price-change-sets", "RollbackBlocked");
     expect(v({ error: { code: "rollback_blocked", message: "m" }, blockingRevisionNos: [419] })).toBe(true);
