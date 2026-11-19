@@ -45,8 +45,9 @@ info:
     Error envelope: the canonical `{ error: { code, message, request_id } }`,
     identical to the shared shape (`auth` / `outbox` / `pos-sales` /
     `console-sync-ops`). Status mapping: 400 validation, 401 unauthenticated,
-    403 insufficient-role, 404 not-found / cross-tenant (non-disclosing,
-    safe-404), 409 repair conflict (item not in a repairable state),
+    403 insufficient-role (not on the four quarantine operations, where a
+    wrong role is 404, see 1.3.0-draft), 404 not-found / cross-tenant
+    (non-disclosing, safe-404), 409 repair conflict (item not in a repairable state),
     429 `rate_limited` (console rate limit; honour `Retry-After`), 500 internal.
 
 
@@ -164,6 +165,18 @@ info:
     to the till in v1. After its upload is accepted, the till keeps its row
     marked quarantined and stops counting it in the heartbeat; this queue
     is the source of truth.
+
+    **A wrong role is 404 (owner decision, RT-1312 comment 17812,
+    2026-11-19).** On the four quarantine operations, a signed-in user whose
+    role is not `owner` or `tenant_admin` gets the same 404 `not_found` as an
+    absent or out-of-scope item, like the rest of this file's family
+    (`@Roles` without `denyAs`). It is not a 403: a 403 would disclose that
+    the item exists. This is wording only: the runtime already answers 404,
+    and no operation, status or schema changes. The `403` entry that remains
+    on each of the four operations is `QuarantineForbidden` (the two reads)
+    and `QuarantineForbiddenOrOriginRejected` (the two writes), which say
+    what a 403 can still be (the route guard's fail-closed answer for a route
+    without a declared role; on the writes also `origin_rejected`, RT-430).
 
     **Evolution.** Adding a value to a response enum (`QuarantineState`,
     `QuarantineRepair.outcome`) is a breaking change under bc/oasdiff and
@@ -361,9 +374,9 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/QuarantineForbidden"
         "404":
-          $ref: "#/components/responses/NotFound"
+          $ref: "#/components/responses/QuarantineNotFound"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -393,7 +406,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/Forbidden"
+          $ref: "#/components/responses/QuarantineForbidden"
         "404":
           $ref: "#/components/responses/QuarantineNotFound"
         "429":
@@ -453,7 +466,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+          $ref: "#/components/responses/QuarantineForbiddenOrOriginRejected"
         "404":
           $ref: "#/components/responses/QuarantineNotFound"
         "409":
@@ -506,7 +519,7 @@ paths:
         "401":
           $ref: "#/components/responses/Unauthorized"
         "403":
-          $ref: "#/components/responses/ForbiddenOrOriginRejected"
+          $ref: "#/components/responses/QuarantineForbiddenOrOriginRejected"
         "404":
           $ref: "#/components/responses/QuarantineNotFound"
         "409":
@@ -1102,9 +1115,34 @@ components:
             $ref: "#/components/schemas/Error"
     QuarantineNotFound:
       description: >
-        not_found (404, 1.3.0-draft) — the quarantine ref does not resolve
-        within the operator's (tenant, store) scope. Non-disclosing: identical
-        for cross-tenant, out-of-scope and genuinely absent refs (FR-102).
+        not_found (404, 1.3.0-draft) — the quarantine ref (on the list, the
+        `store_id` filter) does not resolve within the operator's (tenant,
+        store) scope, or the signed-in user's role is not `owner` or
+        `tenant_admin` (RT-1312 comment 17812: a wrong role is 404, never 403).
+        Non-disclosing: identical for cross-tenant, out-of-scope, wrong-role
+        and genuinely absent refs (FR-102).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QuarantineForbidden:
+      description: >
+        forbidden (403, 1.3.0-draft) — NEVER the answer to a wrong role on a
+        quarantine operation: that is 404 (see `QuarantineNotFound`, RT-1312
+        comment 17812). A 403 here is only the route guard's fail-closed
+        answer for a route without a declared role.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    QuarantineForbiddenOrOriginRejected:
+      description: >
+        forbidden (403, 1.3.0-draft) — NEVER the answer to a wrong role: that
+        is 404 (see `QuarantineNotFound`, RT-1312 comment 17812). A 403 here
+        is `origin_rejected` (RT-430): the request is authenticated by the
+        `dp2_session` cookie and its `Origin` header is missing, or is neither
+        the API's own origin nor listed in `ALLOWED_ORIGINS`; or the route
+        guard's fail-closed answer for a route without a declared role.
       content:
         application/json:
           schema:
