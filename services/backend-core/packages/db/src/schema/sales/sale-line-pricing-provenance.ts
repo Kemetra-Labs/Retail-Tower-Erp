@@ -23,10 +23,11 @@ import { saleLines } from "./sale-lines";
 export const saleLinePricingProvenance = pgTable(
   "sale_line_pricing_provenance",
   {
-    saleLineId: uuid("sale_line_id").primaryKey().notNull(),
-    saleId: uuid("sale_id").notNull(),
+    // Tenant-first; the SQL column order is 0122's.
     tenantId: uuid("tenant_id").notNull(),
     storeId: uuid("store_id").notNull(),
+    saleId: uuid("sale_id").notNull(),
+    saleLineId: uuid("sale_line_id").primaryKey().notNull(),
     origin: text("origin").notNull(),
     sourceScope: text("source_scope").notNull(),
     priceEventId: uuid("price_event_id"),
