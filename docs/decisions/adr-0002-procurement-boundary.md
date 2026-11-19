@@ -4,7 +4,7 @@
 **Dates:** 2026-06-08 (Delegate ratified) · 2026-11-19 (owner decision: target Progressive Mediate)
 **Deciders:** Owner (Ahmed Shaaban).
 **Decision record:** [ADR-RT-002](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/84606983) (Confluence, 2026-11-19), aligned with [CR02](https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/84050068) and [W2 RT-1479 OD-4](https://rahmaqanater.atlassian.net/browse/RT-1479?focusedCommentId=17751). Reconciled in the repository by RT-1499 (Docs).
-**Relates to:** ADR-0001 (Catalog Authority, unchanged).
+**Relates to:** [ADR-0001 — Catalog Authority](https://github.com/Kemetra/Orchestrator/blob/420db8b1176e2fbf67eb4d32f520d09e2b912ecf/docs/architecture/adr-0001-catalog-authority.md) (unchanged; frozen Orchestrator copy).
 
 > **Target, not a build authorization.** Nothing here grants code, API, permission, contract, Purchase Order write or runtime migration authority, and nothing here records any of that as done. Each later slice needs its own Jira issue, Work Mode, owner authorization, acceptance criteria and runtime proof. If this target conflicts with code, GitHub `main` is runtime truth: mark it *Needs verification* and do not improvise contracts.
 
@@ -161,7 +161,7 @@ live Bin/reconciliation read-path.
 
 ---
 
-## Recommendation *(RATIFIED 2026-06-08 — Option B accepted; Option C is the named upgrade path)*
+## Recommendation *(2026-06-08 state; superseded as target, see top. RATIFIED 2026-06-08 — Option B accepted; Option C is the named upgrade path)*
 
 **Accepted: Option B (Delegate) as the starting position, with Option C (Hybrid) as the explicit
 upgrade path if a concrete procurement-origination need emerges.**
@@ -207,7 +207,7 @@ If this ADR is **Accepted as Option A (Mediate) or Option C (Hybrid):**
 | **G6** (tax/fiscal) | **Engaged.** `Purchase Invoice` carries input VAT; the AP write path pulls in Egypt VAT modeling (G6), the same gate flagged for DP-016 / POS-012. | **Not engaged.** The Purchase Invoice (and its tax) lives entirely in ERPNext; Retail Tower never writes it. | **Deferred / not engaged.** By delegating the Purchase Invoice, C keeps G6 out of the buy-side write path; engages only if AP mediation is later added. |
 | **G5** (idempotency) | Required on all procurement write ops (receipt / supplier-invoice posting must be replay-safe), as for Connector-006. | Not applicable to a read-only path beyond the already-validated reconciliation idempotency. | Required on the mediated ops (supplier-upsert, PO) only. |
 
-> **Docs-only record.** This ADR coordinates a decision; it does not implement. Status is **Accepted**
+> **Docs-only record.** This ADR coordinates a decision; it does not implement. Status was **Accepted** (2026-06-08 state; see the 2026-11-19 decision at the top)
 > (Option B — Delegate; ratified 2026-06-08, per the header) — acceptance confers *planning* closure only,
 > not implementation authorization. No spec, contract, migration, or code is produced or dispatched from
 > this record.
