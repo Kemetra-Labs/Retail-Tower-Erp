@@ -1110,8 +1110,13 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
       await importRevision(c, TENANT_A, legacy, 2);
       await publishImport(c, legacy, 2);
       expect(await checkCounts(c)).toMatch(/a legacy import is the first Pricing Revision, not 2/);
-      // Without the privilege, a draft legacy_import set does not move.
-      await c.query(`SELECT set_config('app.system_privilege', '', true)`);
+    });
+    // A cancelled import does not block a retry.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await c.query(`SELECT set_config('app.system_privilege', 'pricing_legacy_import', true)`);
+      await createChangeSet(c, legacy, TENANT_A, "legacy_import");
+      await c.query(`UPDATE change_sets SET state = 'cancelled', cancelled_by_user_id = $2, cancelled_at = now() WHERE id = $1`, [legacy, ACTOR]);
+      expect(await sp(c, () => createChangeSet(c, legacy2, TENANT_A, "legacy_import"))).toBeNull();
     });
     await inRolledBackTx(guard().admin, async (c) => {
       await c.query(`SELECT set_config('app.system_privilege', 'pricing_legacy_import', true)`);
@@ -1407,6 +1412,19 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
       const wrongZone = id("0a503");
       await insertMembership(c, wrongZone, 2, STORE_A2, ZONE_A_DEFAULT);
       expect(await setRecord(c, "move", { results: [wrongZone] })).toMatch(/result_ids names an id that is not what this line's publish wrote/);
+    });
+    // Its own Zone, another interval.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await prepare(c);
+      await publish(c, CS_DRAFT, 2, EVENT);
+      const otherInterval = id("0a504");
+      await c.query(
+        `INSERT INTO price_zone_memberships
+           (id, tenant_id, price_book_id, price_zone_id, store_id, effective_from, published_in_revision, created_by_user_id, correlation_id)
+         VALUES ($1, $2, $3, $4, $5, '2027-03-01T00:00:00Z', 2, $6, $7)`,
+        [otherInterval, TENANT_A, BOOK_A, ZONE_A_NORTH, STORE_A2, ACTOR, CORR],
+      );
+      expect(await setRecord(c, "move", { results: [otherInterval] })).toMatch(/result_ids names an id that is not what this line's publish wrote/);
     });
   });
 });

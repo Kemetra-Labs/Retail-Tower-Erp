@@ -929,8 +929,13 @@ A script without the marker, such as the owner-gated
   grant `DELETE` or `TRUNCATE`, nor a wider `UPDATE`. Without the grants the
   API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
   hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0123 creates six
-  new, empty tables and one trigger on 0121's `change_sets` (unused before
-  RT-1484), with no backfill, and needs no maintenance window. Its down
+  new, empty tables, plus triggers and a partial unique index on 0121's
+  `change_sets` and a COMMIT-time trigger on its `pricing_revisions` (unused
+  before RT-1484), with no backfill, and needs no maintenance window. Its
+  COMMIT-time checks run only under the row's own `app.current_tenant`, so a
+  role without `BYPASSRLS` writes pricing content for one tenant per
+  transaction (a backfill or ops script too). A `legacy_import` Change Set is
+  written only under `app.system_privilege = 'pricing_legacy_import'`. Its down
   migration refuses while any item list or validation is stored. No runtime
   reads or writes the tables until RT-1484.
 

@@ -74,7 +74,21 @@
 --   is written only under app.system_privilege = 'pricing_legacy_import',
 --   one per tenant, as the tenant's first revision. Every COMMIT-time check
 --   runs only under its row's own app.current_tenant (or a role that
---   bypasses RLS), so it cannot pass by seeing no rows.
+--   bypasses RLS), so it cannot pass by seeing no rows: a non-bypass role
+--   writes pricing content for one tenant per transaction.
+--
+-- Accepted residuals (owner decisions 2026-11-19, recorded on RT-1151):
+--   - the COMMIT-time checks can be forced early with SET CONSTRAINTS ...
+--     IMMEDIATE and rows written after them (RT-1484 sets constraints only as
+--     its last statement);
+--   - the legacy_import gate, like 0111 / 0120's app.system_privilege values,
+--     binds the application's code path (runWithSystemPrivilege, its only
+--     setter), not the database role: the domain role could set the value
+--     itself. The 'pricing_legacy_import' value joins SystemPrivilege
+--     (packages/db/src/middleware/system-privilege.ts) with its one call site,
+--     the legacy import (RT-1484 or its own issue);
+--   - when two lines replace the same event, either may record its remainder
+--     (each row is still recorded exactly once).
 --
 -- Concurrency: the list and validation insert triggers lock the set's
 -- change_sets row FOR NO KEY UPDATE, so two writers of one set's content (two
@@ -705,7 +719,8 @@ BEGIN
                          AND NEW.op = 'move_store_zone' AND m.store_id = NEW.store_id
                          AND m.price_book_id = NEW.price_book_id
                          -- the move into its Zone, or a remainder of a membership it replaces
-                         AND (m.price_zone_id = NEW.price_zone_id
+                         AND ((m.price_zone_id = NEW.price_zone_id AND m.effective_from = NEW.effective_from
+                               AND m.effective_to IS NOT DISTINCT FROM NEW.effective_to)
                               OR m.price_zone_id IN (SELECT o.price_zone_id FROM public.price_zone_memberships o
                                                       WHERE o.tenant_id = NEW.tenant_id AND o.id = ANY (NEW.replaced_ids))))) THEN
     RAISE EXCEPTION 'price_change_set_lines: result_ids names an id that is not what this line''s publish wrote'
@@ -1137,8 +1152,9 @@ CREATE CONSTRAINT TRIGGER change_sets_publish_complete AFTER UPDATE ON change_se
 CREATE CONSTRAINT TRIGGER pricing_revisions_published AFTER INSERT ON pricing_revisions
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION pricing_revisions_published();
--- One legacy import per tenant.
-CREATE UNIQUE INDEX ux_change_sets_one_legacy_import ON change_sets (tenant_id) WHERE kind = 'legacy_import';
+-- One live legacy import per tenant (a cancelled one does not block a retry).
+CREATE UNIQUE INDEX ux_change_sets_one_legacy_import ON change_sets (tenant_id)
+  WHERE kind = 'legacy_import' AND state <> 'cancelled';
 
 -- =============================================================================
 -- 6. Row-level security
