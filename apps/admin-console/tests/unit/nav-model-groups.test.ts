@@ -46,6 +46,7 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(entries("integration")).toEqual([
       "/erp-connection",
       "/sales-needing-repair",
+      "/quarantined-sales",
       "/product-reconciliation",
       "/audit",
     ]);
@@ -60,9 +61,10 @@ describe("tenant navigation groups (RT-1291)", () => {
   });
 
   test("a role sees the same set of entries as before; only the grouping changed", () => {
-    // RT-1109 added Vouchers for owner and tenant_admin; RT-1338 added Brands and Offers.
-    expect(paths("owner")).toHaveLength(21);
-    expect(paths("tenant_admin")).toHaveLength(21);
+    // RT-1109 added Vouchers for owner and tenant_admin; RT-1338 added Brands and Offers;
+    // RT-1312 added the sale quarantine queue.
+    expect(paths("owner")).toHaveLength(22);
+    expect(paths("tenant_admin")).toHaveLength(22);
     expect(paths("store_manager")).toHaveLength(16);
     expect(paths("cashier")).toEqual(["/", "/audit", "/stores", "/operators", "/tenants"]);
   });
@@ -73,7 +75,7 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(paths("owner", { hasTrackedProducts: true, trackedSellingOn: false })).not.toContain(
       "/tracking",
     );
-    expect(paths("owner", {})).toHaveLength(20);
+    expect(paths("owner", {})).toHaveLength(21);
   });
 
   test("RT-1468: a platform admin gets the platform directory as the last group; nobody else does", () => {

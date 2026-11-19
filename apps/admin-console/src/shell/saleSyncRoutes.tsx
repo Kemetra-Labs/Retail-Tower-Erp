@@ -1,4 +1,8 @@
 /**
+ * RT-1312: the sale quarantine queue (`quarantined-sales`, sales a till could not send) and its
+ * item page register here too: they share the sync-ops roles and the Integration group, and stay
+ * separate pages from the ERP-sync queue.
+ *
  * RT-726 sale sync-ops route registration (spec 032 §9). Mounts inside the
  * protected layout (`/` → ProtectedArea → AppShell → <Outlet/>), behind RF-1's
  * context gate. Pure additive registration. The API is the authority on who
@@ -10,4 +14,16 @@ import { Route } from "react-router";
 
 const NeedsRepairList = lazyPage(() => import("@/sale-sync/NeedsRepairList"), "NeedsRepairList");
 
-export const saleSyncRoutes = <Route path="sales-needing-repair" element={<NeedsRepairList />} />;
+const QuarantineList = lazyPage(() => import("@/sale-quarantine/QuarantineList"), "QuarantineList");
+const QuarantineDetail = lazyPage(
+  () => import("@/sale-quarantine/QuarantineDetail"),
+  "QuarantineDetail",
+);
+
+export const saleSyncRoutes = (
+  <>
+    <Route path="sales-needing-repair" element={<NeedsRepairList />} />
+    <Route path="quarantined-sales" element={<QuarantineList />} />
+    <Route path="quarantined-sales/:quarantineRef" element={<QuarantineDetail />} />
+  </>
+);

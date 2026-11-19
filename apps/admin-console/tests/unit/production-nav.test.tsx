@@ -82,6 +82,7 @@ describe("production navigation", () => {
       "Stock discrepancies",
       "Connection & sync",
       "Sales needing repair",
+      "Sales the till could not send",
       "Product reconciliation",
       "Audit",
       "Stores",

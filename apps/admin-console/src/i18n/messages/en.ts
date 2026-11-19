@@ -27,6 +27,7 @@ import { platform } from "./en/platform";
 import { posPilot } from "./en/posPilot";
 import { postingRepair } from "./en/postingRepair";
 import { productRecon } from "./en/productRecon";
+import { saleQuarantine } from "./en/saleQuarantine";
 import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
 import { salesByStore } from "./en/salesByStore";
@@ -62,6 +63,7 @@ export const EN_MODULES = {
   posPilot,
   sales,
   saleSync,
+  saleQuarantine,
   postingRepair,
   cashPolicy,
   inventory,
@@ -100,6 +102,7 @@ export const en: MessagesOf<typeof ar> = {
   ...posPilot,
   ...sales,
   ...saleSync,
+  ...saleQuarantine,
   ...postingRepair,
   ...cashPolicy,
   ...inventory,

@@ -123,6 +123,13 @@ describe("NeedsRepairList (RT-726)", () => {
     expect(screen.getByText(/missing from the list is not proof it was posted/)).toBeDefined();
   });
 
+  test("RT-1312: it points to the separate queue of sales the till could not send", async () => {
+    renderList();
+    await screen.findByRole("link", { name: "Open sale POS-CAI-0042" });
+    const link = screen.getByRole("link", { name: "Sales the till could not send" });
+    expect(link.getAttribute("href")).toBe("/quarantined-sales");
+  });
+
   test("a row without an attempt count says not recorded", async () => {
     api.consoleListNeedsRepair.mockResolvedValue(page([repairItem({ retryCount: undefined })]));
     renderList();
