@@ -19,7 +19,7 @@
 --     `PreviewLine`, `PreviewMembershipChange`, `LineClass`
 --   - packages/db/__tests__/migration/0123-price-change-set-items-lines.spec.ts
 --
--- Six new tables, plus one trigger on 0121's change_sets. No runtime reads or
+-- Six new tables, plus two triggers on 0121's change_sets. No runtime reads or
 -- writes them until RT-1484 (PR-10).
 --
 --   price_change_set_item_lists   One row per write of a set's item list
@@ -60,11 +60,13 @@
 --                                 (`PreviewMembershipChange`), one per Zone
 --                                 move line, written likewise.
 --
---   change_sets (0121) gains a trigger: a set leaves `draft` (except to
---   `cancelled`, and except `legacy_import`) only with a validation at its
---   version whose hashes, sensitivity and revision it carries; outside
---   `draft` that binding never changes; every return to `draft` increments
---   the version.
+--   change_sets (0121) gains two triggers (section 5): a set leaves `draft`
+--   (except to `cancelled`, and except `legacy_import`) only with the
+--   validation of its current item list at its version, whose hashes,
+--   sensitivity and revision it carries; outside `draft` that binding never
+--   changes; blocking lines block submit, approve and publish; every return
+--   to `draft` increments the version; and at COMMIT a publish's per-line
+--   record is complete.
 --
 -- Concurrency: the list and validation insert triggers lock the set's
 -- change_sets row FOR NO KEY UPDATE, so two writers of one set's content (two
@@ -98,7 +100,7 @@
 --
 -- Reversal: 0123_price_change_set_items_lines.down.sql REFUSES while any of
 -- the six tables holds a row; otherwise it drops them, their functions and
--- change_sets' trigger.
+-- change_sets' two triggers.
 
 BEGIN;
 
@@ -138,7 +140,8 @@ CREATE TABLE price_change_set_item_lists (
   CONSTRAINT price_change_set_item_lists_item_count CHECK (item_count BETWEEN 0 AND 500)
 );
 
--- A list is written only while its set is a draft at exactly that version.
+-- A list is written only while its set is a draft at exactly that version,
+-- and never at a version that already has a validation.
 CREATE FUNCTION price_change_set_item_lists_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -154,6 +157,14 @@ BEGIN
   IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version THEN
     RAISE EXCEPTION 'price_change_set_item_lists: change set % is % at version %, not a draft at version %',
       NEW.change_set_id, v_state, v_version, NEW.change_set_version
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- A validation pins the list it used: none is written at or below a validated version.
+  IF EXISTS (SELECT 1 FROM public.price_change_set_validations v
+              WHERE v.tenant_id = NEW.tenant_id AND v.change_set_id = NEW.change_set_id
+                AND v.change_set_version >= NEW.change_set_version) THEN
+    RAISE EXCEPTION 'price_change_set_item_lists: change set % is already validated at version %; an edit starts a new version',
+      NEW.change_set_id, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
   NEW.list_xact := pg_current_xact_id();
@@ -292,8 +303,19 @@ CREATE TABLE price_change_set_validations (
   CONSTRAINT price_change_set_validations_target_hash CHECK (target_store_set_hash ~ '^sha256:[0-9a-f]{64}$'),
   CONSTRAINT price_change_set_validations_sensitivity_reasons CHECK (sensitivity_reasons <@ ARRAY[
     'approval_mode_always', 'delta_threshold', 'store_threshold', 'zone_move', 'past_dated', 'rollback', 'emergency']::text[]),
-  CONSTRAINT price_change_set_validations_summary CHECK (jsonb_typeof(summary) = 'object'),
-  CONSTRAINT price_change_set_validations_target_stores CHECK (jsonb_typeof(target_stores) = 'array'),
+  -- Every `PreviewSummary` key, and every finding count.
+  CONSTRAINT price_change_set_validations_summary CHECK (
+    jsonb_typeof(summary) = 'object'
+    AND summary ?& ARRAY['lines', 'stores', 'devices', 'products', 'increases', 'decreases', 'unchanged',
+                         'maxIncreasePct', 'maxDecreasePct', 'earliestEffectiveAt', 'findings', 'blocking']
+    AND jsonb_typeof(summary -> 'blocking') = 'boolean'
+    AND jsonb_typeof(summary -> 'findings') = 'object'
+    AND (summary -> 'findings') ?& ARRAY['replaces', 'shadowed', 'invalidates_dependent', 'conflicts_pending',
+                                         'past_dated', 'invalid']),
+  -- [{"storeId": uuid, "timezone": text}, ...]
+  CONSTRAINT price_change_set_validations_target_stores CHECK (
+    jsonb_typeof(target_stores) = 'array'
+    AND NOT jsonb_path_exists(target_stores, '$[*] ? (!(exists(@.storeId)) || !(exists(@.timezone)))')),
   -- Q-B6: at most 50 000 materialized lines per set.
   CONSTRAINT price_change_set_validations_counts CHECK (
     line_count BETWEEN 0 AND 50000 AND preview_line_count >= 0 AND membership_change_count >= 0)
@@ -342,7 +364,10 @@ BEGIN
 END
 $$;
 
--- At COMMIT a validation holds exactly its counted lines and preview rows.
+-- At COMMIT a validation holds exactly its counted lines and preview rows,
+-- and one membership change per Zone move line. A transaction that forces
+-- this check early (SET CONSTRAINTS ... IMMEDIATE) still cannot add rows
+-- after it: line_no and preview row_no are capped by the counts and unique.
 CREATE FUNCTION price_change_set_validations_complete() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -361,7 +386,10 @@ BEGIN
   SELECT count(*) INTO n_moves FROM public.price_change_set_preview_memberships m
    WHERE m.tenant_id = NEW.tenant_id AND m.change_set_id = NEW.change_set_id
      AND m.change_set_version = NEW.change_set_version;
-  IF n_lines <> NEW.line_count OR n_preview <> NEW.preview_line_count OR n_moves <> NEW.membership_change_count THEN
+  IF n_lines <> NEW.line_count OR n_preview <> NEW.preview_line_count OR n_moves <> NEW.membership_change_count
+     OR n_moves <> (SELECT count(*) FROM public.price_change_set_lines l
+                     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.change_set_id
+                       AND l.change_set_version = NEW.change_set_version AND l.op = 'move_store_zone') THEN
     RAISE EXCEPTION 'price_change_set_validations: change set % version % has %/%/% lines/preview rows/membership changes, its validation says %/%/%',
       NEW.change_set_id, NEW.change_set_version, n_lines, n_preview, n_moves,
       NEW.line_count, NEW.preview_line_count, NEW.membership_change_count
@@ -421,7 +449,7 @@ CREATE TABLE price_change_set_lines (
   -- a Zone move, and an `invalid` helper line whose result is not a price.
   new_price             NUMERIC(19, 4)  NULL,
   -- A helper's exact, unrounded result when it was not representable (spec 041 §6).
-  rounded_from          NUMERIC(30, 8)  NULL,
+  rounded_from          NUMERIC(23, 8)  NULL,
   class                 TEXT            NOT NULL,
   messages              TEXT[]          NOT NULL DEFAULT '{}',
   -- The active events (or memberships, for a move) this line supersedes at publish.
@@ -473,11 +501,12 @@ CREATE TABLE price_change_set_lines (
     OR (time_basis = 'store_local' AND effective_from_local IS NOT NULL
        AND effective_from IS NULL AND effective_to IS NULL
        AND (effective_to_local IS NULL OR effective_to_local > effective_from_local))),
-  -- A priced line has a concrete, non-negative price, except an `invalid` one
-  -- (a helper result <= 0 or not representable, spec 042 §5), which may carry
-  -- none so validation can still record the finding; an end, reset or move has none.
+  -- A priced line has a concrete, positive price (0 is no v1 price, Q-4),
+  -- except an `invalid` one (a helper result <= 0 or not representable, spec
+  -- 042 §5), which may carry none so validation can still record the finding;
+  -- an end, reset or move has none.
   CONSTRAINT price_change_set_lines_price CHECK (
-    (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND new_price IS NOT NULL AND new_price >= 0)
+    (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND new_price IS NOT NULL AND new_price > 0)
     OR (op IN ('set_price', 'adjust_amount', 'adjust_percent') AND class = 'invalid' AND new_price IS NULL)
     OR (op IN ('end_price', 'reset_store_override', 'move_store_zone') AND new_price IS NULL)),
   CONSTRAINT price_change_set_lines_rounded_from CHECK (
@@ -511,6 +540,12 @@ BEGIN
       NEW.change_set_id, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
+  IF NEW.line_no > (SELECT v.line_count FROM public.price_change_set_validations v
+                     WHERE v.tenant_id = NEW.tenant_id AND v.change_set_id = NEW.change_set_id
+                       AND v.change_set_version = NEW.change_set_version) THEN
+    RAISE EXCEPTION 'price_change_set_lines: line_no % is beyond the validation''s line count', NEW.line_no
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF NEW.new_event_id IS NOT NULL OR cardinality(NEW.result_ids) > 0 THEN
     RAISE EXCEPTION 'price_change_set_lines: new_event_id and result_ids are set at publish, not at validation'
       USING ERRCODE = 'check_violation';
@@ -530,7 +565,8 @@ $$;
 -- the transaction that published the set (its revision was issued here), only
 -- on a line of the validation the set was approved for (the set's latest
 -- validation, whose preview hash the set carries), never on a blocking line
--- (`invalid`; `past_dated` unless the set is an emergency), new_event_id only
+-- (`invalid`; `past_dated` unless the set is an emergency or a rollback, owner
+-- decision 2026-11-19), new_event_id only
 -- to the event this set published in that revision for this line's own
 -- target, product, sell unit, price, time basis and interval, and result_ids
 -- only to events or memberships published in that revision.
@@ -568,7 +604,7 @@ BEGIN
       v_latest, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.class = 'invalid' OR (NEW.class = 'past_dated' AND v_kind <> 'emergency') THEN
+  IF NEW.class = 'invalid' OR (NEW.class = 'past_dated' AND v_kind NOT IN ('emergency', 'rollback')) THEN
     RAISE EXCEPTION 'price_change_set_lines: a % line of a % set is never published', NEW.class, v_kind
       USING ERRCODE = 'check_violation';
   END IF;
@@ -614,13 +650,18 @@ CREATE TRIGGER price_change_set_lines_no_delete_truncate BEFORE TRUNCATE ON pric
 -- 4. The stored Impact Preview (spec 042 §6)
 -- =============================================================================
 
--- One `PreviewLine` per (line, Store): the old and new resolved price and
--- source scope at that Store at the line's exact activation instant there.
+-- One `PreviewLine` per (priced, ended or reset line, Store): the old and new
+-- resolved price and source scope at that Store at the line's exact
+-- activation instant there. A Zone move has no product rows, only its
+-- membership change (owner decision 2026-11-19).
 CREATE TABLE price_change_set_preview_lines (
   tenant_id           UUID            NOT NULL,
   change_set_id       UUID            NOT NULL,
   change_set_version  INTEGER         NOT NULL,
   line_no             INTEGER         NOT NULL,
+  -- The row's place in the contract's page order (storeId, productId,
+  -- sellUnit, effectiveFrom), 1..preview_line_count: the keyset cursor.
+  row_no              INTEGER         NOT NULL,
   store_id            UUID            NOT NULL,
   product_id          UUID            NOT NULL,
   sell_unit           TEXT            NOT NULL,
@@ -630,7 +671,7 @@ CREATE TABLE price_change_set_preview_lines (
   new_source_scope    TEXT            NULL,
   -- `DeltaPercent`: up to 22 integer digits.
   delta_pct           NUMERIC(24, 2)  NULL,
-  rounded_from        NUMERIC(30, 8)  NULL,
+  rounded_from        NUMERIC(23, 8)  NULL,
   effective_from      TIMESTAMPTZ     NOT NULL,
   class               TEXT            NOT NULL,
   devices             INTEGER         NOT NULL,
@@ -648,15 +689,14 @@ CREATE TABLE price_change_set_preview_lines (
     (old_source_scope IS NULL OR old_source_scope IN ('book', 'zone', 'store'))
     AND (new_source_scope IS NULL OR new_source_scope IN ('book', 'zone', 'store'))),
   CONSTRAINT price_change_set_preview_lines_prices CHECK (
-    (old_price IS NULL OR old_price >= 0) AND (new_price IS NULL OR new_price >= 0)),
+    (old_price IS NULL OR old_price >= 0) AND (new_price IS NULL OR new_price > 0)),
+  CONSTRAINT price_change_set_preview_lines_row_no CHECK (row_no >= 1),
+  CONSTRAINT price_change_set_preview_lines_row_uk UNIQUE (tenant_id, change_set_id, change_set_version, row_no),
   CONSTRAINT price_change_set_preview_lines_class CHECK (class IN (
     'new', 'replaces', 'conflicts_pending', 'shadowed', 'invalidates_dependent', 'past_dated', 'invalid')),
   CONSTRAINT price_change_set_preview_lines_devices CHECK (devices >= 0)
 );
 
--- The contract's page order: (storeId, productId, sellUnit, effectiveFrom).
-CREATE INDEX ix_price_change_set_preview_lines_page
-  ON price_change_set_preview_lines (tenant_id, change_set_id, change_set_version, store_id, product_id, sell_unit, effective_from);
 
 -- One `PreviewMembershipChange` per Zone move line.
 CREATE TABLE price_change_set_preview_memberships (
@@ -684,26 +724,54 @@ CREATE TABLE price_change_set_preview_memberships (
   CONSTRAINT price_change_set_preview_memberships_bounds CHECK (effective_to IS NULL OR effective_to > effective_from)
 );
 
--- Preview rows are written only by their validation's transaction; a
--- membership change only for a Zone move line of that Store to that Zone.
+-- Preview rows are written only by their validation's transaction, within its
+-- counts, and only as its line says: a preview line for that line's product,
+-- sell unit, class (and Store, for a Store line); a membership change only for
+-- a Zone move of that Store to that Zone over that interval, superseding only
+-- memberships of that Store.
 CREATE FUNCTION price_change_set_preview_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
+DECLARE
+  l public.price_change_set_lines%ROWTYPE;
+  v_count integer;
 BEGIN
   IF NOT public.price_change_set_validation_sealed(NEW.tenant_id, NEW.change_set_id, NEW.change_set_version) THEN
     RAISE EXCEPTION '%: the validation of change set % version % is sealed (written by another transaction) or missing',
       TG_TABLE_NAME, NEW.change_set_id, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
-  -- Nested, not AND-ed: preview_lines has no to_zone_id, and PL/pgSQL resolves NEW fields eagerly.
+  SELECT * INTO l FROM public.price_change_set_lines pl
+   WHERE pl.tenant_id = NEW.tenant_id AND pl.change_set_id = NEW.change_set_id
+     AND pl.change_set_version = NEW.change_set_version AND pl.line_no = NEW.line_no;
+  -- Nested, not AND-ed: the two tables have different columns, and PL/pgSQL resolves NEW fields eagerly.
   IF TG_TABLE_NAME = 'price_change_set_preview_memberships' THEN
-    IF NOT EXISTS (
-         SELECT 1 FROM public.price_change_set_lines l
-          WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.change_set_id
-            AND l.change_set_version = NEW.change_set_version AND l.line_no = NEW.line_no
-            AND l.op = 'move_store_zone' AND l.store_id = NEW.store_id AND l.price_zone_id = NEW.to_zone_id) THEN
-      RAISE EXCEPTION 'price_change_set_preview_memberships: line % is not a Zone move of that Store to that Zone', NEW.line_no
+    IF l.op IS DISTINCT FROM 'move_store_zone' OR l.store_id IS DISTINCT FROM NEW.store_id
+       OR l.price_zone_id IS DISTINCT FROM NEW.to_zone_id
+       OR l.effective_from IS DISTINCT FROM NEW.effective_from OR l.effective_to IS DISTINCT FROM NEW.effective_to THEN
+      RAISE EXCEPTION 'price_change_set_preview_memberships: line % is not a Zone move of that Store to that Zone over that interval',
+        NEW.line_no
+        USING ERRCODE = 'check_violation';
+    END IF;
+    IF EXISTS (SELECT 1 FROM unnest(NEW.superseded_membership_ids) AS r(id)
+                WHERE NOT EXISTS (SELECT 1 FROM public.price_zone_memberships m
+                                   WHERE m.tenant_id = NEW.tenant_id AND m.id = r.id AND m.store_id = NEW.store_id)) THEN
+      RAISE EXCEPTION 'price_change_set_preview_memberships: superseded_membership_ids names no membership of Store %', NEW.store_id
+        USING ERRCODE = 'check_violation';
+    END IF;
+  ELSE
+    IF l.op IS NULL OR l.op = 'move_store_zone' OR l.product_id IS DISTINCT FROM NEW.product_id
+       OR l.sell_unit IS DISTINCT FROM NEW.sell_unit OR l.class IS DISTINCT FROM NEW.class
+       OR (l.scope = 'store' AND l.store_id IS DISTINCT FROM NEW.store_id) THEN
+      RAISE EXCEPTION 'price_change_set_preview_lines: the row does not match line % (product, sell unit, class, Store)', NEW.line_no
+        USING ERRCODE = 'check_violation';
+    END IF;
+    SELECT v.preview_line_count INTO v_count FROM public.price_change_set_validations v
+     WHERE v.tenant_id = NEW.tenant_id AND v.change_set_id = NEW.change_set_id
+       AND v.change_set_version = NEW.change_set_version;
+    IF NEW.row_no > v_count THEN
+      RAISE EXCEPTION 'price_change_set_preview_lines: row_no % is beyond the validation''s preview count', NEW.row_no
         USING ERRCODE = 'check_violation';
     END IF;
   END IF;
@@ -726,7 +794,7 @@ CREATE TRIGGER price_change_set_preview_memberships_append_only_truncate BEFORE 
   FOR EACH STATEMENT EXECUTE FUNCTION price_change_set_content_append_only();
 
 -- =============================================================================
--- 5. change_sets: a set leaves draft only with its validation
+-- 5. change_sets: a set leaves draft only with its validation; publish is complete
 -- =============================================================================
 
 -- Item lists, validations and lines are keyed by the set's version and written
@@ -738,33 +806,49 @@ CREATE TRIGGER price_change_set_preview_memberships_append_only_truncate BEFORE 
 --     `legacy_import` set, which has no preview) only when a validation exists
 --     at its version whose preview hash, target-Store-set hash, sensitivity
 --     and revision it carries;
---   - outside `draft`, that binding (preview hash, target hash, sensitivity)
---     never changes; validated_at_revision may still advance past a
---     non-intersecting head (§3), never back.
+--   - the validation is of the set's current item list (no list is written at
+--     or below a validated version);
+--   - outside `draft` (to `cancelled` too), that binding (preview hash, target
+--     hash, sensitivity) never changes; validated_at_revision may still
+--     advance past a non-intersecting head (§3), never back;
+--   - blocking lines (`invalid`; `past_dated` unless emergency or rollback)
+--     block submit, approve and publish;
+--   - a publish's per-line record is complete at COMMIT
+--     (change_sets_publish_complete).
+-- Owner decisions 2026-11-19: every return to draft (edit, stale, reject) is
+-- a new version; a rollback may publish past-dated lines; a priced line's
+-- price is > 0; a Zone move has no per-product preview rows.
 CREATE FUNCTION change_sets_content_rules() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v public.price_change_set_validations%ROWTYPE;
+  v_latest_list integer;
 BEGIN
   IF NEW.state = 'draft' AND OLD.state <> 'draft' AND NEW.version <= OLD.version THEN
     RAISE EXCEPTION 'change set %: a return to draft from % increments the version', OLD.id, OLD.state
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.state IN ('draft', 'cancelled') OR NEW.kind = 'legacy_import' THEN
+  IF NEW.state = 'draft' OR NEW.kind = 'legacy_import' THEN
     RETURN NEW;
   END IF;
   IF OLD.state = 'draft' THEN
+    IF NEW.state = 'cancelled' THEN
+      RETURN NEW;
+    END IF;
     SELECT * INTO v FROM public.price_change_set_validations pv
      WHERE pv.tenant_id = NEW.tenant_id AND pv.change_set_id = NEW.id AND pv.change_set_version = NEW.version;
-    IF NOT FOUND
+    SELECT max(l.change_set_version) INTO v_latest_list FROM public.price_change_set_item_lists l
+     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version <= NEW.version;
+    IF NOT FOUND OR v.change_set_version IS NULL
+       OR v.item_list_version IS DISTINCT FROM v_latest_list
        OR v.preview_hash IS DISTINCT FROM NEW.preview_hash
        OR v.target_store_set_hash IS DISTINCT FROM NEW.target_store_set_hash
        OR v.sensitive IS DISTINCT FROM NEW.sensitive
        OR v.sensitivity_reasons IS DISTINCT FROM NEW.sensitivity_reasons
        OR v.validated_at_revision IS DISTINCT FROM NEW.validated_at_revision THEN
-      RAISE EXCEPTION 'change set %: it leaves draft only with the validation at version % (preview, target Stores, sensitivity, revision)',
+      RAISE EXCEPTION 'change set %: it leaves draft only with the validation at version % of its current item list (preview, target Stores, sensitivity, revision)',
         OLD.id, NEW.version
         USING ERRCODE = 'check_violation';
     END IF;
@@ -773,15 +857,79 @@ BEGIN
      OR NEW.sensitive IS DISTINCT FROM OLD.sensitive
      OR NEW.sensitivity_reasons IS DISTINCT FROM OLD.sensitivity_reasons
      OR NEW.validated_at_revision < OLD.validated_at_revision THEN
+    -- Also on the way to `cancelled`: the record of what was validated is kept as it was.
     RAISE EXCEPTION 'change set %: outside draft its validation binding never changes', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  -- Blocking lines block submit, approve and publish (contract `422 blocking_findings`):
+  -- `invalid`, and `past_dated` unless the set is an emergency or a rollback.
+  IF NEW.state IN ('pending_approval', 'approved', 'published') AND NEW.state IS DISTINCT FROM OLD.state
+     AND EXISTS (SELECT 1 FROM public.price_change_set_lines l
+                  WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version = NEW.version
+                    AND (l.class = 'invalid' OR (l.class = 'past_dated' AND NEW.kind NOT IN ('emergency', 'rollback')))) THEN
+    RAISE EXCEPTION 'change set %: its validation has blocking lines; it cannot become %', OLD.id, NEW.state
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
 END
 $$;
 
+-- At COMMIT of a publish (not legacy_import): every priced line of the
+-- approved validation recorded the event it became, and every event and
+-- membership row the revision wrote is recorded on exactly one line
+-- (new_event_id or result_ids): the §10 before/after record is complete.
+-- Like every deferred check, it runs at COMMIT; a transaction that forces it
+-- early with SET CONSTRAINTS ... IMMEDIATE and writes more afterwards is the
+-- runtime's to prevent (RT-1484 sets constraints only as its last statement).
+CREATE FUNCTION change_sets_publish_complete() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  n integer;
+BEGIN
+  IF NEW.state <> 'published' OR OLD.state = 'published' OR NEW.kind = 'legacy_import' THEN
+    RETURN NULL;
+  END IF;
+  SELECT count(*) INTO n FROM public.price_change_set_lines l
+   WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version = NEW.version
+     AND l.op IN ('set_price', 'adjust_amount', 'adjust_percent') AND l.new_event_id IS NULL;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'change set %: % priced line(s) of the published validation recorded no event', NEW.id, n
+      USING ERRCODE = 'check_violation';
+  END IF;
+  WITH recorded AS (
+    SELECT l.new_event_id AS id FROM public.price_change_set_lines l
+     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.new_event_id IS NOT NULL
+    UNION ALL
+    SELECT r.id FROM public.price_change_set_lines l, unnest(l.result_ids) AS r(id)
+     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id
+  ), written AS (
+    SELECT e.id FROM public.price_events e
+     WHERE e.tenant_id = NEW.tenant_id AND e.published_in_revision = NEW.revision_no
+    UNION ALL
+    SELECT m.id FROM public.price_zone_memberships m
+     WHERE m.tenant_id = NEW.tenant_id AND m.published_in_revision = NEW.revision_no
+  )
+  SELECT count(*) INTO n FROM (
+    SELECT w.id FROM written w
+     WHERE (SELECT count(*) FROM recorded r WHERE r.id = w.id) <> 1
+    UNION ALL
+    SELECT r.id FROM recorded r GROUP BY r.id HAVING count(*) > 1
+  ) bad;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'change set %: % row(s) of revision % are not recorded on exactly one line', NEW.id, n, NEW.revision_no
+      USING ERRCODE = 'check_violation';
+  END IF;
+  RETURN NULL;
+END
+$$;
+
 CREATE TRIGGER change_sets_content_rules BEFORE UPDATE ON change_sets
   FOR EACH ROW EXECUTE FUNCTION change_sets_content_rules();
+CREATE CONSTRAINT TRIGGER change_sets_publish_complete AFTER UPDATE ON change_sets
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION change_sets_publish_complete();
 
 -- =============================================================================
 -- 6. Row-level security

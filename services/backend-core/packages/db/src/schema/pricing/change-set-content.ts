@@ -175,7 +175,7 @@ export const priceChangeSetLines = pgTable(
     sellUnit: text("sell_unit"),
     ...effectiveBoundsColumns(),
     newPrice: numeric("new_price", { precision: 19, scale: 4 }),
-    roundedFrom: numeric("rounded_from", { precision: 30, scale: 8 }),
+    roundedFrom: numeric("rounded_from", { precision: 23, scale: 8 }),
     class: text("class").notNull(),
     messages: text("messages")
       .array()
@@ -284,6 +284,8 @@ export const priceChangeSetPreviewLines = pgTable(
   {
     ...setVersionColumns(),
     lineNo: integer("line_no").notNull(),
+    /** The row's place in the contract's page order, 1..preview_line_count: the keyset cursor. */
+    rowNo: integer("row_no").notNull(),
     storeId: uuid("store_id").notNull(),
     productId: uuid("product_id").notNull(),
     sellUnit: text("sell_unit").notNull(),
@@ -292,7 +294,7 @@ export const priceChangeSetPreviewLines = pgTable(
     newPrice: numeric("new_price", { precision: 19, scale: 4 }),
     newSourceScope: text("new_source_scope"),
     deltaPct: numeric("delta_pct", { precision: 24, scale: 2 }),
-    roundedFrom: numeric("rounded_from", { precision: 30, scale: 8 }),
+    roundedFrom: numeric("rounded_from", { precision: 23, scale: 8 }),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
     class: text("class").notNull(),
     devices: integer("devices").notNull(),
@@ -321,15 +323,7 @@ export const priceChangeSetPreviewLines = pgTable(
     check("price_change_set_preview_lines_sell_unit", sql`${t.sellUnit} = 'each'`),
     check("price_change_set_preview_lines_class", sql`${t.class} IN ${LINE_CLASSES}`),
     check("price_change_set_preview_lines_devices", sql`${t.devices} >= 0`),
-    index("ix_price_change_set_preview_lines_page").on(
-      t.tenantId,
-      t.changeSetId,
-      t.changeSetVersion,
-      t.storeId,
-      t.productId,
-      t.sellUnit,
-      t.effectiveFrom,
-    ),
+    unique("price_change_set_preview_lines_row_uk").on(t.tenantId, t.changeSetId, t.changeSetVersion, t.rowNo),
   ],
 );
 

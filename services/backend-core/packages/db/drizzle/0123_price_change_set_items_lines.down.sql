@@ -5,7 +5,7 @@
 -- Drops the six Price Change Set content tables (item lists, items,
 -- validations, lines, preview lines, preview membership changes; with their
 -- indexes, triggers and policies), their functions, and change_sets'
--- content-rules trigger. A Change Set's authored items, its validations with
+-- content-rules and publish-complete triggers. A Change Set's authored items, its validations with
 -- the stored Impact Preview, and its lines (a published set's per-line
 -- before/after record, spec 042 §10) would be lost, so the rollback REFUSES
 -- while any item list or validation exists (every other content row hangs off
@@ -70,6 +70,7 @@ END
 $$;
 
 DROP TRIGGER IF EXISTS change_sets_content_rules ON change_sets;
+DROP TRIGGER IF EXISTS change_sets_publish_complete ON change_sets;
 DROP TABLE IF EXISTS price_change_set_preview_memberships;
 DROP TABLE IF EXISTS price_change_set_preview_lines;
 DROP TABLE IF EXISTS price_change_set_lines;
@@ -77,6 +78,7 @@ DROP TABLE IF EXISTS price_change_set_validations;
 DROP TABLE IF EXISTS price_change_set_items;
 DROP TABLE IF EXISTS price_change_set_item_lists;
 
+DROP FUNCTION IF EXISTS change_sets_publish_complete();
 DROP FUNCTION IF EXISTS change_sets_content_rules();
 DROP FUNCTION IF EXISTS price_change_set_preview_before_insert();
 DROP FUNCTION IF EXISTS price_change_set_lines_guard();

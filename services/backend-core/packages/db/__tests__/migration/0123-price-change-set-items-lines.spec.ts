@@ -70,8 +70,11 @@ const ZONE_B_DEFAULT = id("0b111");
 const CS_PUB = id("0a201");
 const CS_DRAFT = id("0a202");
 const CS_RACE = id("0a203");
+const CS_RACE_2 = id("0a206");
 const CS_B = id("0b201");
 const EVENT_PUB = id("0a401");
+const MEMB_PUB = id("0a501");
+const EVENT_B = id("0b401");
 const HASH = `sha256:${"a".repeat(64)}`;
 const HASH_2 = `sha256:${"b".repeat(64)}`;
 const CORR = id("0acc1");
@@ -97,7 +100,9 @@ const FUNCTIONS = [
   "price_change_set_lines_guard()",
   "price_change_set_preview_before_insert()",
   "change_sets_content_rules()",
+  "change_sets_publish_complete()",
 ];
+const SQL_DIR = resolve(__dirname, "..", "..", "..", "..", "docs", "operations", "sql");
 
 let env: PgTestEnv | null = null;
 let dockerSkipReason: string | null = null;
@@ -178,6 +183,24 @@ interface Validation {
   tenant?: string;
 }
 
+/** A complete `PreviewSummary`. */
+function summary(lines: number): Record<string, unknown> {
+  return {
+    lines,
+    stores: 1,
+    devices: 2,
+    products: lines,
+    increases: 0,
+    decreases: lines,
+    unchanged: 0,
+    maxIncreasePct: null,
+    maxDecreasePct: "-16.67",
+    earliestEffectiveAt: "2026-11-30T22:00:00Z",
+    findings: { replaces: 0, shadowed: 0, invalidates_dependent: 0, conflicts_pending: 0, past_dated: 0, invalid: 0 },
+    blocking: false,
+  };
+}
+
 async function insertValidation(q: Q, v: Validation): Promise<void> {
   await q.query(
     `INSERT INTO price_change_set_validations
@@ -192,7 +215,7 @@ async function insertValidation(q: Q, v: Validation): Promise<void> {
       v.listVersion ?? 1,
       v.revision ?? 0,
       v.hash ?? HASH,
-      JSON.stringify({ lines: v.lines ?? 0, unchanged: 0, blocking: false }),
+      JSON.stringify(summary(v.lines ?? 0)),
       JSON.stringify([{ storeId: STORE_A1, timezone: "Africa/Cairo" }]),
       v.lines ?? 0,
       v.preview ?? 0,
@@ -271,25 +294,47 @@ async function insertLine(q: Q, l: Line): Promise<void> {
   );
 }
 
-async function insertPreviewLine(q: Q, p: { cs: string; version: number; lineNo: number; store?: string; tenant?: string }): Promise<void> {
+interface PreviewRow {
+  cs: string;
+  version: number;
+  lineNo: number;
+  rowNo?: number;
+  store?: string;
+  product?: string;
+  cls?: string;
+  tenant?: string;
+}
+
+async function insertPreviewLine(q: Q, p: PreviewRow): Promise<void> {
   await q.query(
     `INSERT INTO price_change_set_preview_lines
-       (tenant_id, change_set_id, change_set_version, line_no, store_id, product_id, sell_unit, old_price, old_source_scope,
-        new_price, new_source_scope, delta_pct, effective_from, class, devices)
-     VALUES ($1, $2, $3, $4, $5, $6, 'each', '12.0000', 'book', '10.0000', 'book', '-16.67', '2026-11-30T22:00:00Z', 'new', 2)`,
-    [p.tenant ?? TENANT_A, p.cs, p.version, p.lineNo, p.store ?? STORE_A1, PROD_A2],
+       (tenant_id, change_set_id, change_set_version, line_no, row_no, store_id, product_id, sell_unit, old_price,
+        old_source_scope, new_price, new_source_scope, delta_pct, effective_from, class, devices)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, 'each', '12.0000', 'book', '10.0000', 'book', '-16.67', '2026-11-30T22:00:00Z', $8, 2)`,
+    [p.tenant ?? TENANT_A, p.cs, p.version, p.lineNo, p.rowNo ?? 1, p.store ?? STORE_A1, p.product ?? PROD_A2, p.cls ?? "new"],
   );
 }
 
 async function insertPreviewMove(
   q: Q,
-  m: { cs: string; version: number; lineNo: number; store?: string; toZone?: string },
+  m: { cs: string; version: number; lineNo: number; store?: string; toZone?: string; to?: string | null; superseded?: readonly string[] },
 ): Promise<void> {
   await q.query(
     `INSERT INTO price_change_set_preview_memberships
-       (tenant_id, change_set_id, change_set_version, line_no, store_id, from_zone_id, to_zone_id, effective_from)
-     VALUES ($1, $2, $3, $4, $5, NULL, $6, '2026-12-01T00:00:00Z')`,
-    [TENANT_A, m.cs, m.version, m.lineNo, m.store ?? STORE_A2, m.toZone ?? ZONE_A_NORTH],
+       (tenant_id, change_set_id, change_set_version, line_no, store_id, from_zone_id, to_zone_id, effective_from,
+        effective_to, superseded_membership_ids)
+     VALUES ($1, $2, $3, $4, $5, NULL, $6, '2026-12-01T00:00:00Z', $7, $8)`,
+    [TENANT_A, m.cs, m.version, m.lineNo, m.store ?? STORE_A2, m.toZone ?? ZONE_A_NORTH, m.to ?? null, [...(m.superseded ?? [])]],
+  );
+}
+
+/** A published membership row (moves write these at publish). */
+async function insertMembership(q: Q, membershipId: string, revisionNo: number, store: string, zone = ZONE_A_NORTH): Promise<void> {
+  await q.query(
+    `INSERT INTO price_zone_memberships
+       (id, tenant_id, price_book_id, price_zone_id, store_id, effective_from, published_in_revision, created_by_user_id, correlation_id)
+     VALUES ($1, $2, $3, $4, $5, '2026-12-01T00:00:00Z', $6, $7, $8)`,
+    [membershipId, TENANT_A, BOOK_A, zone, store, revisionNo, ACTOR, CORR],
   );
 }
 
@@ -314,6 +359,8 @@ interface EventSpec {
   product?: string;
   price?: string;
   fromLocal?: string;
+  /** An absolute-basis event from this instant instead of a store-local one. */
+  absoluteFrom?: string;
   tenant?: string;
   book?: string;
 }
@@ -322,15 +369,17 @@ async function insertEvent(q: Q, eventId: string, revisionNo: number, cs: string
   await q.query(
     `INSERT INTO price_events
        (id, tenant_id, price_book_id, scope, product_id, price, currency_code, time_basis, effective_from_local,
-        published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
-     VALUES ($1, $2, $3, 'book', $4, $5, 'EGP', 'store_local', $6, $7, $8, 'change_set', $9, $10)`,
+        effective_from, published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
+     VALUES ($1, $2, $3, 'book', $4, $5, 'EGP', $6, $7, $8, $9, $10, 'change_set', $11, $12)`,
     [
       eventId,
       e.tenant ?? TENANT_A,
       e.book ?? BOOK_A,
       e.product ?? PROD_A2,
       e.price ?? "10.0000",
-      e.fromLocal ?? "2026-12-01T00:00:00",
+      e.absoluteFrom ? "absolute" : "store_local",
+      e.absoluteFrom ? null : (e.fromLocal ?? "2026-12-01T00:00:00"),
+      e.absoluteFrom ?? null,
       revisionNo,
       cs,
       ACTOR,
@@ -420,10 +469,10 @@ async function asDomain<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
 
 /**
  * The committed baseline: Books and Zones for A and B. CS_PUB: list v1,
- * validated at v1 (line 1 priced and recorded at publish, line 2 an end left
- * unrecorded, one preview row), published at revision 1 with EVENT_PUB.
- * CS_DRAFT and CS_RACE: empty drafts. CS_B: tenant B's draft with a list and a
- * one-line validation.
+ * validated at v1 (line 1 priced, lines 2-3 ends, one preview row), published
+ * at revision 1 with EVENT_PUB and MEMB_PUB, recorded on lines 1 and 2; line 3
+ * stays unrecorded. CS_DRAFT, CS_RACE, CS_RACE_2: empty drafts. CS_B: tenant
+ * B's set published at its revision 1 with EVENT_B.
  */
 async function seedBaseline(): Promise<void> {
   const failed = await committed(async (c) => {
@@ -436,18 +485,28 @@ async function seedBaseline(): Promise<void> {
     await createBook(c, BOOK_B, TENANT_B, ZONE_B_DEFAULT);
     await createChangeSet(c, CS_PUB, TENANT_A);
     await writeList(c, CS_PUB, 1, [{}, { op: "end_price" }]);
-    await insertValidation(c, { cs: CS_PUB, version: 1, lines: 2, preview: 1 });
+    await insertValidation(c, { cs: CS_PUB, version: 1, lines: 3, preview: 1 });
     await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 1, product: PROD_A1 });
-    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 2, itemPosition: 2, op: "end_price", product: PROD_A1, price: null });
-    await insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1 });
+    const end = { itemPosition: 2, op: "end_price", product: PROD_A1, price: null };
+    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 2, ...end });
+    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 3, ...end, toLocal: "2027-01-01T00:00:00" });
+    await insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1, product: PROD_A1 });
     await leaveDraft(c, CS_PUB);
     await publish(c, CS_PUB, 1, EVENT_PUB, { product: PROD_A1 });
+    await insertMembership(c, MEMB_PUB, 1, STORE_A1);
+    // The complete per-line record: line 1 became EVENT_PUB; line 2 records MEMB_PUB; line 3 stays unrecorded.
     await c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1 AND line_no = 1`, [CS_PUB, EVENT_PUB]);
+    await c.query(`UPDATE price_change_set_lines SET result_ids = $2 WHERE change_set_id = $1 AND line_no = 2`, [CS_PUB, [MEMB_PUB]]);
     await createChangeSet(c, CS_DRAFT, TENANT_A);
     await createChangeSet(c, CS_RACE, TENANT_A);
+    await createChangeSet(c, CS_RACE_2, TENANT_A);
     await createChangeSet(c, CS_B, TENANT_B);
     await writeList(c, CS_B, 1, [{}], TENANT_B);
     await validate(c, { cs: CS_B, version: 1, tenant: TENANT_B }, [{ book: BOOK_B, product: PROD_B1 }]);
+    await c.query(`SELECT set_config('app.current_tenant', $1, true)`, [TENANT_B]);
+    await leaveDraft(c, CS_B);
+    await publish(c, CS_B, 1, EVENT_B, { tenant: TENANT_B, book: BOOK_B, product: PROD_B1 });
+    await c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_B, EVENT_B]);
   });
   if (failed !== null) throw new Error(`baseline seed failed: ${failed}`);
 }
@@ -492,21 +551,14 @@ beforeAll(async () => {
   );
   await a.query(`GRANT USAGE ON SCHEMA public TO ${DOMAIN_ROLE}`);
   await a.query(`GRANT SELECT ON tenants, stores, tenant_products TO ${DOMAIN_ROLE}`);
-  await a.query(
-    `GRANT SELECT, INSERT ON change_sets, price_books, price_zones, pricing_revisions, pricing_revision_stores,
-       price_zone_memberships, price_events TO ${DOMAIN_ROLE}`,
-  );
-  await a.query(
-    `GRANT UPDATE (title, reason, state, version, validated_at_revision, preview_hash, target_store_set_hash, sensitive,
-       sensitivity_reasons, revision_no, submitted_by_user_id, submitted_at, approved_by_user_id, approved_at,
-       published_by_user_id, published_at, cancelled_by_user_id, cancelled_at, rejected_by_user_id, rejected_at,
-       rejection_reason) ON change_sets TO ${DOMAIN_ROLE}`,
-  );
-  await a.query(`GRANT UPDATE (name) ON price_books TO ${DOMAIN_ROLE}`);
-  await a.query(`GRANT UPDATE (name, retired_at, retired_by_user_id, retire_reason) ON price_zones TO ${DOMAIN_ROLE}`);
-  await a.query(`GRANT UPDATE (state, ended_in_revision) ON price_zone_memberships, price_events TO ${DOMAIN_ROLE}`);
-  await a.query(`GRANT SELECT, INSERT ON ${TABLES.join(", ")} TO ${DOMAIN_ROLE}`);
-  await a.query(`GRANT UPDATE (new_event_id, result_ids) ON price_change_set_lines TO ${DOMAIN_ROLE}`);
+  // Exactly the production grants: the GRANT / REVOKE statements of the two deploy scripts, as psql would run them.
+  for (const file of ["pricing-domain-grants.sql", "price-change-set-content-domain-grants.sql"]) {
+    const statements = readFileSync(resolve(SQL_DIR, file), "utf8")
+      .split("\n")
+      .filter((line) => /^(GRANT|REVOKE) /.test(line));
+    expect(statements.length).toBeGreaterThan(0);
+    for (const statement of statements) await a.query(statement.replace(/:"domain_role"/g, `"${DOMAIN_ROLE}"`));
+  }
   await seedBaseline();
 }, 300_000);
 
@@ -669,8 +721,10 @@ describe("0123_price_change_set_items_lines — validations", () => {
   it("refuses lines and preview rows the validation's own transaction did not write (sealed)", async () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
-      expect(await sp(c, () => insertLine(c, { cs: CS_PUB, version: 1, lineNo: 3, product: PROD_A1 }))).toMatch(/^23514: .*is sealed/);
-      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 2 }))).toMatch(/^23514: .*is sealed/);
+      expect(await sp(c, () => insertLine(c, { cs: CS_PUB, version: 1, lineNo: 4, product: PROD_A1 }))).toMatch(/^23514: .*is sealed/);
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1, rowNo: 2, product: PROD_A1 }))).toMatch(
+        /^23514: .*is sealed/,
+      );
     });
   });
 
@@ -696,7 +750,7 @@ describe("0123_price_change_set_items_lines — lines and preview rows", () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       await writeList(c, CS_DRAFT, 1);
-      await insertValidation(c, { cs: CS_DRAFT, version: 1 });
+      await insertValidation(c, { cs: CS_DRAFT, version: 1, lines: 50_000 });
       let n = 0;
       const line = (l: Partial<Line>): Promise<string | null> => sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: ++n, ...l }));
       const move = { op: "move_store_zone", scope: "store" as const, store: STORE_A2, zone: ZONE_A_NORTH, sellUnit: null, price: null };
@@ -720,12 +774,14 @@ describe("0123_price_change_set_items_lines — lines and preview rows", () => {
       expect(await line({ sellUnit: "case" })).toMatch(/price_change_set_lines_move/);
       expect(await line({ price: null })).toMatch(/price_change_set_lines_price/);
       expect(await line({ price: "-1.0000" })).toMatch(/price_change_set_lines_price/);
+      // 0 is no v1 price (Q-4): a 0 result is an `invalid` line.
+      expect(await line({ price: "0.0000" })).toMatch(/price_change_set_lines_price/);
       expect(await line({ op: "end_price" })).toMatch(/price_change_set_lines_price/);
       expect(await line({ roundedFrom: "9.99999999" })).toMatch(/price_change_set_lines_rounded_from/);
       expect(await line({ fromLocal: null })).toMatch(/price_change_set_lines_bounds/);
       expect(await line({ toLocal: "2026-11-01T00:00:00" })).toMatch(/price_change_set_lines_bounds/);
       expect(await line({ cls: "unchanged" })).toMatch(/price_change_set_lines_class/);
-      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 50_001 }))).toMatch(/price_change_set_lines_line_no/);
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 50_001 }))).toMatch(/beyond the validation's line count/);
       // The composite FKs pin every reference to the set's tenant, Book, validation and item list.
       expect(await line({ scope: "zone", zone: ZONE_B_DEFAULT })).toMatch(/price_change_set_lines_zone_fk/);
       expect(await line({ product: PROD_B1 })).toMatch(/price_change_set_lines_product_fk/);
@@ -739,8 +795,13 @@ describe("0123_price_change_set_items_lines — lines and preview rows", () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       await writeList(c, CS_DRAFT, 1);
-      await insertValidation(c, { cs: CS_DRAFT, version: 1 });
+      await insertValidation(c, { cs: CS_DRAFT, version: 1, lines: 3 });
       expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1, product: PROD_A1, replaced: [EVENT_PUB] }))).toBeNull();
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 3, replaced: [MEMB_PUB] }))).toBeNull();
+      // Another tenant's event is not this tenant's to replace, even read as the superuser.
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, replaced: [EVENT_B] }))).toMatch(
+        /replaced_ids names an id that is no price event or membership/,
+      );
       expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, replaced: [id("0afff")] }))).toMatch(
         /replaced_ids names an id that is no price event or membership/,
       );
@@ -753,14 +814,66 @@ describe("0123_price_change_set_items_lines — lines and preview rows", () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       await writeList(c, CS_DRAFT, 1, [{ op: "move_store_zone" }]);
-      await insertValidation(c, { cs: CS_DRAFT, version: 1 });
+      await insertValidation(c, { cs: CS_DRAFT, version: 1, lines: 2, preview: 2, moves: 1 });
       const move = { op: "move_store_zone", scope: "store" as const, store: STORE_A2, zone: ZONE_A_NORTH, product: null, sellUnit: null, price: null };
       await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1, ...move, timeBasis: "absolute" });
       await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2 });
       expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 2 }))).toMatch(/is not a Zone move of that Store/);
       expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 1, store: STORE_A1 }))).toMatch(/is not a Zone move/);
       expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 1, toZone: ZONE_A_DEFAULT }))).toMatch(/is not a Zone move/);
+      expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 1, to: "2027-01-01T00:00:00Z" }))).toMatch(
+        /over that interval/,
+      );
+      expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 1, superseded: [MEMB_PUB] }))).toMatch(
+        /names no membership of Store/,
+      );
       expect(await sp(c, () => insertPreviewMove(c, { cs: CS_DRAFT, version: 1, lineNo: 1 }))).toBeNull();
+      // Preview lines follow their line: product, class, Store of a Store line; never for a move.
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 }))).toMatch(/does not match line 1/);
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, product: PROD_A3 }))).toMatch(/does not match line 2/);
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, cls: "replaces" }))).toMatch(/does not match line 2/);
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2 }))).toBeNull();
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2, rowNo: 2, store: STORE_A2 }))).toBeNull();
+      expect(await checkCounts(c)).toBeNull();
+    });
+  });
+
+  it("caps lines and preview rows by the validation's counts, so an early count check cannot be bypassed", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await insertValidation(c, { cs: CS_DRAFT, version: 1, lines: 1, preview: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+      await insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+      expect(await checkCounts(c)).toBeNull();
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 2 }))).toMatch(/line_no 2 is beyond the validation's line count/);
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1, rowNo: 2, store: STORE_A2 }))).toMatch(
+        /row_no 2 is beyond the validation's preview count/,
+      );
+    });
+  });
+
+  it("refuses a stored preview whose summary or target Stores miss what the contract returns", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      const insert = (summaryJson: unknown, stores: unknown): Promise<string | null> =>
+        sp(c, () =>
+          c.query(
+            `INSERT INTO price_change_set_validations
+               (tenant_id, change_set_id, change_set_version, item_list_version, validated_at_revision, preview_hash,
+                target_store_set_hash, sensitive, summary, target_stores, line_count, preview_line_count,
+                membership_change_count, created_by_user_id, correlation_id)
+             VALUES ($1, $2, 1, 1, 0, $3, $3, true, $4, $5, 0, 0, 0, $6, $7)`,
+            [TENANT_A, CS_DRAFT, HASH, JSON.stringify(summaryJson), JSON.stringify(stores), ACTOR, CORR],
+          ),
+        );
+      const ok = [{ storeId: STORE_A1, timezone: "Africa/Cairo" }];
+      const { devices: _devices, ...noDevices } = summary(0);
+      expect(await insert(noDevices, ok)).toMatch(/price_change_set_validations_summary/);
+      expect(await insert({ ...summary(0), findings: { replaces: 0 } }, ok)).toMatch(/price_change_set_validations_summary/);
+      expect(await insert(summary(0), [{ storeId: STORE_A1 }])).toMatch(/price_change_set_validations_target_stores/);
+      expect(await insert(summary(0), ok)).toBeNull();
     });
   });
 });
@@ -797,6 +910,63 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
       // A non-intersecting later head advances the revision (spec 042 §3).
       expect(await update(`validated_at_revision = 7`)).toBeNull();
     });
+  });
+
+  it("writes no item list at or below a validated version, so a set leaves draft on its current list", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await c.query(`UPDATE change_sets SET version = 2 WHERE id = $1`, [CS_DRAFT]);
+      await insertValidation(c, { cs: CS_DRAFT, version: 2, listVersion: 1 });
+      expect(await sp(c, () => writeList(c, CS_DRAFT, 2, [{ op: "end_price" }]))).toMatch(/already validated at version 2/);
+      expect(await sp(c, () => leaveDraft(c, CS_DRAFT))).toBeNull();
+    });
+  });
+
+  it("cancelling a validated set keeps its binding as it was", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await insertValidation(c, { cs: CS_DRAFT, version: 1 });
+      await leaveDraft(c, CS_DRAFT);
+      const cancel = (extra: string): Promise<string | null> =>
+        sp(c, () =>
+          c.query(`UPDATE change_sets SET state = 'cancelled', cancelled_by_user_id = $2, cancelled_at = now()${extra} WHERE id = $1`, [
+            CS_DRAFT,
+            ACTOR,
+          ]),
+        );
+      expect(await cancel(`, preview_hash = '${HASH_2}', target_store_set_hash = '${HASH_2}'`)).toMatch(/binding never changes/);
+      expect(await cancel("")).toBeNull();
+    });
+  });
+
+  it("blocking lines block submit, approve and publish; an emergency or a rollback may carry past_dated lines", async () => {
+    if (skip()) return;
+    const submit = (c: Q, cs: string): Promise<string | null> =>
+      sp(c, () => c.query(`UPDATE change_sets SET state = 'pending_approval', submitted_by_user_id = $2, submitted_at = now() WHERE id = $1`, [cs, ACTOR]));
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1 }, [{}, { op: "adjust_amount", price: null, cls: "invalid" }]);
+      // Validation records the finding; the set is validated, and stops there.
+      expect(await sp(c, () => leaveDraft(c, CS_DRAFT))).toBeNull();
+      expect(await submit(c, CS_DRAFT)).toMatch(/has blocking lines; it cannot become pending_approval/);
+    });
+    for (const [kind, blocked] of [["standard", true], ["emergency", false], ["rollback", false]] as const) {
+      await inRolledBackTx(guard().admin, async (c) => {
+        const cs = id("0a207");
+        await c.query(
+          `INSERT INTO change_sets (id, tenant_id, domain, kind, title, reason, created_by_user_id, correlation_id, rolls_back_change_set_id)
+           VALUES ($1, $2, 'pricing', $3, 'Past', $4, $5, $6, $7)`,
+          [cs, TENANT_A, kind, kind === "standard" ? null : "why", ACTOR, CORR, kind === "rollback" ? CS_PUB : null],
+        );
+        await writeList(c, cs, 1);
+        await validate(c, { cs, version: 1 }, [{ cls: "past_dated" }]);
+        await leaveDraft(c, cs);
+        const r = await submit(c, cs);
+        expect([kind, r === null ? "submitted" : r]).toEqual([kind, blocked ? expect.stringMatching(/has blocking lines/) : "submitted"]);
+      });
+    }
   });
 
   it("a return to draft is a new version; draft to cancelled and legacy_import need no validation", async () => {
@@ -854,10 +1024,12 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     ["zone", { scope: "zone", zone: ZONE_A_NORTH }],
     ["store", { scope: "store", store: STORE_A1 }],
     ["product", { product: PROD_A3 }],
-    ["invalid", { cls: "invalid" }],
-    ["past", { cls: "past_dated" }],
+    // Absolute basis: matches EVENT_ABS (from 2026-12-05Z, open), or differs only in its end.
+    ["abs", { timeBasis: "absolute", from: "2026-12-05T00:00:00Z" }],
+    ["abs-to", { timeBasis: "absolute", from: "2026-12-05T00:00:00Z", to: "2026-12-31T00:00:00Z" }],
     ["end", { op: "end_price", price: null, itemPosition: 2 }],
   ];
+  const EVENT_ABS = id("0a404");
   const lineNo = (name: string): number => LINES.findIndex(([n]) => n === name) + 1;
 
   function setRecord(c: Q, name: string, rec: { event?: string; results?: readonly string[] }, version = 2): Promise<string | null> {
@@ -897,7 +1069,7 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     // CS_PUB was published by the baseline's transaction: its unrecorded end line stays unrecorded.
     await inRolledBackTx(guard().admin, async (c) => {
       expect(
-        await sp(c, () => c.query(`UPDATE price_change_set_lines SET result_ids = $2 WHERE change_set_id = $1 AND line_no = 2`, [CS_PUB, [EVENT_PUB]])),
+        await sp(c, () => c.query(`UPDATE price_change_set_lines SET result_ids = $2 WHERE change_set_id = $1 AND line_no = 3`, [CS_PUB, [EVENT_PUB]])),
       ).toMatch(/was not published by this transaction/);
     });
   });
@@ -913,9 +1085,10 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
       }
       // Another set's event (another revision too).
       expect(await setRecord(c, "match", { event: EVENT_PUB })).toMatch(notTheEvent);
-      // Blocking lines are never published.
-      expect(await setRecord(c, "invalid", { event: EVENT })).toMatch(/a invalid line of a standard set is never published/);
-      expect(await setRecord(c, "past", { event: EVENT })).toMatch(/a past_dated line of a standard set is never published/);
+      // Absolute basis: the interval end is part of the match.
+      await insertEvent(c, EVENT_ABS, 2, CS_DRAFT, { absoluteFrom: "2026-12-05T00:00:00Z" });
+      expect(await setRecord(c, "abs-to", { event: EVENT_ABS })).toMatch(notTheEvent);
+      expect(await setRecord(c, "abs", { event: EVENT_ABS })).toBeNull();
       // The earlier validation's line is not the approved one.
       expect(await setRecord(c, "match", { event: EVENT }, 1)).toMatch(/only the lines of the approved validation \(version 2\)/);
       // The matching line takes it, once; no second line takes the same event.
@@ -934,7 +1107,10 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
       await insertEvent(c, remainder, 2, CS_DRAFT, { product: PROD_A3 });
       expect(await setRecord(c, "end", { results: [EVENT_PUB] })).toMatch(/result_ids names an id this set's publish did not write/);
       expect(await setRecord(c, "end", { results: [id("0afff")] })).toMatch(/result_ids names an id/);
-      expect(await setRecord(c, "end", { results: [remainder] })).toBeNull();
+      const moved = id("0a502");
+      await insertMembership(c, moved, 2, STORE_A2);
+      expect(await setRecord(c, "end", { results: [MEMB_PUB] })).toMatch(/result_ids names an id this set's publish did not write/);
+      expect(await setRecord(c, "end", { results: [remainder, moved] })).toBeNull();
       expect(await setRecord(c, "end", { results: [remainder] })).toMatch(/only its publish record .* is set, once/);
       expect(
         await sp(c, () =>
@@ -950,6 +1126,53 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     });
   });
 
+  it("a publish is complete at COMMIT: every priced line recorded, every written row recorded exactly once", async () => {
+    if (skip()) return;
+    const E2 = id("0a405");
+    const E3 = id("0a407");
+    /** A set with two priced lines, published at revision 2 with one event per line. */
+    async function published(c: Q): Promise<void> {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1, revision: 1 }, [{}, { product: PROD_A3 }]);
+      await leaveDraft(c, CS_DRAFT, 1);
+      await publish(c, CS_DRAFT, 2, EVENT);
+      await insertEvent(c, E2, 2, CS_DRAFT, { product: PROD_A3 });
+    }
+    const record = (c: Q, lineNoValue: number, event: string | null, results: readonly string[] = []): Promise<unknown> =>
+      c.query(`UPDATE price_change_set_lines SET new_event_id = $3, result_ids = $4 WHERE change_set_id = $1 AND line_no = $2`, [
+        CS_DRAFT,
+        lineNoValue,
+        event,
+        [...results],
+      ]);
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c);
+      await record(c, 1, EVENT);
+      expect(await checkCounts(c)).toMatch(/1 priced line\(s\) of the published validation recorded no event/);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c);
+      // E2 recorded twice: as line 2's event and in line 1's results.
+      await record(c, 1, EVENT, [E2]);
+      await record(c, 2, E2);
+      expect(await checkCounts(c)).toMatch(/row\(s\) of revision 2 are not recorded on exactly one line/);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c);
+      await record(c, 1, EVENT);
+      await record(c, 2, E2);
+      // A row the revision wrote that no line records.
+      await insertEvent(c, E3, 2, CS_DRAFT, { absoluteFrom: "2026-12-05T00:00:00Z" });
+      expect(await checkCounts(c)).toMatch(/not recorded on exactly one line/);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c);
+      await record(c, 1, EVENT);
+      await record(c, 2, E2);
+      expect(await checkCounts(c)).toBeNull();
+    });
+  });
+
   it("an emergency set publishes its past_dated line", async () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
@@ -960,6 +1183,7 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
       await leaveDraft(c, cs, 1);
       await publish(c, cs, 2, EVENT);
       expect(await sp(c, () => c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [cs, EVENT]))).toBeNull();
+      expect(await checkCounts(c)).toBeNull();
     });
   });
 });
@@ -1038,6 +1262,28 @@ describe("0123_price_change_set_items_lines — production grants, isolation, co
       b.release();
     }
   });
+
+  it("an edit racing a validate of one draft serializes: the edit is refused once the set is validated", async () => {
+    if (skip()) return;
+    expect(await committed((c) => writeList(c, CS_RACE_2, 1))).toBeNull();
+    const a = await guard().admin.connect();
+    const b = await guard().admin.connect();
+    try {
+      await a.query("BEGIN");
+      await b.query("BEGIN");
+      await insertValidation(a, { cs: CS_RACE_2, version: 1 });
+      // b's PATCH writes a new list at the same version: it blocks on the set's row lock, then sees it validated.
+      const edit = errorCode(() => insertList(b, CS_RACE_2, 1, 0));
+      await leaveDraft(a, CS_RACE_2);
+      await a.query("COMMIT");
+      expect(await edit).toBe("23514");
+    } finally {
+      await a.query("ROLLBACK").catch(() => undefined);
+      await b.query("ROLLBACK").catch(() => undefined);
+      a.release();
+      b.release();
+    }
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -1087,14 +1333,14 @@ describe("0123_price_change_set_items_lines — down migration", () => {
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, false]);
     const fns = await e.admin.query(`SELECT 1 FROM pg_proc WHERE proname = ANY($1)`, [FUNCTIONS.map((f) => f.replace(/\(.*\)$/, ""))]);
     expect(fns.rowCount).toBe(0);
-    const trigger = `SELECT 1 FROM pg_trigger WHERE tgname = 'change_sets_content_rules'`;
+    const trigger = `SELECT 1 FROM pg_trigger WHERE tgname IN ('change_sets_content_rules', 'change_sets_publish_complete')`;
     expect((await e.admin.query(trigger)).rowCount).toBe(0);
     await e.admin.query(downSql);
     await e.admin.query(upSql);
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, true]);
-    expect((await e.admin.query(trigger)).rowCount).toBe(1);
+    expect((await e.admin.query(trigger)).rowCount).toBe(2);
     // The 0121 core survived the round trip.
-    const sets = await e.admin.query(`SELECT 1 FROM change_sets WHERE id = ANY($1)`, [[CS_PUB, CS_DRAFT, CS_RACE, CS_B]]);
-    expect(sets.rowCount).toBe(4);
+    const sets = await e.admin.query(`SELECT 1 FROM change_sets WHERE id = ANY($1)`, [[CS_PUB, CS_DRAFT, CS_RACE, CS_RACE_2, CS_B]]);
+    expect(sets.rowCount).toBe(5);
   });
 });
