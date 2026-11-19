@@ -25,6 +25,7 @@
  */
 import type { PoolClient } from "pg";
 
+import { loadTransferLeg, transferDispatchBody, transferReceiveBody } from "../../inventory";
 import { SaleTendersNotVisibleError } from "../sales/sale-errors";
 import { loadReturnPromotionShares } from "./return-promotion-shares";
 import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
@@ -669,8 +670,107 @@ export interface CountWorkItem {
   readonly itemCursor: string;
 }
 
-/** What the feed offers: a sale/reversal item or a count chunk. */
-export type FeedWorkItem = PostingWorkItem | CountWorkItem;
+/**
+ * RT-1513 (posting-feed.yaml 1.17.0-draft): one `transfer_dispatch` work item. The Connector posts it as ONE native
+ * ERPNext Stock Entry (Material Transfer, `add_to_transit`). Flat and kind-specific, as `CountWorkItem`.
+ */
+export interface TransferDispatchWorkItem {
+  readonly workItemRef: string;
+  readonly kind: "transfer_dispatch";
+  readonly sourceSystem: string;
+  readonly externalId: string;
+  readonly payloadHash: string;
+  /** The dispatch's business date in the source store timezone. Informational. */
+  readonly businessDate: string;
+  readonly transfer: Record<string, unknown>;
+  readonly itemCursor: string;
+}
+
+/** RT-1513: one `transfer_receive` work item (one receipt, against the confirmed dispatch Stock Entry). */
+export interface TransferReceiveWorkItem {
+  readonly workItemRef: string;
+  readonly kind: "transfer_receive";
+  readonly sourceSystem: string;
+  readonly externalId: string;
+  readonly payloadHash: string;
+  /** The receipt's business date in the destination store timezone. Informational. */
+  readonly businessDate: string;
+  readonly receipt: Record<string, unknown>;
+  readonly itemCursor: string;
+}
+
+/** What the feed offers: a sale/reversal item, a count chunk or a transfer leg. */
+export type FeedWorkItem = PostingWorkItem | CountWorkItem | TransferDispatchWorkItem | TransferReceiveWorkItem;
+
+/**
+ * Build the work item of a transfer leg from its FROZEN rows only (`transfer_postings`, `transfer_posting_lines`): the live
+ * item, batch and warehouse maps are never read, so a later re-map can neither retarget nor omit a leg. Returns null when
+ * the leg or its lines are not visible under the current tenant (the feed keeps its historical omission-with-report).
+ */
+export async function buildTransferWorkItem(
+  client: PoolClient,
+  row: {
+    readonly id: string;
+    readonly kind: "transfer_dispatch" | "transfer_receive";
+    readonly sourceSystem: string;
+    readonly externalId: string;
+    readonly payloadHash: string;
+    readonly sequence: string;
+  },
+): Promise<TransferDispatchWorkItem | TransferReceiveWorkItem | null> {
+  const leg = await loadTransferLeg(client, row.id, row.kind);
+  if (!leg) return null;
+  const { head: h } = leg;
+  const mapped = leg.lines.map((l) => ({
+    lineSeq: l.lineSeq,
+    transferLineRef: l.transferLineRef,
+    erpnextItemRef: l.erpnextItemRef,
+    erpnextBatchRef: l.erpnextBatchRef,
+    quantity: l.quantity,
+    unit: l.unit,
+    dispatchLineSeq: l.dispatchLineSeq ?? 0,
+  }));
+  const common = {
+    workItemRef: row.id,
+    sourceSystem: row.sourceSystem,
+    externalId: row.externalId,
+    payloadHash: row.payloadHash,
+    businessDate: h.businessDate,
+    itemCursor: row.sequence,
+  };
+  if (row.kind === "transfer_dispatch") {
+    if (h.sourceWarehouseRef === null) return null;
+    return {
+      ...common,
+      kind: "transfer_dispatch",
+      transfer: transferDispatchBody({
+        transferRef: h.transferId,
+        sourceStoreId: h.sourceStoreId,
+        destinationStoreId: h.destinationStoreId,
+        sourceWarehouseRef: h.sourceWarehouseRef,
+        transitWarehouseRef: h.transitWarehouseRef,
+        postingDatetime: h.postingDatetime,
+        lines: mapped,
+      }),
+    };
+  }
+  if (h.receiptId === null || h.destinationWarehouseRef === null || h.dispatchDocumentRef === null) return null;
+  const doc = JSON.parse(h.dispatchDocumentRef) as { doctype: string; name: string };
+  return {
+    ...common,
+    kind: "transfer_receive",
+    receipt: transferReceiveBody({
+      transferRef: h.transferId,
+      receiptRef: h.receiptId,
+      destinationStoreId: h.destinationStoreId,
+      transitWarehouseRef: h.transitWarehouseRef,
+      destinationWarehouseRef: h.destinationWarehouseRef,
+      dispatchDocument: doc,
+      postingDatetime: h.postingDatetime,
+      lines: mapped,
+    }),
+  };
+}
 
 /**
  * Build the work item of a count chunk from its FROZEN rows only (`count_posting_lines`): the live item and

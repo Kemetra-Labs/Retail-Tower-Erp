@@ -1660,7 +1660,7 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
 // ===========================================================================
 // RT-1512 (Inventory Gate 5, RT-291) — shipment transfer contract (1.21.0-draft)
 // ===========================================================================
-describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft, contract-only)", () => {
+describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft; served by RT-1513)", () => {
   type Op = OperationObject & {
     "x-runtime-status"?: string;
     "x-runtime-note"?: string;
@@ -1730,11 +1730,12 @@ describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft, 
     expect(description).toContain("RT-1513");
   });
 
-  it.each(OPS)("maps %s %s to %s, cookieAuth and contract-only until RT-1513", (path, method, operationId) => {
+  it.each(OPS)("maps %s %s to %s, cookieAuth, served by the RT-1513 runtime (no contract-only marker)", (path, method, operationId) => {
     const o = op(path, method);
     expect(o.operationId).toBe(operationId);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(o["x-runtime-note"]).toContain("RT-1513");
+    // RT-1513 serves every operation: the marker is lifted with no wire change (the ratchet fails a routed contract-only op).
+    expect(o["x-runtime-status"]).toBeUndefined();
+    expect(o["x-runtime-note"]).toBeUndefined();
     expect(o.security).toContainEqual({ cookieAuth: [] });
     for (const status of ["401", "403", "404", "429", "5XX"]) expect(o.responses).toHaveProperty(status);
     expect(JSON.stringify(o.responses)).toContain("TooManyRequests");

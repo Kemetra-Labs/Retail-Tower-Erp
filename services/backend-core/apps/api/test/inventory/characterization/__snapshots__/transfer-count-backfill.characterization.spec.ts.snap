@@ -1735,6 +1735,18 @@ exports[`RT-1221 characterization — transfer a transfer appends linked transfe
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
           "STORE_A_Y",
@@ -2037,6 +2049,18 @@ exports[`RT-1221 characterization — transfer a transfer that drives the source
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
           "STORE_A_Y",
@@ -2211,6 +2235,18 @@ exports[`RT-1221 characterization — transfer rejects: cross-tenant destination
     },
     {
       "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
+    },
+    {
+      "params": [
         [
           "STORE_A_X",
           "STORE_B_X",
@@ -2256,6 +2292,18 @@ exports[`RT-1221 characterization — transfer rejects: cross-unit at the source
         "false",
       ],
       "text": "SELECT set_config('app.is_platform_admin', $1, true)",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))",
+    },
+    {
+      "params": [
+        "TENANT_A",
+      ],
+      "text": "SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1",
     },
     {
       "params": [

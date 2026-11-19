@@ -40,6 +40,8 @@ BEGIN
 END
 $$;
 
+DROP FUNCTION IF EXISTS store_business_date(UUID, TIMESTAMPTZ);
+
 DROP TABLE IF EXISTS transfer_posting_lines;
 DROP TABLE IF EXISTS transfer_postings;
 DROP TABLE IF EXISTS shipment_transfer_discrepancies;

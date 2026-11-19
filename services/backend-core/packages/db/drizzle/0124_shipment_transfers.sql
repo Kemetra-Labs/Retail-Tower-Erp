@@ -48,6 +48,23 @@ ALTER TABLE tenant_inventory_settings
     CHECK (delayed_transfer_threshold_days BETWEEN 1 AND 90);
 
 -- ---------------------------------------------------------------------------
+-- 1b. One definition of a store's business date
+-- ---------------------------------------------------------------------------
+-- The calendar date, in the store's own time zone, of an instant (default now). The tracked-line expiry check
+-- (G7-4: "past its expiry at the source store's business date") and the business date of a transfer leg both need
+-- it. SECURITY INVOKER (the default): `stores` is FORCE RLS, so a store of another tenant reads nothing and the
+-- function returns NULL, never a date. A SQL function so inventory can use it without importing the `stores`
+-- module (which already imports inventory).
+CREATE OR REPLACE FUNCTION store_business_date(p_store_id UUID, p_at TIMESTAMPTZ DEFAULT now())
+RETURNS DATE
+LANGUAGE sql
+STABLE
+SET search_path = public, pg_temp
+AS $$
+  SELECT (COALESCE(p_at, now()) AT TIME ZONE s.timezone)::date FROM stores s WHERE s.id = p_store_id
+$$;
+
+-- ---------------------------------------------------------------------------
 -- 2. The tenant transit warehouse (O2): a map row with no store
 -- ---------------------------------------------------------------------------
 ALTER TABLE erpnext_warehouse_map

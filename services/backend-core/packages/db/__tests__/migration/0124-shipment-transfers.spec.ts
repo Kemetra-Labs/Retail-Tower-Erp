@@ -373,6 +373,27 @@ describe("0124: row level security on every new table", () => {
   });
 });
 
+describe("0124: store_business_date (one definition of a store's business date)", () => {
+  it("returns the calendar date in the store's own time zone, and NULL for a store another tenant owns (RLS)", async () => {
+    if (skip()) return;
+    const e = guard();
+    await e.admin.query(`UPDATE stores SET timezone = 'Pacific/Kiritimati' WHERE id = $1`, [STORE_A1]);
+    await e.admin.query(`UPDATE stores SET timezone = 'Pacific/Pago_Pago' WHERE id = $1`, [STORE_A2]);
+    try {
+      // 2026-11-20 10:00 UTC is already 11-21 in UTC+14 and still 11-19 in UTC-11: one instant, two business dates.
+      const at = "2026-11-20T10:00:00Z";
+      const own = await asApp(e, TENANT_A, (c) =>
+        c.query(`SELECT store_business_date($1, $3::timestamptz)::text AS a, store_business_date($2, $3::timestamptz)::text AS b`, [STORE_A1, STORE_A2, at]),
+      );
+      expect(own.rows[0]).toEqual({ a: "2026-11-21", b: "2026-11-19" });
+      const hidden = await asApp(e, TENANT_B, (c) => c.query(`SELECT store_business_date($1, $2::timestamptz) AS d`, [STORE_A1, at]));
+      expect(hidden.rows[0].d).toBeNull();
+    } finally {
+      await e.admin.query(`UPDATE stores SET timezone = DEFAULT WHERE id = ANY($1::uuid[])`, [[STORE_A1, STORE_A2]]);
+    }
+  });
+});
+
 describe("0124: the settings columns", () => {
   const SET = (cols: string, vals: string): [string, unknown[]] => [
     `INSERT INTO tenant_inventory_settings (tenant_id, updated_by${cols}) VALUES ($1, $2${vals})`,
@@ -446,6 +467,7 @@ describe("0124: down refuses while a Transfer exists, and round-trips once none 
     await a.query(downSql);
     const gone = await a.query(`SELECT to_regclass('shipment_transfers') AS t`);
     expect(gone.rows[0].t).toBeNull();
+    expect((await a.query(`SELECT to_regprocedure('store_business_date(uuid, timestamptz)') AS f`)).rows[0].f).toBeNull();
     // The prior shape is restored: the map needs a store again and the posting kinds are the old three.
     expect(
       await tryRun([

@@ -5,3 +5,12 @@
  * `tools/module-boundaries` enforces this.
  */
 export { listActiveWarehouseRefsOfStore } from "./erpnext-warehouse-map/store-warehouse-refs";
+export {
+  batchRefsOfIdentities,
+  confirmedItemRefs,
+  hasActiveTransitWarehouse,
+  insertTransferLeg,
+  postingLegStatus,
+  trackingModesOfProducts,
+  transferWarehouseRefs,
+} from "./erpnext-posting/transfer-posting.port";

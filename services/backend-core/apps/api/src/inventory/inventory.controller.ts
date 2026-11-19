@@ -68,6 +68,7 @@ import {
   type StockLocationListBody,
 } from './inventory.service';
 import type { StockMovementScope } from './movement-list.cursor';
+import { authorizeDestinationStoreAccess } from './destination-store-access';
 import { ConsoleRateLimit } from "../console-rate-limit/console-rate-limit.decorator";
 
 const UuidSchema = z.string().uuid();
@@ -421,11 +422,7 @@ export class InventoryController {
    * it is granted.
    */
   private authorizeDestinationStore(ctx: ResolvedContext, storeId: string): void {
-    if (ctx.source !== 'session') return;
-    const access = ctx.storeAccess;
-    if (access?.kind === 'all') return;
-    if (access?.kind === 'specific' && access.storeIds.includes(storeId)) return;
-    throw new NotFoundException('Not Found');
+    authorizeDestinationStoreAccess(ctx, storeId);
   }
 }
 
