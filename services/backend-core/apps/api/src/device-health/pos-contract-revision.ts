@@ -17,5 +17,12 @@
  *   2  RT-1312 F1: the heartbeat accepts `sale_queue`. A POS sends it only
  *      once a reply carried revision 2 or more: an older Backend-Core refuses
  *      the unknown key with a 400.
+ *   3  RT-1312 Phase 3: `posQuarantineSale` (`pos-sales/sale-quarantine.yaml`)
+ *      is live, and the Console can show and close its queue. A till uploads
+ *      a refused or held sale only once a reply carried revision 3 or more
+ *      (POS `QUARANTINE_UPLOAD_MIN_REVISION`), because an uploaded row stops
+ *      being counted in its heartbeat `sale_queue`. That contract leaves the
+ *      number to the runtime ("Rollout order"), so this bump lands on its own,
+ *      after the runtime (#508, #723) and the Console queue (#731).
  */
-export const POS_CONTRACT_REVISION = 2;
+export const POS_CONTRACT_REVISION = 3;
