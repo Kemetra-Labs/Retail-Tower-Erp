@@ -28,6 +28,12 @@ Repo docs are authoritative. Read `services/backend-core/docs/idempotency/strate
 ## Idempotency
 - The current store design is in `services/backend-core/docs/idempotency/strategy.md` (it describes Redis-primary storage with a Postgres mirror); follow that document, not older branch designs. In-flight markers include the tenant; body fingerprints sort keys.
 
+## HTTP status of a Console POST
+- A Nest `@Post` answers **201** unless `@HttpCode(HttpStatus.OK)` is set, and an idempotent replay repeats the stored status. When the contract documents `"200"` only (a write-off, a repair, any "act on an existing item" POST), add `@HttpCode(HttpStatus.OK)` and assert `Reflect.getMetadata(HTTP_CODE_METADATA, handler)` is 200 in the controller unit spec. In the HTTP spec use `.expect(200)`, never `status < 300`, which cannot tell 201 from 200 (RT-1312 slice B review: the first draft answered 201; the sibling `consoleRepairSaleSync` route still does).
+- `@Roles("owner", "tenant_admin")` without `{ denyAs: 403 }` answers a wrong role **404**, while a contract that lists `Forbidden` says 403. The sale-sync-ops family uses the 404 default; match the family and say so in the PR rather than mixing.
+- A jscpd clone against a sibling controller (`requireTenant`, a try/catch error mapper) fails the code-health ratchet: use module-level helper functions with different shape and one private `inTenant(input, fn)` wrapper for `runWithTenantContext` instead of repeating the sibling's blocks.
+- Never write a `...array` spread of request data into `push`/`Math.max`: a 256 kB body holds about 130k elements and overflows the call stack (RangeError, a 500). Loop instead.
+
 ## Tests / CI
 - After `reset --hard`/checkout that changes `packages/shared` or `packages/db`, rebuild dist (`pnpm --filter @data-pulse-2/shared run build`, then db). "Symbol not registered / suite failed to run" means stale dist.
 - db-integration `57P01 terminating connection due to administrator command` on a random unrelated suite is the known Testcontainers/Ryuk flake. Confirm the victim is unrelated AND the signature matches, then `gh run rerun --failed`. `--runInBand` is a no-op on 2-vCPU runners. Never `--admin` past it.
