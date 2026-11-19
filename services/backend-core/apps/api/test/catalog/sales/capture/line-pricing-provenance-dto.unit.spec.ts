@@ -105,6 +105,7 @@ describe("RT-1151 — pricingProvenance is part of the payload hash", () => {
     const changed = sha256CanonicalHex(parse(body({ ...PRICING, pricingRevision: 419 })));
     const legacy = sha256CanonicalHex(parse(body(LEGACY)));
     expect(new Set([plain, pricing, changed, legacy]).size).toBe(4);
-    expect(sha256CanonicalHex(parse(body()))).toBe(plain);
+    // Without it, the parsed body carries no key at all, so existing payload hashes are unchanged.
+    expect(JSON.stringify(parse(body()))).not.toContain("pricingProvenance");
   });
 });

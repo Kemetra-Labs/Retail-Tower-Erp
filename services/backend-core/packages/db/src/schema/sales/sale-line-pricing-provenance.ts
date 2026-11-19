@@ -42,6 +42,7 @@ export const saleLinePricingProvenance = pgTable(
       foreignColumns: [saleLines.id, saleLines.saleId, saleLines.tenantId, saleLines.storeId],
     }).onDelete("restrict"),
     check("sale_line_pricing_provenance_origin", sql`${t.origin} IN ('pricing', 'legacy')`),
+    // The per-variant column CHECK and the append-only triggers live in 0122's SQL, which is authoritative.
     index("idx_sale_line_pricing_provenance_tenant_sale").on(t.tenantId, t.saleId),
   ],
 );

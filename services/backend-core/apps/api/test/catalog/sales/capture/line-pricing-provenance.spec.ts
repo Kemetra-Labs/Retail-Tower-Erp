@@ -117,6 +117,13 @@ describe("RT-1151 — capture stores the line pricing provenance verbatim", () =
     ]);
   });
 
+  it("maps each provenance to its own line: a provenance on line 2 only is stored on line 2", async () => {
+    if (skip()) return;
+    const res = await post(sale("slp-second", [undefined, PRICING]), "slpsecond");
+    expect(res.status).toBe(201);
+    expect((await provenanceOf("slp-second")).map((r) => [r.line_seq, r.origin, r.price_event_id])).toEqual([[2, "pricing", EVENT]]);
+  });
+
   it("stores the legacy variant", async () => {
     if (skip()) return;
     const res = await post(sale("slp-legacy", [LEGACY, LEGACY]), "slplegacy");

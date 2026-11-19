@@ -322,8 +322,10 @@ describe("0122_sale_line_pricing_provenance — tenant isolation (app role)", ()
         ),
       ).toBe("42501");
       const deleted = await asApp(e, TENANT_A, (c) => errorCode(() => c.query(`DELETE FROM ${TABLE}`)));
-      // No DELETE policy: nothing is visible to delete, and the trigger refuses any row that is.
-      expect([null, "42501"]).toContain(deleted);
+      // DELETE is granted but no DELETE policy exists: under FORCE RLS it sees no row, so it succeeds and removes nothing.
+      expect(deleted).toBeNull();
+      const kept = await asApp(e, TENANT_A, (c) => c.query(`SELECT 1 FROM ${TABLE}`));
+      expect(kept.rowCount).toBe(1);
     } finally {
       await clearRows();
     }

@@ -81,9 +81,15 @@ describe("pos-sales/sales.yaml — RT-1151 sale-line pricing provenance", () => 
 
   it("no response schema echoes it", () => {
     const text = JSON.stringify(sales.components?.schemas ?? {});
-    const references = text.match(/#\/components\/schemas\/PricingProvenance"/g) ?? [];
-    // Referenced once: by the request line only.
-    expect(references).toHaveLength(1);
+    const references = text.match(/#\/components\/schemas\/PricingProvenance(Pricing|Legacy)?"/g) ?? [];
+    // The union once, by the request line only; each variant twice, both inside the union (oneOf + discriminator mapping).
+    expect(references.sort()).toEqual([
+      "#/components/schemas/PricingProvenance\"",
+      "#/components/schemas/PricingProvenanceLegacy\"",
+      "#/components/schemas/PricingProvenanceLegacy\"",
+      "#/components/schemas/PricingProvenancePricing\"",
+      "#/components/schemas/PricingProvenancePricing\"",
+    ]);
   });
 
   it("the contract and the strict capture DTO accept and refuse the same variants", () => {

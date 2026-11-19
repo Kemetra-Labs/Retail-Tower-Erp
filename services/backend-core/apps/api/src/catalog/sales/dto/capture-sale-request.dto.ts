@@ -147,6 +147,7 @@ export const CaptureSaleLinePricingProvenanceSchema = z.discriminatedUnion("orig
       sourceScope: z.enum(["book", "zone", "store"]),
       priceEventId: z.string().uuid().transform((id) => id.toLowerCase()),
       priceKind: z.literal("regular"),
+      // The contract says int64; the server accepts up to 2^53 - 1, which a JSON number holds exactly.
       pricingRevision: z.number().int().min(1).max(Number.MAX_SAFE_INTEGER),
     })
     .strict(),

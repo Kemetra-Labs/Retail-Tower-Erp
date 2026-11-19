@@ -2174,7 +2174,8 @@ components:
       x-shared-with: [pricing/price-inquiry.yaml, catalog/read-down.yaml]
       description: >
         What produced a selling price. Shared verbatim with
-        `pricing/price-inquiry.yaml` and the POS read-down projection.
+        `pricing/price-inquiry.yaml` and the POS read-down projection
+        (`catalog/read-down.yaml`; its copy lands with RT-282 PR-06).
         `pricing`: a Backend-Core Pricing resolution; on a sale line
         `pricingRevision` is the Store revision the till had applied (spec 043
         G4-11). `legacy`: the pre-cutover legacy catalogue path, which has no
