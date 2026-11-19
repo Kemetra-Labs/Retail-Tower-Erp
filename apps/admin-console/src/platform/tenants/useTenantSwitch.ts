@@ -6,12 +6,18 @@
  * judged on that re-read: only when the active tenant IS the one asked for does
  * the operator land on the tenant Console. A refusal and a request that never
  * got an answer are each said, never swallowed (UX Addendum A4).
+ *
+ * The move to the tenant Console waits until the shared context the shell reads
+ * shows the new tenant. The re-read lands in the query cache first and reaches
+ * subscribers on a later tick; navigating before that renders `ProtectedArea`
+ * with the old context, which sends a platform admin with no membership (RT-1468)
+ * straight back to `/platform`.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import type { MessageKey } from "@/i18n";
 import { queryKeys } from "@/lib/query";
 import { type QueryClient, useQueryClient } from "@tanstack/react-query";
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { useNavigate } from "react-router";
 
 type ContextRead = { kind: string; data?: { active_tenant?: { id?: string } | null } | null };
@@ -29,11 +35,20 @@ function switchOutcome(qc: QueryClient, tenantId: string): MessageKey | null {
 }
 
 export function useTenantSwitch(onSwitched: () => void) {
-  const { switchTenant } = useActiveContextValue();
+  const { switchTenant, context } = useActiveContextValue();
   const qc = useQueryClient();
   const navigate = useNavigate();
   const inFlight = useRef(false);
   const [failure, setFailure] = useState<MessageKey | null>(null);
+  // The tenant the switch landed on, until the shared context shows it.
+  const [landed, setLanded] = useState<string | null>(null);
+  const activeTenantId = context?.active_tenant?.id;
+
+  useEffect(() => {
+    if (landed === null || activeTenantId !== landed) return;
+    setLanded(null);
+    navigate("/");
+  }, [landed, activeTenantId, navigate]);
 
   const toTenant = async (tenantId: string) => {
     if (inFlight.current) return;
@@ -47,7 +62,7 @@ export function useTenantSwitch(onSwitched: () => void) {
         return;
       }
       onSwitched();
-      navigate("/");
+      setLanded(tenantId);
     } catch {
       setFailure(NO_ANSWER);
     } finally {
