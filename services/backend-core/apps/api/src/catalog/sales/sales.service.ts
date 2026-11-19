@@ -65,6 +65,7 @@ import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 import { findLinePricingViolation } from "./sale-line-pricing";
 import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";
+import { writeSaleLinePricingProvenance } from "./sale-pricing-provenance";
 import {
   assertApproverEligible,
   assertRequesterIsStoreUser,
@@ -947,6 +948,8 @@ async function insertCaptureRows(
   if (sale.promotions !== null) {
     await writeSalePromotions(client, { saleId, tenantId, storeId, actorUserId: sale.actorUserId }, lineIds, sale.promotions);
   }
+  // RT-1151 (RT-282 PR-07): each line's pricing provenance, verbatim, when the till sent one.
+  await writeSaleLinePricingProvenance(client, { saleId, tenantId, storeId }, lineIds, body.lines);
   // RT-451 S3: the row-2 and row-3 findings, in the capture transaction.
   await writeSaleLineFindings(
     client,

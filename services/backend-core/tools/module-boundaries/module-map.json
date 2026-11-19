@@ -71,6 +71,7 @@
         "sale_credit_reversal_tenders",
         "sale_credit_reversals",
         "sale_line_findings",
+        "sale_line_pricing_provenance",
         "sale_line_promotions",
         "sale_lines",
         "sale_quarantine_items",

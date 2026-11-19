@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.24.0-draft"
+  version: "1.25.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -619,6 +619,27 @@ info:
     each voucher its sale paid with. A `return` stays cash only. Additive in
     requests; in responses `voucher` is a new value of an existing enum, which
     no reversal carries until `POS_SALE_VOUCHER_TENDER_ENABLED` is turned on.
+
+
+    RT-1151 (1.25.0-draft; [GATED: contract, migration] owner authorization
+    on RT-1151, D1 / D3 / D4, comment 17783; after RT-1343's 1.24.0-draft;
+    RT-282 PR-07): a captured line may carry `pricingProvenance`
+    (`PricingProvenance`), the discriminated union shared with
+    `pricing/price-inquiry.yaml` and the POS read-down. It records what
+    priced the line on the till: `origin: pricing` (Backend-Core Pricing
+    after the tenant's cutover: source scope, price event, price kind and the
+    Store pricing revision the till had applied, spec 043 G4-11) or `origin:
+    legacy` (the legacy catalogue price: `legacy_tenant` / `legacy_store` and
+    the read-down cursor). Backend-Core stores it verbatim and never
+    recomputes or checks it against the price (a mismatch is a Pricing Health
+    finding later, never a refused sale); a line without it stores nothing.
+    It is part of the payload hash and of the `Idempotency-Key` fingerprint,
+    like every other line field. Migration 0122 (`sale_line_pricing_provenance`).
+    Additive in requests only; it is NOT echoed in any response until a
+    re-pinned POS accepts it (spec 044 §7.4). `pricingCapture` /
+    `pricingContext` (spec 043 G4-11) are RT-1486's (D4). ROLLOUT: until this
+    runtime is deployed the strict capture DTO rejects the unknown field
+    (400); the POS MUST NOT send it before then.
 
 servers:
   - url: https://api.example.com
@@ -2146,6 +2167,75 @@ components:
       description: ISO-4217 alphabetic currency code (FR-005). Preserved as received.
 
     # -----------------------------------------------------------------------
+    # RT-1151 (RT-282 PR-07): the pricing provenance union. Kept identical to
+    # the copy in pricing/price-inquiry.yaml; a contract test compares them.
+    # -----------------------------------------------------------------------
+    PricingProvenance:
+      x-shared-with: [pricing/price-inquiry.yaml, catalog/read-down.yaml]
+      description: >
+        What produced a selling price. Shared verbatim with
+        `pricing/price-inquiry.yaml` and the POS read-down projection
+        (`catalog/read-down.yaml`; its copy lands with RT-282 PR-06).
+        `pricing`: a Backend-Core Pricing resolution; on a sale line
+        `pricingRevision` is the Store revision the till had applied (spec 043
+        G4-11). `legacy`: the pre-cutover legacy catalogue path, which has no
+        event or price kind; `catalogCursor` is the read-down cursor the price
+        was served under.
+      oneOf:
+        - $ref: "#/components/schemas/PricingProvenancePricing"
+        - $ref: "#/components/schemas/PricingProvenanceLegacy"
+      discriminator:
+        propertyName: origin
+        mapping:
+          pricing: "#/components/schemas/PricingProvenancePricing"
+          legacy: "#/components/schemas/PricingProvenanceLegacy"
+    PricingProvenancePricing:
+      type: object
+      additionalProperties: false
+      required: [origin, sourceScope, priceEventId, priceKind, pricingRevision]
+      properties:
+        origin:
+          type: string
+          const: pricing
+        sourceScope:
+          type: string
+          enum: [book, zone, store]
+          description: The scope of a price event; also the precedence layer (Store > Zone > Book).
+        priceEventId:
+          type: string
+          format: uuid
+        priceKind:
+          type: string
+          enum: [regular]
+          description: >
+            v1 has only `regular` (OD-1). `clearance`, `open` and
+            `manual_override` are reserved for later items and are additive.
+        pricingRevision:
+          type: integer
+          format: int64
+          minimum: 1
+          description: A tenant Pricing Revision number (monotonic per tenant, OD-3).
+    PricingProvenanceLegacy:
+      type: object
+      additionalProperties: false
+      required: [origin, sourceScope, catalogCursor]
+      properties:
+        origin:
+          type: string
+          const: legacy
+        sourceScope:
+          type: string
+          enum: [legacy_tenant, legacy_store]
+          description: >
+            `legacy_tenant`: `tenant_products.default_price`. `legacy_store`:
+            `store_product_overrides.price`.
+        catalogCursor:
+          type: string
+          minLength: 1
+          maxLength: 128
+          description: The opaque read-down catalogue cursor the price was served under.
+
+    # -----------------------------------------------------------------------
     # Capture request — strict; tenant/store/actor are NEVER body-supplied
     # -----------------------------------------------------------------------
     CaptureSaleRequest:
@@ -2511,6 +2601,12 @@ components:
         promotion.discountAmount` exactly; the minor-unit and whole-quantity
         conditions are unchanged. `promotion` and `discount` on the same line
         are 400 `validation_error` (OD-5: offers are exclusive).
+
+        Pricing provenance (RT-1151, RT-282 PR-07): a line may carry
+        `pricingProvenance` (`PricingProvenance`), what priced it on the till.
+        It is stored verbatim and does not change the price invariant or any
+        other rule of the line; a malformed object (an unknown key, a mixed
+        variant, a bad id or revision) is 400 `validation_error`.
       properties:
         lineName:
           type: string
@@ -2547,6 +2643,8 @@ components:
           $ref: "#/components/schemas/CaptureSaleLineTracking"
         promotion:
           $ref: "#/components/schemas/CaptureSaleLinePromotion"
+        pricingProvenance:
+          $ref: "#/components/schemas/PricingProvenance"
     CaptureSaleLinePromotion:
       type: object
       additionalProperties: false
