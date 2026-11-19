@@ -46,6 +46,31 @@ export function saleFactsDigest(body: Readonly<Record<string, unknown>>): string
   }
 }
 
+/**
+ * Whether any string value or object key of `value` holds a NUL (U+0000).
+ * Postgres refuses it in `jsonb` (22P05) and in `text` (22021), so such a body
+ * can never be stored: the upload refuses it as a 400 before any write, and
+ * the sale stays on the till (RT-1312 comment 16720). Iterative, so a deeply
+ * nested body cannot overflow the stack.
+ */
+export function containsNul(value: unknown): boolean {
+  const pending: unknown[] = [value];
+  while (pending.length > 0) {
+    const current = pending.pop();
+    if (typeof current === "string") {
+      if (current.includes("\u0000")) return true;
+    } else if (Array.isArray(current)) {
+      pending.push(...current);
+    } else if (typeof current === "object" && current !== null) {
+      for (const [key, child] of Object.entries(current)) {
+        if (key.includes("\u0000")) return true;
+        pending.push(child);
+      }
+    }
+  }
+  return false;
+}
+
 /** Decision C5: what an operator needs to identify the sale; each field null when absent or malformed. */
 export interface QuarantineSummary {
   readonly occurredAt: Date | null;

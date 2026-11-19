@@ -77,6 +77,9 @@ const LIVE_READ_CODES = [
   "sale_history.listed",
   "sale_sync_ops.audit_timeline.read",
   "sale_sync_ops.needs_repair.listed",
+  // RT-1312 Phase 3(b): the Console quarantine list and read (the write-off is a change).
+  "sale_sync_ops.quarantine.listed",
+  "sale_sync_ops.quarantine.read",
   "sale_sync_ops.status.read",
   "settlement.payer_account.listed",
   "settlement.receivable.listed",

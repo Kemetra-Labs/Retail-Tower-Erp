@@ -68,7 +68,9 @@ info:
 
     **1.3.0-draft (RT-1312 Phase 3(a), additive, contract-first;
     owner decision D1, RT-1312 comment 16359).** Four new operations, each
-    `x-runtime-status: contract-only` until RT-1312 Phase 3(b):
+    `x-runtime-status: contract-only` until RT-1312 Phase 3(b). Slice B
+    (the list, read and write-off, items 5, 6 and 8) is implemented and has
+    no marker; slice C (the repair, item 7) is still contract-only:
 
       5. `consoleListQuarantinedSales`    — the quarantine half of the
          NEEDS_REPAIR queue.
@@ -333,11 +335,6 @@ paths:
       summary: List quarantined sales (the quarantine half of the NEEDS_REPAIR queue).
       operationId: consoleListQuarantinedSales
       tags: [sale-sync-ops]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1312 Phase 3(a) publishes the contract only. There is no
-        controller, service, table or migration for this route until RT-1312
-        Phase 3(b).
       x-audit-action: sale_sync_ops.quarantine.listed
       description: >
         Sales the till uploaded with `posQuarantineSale` because Backend-Core
@@ -377,11 +374,6 @@ paths:
       summary: Read one quarantined sale.
       operationId: consoleGetQuarantinedSale
       tags: [sale-sync-ops]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1312 Phase 3(a) publishes the contract only. There is no
-        controller, service, table or migration for this route until RT-1312
-        Phase 3(b).
       x-audit-action: sale_sync_ops.quarantine.read
       description: >
         One quarantine item, any state. Object-level authz: an item outside
@@ -417,9 +409,9 @@ paths:
       tags: [sale-sync-ops]
       x-runtime-status: contract-only
       x-runtime-note: >
-        RT-1312 Phase 3(a) publishes the contract only. There is no
-        controller, service, table or migration for this route until RT-1312
-        Phase 3(b).
+        RT-1312 Phase 3(b) slice B (list, read, write-off) implements the
+        other quarantine operations over the table of migration 0093. This
+        repair has no controller or service until RT-1312 Phase 3(b) slice C.
       x-audit-action: sale_sync_ops.quarantine.repair.requested
       description: >
         SERVER-MEDIATED repair of an `open` quarantine item (DP3: no POS-local
@@ -477,11 +469,6 @@ paths:
       operationId: consoleWriteOffQuarantinedSale
       x-idempotency: required
       tags: [sale-sync-ops]
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1312 Phase 3(a) publishes the contract only. There is no
-        controller, service, table or migration for this route until RT-1312
-        Phase 3(b).
       x-audit-action: sale_sync_ops.quarantine.written_off
       description: >
         Decision C3. Closes an `open` quarantine item for good, without a
@@ -489,7 +476,9 @@ paths:
         a body that can never be captured (a `payload_divergence`, an
         operator whose tenant membership at `occurredAt` cannot be proven)
         and that is handled outside Retail Tower. `owner` and `tenant_admin`
-        only (C1); the reason note is required and audited with the writer.
+        only (C1); the reason note is required and stored on the item, and
+        the write-off is audited with the writer (the audit metadata carries
+        the quarantine ref, the store and the state, never the free-text note).
         The stored body is then kept under the normal audit retention (P3).
         An item that is not `open` is 409 `repair_conflict`, deterministic,
         no side effect. `Idempotency-Key` is REQUIRED (the existing

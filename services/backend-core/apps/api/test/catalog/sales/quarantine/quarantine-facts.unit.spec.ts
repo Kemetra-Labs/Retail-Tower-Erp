@@ -8,6 +8,7 @@ import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash"
 import { SalesController } from "../../../../src/catalog/sales/sales.controller";
 import {
   CAPTURE_HASH_EXCLUDED_FIELDS,
+  containsNul,
   saleFactsDigest,
   saleFactsOf,
   summaryOf,
@@ -110,5 +111,28 @@ describe("summaryOf (decision C5)", () => {
 
   it("counts an empty line list as zero", () => {
     expect(summaryOf({ lines: [] }).lineCount).toBe(0);
+  });
+});
+
+describe("containsNul (RT-1312 slice B: the NUL the jsonb column cannot store)", () => {
+  it("finds a NUL in a string value at any depth", () => {
+    expect(containsNul({ a: "x\u0000y" })).toBe(true);
+    expect(containsNul({ lines: [{ note: ["ok", { deep: "\u0000" }] }] })).toBe(true);
+  });
+
+  it("finds a NUL in an object key", () => {
+    expect(containsNul({ "a\u0000b": 1 })).toBe(true);
+    expect(containsNul({ nested: { "\u0000": 1 } })).toBe(true);
+  });
+
+  it("is false for a body without one, and for the escaped text that is not a NUL", () => {
+    expect(containsNul(BODY)).toBe(false);
+    expect(containsNul({ a: "\\u0000", b: "\u0001", c: 0, d: null, e: true, f: [] })).toBe(false);
+  });
+
+  it("does not overflow the stack on a deeply nested body", () => {
+    let deep: unknown = "end";
+    for (let i = 0; i < 200_000; i += 1) deep = [deep];
+    expect(containsNul({ lines: deep })).toBe(false);
   });
 });
