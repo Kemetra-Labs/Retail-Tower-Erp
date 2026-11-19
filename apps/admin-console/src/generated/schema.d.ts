@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 7ed49012933243e31658f58c080ac8c81422ae76
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 57a48adfe335c5dbb0e9a69bac3268860574be7c
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -12145,8 +12145,9 @@ export namespace InventorySchema {
             get?: never;
             put?: never;
             /**
-             * Transfer stock between stores as linked movements.
-             * @description Create an intra-tenant transfer as LINKED movements — a `transfer_out` at the source store and a `transfer_in` at the destination, sharing a transfer group id so they are mutually discoverable (FR-020/SC-004). Source ≠ destination and quantity > 0 (else validation error). The destination store MUST belong to the same tenant; a cross-tenant destination is a non-disclosing 404 (FR-051). A transfer-out driving the source on-hand below zero is still recorded and flagged, never rejected (FR-024). Idempotent via the `Idempotency-Key` header.
+             * Transfer stock between stores as linked movements (deprecated).
+             * @deprecated
+             * @description DEPRECATED (RT-1512, decision 974): the instant transfer is not the target shipment workflow (974). It stays served, unchanged, until the tenant activates shipment transfers (RT-1513); from then it answers 409 `transfer_workflow_required` (one writable transfer workflow, 976), and RT-1517 removes it. Use the `/api/inventory/v1/shipment-transfers` operations instead. Its movements are never posted to ERP (they stay `not_posted`). Create an intra-tenant transfer as LINKED movements — a `transfer_out` at the source store and a `transfer_in` at the destination, sharing a transfer group id so they are mutually discoverable (FR-020/SC-004). Source ≠ destination and quantity > 0 (else validation error). The destination store MUST belong to the same tenant; a cross-tenant destination is a non-disclosing 404 (FR-051). A transfer-out driving the source on-hand below zero is still recorded and flagged, never rejected (FR-024). Idempotent via the `Idempotency-Key` header.
              */
             post: operations["createStockTransfer"];
             delete?: never;
@@ -12533,6 +12534,154 @@ export namespace InventorySchema {
              * @description RT-451 scope item 4 (RT-50 DC-2; RT-455 TR-2): the governed, audited, high-sensitivity Tracking Resolution of one `tracking_unresolved` sale. One command binds an existing tracking identity to EVERY unresolved line of the sale: `lines` names each unresolved line exactly once and nothing else, or the command is a 400 and nothing is written. In one transaction it records the resolution and its audit record, then commits the sale's Inventory effects at the bound identities and its ERP posting intent together, with the ERP Batch ref frozen from the edge map as at capture. A bound identity with no ERP edge-map row still commits its effect, and the intent is held (G7-9 row 3): the bind records an `erp_intent_held` finding with cause `edge_map_missing` for that line. A bind records no other finding: it refuses a held or expired identity, and it is itself the governed check, so a bound line is never an `unvalidated_tracked_line`. The sale then leaves the unresolved queue. The same transaction also commits what the sale's voids and returns recorded before the bind were denied: their Inventory restores (a void compensates the exact identity position; a return lands at the bound identity in `return_inspection`, or `recall_hold` for an identity ever recalled), and the reversal posting intents they emitted, each one posted exactly once. A sale the server has not processed yet gets its effects and its intent when it is processed. Refusals, nothing written: a sale that is not of this tenant, is outside the caller's store scope or was never `tracking_unresolved`, and an identity that does not exist, is of another tenant or is not a batch identity, is a non-disclosing 404; a `saleLineId` that is not an unresolved line of the sale is a 400. 409 `tracking_resolution_identity_mismatch`: an identity is not of the line's product. 409 `tracking_resolution_identity_held`: an identity has an active hold now, or had one at the sale's `occurredAt`. 409 `tracking_resolution_identity_expired`: an identity's expiry date is before the sale's business date (a lot is sellable through its expiry date, G7-5), or the identity has no expiry and the line's product requires one (fail closed). 409 `tracking_resolution_already_resolved`: the sale was already resolved by another command. The `reasonCode` and a non-blank `note` are required; the runtime trims the note, and a blank one is a 400. It does not step the Inventory Safety Revision. Owner only (high sensitivity, as `releaseTrackingHold`); any other role is a 403. Idempotent via the `Idempotency-Key` header: a replay with the same key and body returns the recorded resolution and writes nothing.
              */
             post: operations["bindTrackingResolution"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List shipment Transfers, newest first, in keyset pages.
+             * @description RT-1512. The tenant's shipment Transfers newest first (`createdAt DESC, id DESC`), optionally filtered by `storeId` (as source or destination, per `direction`) and by `state`. Keyset pagination as `listStockMovements` (RT-731): an opaque `cursor` bound to this operation, the tenant and the filters; a value the server did not issue, or one reused with other filters, is 400 `validation_error`. Owner or tenant_admin see every store; a store_manager sees only Transfers whose source or destination is in its store scope.
+             */
+            get: operations["listShipmentTransfers"];
+            put?: never;
+            /**
+             * Create a shipment Transfer in Draft.
+             * @description RT-1512 (RT-291 Gate 5; decisions 800–802, 962, 963; G7-4). Creates a shipment Transfer in state `draft` from the source store to the destination store, one line per product (and per tracking identity for a tracked product). A move inside one store is a Relocation, not a Transfer (800): equal stores are a 400 `validation_error`. Both stores resolve inside the caller's tenant; a store of another tenant is the non-disclosing 404. Authority over BOTH stores is checked (962): the caller must be allowed to send from the source and the destination must be a store the tenant may receive into. Stores of different legal entities are refused with 409 `cross_legal_entity_transfer` (817, 963; an intercompany workflow is out of scope). A tracked product needs one `trackingIdentityId` per line (409 `tracking_identity_required`); a serial product is refused with 409 `serial_transfer_not_supported` until the serial gate. A Transfer has at most 100 lines, the row limit of one ERP Stock Entry. A Draft reserves nothing and changes no quantity. Owner, tenant_admin or a store_manager of the source store. Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["createShipmentTransfer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read one shipment Transfer.
+             * @description RT-1512. One shipment Transfer with its state, lines (ordered, dispatched, received, short-closed and in-transit quantities per line), reservation, approval, dispatch, short-close, closure and cancellation. A Transfer of another tenant, or one whose source and destination are both outside the caller's store scope, is the non-disclosing 404.
+             */
+            get: operations["getShipmentTransfer"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}/approve": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Approve a Draft; approval reserves the source stock.
+             * @description RT-1512 (805, 806, 794–798; owner ruling O1, O2). Moves a `draft` to `approved`. Approval reserves the source stock of every line (item, source store position and quantity) until the explicit `reservationExpiresAt` (797), in the same transaction; the reservation lowers the source Available to Sell, never its Physical or Sellable On Hand, and a reserved quantity is never deducted a second time at dispatch. A reservation that expires before dispatch is released by an audited event and the Transfer returns to `draft` (798). Approval re-checks the legal entities (409 `cross_legal_entity_transfer`) and each tracked line's identity (409 `tracking_identity_held_or_expired` for an identity under an active hold or past its expiry at the source store's business date, G7-4), and fails closed with 409 `transfer_warehouse_unmapped` while the source, destination or tenant transit warehouse has no ERP mapping (O2). Approval is capability controlled (805): owner, tenant_admin or a store_manager of the source store; the same person may create, approve and dispatch (each step is audited with its actor; owner decision 2026-11-19). Approval is never refused for lack of stock: a reservation above the source Available to Sell is recorded and the negative Available to Sell is preserved and flagged (743), as every other stock write is (owner decision 2026-11-19). Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["approveShipmentTransfer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}/cancel": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Cancel a Transfer before dispatch.
+             * @description RT-1512. Moves a `draft` or `approved` Transfer to the terminal `cancelled` state with a recorded reason; an approved Transfer's reservation is released by an audited event (798) and no quantity changes. From `in_transit` onward a Transfer cannot be cancelled (409 `shipment_transfer_not_in_state`): goods already left the source, so they leave In Transit only through a receipt at the destination or an approved short-close. Owner, tenant_admin or a store_manager of the source store. Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["cancelShipmentTransfer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}/dispatch": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Dispatch an approved Transfer; its goods go In Transit.
+             * @description RT-1512 (807, 808; 876, 888). Moves an `approved` Transfer to `in_transit`. One Inventory Business Event writes one `transfer_out` effect per line at the source position, which lowers the source Physical and Sellable On Hand; the line's reservation is consumed by that effect, so the quantity is deducted once. Each line's `inTransitQuantity` becomes its dispatched quantity; In Transit counts in neither store's On Hand nor Available to Sell (736). The whole approved quantity of every line is dispatched; to send less, cancel and create a new Transfer. A Transfer whose reservation expired is back in `draft` (409 `shipment_transfer_not_in_state`). Tracked lines are re-checked as on approval (G7-4). The ERP leg is one `transfer_dispatch` work item, created in the same transaction as the effects (DC-2); ERP confirmation changes integration state only and never moves the lifecycle. Owner, tenant_admin or a store_manager of the source store. Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["dispatchShipmentTransfer"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}/receipts": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List a Transfer's receipts, oldest first.
+             * @description RT-1512. The receipts of one shipment Transfer, oldest first (`receivedAt ASC, id ASC`), in keyset pages bound to the Transfer. Visible to whoever may read the Transfer.
+             */
+            get: operations["listShipmentTransferReceipts"];
+            put?: never;
+            /**
+             * Record a (possibly partial) receipt at the destination.
+             * @description RT-1512 (803, 804, 809–813; 877, 889; owner ruling O5). Records one receipt event for an `in_transit` or `partially_received` Transfer. A Transfer may have any number of receipts; each gets a stable receipt id (889) and writes one `transfer_in` effect per line at the destination position, in the line's `disposition` (`sellable` or `damaged`, 811), and lowers that line's `inTransitQuantity`. A line of a tracked identity under an active hold lands in that hold's status instead (G7-4). A line may not receive more than its `inTransitQuantity`: an over-receipt is refused with 409 `over_receipt_requires_approval` (813) and nothing is written; the excess is recorded, with approval, as a separate inventory adjustment at the destination (`createStockMovement`, movement type `adjustment`), never on the Transfer. A short receipt fabricates nothing (812): the open quantity stays In Transit until a later receipt or an approved short-close. When every line's `inTransitQuantity` reaches zero the Transfer is `received`, otherwise `partially_received`. The ERP leg is one `transfer_receive` work item per receipt, released only after the dispatch is ERP-confirmed. Owner, tenant_admin or a store_manager of the destination store. Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["recordShipmentTransferReceipt"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/shipment-transfers/{transferId}/close": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Close a Transfer, short-closing what is still in transit.
+             * @description RT-1512 (812). Moves a `received` Transfer to `closed` (`shortCloseReason` null). A `partially_received` Transfer, or an `in_transit` one, can be closed only as an approved short-close: the caller gives `shortCloseReason`, each line's remaining `inTransitQuantity` becomes its `shortClosedQuantity` and is written off as a loss (its ERP leg is decided with RT-1513 and RT-1514, see `posting-feed.yaml` 1.16.0-draft), and the Transfer is `closed`. Without a reason while any quantity is in transit the close is refused with 409 `short_close_reason_required`. A short-close needs the discrepancy approval capability: owner or tenant_admin. Closing a fully received Transfer: also a store_manager of the destination store. Idempotent via the `Idempotency-Key` header.
+             */
+            post: operations["closeShipmentTransfer"];
             delete?: never;
             options?: never;
             head?: never;
@@ -13632,6 +13781,205 @@ export namespace InventorySchema {
                 outbound: components["schemas"]["StockMovement"];
                 inbound: components["schemas"]["StockMovement"];
             };
+            /**
+             * @description RT-1512 — the Gate 5 lifecycle (802). `approved` means approved AND reserved (806). Dispatched and In Transit are one stored state, `in_transit`, entered by the dispatch event. `received` means nothing is left in transit; `closed` and `cancelled` are terminal.
+             * @enum {string}
+             */
+            ShipmentTransferState: "draft" | "approved" | "in_transit" | "partially_received" | "received" | "closed" | "cancelled";
+            /**
+             * @description RT-1512 — the ERP posting state of one Transfer leg (the dispatch, or one receipt), as the `StockMovement.integrationState` of its effects (G2-3). `not_posted` until its work item exists (a receipt waits for its dispatch to be `confirmed`); ERP confirmation never moves the Transfer lifecycle (DC-3). Shown so the Console and the delayed-transfer alert can see a stuck leg (owner decision 2026-11-19).
+             * @enum {string}
+             */
+            ShipmentLegIntegrationState: "not_posted" | "pending" | "confirmed" | "rejected" | "reconciliation_required";
+            /**
+             * @description RT-1512 — where a received line lands at the destination (810, 811). A line of a tracked identity under an active hold lands in that hold's status instead, decided server-side (G7-4).
+             * @enum {string}
+             */
+            ShipmentReceiptDisposition: "sellable" | "damaged";
+            ShipmentTransferActorStamp: {
+                /**
+                 * Format: uuid
+                 * @description The acting principal.
+                 */
+                by: string;
+                /** Format: date-time */
+                at: string;
+            };
+            /** @description RT-1512 (794–798). The source-stock reservation made by approval. It lowers the source Available to Sell only. `releasedAt` is set when the reservation is consumed by dispatch, released by cancel or expired. */
+            ShipmentTransferReservation: {
+                /** Format: uuid */
+                reservedBy: string;
+                /** Format: date-time */
+                reservedAt: string;
+                /** Format: date-time */
+                expiresAt: string;
+                /** Format: date-time */
+                releasedAt: string | null;
+            };
+            /** @description RT-1512 (812). The approved write-off of what was still in transit at close. */
+            ShipmentTransferShortClose: {
+                /** Format: uuid */
+                approvedBy: string;
+                /** Format: date-time */
+                approvedAt: string;
+                reason: string;
+            };
+            ShipmentTransferCancellation: {
+                /** Format: uuid */
+                cancelledBy: string;
+                /** Format: date-time */
+                cancelledAt: string;
+                reason: string;
+            };
+            /** @description RT-1512 — one line of a shipment Transfer. In Transit is this transfer-owned quantity, `dispatchedQuantity − receivedQuantity − shortClosedQuantity`, never a Stock Location or an inventory status (G4-1, 736). */
+            ShipmentTransferLine: {
+                /** Format: uuid */
+                id: string;
+                lineSeq: number;
+                /** Format: uuid */
+                tenantProductRef: string;
+                stockingUnit: components["schemas"]["StockingUnit"];
+                /**
+                 * Format: uuid
+                 * @description The line's tracking identity (one per line, G7-4); null for an untracked product.
+                 */
+                trackingIdentityId: string | null;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                dispatchedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                receivedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                shortClosedQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                inTransitQuantity: components["schemas"]["NonNegativeDecimalQuantity"];
+                /**
+                 * Format: uuid
+                 * @description The line's `transfer_out` movement; null before dispatch.
+                 */
+                dispatchMovementId: string | null;
+            };
+            /** @description RT-1512 — a shipment Transfer (Gate 5). */
+            ShipmentTransfer: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                sourceStoreId: string;
+                /** Format: uuid */
+                destinationStoreId: string;
+                state: components["schemas"]["ShipmentTransferState"];
+                lines: components["schemas"]["ShipmentTransferLine"][];
+                reason: string | null;
+                /** Format: uuid */
+                createdBy: string;
+                /** Format: date-time */
+                createdAt: string;
+                /** @description Null in `draft`. A reservation that expires returns the Transfer to `draft` and clears `approval` and `reservation`; a later approval stamps them anew. */
+                approval: components["schemas"]["ShipmentTransferActorStamp"] | null;
+                reservation: components["schemas"]["ShipmentTransferReservation"] | null;
+                dispatch: components["schemas"]["ShipmentTransferActorStamp"] | null;
+                /** @description The dispatch leg's ERP posting state; null before dispatch. */
+                dispatchIntegrationState: components["schemas"]["ShipmentLegIntegrationState"] | null;
+                shortClose: components["schemas"]["ShipmentTransferShortClose"] | null;
+                closure: components["schemas"]["ShipmentTransferActorStamp"] | null;
+                cancellation: components["schemas"]["ShipmentTransferCancellation"] | null;
+                receiptCount: number;
+                /** Format: date-time */
+                updatedAt: string;
+            };
+            ShipmentTransferList: {
+                items: components["schemas"]["ShipmentTransfer"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            ShipmentTransferReceiptLine: {
+                /** Format: uuid */
+                transferLineId: string;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                inventoryStatus: components["schemas"]["InventoryStatus"];
+                /** Format: uuid */
+                stockLocationId: string;
+                /**
+                 * Format: uuid
+                 * @description The `transfer_in` movement this line wrote.
+                 */
+                movementId: string;
+            };
+            /** @description RT-1512 (803, 804, 889) — one receipt event. `id` is the stable receipt identity; a replay with the same `Idempotency-Key` returns the same receipt. */
+            ShipmentTransferReceipt: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                transferId: string;
+                /** Format: uuid */
+                receivedBy: string;
+                /** Format: date-time */
+                receivedAt: string;
+                note: string | null;
+                integrationState: components["schemas"]["ShipmentLegIntegrationState"];
+                lines: components["schemas"]["ShipmentTransferReceiptLine"][];
+            };
+            ShipmentTransferReceiptList: {
+                items: components["schemas"]["ShipmentTransferReceipt"][];
+                /** @description Opaque cursor for the next page; null when exhausted. */
+                nextCursor: string | null;
+            };
+            ShipmentTransferReceiptResult: {
+                transfer: components["schemas"]["ShipmentTransfer"];
+                receipt: components["schemas"]["ShipmentTransferReceipt"];
+            };
+            CreateShipmentTransferLine: {
+                /** Format: uuid */
+                tenantProductRef: string;
+                /** @description At most 13 integer digits in practice: an ERP leg carries at most 13 integer and 6 fractional digits, so a larger quantity is refused with 400 `validation_error`. */
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: components["schemas"]["StockingUnit"];
+                /**
+                 * Format: uuid
+                 * @description Required (non-null) for a tracked product, one identity per line; null for an untracked product (G7-4).
+                 */
+                trackingIdentityId: string | null;
+            };
+            /** @description Strict command. The source store is checked against the caller's store scope; the destination is a target reference in the same tenant. Both authorities are checked (962). Tenant and actor come from the session. */
+            CreateShipmentTransferCommand: {
+                /** Format: uuid */
+                sourceStoreId: string;
+                /**
+                 * Format: uuid
+                 * @description MUST differ from `sourceStoreId` (a move inside one store is a Relocation, 800).
+                 */
+                destinationStoreId: string;
+                lines: components["schemas"]["CreateShipmentTransferLine"][];
+                reason: string | null;
+            };
+            ApproveShipmentTransferCommand: {
+                /**
+                 * Format: date-time
+                 * @description The explicit reservation expiry (797); MUST be in the future.
+                 */
+                reservationExpiresAt: string;
+            };
+            CancelShipmentTransferCommand: {
+                reason: string;
+            };
+            DispatchShipmentTransferCommand: {
+                note: string | null;
+            };
+            ShipmentTransferReceiptLineInput: {
+                /** Format: uuid */
+                transferLineId: string;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                disposition: components["schemas"]["ShipmentReceiptDisposition"];
+                /**
+                 * Format: uuid
+                 * @description A destination store location; null means the store's primary location.
+                 */
+                stockLocationId: string | null;
+            };
+            RecordShipmentTransferReceiptCommand: {
+                lines: components["schemas"]["ShipmentTransferReceiptLineInput"][];
+                note: string | null;
+            };
+            CloseShipmentTransferCommand: {
+                /** @description Null closes a fully `received` Transfer. Required (non-null) when any quantity is still in transit: that quantity is short-closed as an approved loss (812). */
+                shortCloseReason: string | null;
+            };
             StockCountResult: {
                 /** Format: uuid */
                 stockCountId: string;
@@ -14171,6 +14519,42 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 409 on the deprecated `createStockTransfer`. `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. `transfer_workflow_required` (RT-1512, from the RT-1513 runtime): the tenant has activated shipment transfers, so the instant transfer is refused and nothing is written (976); use `/api/inventory/v1/shipment-transfers`. */
+            StockTransferConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "transfer_workflow_required",
+                     *         "message": "Shipment transfers are active for this tenant; use the shipment transfer workflow.",
+                     *         "request_id": "0198b000-0003-7000-8000-000000000003"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 — RT-1512 (RT-291 Gate 5). `shipment_transfer_not_in_state`: the command is not allowed in the Transfer's state (for example cancel after dispatch, or dispatch after the reservation expired). `cross_legal_entity_transfer`: the stores belong to different legal entities; that is a future intercompany workflow, not a Transfer (817, 963). `tracking_identity_required`: a tracked product's line has no tracking identity. `tracking_identity_held_or_expired`: the identity is under an active hold, or past its expiry at the source store's business date (G7-4). `serial_transfer_not_supported`: serial products cannot be transferred until the serial gate. `transfer_warehouse_unmapped`: the source, destination or tenant transit warehouse has no ERP mapping, so the Transfer fails closed (O2). `over_receipt_requires_approval`: a receipt line exceeds the line's in-transit quantity (813). `short_close_reason_required`: a close while quantity is still in transit has no short-close reason (812). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
+            ShipmentTransferConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "over_receipt_requires_approval",
+                     *         "message": "A receipt line exceeds the quantity in transit.",
+                     *         "request_id": "0198b000-0002-7000-8000-000000000002"
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description 403 `count_self_approval_owner_only` — RT-1420. Only the tenant owner reads or changes the Count Session approval exception. */
             CountSelfApprovalOwnerOnly: {
                 headers: {
@@ -14258,6 +14642,8 @@ export namespace InventorySchema {
             IdentityIdPath: string;
             /** @description A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only. */
             SaleIdPath: string;
+            /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+            TransferIdPath: string;
             /** @description A Count Session of the path store; resolved inside the caller's tenant and store scope only. */
             CountSessionIdPath: string;
             /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
@@ -14466,7 +14852,7 @@ export namespace InventorySchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
-                409: components["responses"]["IdempotencyConflict"];
+                409: components["responses"]["StockTransferConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
@@ -15216,6 +15602,321 @@ export namespace InventorySchema {
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 404: components["responses"]["NotFoundOrCrossTenant"];
                 409: components["responses"]["TrackingResolutionConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listShipmentTransfers: {
+            parameters: {
+                query?: {
+                    /** @description Only Transfers touching this store (see `direction`). */
+                    storeId?: string;
+                    /** @description With `storeId`: `outbound` (the store is the source), `inbound` (the store is the destination) or `any`. Ignored without `storeId`. */
+                    direction?: "outbound" | "inbound" | "any";
+                    state?: components["schemas"]["ShipmentTransferState"];
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: components["parameters"]["CountCursor"];
+                    limit?: components["parameters"]["CountLimit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of shipment Transfers, newest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransferList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        createShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CreateShipmentTransferCommand"];
+                };
+            };
+            responses: {
+                /** @description Shipment Transfer created in `draft`. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The shipment Transfer. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        approveShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ApproveShipmentTransferCommand"];
+                };
+            };
+            responses: {
+                /** @description Transfer approved and its source stock reserved. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        cancelShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CancelShipmentTransferCommand"];
+                };
+            };
+            responses: {
+                /** @description Transfer cancelled. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        dispatchShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["DispatchShipmentTransferCommand"];
+                };
+            };
+            responses: {
+                /** @description Transfer dispatched and In Transit. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        listShipmentTransferReceipts: {
+            parameters: {
+                query?: {
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the store, the session (when the path has one) and the filters. A value the server did not issue, or one reused with other filters, is 400 `validation_error`. The role and store scope are checked on every request and are never carried by the cursor. */
+                    cursor?: components["parameters"]["CountCursor"];
+                    limit?: components["parameters"]["CountLimit"];
+                };
+                header?: never;
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of receipts, oldest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransferReceiptList"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        recordShipmentTransferReceipt: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecordShipmentTransferReceiptCommand"];
+                };
+            };
+            responses: {
+                /** @description Receipt recorded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransferReceiptResult"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        closeShipmentTransfer: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description Replay-safety key for write operations (FR-030). A replay with the same key + same body returns the prior result with no second movement; a replay with the same key + different body is a 409 conflict. Resolved by the reused 001/005 idempotency interceptor (the manual-movement dedup contract). */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description A shipment Transfer; resolved inside the caller's tenant and store scope only. */
+                    transferId: components["parameters"]["TransferIdPath"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["CloseShipmentTransferCommand"];
+                };
+            };
+            responses: {
+                /** @description Transfer closed. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfer"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                404: components["responses"]["NotFoundOrCrossTenant"];
+                409: components["responses"]["ShipmentTransferConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
