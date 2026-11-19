@@ -169,7 +169,7 @@ async function applyCash(s: Stack, attempt: string, key: string, amount: number)
     amount_applied_minor: amount,
     idempotency_key: key,
   });
-  if (r.kind !== 'ok') throw new Error(`apply refused: ${r.reason}`);
+  if (r.kind !== 'ok') throw new Error(`apply refused: ${JSON.stringify(r)}`);
   return r.tender_line_id;
 }
 

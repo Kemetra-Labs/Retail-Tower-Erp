@@ -155,13 +155,34 @@ function isTenderType(value: unknown): value is TenderType {
   return typeof value === 'string' && TENDER_TYPES_RUNTIME.includes(value as TenderType);
 }
 
+/**
+ * The money fields of a tender / voucher request: the applied amount, and (RT-1331) the
+ * optional confirmed forfeit. The forfeit is absent or a safe non-negative integer, else
+ * the whole request is refused at the boundary: an acknowledgement that is not a money
+ * value is never silently dropped.
+ */
+function hasValidAmounts(
+  v: Record<string, unknown>,
+): v is Record<string, unknown> & { amount_applied_minor: number } {
+  const ack = v['voucher_forfeit_ack_minor'];
+  return (
+    isValidMinorUnit(v['amount_applied_minor']) && (ack === undefined || isValidMinorUnit(ack))
+  );
+}
+
+/** RT-1331: `{ voucher_forfeit_ack_minor }` when the request carries one, else nothing. */
+function forfeitAckField(v: Record<string, unknown>): { voucher_forfeit_ack_minor?: number } {
+  const ack = v['voucher_forfeit_ack_minor'];
+  return typeof ack === 'number' ? { voucher_forfeit_ack_minor: ack } : {};
+}
+
 function asTenderApplyReq(value: unknown): TenderApplyRequest | null {
   if (typeof value !== 'object' || value === null) return null;
   const v = value as Record<string, unknown>;
   if (
     typeof v['payment_attempt_id'] !== 'string' ||
     !isTenderType(v['tender_type']) ||
-    !isValidMinorUnit(v['amount_applied_minor']) ||
+    !hasValidAmounts(v) ||
     typeof v['idempotency_key'] !== 'string'
   ) {
     return null;
@@ -179,7 +200,7 @@ function asTenderApplyReq(value: unknown): TenderApplyRequest | null {
   if (typeof v['voucher_code'] === 'string') {
     (req as { voucher_code?: string }).voucher_code = v['voucher_code'];
   }
-  return req;
+  return Object.assign(req, forfeitAckField(v));
 }
 
 function asTenderReverseReq(value: unknown): TenderReverseRequest | null {
@@ -207,7 +228,7 @@ function asVouchersValidateReq(value: unknown): VouchersValidateRequest | null {
   if (
     typeof v['payment_attempt_id'] !== 'string' ||
     typeof v['voucher_code'] !== 'string' ||
-    !isValidMinorUnit(v['amount_applied_minor']) ||
+    !hasValidAmounts(v) ||
     typeof v['idempotency_key'] !== 'string'
   ) {
     return null;
@@ -216,6 +237,7 @@ function asVouchersValidateReq(value: unknown): VouchersValidateRequest | null {
     payment_attempt_id: v['payment_attempt_id'],
     voucher_code: v['voucher_code'],
     amount_applied_minor: v['amount_applied_minor'],
+    ...forfeitAckField(v),
     idempotency_key: v['idempotency_key'],
   };
 }

@@ -4,6 +4,7 @@ import type { TenderApplyRequest, TenderApplyResponse } from '../../../shared/br
 import { touchTarget } from '../tokens/touch.js';
 import { PinnedPrimary } from './CheckoutActionBar.js';
 import { parseCurrencyToMinor } from './parse-currency-to-minor.js';
+import { VoucherForfeitPrompt } from './VoucherForfeitPrompt.js';
 import { normalizeNumericInput } from '../forms/normalize-digits.js';
 
 /**
@@ -54,6 +55,26 @@ const GENERIC_VOUCHER_REFUSAL_COPY = 'تعذّر استخدام هذه القس�
 
 const VOUCHER_CODE_PATTERN = /^[A-Z0-9_-]+$/;
 
+/**
+ * The forfeit a `forfeit_confirmation_required` answer asks the cashier to confirm, or
+ * null for any other answer. An answer without a positive safe integer is not a prompt
+ * (there is nothing to confirm): it falls through to the generic refusal, failing closed.
+ */
+function usableForfeit(response: TenderApplyResponse): number | null {
+  if (response.kind !== 'forfeit_confirmation_required') {
+    return null;
+  }
+  const forfeited = response.forfeited_amount_minor;
+  return Number.isSafeInteger(forfeited) && forfeited > 0 ? forfeited : null;
+}
+
+/** A confirmation the cashier has been asked for; edits to the inputs discard it. */
+interface PendingForfeit {
+  readonly forfeitedMinor: number;
+  readonly amountMinor: number;
+  readonly code: string;
+}
+
 /*
  * 022 Phase C — `formatMinorUnits` was removed with the duplicate
  * `.amount-due-card`. It existed solely to render that panel's value; the
@@ -77,6 +98,7 @@ export function VoucherEntry({
   const [bridgeRefusal, setBridgeRefusal] = useState<boolean>(false);
   const [isApplying, setIsApplying] = useState<boolean>(false);
   const [appliedOk, setAppliedOk] = useState<boolean>(false);
+  const [pendingForfeit, setPendingForfeit] = useState<PendingForfeit | null>(null);
 
   // CR-1 (PR #226): React's `disabled` reflects state asynchronously,
   // so two rapid clicks can dispatch two bridge calls before
@@ -87,6 +109,17 @@ export function VoucherEntry({
   // double-fire deterministically; the render-state `disabled` stays
   // as secondary UX feedback.
   const submitLockRef = useRef<boolean>(false);
+
+  // RT-1331: bumped on every accepted edit of the code or the amount. A forfeit answer
+  // belongs to the input that was sent; if either input changed while the request was in
+  // flight, the answer is discarded (nothing was persisted for it), so a prompt is never
+  // restored for a code or amount the cashier no longer sees, and confirming can never
+  // acknowledge input other than what is on screen.
+  const inputRevisionRef = useRef<number>(0);
+  const noteInputEdited = (): void => {
+    inputRevisionRef.current += 1;
+    if (pendingForfeit !== null) setPendingForfeit(null);
+  };
 
   const amountAppliedMinor = useMemo(() => parseCurrencyToMinor(rawAmountInput), [rawAmountInput]);
 
@@ -107,22 +140,21 @@ export function VoucherEntry({
 
   const canSubmit = codeIsWellFormed && amountIsWellFormed && !isApplying;
 
-  const handleSubmit = (): void => {
+  /**
+   * One `tender.apply` round trip. Without `forfeitAckMinor` main may answer
+   * `forfeit_confirmation_required` (RT-1331); with it, main applies the line only when
+   * the forfeit it just saw still equals the amount the cashier confirmed, else it asks
+   * again with the new amount. Every call carries a FRESH idempotency key: the first
+   * answer persisted nothing, so there is nothing to replay.
+   */
+  const send = (amount: number, code: string, forfeitAckMinor?: number): void => {
     // Synchronous ref-lock first — beats React's render-state lag
     // against rapid double-clicks.
     if (submitLockRef.current) {
       return;
     }
-    // Use the raw `amountAppliedMinor` null-check as the guard — this
-    // narrows the type cleanly. `canSubmit` is a downstream boolean
-    // derived from the same value plus the upper-bound check; checking
-    // both `amountAppliedMinor !== null` AND `canSubmit` gives the
-    // narrowing without tripping eslint's no-unnecessary-condition.
-    if (amountAppliedMinor === null || !canSubmit) {
-      return;
-    }
     submitLockRef.current = true;
-    const amount = amountAppliedMinor;
+    const sentRevision = inputRevisionRef.current;
     setBridgeRefusal(false);
     setIsApplying(true);
     void (async (): Promise<void> => {
@@ -131,27 +163,58 @@ export function VoucherEntry({
           payment_attempt_id: paymentAttemptId,
           tender_type: 'internal_voucher',
           amount_applied_minor: amount,
-          voucher_code: voucherCode,
+          voucher_code: code,
+          ...(forfeitAckMinor !== undefined ? { voucher_forfeit_ack_minor: forfeitAckMinor } : {}),
           idempotency_key: generateIdempotencyKey(),
         });
         if (response.kind === 'ok') {
+          setPendingForfeit(null);
           setAppliedOk(true);
           onApplied?.(response);
           return;
         }
+        const forfeitedMinor = usableForfeit(response);
+        if (forfeitedMinor !== null) {
+          if (sentRevision === inputRevisionRef.current) {
+            setPendingForfeit({ forfeitedMinor, amountMinor: amount, code });
+          }
+          return;
+        }
         // F-A4B-003: every refusal reason collapses to one generic copy.
-        // The structured `response.reason` is intentionally NOT rendered.
+        // The structured `response.reason` is intentionally NOT rendered. A forfeit
+        // answer without a usable amount lands here too: it fails closed.
+        setPendingForfeit(null);
         setBridgeRefusal(true);
       } catch {
         // A rejected bridge call (IPC error / main-process crash /
         // timeout) MUST NOT leave the surface stuck in `isApplying`.
         // Same generic refusal copy — error details stay upstream.
+        setPendingForfeit(null);
         setBridgeRefusal(true);
       } finally {
         setIsApplying(false);
         submitLockRef.current = false;
       }
     })();
+  };
+
+  const handleSubmit = (): void => {
+    // Use the raw `amountAppliedMinor` null-check as the guard — this
+    // narrows the type cleanly. `canSubmit` is a downstream boolean
+    // derived from the same value plus the upper-bound check; checking
+    // both `amountAppliedMinor !== null` AND `canSubmit` gives the
+    // narrowing without tripping eslint's no-unnecessary-condition.
+    if (amountAppliedMinor === null || !canSubmit) {
+      return;
+    }
+    send(amountAppliedMinor, voucherCode);
+  };
+
+  const handleForfeitConfirm = (): void => {
+    if (pendingForfeit === null) {
+      return;
+    }
+    send(pendingForfeit.amountMinor, pendingForfeit.code, pendingForfeit.forfeitedMinor);
   };
 
   return (
@@ -190,6 +253,7 @@ export function VoucherEntry({
                   setVoucherCode(e.target.value.toUpperCase());
                   if (bridgeRefusal) setBridgeRefusal(false);
                   if (appliedOk) setAppliedOk(false);
+                  noteInputEdited();
                 }}
                 maxLength={64}
                 autoComplete="off"
@@ -228,6 +292,7 @@ export function VoucherEntry({
                 if (next === '' || /^\d*\.?\d{0,2}$/.test(next)) {
                   setRawAmountInput(next);
                   if (bridgeRefusal) setBridgeRefusal(false);
+                  noteInputEdited();
                 }
               }}
               inputMode="numeric"
@@ -249,17 +314,28 @@ export function VoucherEntry({
       <p className="voucher-hint">أدخل رمز القسيمة والمبلغ المطلوب تطبيقه، ثم اضغط «تطبيق».</p>
 
       <PinnedPrimary>
-        <button
-          type="button"
-          className="voucher-entry__confirm v5-btn v5-btn--primary v5-btn--commit"
-          data-testid="voucher-entry-confirm"
-          style={{ minHeight: touchTarget.commit }}
-          disabled={!canSubmit}
-          aria-disabled={!canSubmit ? 'true' : undefined}
-          onClick={handleSubmit}
-        >
-          تطبيق القسيمة
-        </button>
+        {pendingForfeit === null ? (
+          <button
+            type="button"
+            className="voucher-entry__confirm v5-btn v5-btn--primary v5-btn--commit"
+            data-testid="voucher-entry-confirm"
+            style={{ minHeight: touchTarget.commit }}
+            disabled={!canSubmit}
+            aria-disabled={!canSubmit ? 'true' : undefined}
+            onClick={handleSubmit}
+          >
+            تطبيق القسيمة
+          </button>
+        ) : (
+          <VoucherForfeitPrompt
+            forfeitedMinor={pendingForfeit.forfeitedMinor}
+            busy={isApplying}
+            onConfirm={handleForfeitConfirm}
+            onCancel={() => {
+              setPendingForfeit(null);
+            }}
+          />
+        )}
         {isApplying && (
           <div data-testid="voucher-entry-applying" aria-busy="true">
             جارٍ التطبيق…

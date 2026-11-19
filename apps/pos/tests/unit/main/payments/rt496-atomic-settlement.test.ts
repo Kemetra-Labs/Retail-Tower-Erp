@@ -306,7 +306,7 @@ async function paidAttempt(p: ReturnType<typeof boot>): Promise<string> {
     amount_applied_minor: 1500,
     idempotency_key: 'k-apply',
   });
-  if (a.kind !== 'ok') throw new Error(`apply refused: ${a.reason}`);
+  if (a.kind !== 'ok') throw new Error(`apply refused: ${JSON.stringify(a)}`);
   return s.payment_attempt_id;
 }
 

@@ -24,6 +24,7 @@ import { registerPaymentsHandlers } from '../../../../src/main/ipc/payments.js';
 import {
   PAYMENTS_IPC_CHANNELS,
   TENDER_IPC_CHANNELS,
+  VOUCHERS_IPC_CHANNELS,
 } from '../../../../src/shared/payments/channels.js';
 import type {
   PaymentsCancelResponse,
@@ -323,6 +324,63 @@ describe('registerPaymentsHandlers — valid payloads forward to the handler', (
       amount_applied_minor: 1500,
       idempotency_key: 'k',
     });
+  });
+
+  it('RT-1331: tender.apply forwards voucher_forfeit_ack_minor and rejects a malformed one', async () => {
+    const { ipcMain, handlers } = mkIpc();
+    const deps = mkDeps();
+    registerPaymentsHandlers(ipcMain, deps);
+    const handler = handlers.get(TENDER_IPC_CHANNELS.APPLY);
+    if (handler === undefined) throw new Error('missing APPLY');
+    const base = {
+      payment_attempt_id: 'pa-1',
+      tender_type: 'internal_voucher',
+      amount_applied_minor: 1500,
+      voucher_code: 'V-ABC',
+      idempotency_key: 'k',
+    };
+    await handler(fakeEvent(), { ...base, voucher_forfeit_ack_minor: 250 });
+    expect(deps.tenderApply).toHaveBeenCalledWith({ ...base, voucher_forfeit_ack_minor: 250 });
+
+    deps.tenderApply.mockClear();
+    for (const bad of [-1, 1.5, '250', Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(await handler(fakeEvent(), { ...base, voucher_forfeit_ack_minor: bad })).toEqual({
+        kind: 'refused',
+        reason: 'invalid_input',
+      });
+    }
+    expect(deps.tenderApply).not.toHaveBeenCalled();
+  });
+
+  it('RT-1331: vouchers.validate forwards voucher_forfeit_ack_minor and rejects a malformed one', async () => {
+    const { ipcMain, handlers } = mkIpc();
+    const vouchersValidate = vi.fn(() =>
+      Promise.resolve({ kind: 'refused', reason: 'no_session' } as const),
+    );
+    registerPaymentsHandlers(ipcMain, { ...mkDeps(), vouchersValidate });
+    const handler = handlers.get(VOUCHERS_IPC_CHANNELS.VALIDATE);
+    if (handler === undefined) throw new Error('missing VALIDATE');
+    const base = {
+      payment_attempt_id: 'pa-1',
+      voucher_code: 'V-ABC',
+      amount_applied_minor: 1500,
+      idempotency_key: 'k',
+    };
+    await handler(fakeEvent(), { ...base, voucher_forfeit_ack_minor: 250 });
+    expect(vouchersValidate).toHaveBeenCalledWith({ ...base, voucher_forfeit_ack_minor: 250 });
+
+    vouchersValidate.mockClear();
+    await handler(fakeEvent(), base);
+    expect(vouchersValidate).toHaveBeenCalledWith(base);
+
+    vouchersValidate.mockClear();
+    for (const bad of [-1, 1.5, '250', Number.NaN, Number.MAX_SAFE_INTEGER + 1]) {
+      expect(await handler(fakeEvent(), { ...base, voucher_forfeit_ack_minor: bad })).toEqual({
+        kind: 'refused',
+        reason: 'invalid_input',
+      });
+    }
+    expect(vouchersValidate).not.toHaveBeenCalled();
   });
 
   it('tender.reverse forwards', async () => {

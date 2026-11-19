@@ -60,6 +60,11 @@ export interface ApplyVoucherLineInput {
   amount_applied_minor: number;
   remaining_balance_minor: number;
   /**
+   * RT-1331 (decision 1A): the forfeit the cashier confirmed, if any. A forfeit above
+   * zero is applied only when this equals what V-A reports on this very validate.
+   */
+  forfeit_ack_minor?: number;
+  /**
    * RT-1110 (device-only credential): the admitted cashier's `users.id`, sent to
    * V-A as `operatorUserId` (`sellingUserIdOf`). Null when the session has no
    * cashier admission (a manager / admin session): then V-A is not called.
@@ -76,6 +81,15 @@ export type ApplyVoucherLineOutcome =
       applied_at: string;
       /** Authority-confirmed amount; equals input when V-A validates without capping. */
       applied_amount_minor: number;
+    }
+  | {
+      /**
+       * RT-1331: the voucher is worth more than the amount applied and the cashier has
+       * not confirmed the forfeit. Nothing was persisted or audited. The amount is for
+       * the renderer's prompt only: never log it, audit it or hand it to the FSM.
+       */
+      kind: 'forfeit_confirmation_required';
+      forfeited_amount_minor: number;
     }
   | {
       kind: 'refused';
@@ -98,6 +112,8 @@ export interface VoucherTenderRequest {
   payment_attempt_id: string;
   voucher_code: string;
   amount_applied_minor: number;
+  /** RT-1331: the confirmed forfeit (see `ApplyVoucherLineInput.forfeit_ack_minor`). */
+  voucher_forfeit_ack_minor?: number | undefined;
   idempotency_key: string;
 }
 
@@ -142,6 +158,9 @@ export function applyVoucherForRequest(
       voucher_code: req.voucher_code,
       amount_applied_minor: req.amount_applied_minor,
       remaining_balance_minor: remainingBalanceMinor(ctx.attempt, ctx.existingLines),
+      ...(req.voucher_forfeit_ack_minor !== undefined
+        ? { forfeit_ack_minor: req.voucher_forfeit_ack_minor }
+        : {}),
       // The same source as the sale's `selling_user_id` (payments-confirm).
       operator_user_id: sellingUserIdOf(ctx.session, ctx.attempt.acting_operator_id),
       applied_at: ctx.now,
@@ -176,6 +195,49 @@ function emitRefused(
 }
 
 /**
+ * V-A refused the voucher: the FSM persists a `refused`-state row (mirrors the
+ * external_card_terminal overpayment refusal behaviour) and the refusal is audited.
+ * The handler trusts the V-A refusal verbatim; the FSM call's purpose is row
+ * persistence + outbox.
+ */
+function persistAuthorityRefusal(
+  input: ApplyVoucherLineInput,
+  deps: ApplyVoucherLineDeps,
+  mapped: ReturnType<typeof mapClosedRefusal>,
+): ApplyVoucherLineOutcome {
+  deps.tenderLineFsm.apply({
+    tender_line_id: input.tender_line_id,
+    payment_attempt_id: input.attempt.payment_attempt_id,
+    tender_type: 'internal_voucher',
+    amount_applied_minor: input.amount_applied_minor,
+    voucher_code: input.voucher_code,
+    voucher_outcome: { kind: 'refused', reason: mapped },
+    attribution_operator_id: input.session.operator_id,
+    applied_at: input.applied_at,
+    action_id: input.action_id,
+  });
+  emitRefused(input, deps, mapped);
+  return { kind: 'refused', reason: mapped };
+}
+
+/**
+ * RT-1331 (decision 1A): a redemption consumes the whole voucher, so the part of its
+ * value above the applied amount is forfeited. Null when nothing is forfeited or the
+ * cashier already confirmed exactly that amount; otherwise the answer that asks for it.
+ * The confirmed call validates again (a fresh intent), so a changed voucher value asks
+ * again instead of applying a stale confirmation. Nothing is persisted or audited.
+ */
+function forfeitConfirmation(
+  forfeitedMinor: number,
+  input: ApplyVoucherLineInput,
+): ApplyVoucherLineOutcome | null {
+  if (forfeitedMinor > 0 && input.forfeit_ack_minor !== forfeitedMinor) {
+    return { kind: 'forfeit_confirmation_required', forfeited_amount_minor: forfeitedMinor };
+  }
+  return null;
+}
+
+/**
  * Run the V-A validate + persist-line flow. The caller owns
  * session/role/isolation/idempotency gating; this helper only handles
  * the V-A call + FSM apply + audit emission.
@@ -206,23 +268,12 @@ export async function applyVoucherLine(
   }
 
   if (outcome.kind === 'refused') {
-    const mapped = mapClosedRefusal(outcome.reason);
-    // FSM persists a `refused`-state row (mirrors external_card_terminal
-    // overpayment refusal behaviour). The handler trusts the V-A refusal
-    // verbatim; the FSM call's purpose is row persistence + outbox.
-    deps.tenderLineFsm.apply({
-      tender_line_id: input.tender_line_id,
-      payment_attempt_id: input.attempt.payment_attempt_id,
-      tender_type: 'internal_voucher',
-      amount_applied_minor: input.amount_applied_minor,
-      voucher_code: input.voucher_code,
-      voucher_outcome: { kind: 'refused', reason: mapped },
-      attribution_operator_id: input.session.operator_id,
-      applied_at: input.applied_at,
-      action_id: input.action_id,
-    });
-    emitRefused(input, deps, mapped);
-    return { kind: 'refused', reason: mapped };
+    return persistAuthorityRefusal(input, deps, mapClosedRefusal(outcome.reason));
+  }
+
+  const confirmation = forfeitConfirmation(outcome.forfeited_amount_minor, input);
+  if (confirmation !== null) {
+    return confirmation;
   }
 
   // V-A validated. Thread the validated outcome into the FSM; the line

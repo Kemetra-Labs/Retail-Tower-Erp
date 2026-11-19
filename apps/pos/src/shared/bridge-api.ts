@@ -1221,7 +1221,25 @@ export interface TenderApplyRequest {
   external_reference?: string;
   /** Only for `internal_voucher` (Slice 4 path). */
   voucher_code?: string;
+  /**
+   * RT-1331 (decision 1A), `internal_voucher` only: the forfeited amount the cashier
+   * confirmed, copied from the `forfeit_confirmation_required` answer. Main applies the
+   * line only when it equals the forfeit V-A reports on this call.
+   */
+  voucher_forfeit_ack_minor?: number;
   idempotency_key: string;
+}
+
+/**
+ * RT-1331 (decision 1A): a voucher redemption consumes the whole voucher, so a voucher
+ * worth more than the amount applied forfeits the rest. Main answers this INSTEAD of
+ * applying the line until the request carries a matching `voucher_forfeit_ack_minor`.
+ * Nothing is persisted, audited or logged for it. The amount is the one owner-approved
+ * exception to the voucher value staying off the wire (V-A contract, RT-1098 c16402).
+ */
+interface VoucherForfeitConfirmationRequired {
+  kind: 'forfeit_confirmation_required';
+  forfeited_amount_minor: number;
 }
 
 export type TenderApplyResponse =
@@ -1232,6 +1250,7 @@ export type TenderApplyResponse =
       /** Cash overpayment only. */
       change_due_minor?: number;
     }
+  | VoucherForfeitConfirmationRequired
   | PaymentRefusal;
 
 // ── tender.reverse ───────────────────────────────────────────────────────────
@@ -1279,6 +1298,8 @@ export interface VouchersValidateRequest {
   payment_attempt_id: string;
   voucher_code: string;
   amount_applied_minor: number;
+  /** RT-1331: the confirmed forfeit; see `TenderApplyRequest.voucher_forfeit_ack_minor`. */
+  voucher_forfeit_ack_minor?: number;
   idempotency_key: string;
 }
 
@@ -1289,6 +1310,7 @@ export type VouchersValidateResponse =
       applied_amount_minor: number;
       applied_at: string;
     }
+  | VoucherForfeitConfirmationRequired
   | PaymentRefusal;
 
 // ── Namespace surfaces ───────────────────────────────────────────────────────

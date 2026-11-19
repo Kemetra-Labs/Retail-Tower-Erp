@@ -36,9 +36,20 @@ import {
 import { interpretVoucherResponse } from './interpret-response.js';
 import type { VoucherAuthorityLogger, VoucherRefusalReason } from './refusal-mapping.js';
 
+/**
+ * RT-1331: a 200 whose `forfeited_amount_minor` is not a safe non-negative integer is a
+ * malformed success body (`authority_unreachable`), never "no forfeit": reading a missing
+ * field as 0 would skip the cashier's forfeit confirmation without anyone noticing.
+ */
 function isValidatedResponse(raw: unknown): raw is ValidateVoucherOk {
+  if (typeof raw !== 'object' || raw === null) return false;
+  const body = raw as { kind?: unknown; forfeited_amount_minor?: unknown };
+  const forfeited = body.forfeited_amount_minor;
   return (
-    typeof raw === 'object' && raw !== null && (raw as { kind?: unknown }).kind === 'validated'
+    body.kind === 'validated' &&
+    typeof forfeited === 'number' &&
+    Number.isSafeInteger(forfeited) &&
+    forfeited >= 0
   );
 }
 
