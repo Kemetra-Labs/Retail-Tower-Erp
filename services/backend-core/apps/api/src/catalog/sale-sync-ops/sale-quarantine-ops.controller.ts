@@ -39,15 +39,12 @@ import {
   UseGuards,
 } from "@nestjs/common";
 
-import { annotateAudit, Auditable } from "../../audit/auditable.decorator";
-import { DashboardAuthGuard } from "../../auth/dashboard-auth.guard";
-import { Roles } from "../../auth/roles.decorator";
-import { RolesGuard } from "../../auth/roles.guard";
+import { annotateAudit, Auditable } from "../../audit";
+import { DashboardAuthGuard, Roles, RolesGuard } from "../../auth";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
-import { ConsoleRateLimit } from "../../console-rate-limit/console-rate-limit.decorator";
-import { TenantContextGuard } from "../../context/tenant-context.guard";
-import type { TenantContextRequest } from "../../context/types";
-import { Idempotent } from "../../idempotency/idempotent.decorator";
+import { ConsoleRateLimit } from "../../console-rate-limit";
+import { TenantContextGuard, type TenantContextRequest } from "../../context";
+import { Idempotent } from "../../idempotency";
 import {
   QuarantineListQuerySchema,
   QuarantineRefSchema,
