@@ -98,8 +98,6 @@ export interface RecordFetchFailureInput {
   now: string;
 }
 
-export type { ApplyDeltasInput } from './read-down-delta-writer.js';
-
 export interface ReadDownWriter {
   run(input: ReadDownRunInput): ReadDownRunResult;
   /**

@@ -27,7 +27,7 @@ export const DELTA_MAX_PAGES = 50;
 const SNAPSHOT_REQUIRED_CODE = 'snapshot_required';
 
 /** What the delta fetch borrows from the client factory. */
-export interface DeltaFetchDeps {
+interface DeltaFetchDeps {
   /** Base URL without a trailing slash. */
   root: string;
   /** The `posGetCatalogDeltas` route (`DELTAS_PATH` in `read-down-client.ts`). */

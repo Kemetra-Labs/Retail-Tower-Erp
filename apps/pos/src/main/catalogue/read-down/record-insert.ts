@@ -69,7 +69,7 @@ function aliasFold(aliasesJson: string | null): string | null {
 }
 
 /** Writes one mapped record (product + its exploded barcodes), stamped with scope. */
-export type RecordInsert = (tenantId: string, branchId: string, rec: MappedRecord) => void;
+type RecordInsert = (tenantId: string, branchId: string, rec: MappedRecord) => void;
 
 /**
  * Prepare the product + barcode INSERTs for one table pair ONCE and return a

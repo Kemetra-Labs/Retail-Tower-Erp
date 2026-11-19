@@ -121,7 +121,7 @@ type PageResult =
   | { kind: 'device_unauthorized' };
 
 /** The live client always implements the RT-1487 delta fetch. */
-export type LiveReadDownClient = ReadDownClient & {
+type LiveReadDownClient = ReadDownClient & {
   fetchDeltas(since: string): Promise<ReadDownDeltaResult>;
 };
 

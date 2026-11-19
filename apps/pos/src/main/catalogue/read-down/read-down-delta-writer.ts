@@ -44,14 +44,14 @@ interface PrepareRun {
   run(...params: unknown[]): unknown;
 }
 
-export interface DeltaApplierDeps {
+interface DeltaApplierDeps {
   db: DatabaseHandle;
   syncStateRepo: CatalogueSyncStateRepo;
   /** The writer's diagnostics write (never advances `last_success_at`). */
   recordFailure: (input: { tenantId: string; branchId: string; now: string }) => void;
 }
 
-export interface DeltaApplier {
+interface DeltaApplier {
   applyDeltas(input: ApplyDeltasInput): ReadDownRunResult;
   currentCursor(tenantId: string, branchId: string): string | null;
 }
