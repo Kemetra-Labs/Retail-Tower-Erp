@@ -7,7 +7,7 @@
  */
 import { z } from "zod";
 
-import { decodeOpaque, encodeOpaque, InvalidCursorError } from "../../common/cursor/opaque-cursor";
+import { decodeOpaque, encodeOpaque, InvalidCursorError, isCalendarInstant } from "../../common/cursor/opaque-cursor";
 
 // ---------------------------------------------------------------------------
 // Errors (mapped to HTTP by the controller)
@@ -225,6 +225,6 @@ export function encodeZoneStoresCursor(cursor: ZoneStoresCursor): string {
 /** The cursor's payload, bound to `zoneId`; anything else is a `ZoneStoresCursorError`. */
 export function decodeZoneStoresCursor(raw: string, zoneId: string): ZoneStoresCursor {
   const p = decodeOpaque(raw, CursorPayloadSchema, () => new ZoneStoresCursorError());
-  if (p.z.toLowerCase() !== zoneId.toLowerCase()) throw new ZoneStoresCursorError();
+  if (p.z.toLowerCase() !== zoneId.toLowerCase() || !isCalendarInstant(p.at)) throw new ZoneStoresCursorError();
   return { zoneId: p.z, at: p.at, revision: p.r, after: p.k };
 }

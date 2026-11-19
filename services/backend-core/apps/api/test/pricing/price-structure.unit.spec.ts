@@ -175,4 +175,9 @@ describe("zone-stores cursor", () => {
     expect(() => decodeZoneStoresCursor(forged, ZONE)).toThrow(ZoneStoresCursorError);
     expect(() => decodeZoneStoresCursor("abc", ZONE)).toThrow(ZoneStoresCursorError);
   });
+
+  it("refuses a well-shaped cursor whose instant is not a calendar date (else Postgres answers 500)", () => {
+    const raw = encodeZoneStoresCursor({ ...cursor, at: "2026-02-31T00:00:00.000000Z" });
+    expect(() => decodeZoneStoresCursor(raw, ZONE)).toThrow(ZoneStoresCursorError);
+  });
 });

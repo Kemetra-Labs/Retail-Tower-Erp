@@ -40,6 +40,7 @@ import { GRANTS as PRICING_GRANTS } from "../../src/auth/grants/pricing.grants";
 import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../src/idempotency/idempotency.interceptor";
 import { INFLIGHT_REDIS, InProgressMarker } from "../../src/idempotency/in-progress-marker";
 import { PriceStructureModule } from "../../src/pricing/structure/price-structure.module";
+import { encodeZoneStoresCursor } from "../../src/pricing/structure/price-structure.projections";
 import { seedConsoleMember } from "../_helpers/console-members";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 import {
@@ -542,6 +543,27 @@ describe("RT-1484 price structure over HTTP", () => {
     );
     refused(await get(`${zoneStoresPath(book.id, north.id)}?cursor=${cursor}`, SES_OWNER_ALL), 400, "validation_error");
     refused(await get(`${zoneStoresPath(book.id, north.id)}?cursor=bm90LWpzb24`, SES_OWNER_ALL), 400, "validation_error");
+  });
+
+  it("pages a non-default Zone's sparse members one at a time, and refuses a cursor revision above the head", async () => {
+    if (skip()) return;
+    const base = `${zoneStoresPath(book.id, north.id)}?at=2030-06-01T00:00:00Z`;
+    const seen: string[] = [];
+    let url = `${base}&page_size=1`;
+    for (let i = 0; i < 5; i += 1) {
+      const res = await get(url, SES_OWNER_ALL);
+      expectStatus(res, 200);
+      expectValid("PriceZoneStorePage", res.body);
+      const page = res.body as StorePage;
+      expect(page.items.length).toBeLessThanOrEqual(1);
+      expect(page.items.every((x) => x.membership === "explicit")).toBe(true);
+      seen.push(...page.items.map((x) => x.storeId));
+      if (page.nextCursor === null) break;
+      url = `${zoneStoresPath(book.id, north.id)}?page_size=1&cursor=${page.nextCursor}`;
+    }
+    expect(seen).toEqual([STORE_A_X, STORE_A_Y].sort());
+    const forged = encodeZoneStoresCursor({ zoneId: north.id, at: "2030-06-01T00:00:00.000000Z", revision: 9, after: STORE_A_X });
+    refused(await get(`${zoneStoresPath(book.id, north.id)}?cursor=${forged}`, SES_OWNER_ALL), 400, "validation_error");
   });
 
   it("bounds the reads by the caller's store scope", async () => {

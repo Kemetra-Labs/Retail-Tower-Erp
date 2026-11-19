@@ -75,6 +75,8 @@ export interface StructureWriteInput extends StructureReadInput {
 }
 
 const DEFAULT_PAGE_SIZE = 100;
+/** The smallest keyset scan batch, so a small page never costs one query per Store. */
+const SCAN_BATCH = 200;
 const DEFAULT_ZONE_CODE = "DEFAULT";
 const DEFAULT_ZONE_NAME = "Default";
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -171,7 +173,9 @@ export class PriceStructureService {
       if (cursor && query.at !== undefined && (await canonicalInstant(client, query.at)) !== cursor.at) {
         throw new ZoneStoresCursorError("at differs from the cursor's instant");
       }
-      const revision = cursor ? cursor.revision : await this.revisionOf(client, input.tenantId, query.as_of_revision);
+      const revision = cursor
+        ? await this.cursorRevision(client, input.tenantId, cursor.revision)
+        : await this.revisionOf(client, input.tenantId, query.as_of_revision);
       const storeIds = scopeStoreIds(await callerStoreScope(client, this.memberships, input));
       const page = await this.zoneStorePage(client, input.tenantId, zone, {
         at,
@@ -191,42 +195,85 @@ export class PriceStructureService {
   }
 
   /**
-   * Walks the live Stores in scope in id order from `after`, resolving each Store's Zone (an
-   * explicit visible membership covering `at`, else the default Zone), until `limit` Stores of
-   * `zone` are found or the Stores run out. `last` is the last Store examined when more may follow.
+   * One page of `zone`'s Stores. The default Zone walks the live Stores in scope in id order,
+   * resolving each Store's Zone (an explicit visible membership covering `at`, else the default
+   * Zone). Any other Zone reads its visible members directly by Store id, keeping the live ones.
+   * Both scan in batches of at least `SCAN_BATCH`, independent of the page size. `last` is the
+   * last Store examined when more may follow.
    */
-  private async zoneStorePage(
+  private zoneStorePage(
     client: PoolClient,
     tenantId: string,
     zone: PriceZoneRow,
-    page: {
-      readonly at: string;
-      readonly revision: number | null;
-      readonly storeIds: readonly string[] | null;
-      readonly after: string | null;
-      readonly limit: number;
-    },
+    page: ZoneStorePageInput,
   ): Promise<{ items: PriceZoneStoreBody[]; last: string | null }> {
-    const items: PriceZoneStoreBody[] = [];
-    let after = page.after;
-    let more = true;
-    // sequential: each batch's keyset starts after the previous batch's last Store.
-    while (more && items.length < page.limit) {
-      const ids = await liveStoreIdsAfter(client, tenantId, { after, storeIds: page.storeIds, limit: page.limit });
-      more = ids.length === page.limit;
-      const explicit = await this.membershipsAt(client, tenantId, zone.price_book_id, ids, page.at, page.revision);
-      for (const [i, storeId] of ids.entries()) {
-        after = storeId;
+    const batch = Math.max(page.limit, SCAN_BATCH);
+    const next = zone.is_default
+      ? (after: string | null) => this.defaultZoneBatch(client, tenantId, zone, page, after, batch)
+      : (after: string | null) => this.explicitZoneBatch(client, tenantId, zone, page, after, batch);
+    return fillPage(page.limit, page.after, next);
+  }
+
+  private async defaultZoneBatch(
+    client: PoolClient,
+    tenantId: string,
+    zone: PriceZoneRow,
+    page: ZoneStorePageInput,
+    after: string | null,
+    batch: number,
+  ): Promise<ScanBatch> {
+    const ids = await liveStoreIdsAfter(client, tenantId, { after, storeIds: page.storeIds, limit: batch });
+    const explicit = await this.membershipsAt(client, tenantId, zone.price_book_id, ids, page.at, page.revision);
+    return {
+      examined: ids,
+      exhausted: ids.length < batch,
+      pick: (storeId) => {
         const m = explicit.get(storeId);
-        if (m && m.zoneId === zone.id) items.push({ storeId, membership: "explicit", membershipId: m.id });
-        else if (!m && zone.is_default) items.push({ storeId, membership: "default", membershipId: null });
-        if (items.length === page.limit) {
-          more = more || i < ids.length - 1;
-          break;
-        }
-      }
-    }
-    return { items, last: more ? after : null };
+        if (!m) return { storeId, membership: "default", membershipId: null };
+        return m.zoneId === zone.id ? { storeId, membership: "explicit", membershipId: m.id } : null;
+      },
+    };
+  }
+
+  private async explicitZoneBatch(
+    client: PoolClient,
+    tenantId: string,
+    zone: PriceZoneRow,
+    page: ZoneStorePageInput,
+    after: string | null,
+    batch: number,
+  ): Promise<ScanBatch> {
+    if (page.revision === null) return { examined: [], exhausted: true, pick: () => null };
+    // Each Store's resolving membership in the Book (the same DISTINCT ON rule as `membershipsAt`),
+    // kept when it is this Zone's.
+    const r = await client.query<{ store_id: string; id: string }>(
+      `SELECT t.store_id, t.id FROM (
+         SELECT DISTINCT ON (m.store_id) m.store_id::text AS store_id, m.id::text AS id, m.price_zone_id
+           FROM price_zone_memberships m
+          WHERE m.tenant_id = $1::uuid AND m.price_book_id = $2::uuid
+            AND ${VISIBLE_AT("$3")}
+            AND m.effective_from <= $4::timestamptz AND (m.effective_to IS NULL OR m.effective_to > $4::timestamptz)
+            AND ($5::uuid IS NULL OR m.store_id > $5::uuid)
+            AND ($6::uuid[] IS NULL OR m.store_id = ANY($6::uuid[]))
+          ORDER BY m.store_id, m.published_in_revision DESC) t
+        WHERE t.price_zone_id = $7::uuid
+        ORDER BY t.store_id
+        LIMIT $8`,
+      [tenantId, zone.price_book_id, page.revision, page.at, after, page.storeIds, zone.id, batch],
+    );
+    const examined = r.rows.map((row) => row.store_id);
+    const live = new Set(
+      examined.length === 0
+        ? []
+        : await liveStoreIdsAfter(client, tenantId, { after: null, storeIds: examined, limit: examined.length }),
+    );
+    const byStore = new Map<string, string>(r.rows.map((row) => [row.store_id, row.id]));
+    return {
+      examined,
+      exhausted: examined.length < batch,
+      pick: (storeId) =>
+        live.has(storeId) ? { storeId, membership: "explicit", membershipId: byStore.get(storeId) ?? null } : null,
+    };
   }
 
   /** consoleListStorePriceZoneMemberships — the Store's visible membership rows in the retail Book. */
@@ -436,6 +483,17 @@ export class PriceStructureService {
     return new Map<string, PriceZoneRow>(r.rows.map((z) => [z.price_book_id, z]));
   }
 
+  /** A cursor's revision, re-checked against the head (null stays null): above it, the cursor is not ours. */
+  private async cursorRevision(client: PoolClient, tenantId: string, revision: number | null): Promise<number | null> {
+    if (revision === null) return null;
+    try {
+      return await this.revisionOf(client, tenantId, revision);
+    } catch (err) {
+      if (err instanceof PricingRevisionUnknownError) throw new ZoneStoresCursorError("the cursor's revision is unknown");
+      throw err;
+    }
+  }
+
   /** The revision to read at: the explicit one (422 above the head), else the head (null: none yet). */
   private async revisionOf(client: PoolClient, tenantId: string, requested: number | undefined): Promise<number | null> {
     const r = await client.query<{ head: string | null }>(
@@ -507,6 +565,47 @@ export class PriceStructureService {
       metadata,
     });
   }
+}
+
+interface ZoneStorePageInput {
+  readonly at: string;
+  readonly revision: number | null;
+  readonly storeIds: readonly string[] | null;
+  readonly after: string | null;
+  readonly limit: number;
+}
+
+/** One keyset batch: the Store ids examined in order, whether the scan ended, and each one's row. */
+interface ScanBatch {
+  readonly examined: readonly string[];
+  readonly exhausted: boolean;
+  readonly pick: (storeId: string) => PriceZoneStoreBody | null;
+}
+
+/** Fills a page of `limit` rows from keyset batches; `last` is the last Store examined when more may follow. */
+async function fillPage(
+  limit: number,
+  start: string | null,
+  next: (after: string | null) => Promise<ScanBatch>,
+): Promise<{ items: PriceZoneStoreBody[]; last: string | null }> {
+  const items: PriceZoneStoreBody[] = [];
+  let after = start;
+  let more = true;
+  // sequential: each batch's keyset starts after the previous batch's last Store.
+  while (more && items.length < limit) {
+    const b = await next(after);
+    more = !b.exhausted;
+    for (const [i, storeId] of b.examined.entries()) {
+      after = storeId;
+      const item = b.pick(storeId);
+      if (item) items.push(item);
+      if (items.length === limit) {
+        more = more || i < b.examined.length - 1;
+        break;
+      }
+    }
+  }
+  return { items, last: more ? after : null };
 }
 
 /** `at` (or the transaction's now()) as canonical UTC text with microseconds. */
