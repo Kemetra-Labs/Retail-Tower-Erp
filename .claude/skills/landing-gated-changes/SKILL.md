@@ -141,9 +141,12 @@ State this in the PR body.
   - A new `package.json` is also checked against `tools/versions/shared-deps.yaml` by
     `.github/scripts/shared_deps.py check --repo . --mode report`. Declare the shared libraries at the
     policy version.
-- **No CI job runs `tools/port-plugins/**` tests.** A green `required` proves classification and the
-  other products, not the plugin. Post local `npm ci && npm test && npm run build && npm run check`
-  output on the issue. Adding a job is a `.github` policy change.
+- **No CI job runs `tools/port-plugins/**` tests, and since RT-1467 that folder selects no job at all.**
+  Port work is paused (owner decision 2026-11-18), so the graph class `port_plugins` treats the
+  plugins as frozen code: a change there runs only the always jobs. A green `required` proves nothing
+  about a plugin. Post local `npm ci && npm test && npm run build && npm run check` output on the
+  issue. If Port work resumes, give the plugin its own graph job (the RT-1395 design: own root
+  workflow, stale-dist check), which is a `.github` policy change.
 
 ## Common mistakes
 

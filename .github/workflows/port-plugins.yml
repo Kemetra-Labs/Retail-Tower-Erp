@@ -1,4 +1,6 @@
-# Root CI for the Port plugins (RT-1395, RT-1467 CI-10). Defines the graph job
+# TRANSITIONAL STUB (RT-1467, Port paused). The trusted base graph still requires the job below, so
+# this PR keeps it as a no-op; the follow-up PR deletes this file and the gate.yml entry.
+# Former purpose: root CI for the Port plugins (RT-1395, RT-1467 CI-10). Defines the graph job
 # `port/rt-control-room`: the read-only Port widget in tools/port-plugins/rt-control-room/. It runs
 # the plugin's vitest suite, rebuilds dist/index.html (the file uploaded to Port), runs the plugin's
 # own dist/src checks and fails when the committed dist/index.html differs from that fresh build, so
@@ -66,36 +68,6 @@ jobs:
     if: contains(fromJSON(needs.plan.outputs.jobs), 'port/rt-control-room')
     runs-on: ubuntu-24.04
     timeout-minutes: 15
-    defaults:
-      run:
-        working-directory: tools/port-plugins/rt-control-room
     steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          persist-credentials: false
-
-      # The plugin's engines field asks for Node >= 24; the root .nvmrc pins 24.
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .nvmrc
-          package-manager-cache: false
-
-      - name: Install (lockfile, no install scripts)
-        run: npm ci --ignore-scripts
-
-      - name: Unit tests (vitest)
-        run: npm test
-
-      - name: Build dist/index.html
-        run: npm run build
-
-      - name: Dist and src checks (size budget, self-contained, no forbidden HTML APIs)
-        run: npm run check
-
-      # The committed upload file must be the fresh build of this commit's sources.
-      - name: Stale dist check
-        run: |
-          if ! git diff --exit-code --stat -- dist/index.html; then
-            echo "::error file=tools/port-plugins/rt-control-room/dist/index.html::dist/index.html is stale: run npm run build in tools/port-plugins/rt-control-room and commit the result"
-            exit 1
-          fi
+      - name: Port plugins are frozen
+        run: echo "Port work is paused (RT-1467); this job only keeps the trusted-base required set satisfied."
