@@ -102,6 +102,10 @@ const FUNCTIONS = [
   "change_sets_content_rules()",
   "change_sets_publish_complete()",
   "change_sets_created_as_draft()",
+  "price_change_set_assert_tenant(uuid)",
+  "price_change_set_publish_record_check(uuid, uuid, integer, bigint)",
+  "pricing_revisions_published()",
+  "change_sets_assert_legacy_import(uuid)",
 ];
 const SQL_DIR = resolve(__dirname, "..", "..", "..", "..", "docs", "operations", "sql");
 
@@ -439,7 +443,8 @@ async function insertEvent(q: Q, eventId: string, revisionNo: number, cs: string
 async function publish(q: Q, cs: string, revisionNo: number, eventId: string, e: EventSpec = {}): Promise<void> {
   await q.query(
     `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, published_by_user_id, correlation_id)
-     VALUES (gen_random_uuid(), $1, $2, $3, 'publish', $4, $5)`,
+     SELECT gen_random_uuid(), $1, $2, $3, CASE cs.kind WHEN 'standard' THEN 'publish' ELSE cs.kind END, $4, $5
+       FROM change_sets cs WHERE cs.id = $3`,
     [e.tenant ?? TENANT_A, revisionNo, cs, ACTOR, CORR],
   );
   await insertEvent(q, eventId, revisionNo, cs, e);
@@ -1054,7 +1059,7 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
     }
   });
 
-  it("a return to draft is a new version; draft to cancelled and legacy_import need no validation", async () => {
+  it("a return to draft is a new version; draft to cancelled needs no validation", async () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       await writeList(c, CS_DRAFT, 1);
@@ -1073,21 +1078,57 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
           c.query(`UPDATE change_sets SET state = 'cancelled', cancelled_by_user_id = $2, cancelled_at = now() WHERE id = $1`, [CS_RACE, ACTOR]),
         ),
       ).toBeNull();
-      const legacy = id("0a204");
-      await createChangeSet(c, legacy, TENANT_A, "legacy_import");
-      await c.query(
+    });
+  });
+
+  it("a legacy_import set is written only by the system import path, once per tenant, as its first revision", async () => {
+    if (skip()) return;
+    const legacy = id("0a204");
+    const legacy2 = id("0a207");
+    const TENANT_C = id("0c001");
+    const importRevision = (c: Q, tenant: string, cs: string, revisionNo: number): Promise<unknown> =>
+      c.query(
         `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, published_by_user_id, correlation_id)
-         VALUES (gen_random_uuid(), $1, 2, $2, 'legacy_import', $3, $4)`,
-        [TENANT_A, legacy, ACTOR, CORR],
+         VALUES (gen_random_uuid(), $1, $2, $3, 'legacy_import', $4, $5)`,
+        [tenant, revisionNo, cs, ACTOR, CORR],
       );
-      expect(
-        await sp(c, () =>
-          c.query(`UPDATE change_sets SET state = 'published', published_by_user_id = $2, published_at = now(), revision_no = 2 WHERE id = $1`, [
-            legacy,
-            ACTOR,
-          ]),
-        ),
-      ).toBeNull();
+    const publishImport = (c: Q, cs: string, revisionNo: number): Promise<unknown> =>
+      c.query(`UPDATE change_sets SET state = 'published', published_by_user_id = $2, published_at = now(), revision_no = $3 WHERE id = $1`, [
+        cs,
+        ACTOR,
+        revisionNo,
+      ]);
+    // The domain role (any role) without the system privilege: refused on create.
+    expect(await asDomain((c) => errorCode(() => createChangeSet(c, legacy, TENANT_A, "legacy_import")))).toBe("42501");
+    await inRolledBackTx(guard().admin, async (c) => {
+      expect(await sp(c, () => createChangeSet(c, legacy, TENANT_A, "legacy_import"))).toMatch(/written only by the system import path/);
+      await c.query(`SELECT set_config('app.system_privilege', 'pricing_legacy_import', true)`);
+      await createChangeSet(c, legacy, TENANT_A, "legacy_import");
+      // One per tenant.
+      expect(await sp(c, () => createChangeSet(c, legacy2, TENANT_A, "legacy_import"))).toMatch(/ux_change_sets_one_legacy_import/);
+      // Not the tenant's first revision (A already has revision 1).
+      await importRevision(c, TENANT_A, legacy, 2);
+      await publishImport(c, legacy, 2);
+      expect(await checkCounts(c)).toMatch(/a legacy import is the first Pricing Revision, not 2/);
+      // Without the privilege, a draft legacy_import set does not move.
+      await c.query(`SELECT set_config('app.system_privilege', '', true)`);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await c.query(`SELECT set_config('app.system_privilege', 'pricing_legacy_import', true)`);
+      await createChangeSet(c, legacy, TENANT_A, "legacy_import");
+      await c.query(`SELECT set_config('app.system_privilege', '', true)`);
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET title = 'x' WHERE id = $1`, [legacy]))).toMatch(
+        /written only by the system import path/,
+      );
+    });
+    // A new tenant's first revision: the import publishes with no validation or lines.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await c.query(`INSERT INTO tenants (id, slug, name, default_currency_code) VALUES ($1, 'pcs-c', 'PCS C', 'EGP')`, [TENANT_C]);
+      await c.query(`SELECT set_config('app.system_privilege', 'pricing_legacy_import', true)`);
+      await createChangeSet(c, legacy, TENANT_C, "legacy_import");
+      await importRevision(c, TENANT_C, legacy, 1);
+      await publishImport(c, legacy, 1);
+      expect(await checkCounts(c)).toBeNull();
     });
   });
 });
@@ -1295,6 +1336,79 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
       expect(await checkCounts(c)).toBeNull();
     });
   });
+
+  it("a revision is a publish: its set is published at it, with the matching kind, else refused at COMMIT", async () => {
+    if (skip()) return;
+    const revision = (c: Q, kind: string): Promise<unknown> =>
+      c.query(
+        `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, published_by_user_id, correlation_id)
+         VALUES (gen_random_uuid(), $1, 2, $2, $3, $4, $5)`,
+        [TENANT_A, CS_DRAFT, kind, ACTOR, CORR],
+      );
+    // A revision and its event, the set never moved: prices with no publish record.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await revision(c, "publish");
+      await insertEvent(c, EVENT, 2, CS_DRAFT);
+      expect(await checkCounts(c)).toMatch(/change set .* is not published at it/);
+    });
+    // A standard set published under an emergency revision.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1, revision: 1 }, [{}]);
+      await leaveDraft(c, CS_DRAFT, 1);
+      await revision(c, "emergency");
+      await insertEvent(c, EVENT, 2, CS_DRAFT);
+      await c.query(
+        `UPDATE change_sets SET state = 'published', submitted_by_user_id = $2, submitted_at = now(), approved_by_user_id = $3,
+                approved_at = now(), published_by_user_id = $2, published_at = now(), revision_no = 2 WHERE id = $1`,
+        [CS_DRAFT, ACTOR, APPROVER],
+      );
+      await c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_DRAFT, EVENT]);
+      expect(await checkCounts(c)).toMatch(/a standard change set publishes a publish revision, not emergency/);
+    });
+  });
+
+  it("the rows a publish ends are exactly the ids its lines replace", async () => {
+    if (skip()) return;
+    const endEvent = (c: Q, eventId: string): Promise<unknown> =>
+      c.query(`UPDATE price_events SET state = 'superseded', ended_in_revision = 2 WHERE id = $1`, [eventId]);
+    /** CS_DRAFT: one priced line (replacing `replaced`), published at revision 2 and recorded. */
+    async function published(c: Q, replaced: readonly string[]): Promise<void> {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1, revision: 1 }, [{ replaced }]);
+      await leaveDraft(c, CS_DRAFT, 1);
+      await publish(c, CS_DRAFT, 2, EVENT);
+      await c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_DRAFT, EVENT]);
+    }
+    const mismatch = /row\(s\) ended in revision 2 differ from the ids its lines replace/;
+    // Ends an event no line replaces.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c, []);
+      await endEvent(c, EVENT_PUB);
+      expect(await checkCounts(c)).toMatch(mismatch);
+    });
+    // A line replaces an event the publish never ended.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c, [EVENT_PUB]);
+      expect(await checkCounts(c)).toMatch(mismatch);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await published(c, [EVENT_PUB]);
+      await endEvent(c, EVENT_PUB);
+      expect(await checkCounts(c)).toBeNull();
+    });
+  });
+
+  it("a Zone move records only memberships into its own Zone (or remainders of what it replaces)", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await prepare(c);
+      await publish(c, CS_DRAFT, 2, EVENT);
+      const wrongZone = id("0a503");
+      await insertMembership(c, wrongZone, 2, STORE_A2, ZONE_A_DEFAULT);
+      expect(await setRecord(c, "move", { results: [wrongZone] })).toMatch(/result_ids names an id that is not what this line's publish wrote/);
+    });
+  });
 });
 
 // -----------------------------------------------------------------------------
@@ -1318,6 +1432,23 @@ describe("0123_price_change_set_items_lines — production grants, isolation, co
       }),
     );
     expect(failed).toBeNull();
+    // The same publish with the tenant cleared (or switched) before COMMIT: the COMMIT-time checks would read no
+    // rows through FORCE RLS, so they refuse instead of passing.
+    for (const guc of ["", TENANT_B]) {
+      const cleared = await asDomain(async (c) => {
+        const event = id("0a406");
+        await writeList(c, CS_DRAFT, 1);
+        await insertValidation(c, { cs: CS_DRAFT, version: 1, revision: 1, lines: 1, preview: 1 });
+        await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+        await insertPreviewLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+        await leaveDraft(c, CS_DRAFT, 1);
+        await publish(c, CS_DRAFT, 2, event);
+        await c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_DRAFT, event]);
+        await c.query(`SELECT set_config('app.current_tenant', $1, true)`, [guc]);
+        return sp(c, () => c.query("SET CONSTRAINTS ALL IMMEDIATE"));
+      });
+      expect([guc, cleared]).toEqual([guc, expect.stringMatching(/runs only under its own tenant/)]);
+    }
     // The column grants hold: no wider UPDATE on a line.
     expect(await asDomain((c) => errorCode(() => c.query(`UPDATE price_change_set_lines SET class = class WHERE change_set_id = $1`, [CS_PUB])))).toBe(
       "42501",
@@ -1400,7 +1531,7 @@ describe("0123_price_change_set_items_lines — production grants, isolation, co
 // -----------------------------------------------------------------------------
 
 describe("0123_price_change_set_items_lines — down migration", () => {
-  const OWNER_TABLES = [...TABLES, "tenants", "change_sets"];
+  const OWNER_TABLES = [...TABLES, "tenants", "change_sets", "pricing_revisions"];
 
   async function runFileWithEmptyGuc(path: string, role: string): Promise<string | null> {
     const client = await guard().admin.connect();
@@ -1442,12 +1573,14 @@ describe("0123_price_change_set_items_lines — down migration", () => {
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, false]);
     const fns = await e.admin.query(`SELECT 1 FROM pg_proc WHERE proname = ANY($1)`, [FUNCTIONS.map((f) => f.replace(/\(.*\)$/, ""))]);
     expect(fns.rowCount).toBe(0);
-    const trigger = `SELECT 1 FROM pg_trigger WHERE tgname IN ('change_sets_content_rules', 'change_sets_publish_complete')`;
+    const trigger = `SELECT 1 FROM pg_trigger WHERE tgname IN ('change_sets_content_rules', 'change_sets_publish_complete',
+      'change_sets_created_as_draft', 'pricing_revisions_published')
+      UNION ALL SELECT 1 FROM pg_class WHERE relname = 'ux_change_sets_one_legacy_import'`;
     expect((await e.admin.query(trigger)).rowCount).toBe(0);
     await e.admin.query(downSql);
     await e.admin.query(upSql);
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, true]);
-    expect((await e.admin.query(trigger)).rowCount).toBe(2);
+    expect((await e.admin.query(trigger)).rowCount).toBe(5);
     // The 0121 core survived the round trip.
     const sets = await e.admin.query(`SELECT 1 FROM change_sets WHERE id = ANY($1)`, [[CS_PUB, CS_DRAFT, CS_RACE, CS_RACE_2, CS_B]]);
     expect(sets.rowCount).toBe(5);

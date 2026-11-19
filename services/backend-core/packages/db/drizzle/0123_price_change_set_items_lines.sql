@@ -19,7 +19,8 @@
 --     `PreviewLine`, `PreviewMembershipChange`, `LineClass`
 --   - packages/db/__tests__/migration/0123-price-change-set-items-lines.spec.ts
 --
--- Six new tables, plus three triggers on 0121's change_sets. No runtime reads or
+-- Six new tables, plus three triggers and a unique index on 0121's change_sets
+-- and a COMMIT-time trigger on its pricing_revisions. No runtime reads or
 -- writes them until RT-1484 (PR-10).
 --
 --   price_change_set_item_lists   One row per write of a set's item list
@@ -67,7 +68,13 @@
 --   sensitivity and revision it carries; outside `draft` that binding never
 --   changes; blocking lines block submit, approve and publish; every return
 --   to `draft` increments the version; and at COMMIT a publish's per-line
---   record is complete.
+--   record is complete (checked on the change_sets transition AND on every
+--   pricing_revisions insert, so a revision written without publishing its
+--   set is refused too), including the rows it ended. A `legacy_import` set
+--   is written only under app.system_privilege = 'pricing_legacy_import',
+--   one per tenant, as the tenant's first revision. Every COMMIT-time check
+--   runs only under its row's own app.current_tenant (or a role that
+--   bypasses RLS), so it cannot pass by seeing no rows.
 --
 -- Concurrency: the list and validation insert triggers lock the set's
 -- change_sets row FOR NO KEY UPDATE, so two writers of one set's content (two
@@ -89,23 +96,43 @@
 -- codes. No customer reference. Kept: a published set's validation, lines and
 -- preview are its audit record.
 --
--- Deploy window: none. Six new, empty tables and a trigger on 0121's
--- change_sets, which is unused before RT-1484. Apply 0123 and the grants
+-- Deploy window: none. Six new, empty tables, triggers and a partial unique
+-- index on 0121's change_sets and pricing_revisions, unused before RT-1484. Apply 0123 and the grants
 -- script before the API that uses them.
 --
 -- Lock impact: ONE transaction, lock_timeout 2s. CREATE TRIGGER takes SHARE
--- ROW EXCLUSIVE on change_sets; the new FKs take SHARE ROW EXCLUSIVE on
+-- ROW EXCLUSIVE on change_sets and pricing_revisions, CREATE INDEX SHARE on
+-- change_sets (both 0121 tables, unused before RT-1484); the new FKs take SHARE ROW EXCLUSIVE on
 -- change_sets, price_books, price_zones, stores, tenant_products and
 -- price_events (all but stores and tenant_products new and unused). Reads of
 -- stores and tenant_products continue.
 --
 -- Reversal: 0123_price_change_set_items_lines.down.sql REFUSES while any of
 -- the six tables holds a row; otherwise it drops them, their functions and
--- change_sets' three triggers.
+-- change_sets' three triggers and index, and pricing_revisions' trigger.
 
 BEGIN;
 
 SET LOCAL lock_timeout = '2s';
+
+-- Every deferred (COMMIT-time) check reads through FORCE RLS, where a row it
+-- cannot see would count as compliant. So it runs only under the row's own
+-- tenant (app.current_tenant), or for a role that bypasses RLS and sees every
+-- row; a transaction that clears or switches the tenant before COMMIT is refused.
+CREATE FUNCTION price_change_set_assert_tenant(p_tenant uuid) RETURNS void
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF lower(current_setting('app.current_tenant', true)) IS DISTINCT FROM p_tenant::text
+     AND NOT EXISTS (SELECT 1 FROM pg_catalog.pg_roles r
+                      WHERE r.rolname = current_user AND (r.rolsuper OR r.rolbypassrls)) THEN
+    RAISE EXCEPTION 'tenant %: a COMMIT-time Change Set check runs only under its own tenant (app.current_tenant is %)',
+      p_tenant, COALESCE(NULLIF(current_setting('app.current_tenant', true), ''), 'unset')
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$$;
 
 -- Refuses UPDATE, DELETE and TRUNCATE (on lines, DELETE and TRUNCATE) for every role.
 CREATE FUNCTION price_change_set_content_append_only() RETURNS trigger
@@ -182,6 +209,7 @@ AS $$
 DECLARE
   n integer;
 BEGIN
+  PERFORM public.price_change_set_assert_tenant(NEW.tenant_id);
   SELECT count(*) INTO n FROM public.price_change_set_items i
    WHERE i.tenant_id = NEW.tenant_id AND i.change_set_id = NEW.change_set_id
      AND i.change_set_version = NEW.change_set_version;
@@ -380,6 +408,7 @@ DECLARE
   n_moves integer;
   v_kind text;
 BEGIN
+  PERFORM public.price_change_set_assert_tenant(NEW.tenant_id);
   SELECT count(*) INTO n_lines FROM public.price_change_set_lines l
    WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.change_set_id
      AND l.change_set_version = NEW.change_set_version;
@@ -596,7 +625,9 @@ $$;
 -- to the event this set published in that revision for this line's own
 -- target, product, sell unit, price, time basis and interval, and result_ids
 -- only to what that line's publish wrote: a move's new membership rows for its
--- Store, or remainders (same target, superseding a replaced event at its price).
+-- Store in its Book (into its Zone, or a remainder of a membership it
+-- replaces), or remainders (same target, superseding a replaced event at its
+-- price).
 CREATE FUNCTION price_change_set_lines_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -671,7 +702,12 @@ BEGIN
                 AND NOT EXISTS (
                       SELECT 1 FROM public.price_zone_memberships m
                        WHERE m.tenant_id = NEW.tenant_id AND m.id = r.id AND m.published_in_revision = v_revision
-                         AND NEW.op = 'move_store_zone' AND m.store_id = NEW.store_id)) THEN
+                         AND NEW.op = 'move_store_zone' AND m.store_id = NEW.store_id
+                         AND m.price_book_id = NEW.price_book_id
+                         -- the move into its Zone, or a remainder of a membership it replaces
+                         AND (m.price_zone_id = NEW.price_zone_id
+                              OR m.price_zone_id IN (SELECT o.price_zone_id FROM public.price_zone_memberships o
+                                                      WHERE o.tenant_id = NEW.tenant_id AND o.id = ANY (NEW.replaced_ids))))) THEN
     RAISE EXCEPTION 'price_change_set_lines: result_ids names an id that is not what this line''s publish wrote'
       USING ERRCODE = 'check_violation';
   END IF;
@@ -874,7 +910,15 @@ BEGIN
     RAISE EXCEPTION 'change set %: a return to draft from % increments the version', OLD.id, OLD.state
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.state = 'draft' OR NEW.kind = 'legacy_import' THEN
+  IF NEW.kind = 'legacy_import' THEN
+    -- Until it is published, only the system import path moves it; once
+    -- published, change_sets_guard lets only its derived state change.
+    IF OLD.revision_no IS NULL THEN
+      PERFORM public.change_sets_assert_legacy_import(NEW.id);
+    END IF;
+    RETURN NEW;
+  END IF;
+  IF NEW.state = 'draft' THEN
     RETURN NEW;
   END IF;
   -- The validated version is the set's identity from here on: it never moves outside draft
@@ -891,7 +935,7 @@ BEGIN
      WHERE pv.tenant_id = NEW.tenant_id AND pv.change_set_id = NEW.id AND pv.change_set_version = NEW.version;
     SELECT max(l.change_set_version) INTO v_latest_list FROM public.price_change_set_item_lists l
      WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version <= NEW.version;
-    IF NOT FOUND OR v.change_set_version IS NULL
+    IF v.change_set_version IS NULL
        OR v.item_list_version IS DISTINCT FROM v_latest_list
        OR v.preview_hash IS DISTINCT FROM NEW.preview_hash
        OR v.target_store_set_hash IS DISTINCT FROM NEW.target_store_set_hash
@@ -924,50 +968,46 @@ BEGIN
 END
 $$;
 
--- At COMMIT of a publish (not legacy_import): every priced line of the
--- approved validation recorded the event it became, every Zone move line its
--- membership rows, and every event and
+-- The §10 record of a publish is complete (not legacy_import, which has no
+-- lines): every priced line of the approved validation recorded the event it
+-- became and every Zone move line its membership rows; every event and
 -- membership row the revision wrote is recorded on exactly one line
--- (new_event_id or result_ids): the §10 before/after record is complete.
--- Like every deferred check, it runs at COMMIT; a transaction that forces it
--- early with SET CONSTRAINTS ... IMMEDIATE and writes more afterwards is the
--- runtime's to prevent (RT-1484 sets constraints only as its last statement).
-CREATE FUNCTION change_sets_publish_complete() RETURNS trigger
+-- (new_event_id or result_ids); and the rows the revision ended are exactly
+-- the ids its lines replace (the "before" half).
+CREATE FUNCTION price_change_set_publish_record_check(p_tenant uuid, p_change_set uuid, p_version integer, p_revision bigint)
+  RETURNS void
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
   n integer;
 BEGIN
-  IF NEW.state <> 'published' OR OLD.state = 'published' OR NEW.kind = 'legacy_import' THEN
-    RETURN NULL;
-  END IF;
   SELECT count(*) INTO n FROM public.price_change_set_lines l
-   WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version = NEW.version
+   WHERE l.tenant_id = p_tenant AND l.change_set_id = p_change_set AND l.change_set_version = p_version
      AND l.op IN ('set_price', 'adjust_amount', 'adjust_percent') AND l.new_event_id IS NULL;
   IF n > 0 THEN
-    RAISE EXCEPTION 'change set %: % priced line(s) of the published validation recorded no event', NEW.id, n
+    RAISE EXCEPTION 'change set %: % priced line(s) of the published validation recorded no event', p_change_set, n
       USING ERRCODE = 'check_violation';
   END IF;
   SELECT count(*) INTO n FROM public.price_change_set_lines l
-   WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.change_set_version = NEW.version
+   WHERE l.tenant_id = p_tenant AND l.change_set_id = p_change_set AND l.change_set_version = p_version
      AND l.op = 'move_store_zone' AND cardinality(l.result_ids) = 0;
   IF n > 0 THEN
-    RAISE EXCEPTION 'change set %: % Zone move line(s) of the published validation recorded no membership', NEW.id, n
+    RAISE EXCEPTION 'change set %: % Zone move line(s) of the published validation recorded no membership', p_change_set, n
       USING ERRCODE = 'check_violation';
   END IF;
   WITH recorded AS (
     SELECT l.new_event_id AS id FROM public.price_change_set_lines l
-     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id AND l.new_event_id IS NOT NULL
+     WHERE l.tenant_id = p_tenant AND l.change_set_id = p_change_set AND l.new_event_id IS NOT NULL
     UNION ALL
     SELECT r.id FROM public.price_change_set_lines l, unnest(l.result_ids) AS r(id)
-     WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.id
+     WHERE l.tenant_id = p_tenant AND l.change_set_id = p_change_set
   ), written AS (
     SELECT e.id FROM public.price_events e
-     WHERE e.tenant_id = NEW.tenant_id AND e.published_in_revision = NEW.revision_no
+     WHERE e.tenant_id = p_tenant AND e.published_in_revision = p_revision
     UNION ALL
     SELECT m.id FROM public.price_zone_memberships m
-     WHERE m.tenant_id = NEW.tenant_id AND m.published_in_revision = NEW.revision_no
+     WHERE m.tenant_id = p_tenant AND m.published_in_revision = p_revision
   )
   SELECT count(*) INTO n FROM (
     SELECT w.id FROM written w
@@ -976,10 +1016,97 @@ BEGIN
     SELECT r.id FROM recorded r GROUP BY r.id HAVING count(*) > 1
   ) bad;
   IF n > 0 THEN
-    RAISE EXCEPTION 'change set %: % row(s) of revision % are not recorded on exactly one line', NEW.id, n, NEW.revision_no
+    RAISE EXCEPTION 'change set %: % row(s) of revision % are not recorded on exactly one line', p_change_set, n, p_revision
       USING ERRCODE = 'check_violation';
   END IF;
+  WITH replaced AS (
+    SELECT DISTINCT r.id FROM public.price_change_set_lines l, unnest(l.replaced_ids) AS r(id)
+     WHERE l.tenant_id = p_tenant AND l.change_set_id = p_change_set AND l.change_set_version = p_version
+  ), ended AS (
+    SELECT e.id FROM public.price_events e
+     WHERE e.tenant_id = p_tenant AND e.ended_in_revision = p_revision
+    UNION ALL
+    SELECT m.id FROM public.price_zone_memberships m
+     WHERE m.tenant_id = p_tenant AND m.ended_in_revision = p_revision
+  )
+  SELECT count(*) INTO n FROM (
+    (SELECT id FROM ended EXCEPT SELECT id FROM replaced)
+    UNION ALL
+    (SELECT id FROM replaced EXCEPT SELECT id FROM ended)
+  ) mismatch;
+  IF n > 0 THEN
+    RAISE EXCEPTION 'change set %: % row(s) ended in revision % differ from the ids its lines replace', p_change_set, n, p_revision
+      USING ERRCODE = 'check_violation';
+  END IF;
+END
+$$;
+
+-- At COMMIT of a transition to published (not legacy_import): the record is complete.
+-- Like every deferred check, it runs at COMMIT; a transaction that forces it
+-- early with SET CONSTRAINTS ... IMMEDIATE and writes more afterwards is the
+-- runtime's to prevent (RT-1484 sets constraints only as its last statement).
+CREATE FUNCTION change_sets_publish_complete() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF NEW.state <> 'published' OR OLD.state = 'published' OR NEW.kind = 'legacy_import' THEN
+    RETURN NULL;
+  END IF;
+  PERFORM public.price_change_set_assert_tenant(NEW.tenant_id);
+  PERFORM public.price_change_set_publish_record_check(NEW.tenant_id, NEW.id, NEW.version, NEW.revision_no);
   RETURN NULL;
+END
+$$;
+
+-- At COMMIT of a revision: it is a publish. Its Change Set is published at
+-- exactly this revision (by this transaction: the revision is new), with the
+-- matching kind (standard = 'publish'); a legacy import is the tenant's first
+-- revision; and the publish record is complete. Without this, a transaction
+-- could write a revision and its events and never move the set, and no
+-- change_sets check would run.
+CREATE FUNCTION pricing_revisions_published() RETURNS trigger
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+DECLARE
+  cs public.change_sets%ROWTYPE;
+BEGIN
+  PERFORM public.price_change_set_assert_tenant(NEW.tenant_id);
+  SELECT * INTO cs FROM public.change_sets c WHERE c.tenant_id = NEW.tenant_id AND c.id = NEW.change_set_id;
+  IF cs.revision_no IS DISTINCT FROM NEW.revision_no THEN
+    RAISE EXCEPTION 'pricing revision % of tenant %: change set % is not published at it', NEW.revision_no, NEW.tenant_id, NEW.change_set_id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF (CASE cs.kind WHEN 'standard' THEN 'publish' ELSE cs.kind END) IS DISTINCT FROM NEW.kind THEN
+    RAISE EXCEPTION 'pricing revision % of tenant %: a % change set publishes a % revision, not %',
+      NEW.revision_no, NEW.tenant_id, cs.kind, CASE cs.kind WHEN 'standard' THEN 'publish' ELSE cs.kind END, NEW.kind
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF cs.kind = 'legacy_import' THEN
+    IF NEW.revision_no <> 1 THEN
+      RAISE EXCEPTION 'tenant %: a legacy import is the first Pricing Revision, not %', NEW.tenant_id, NEW.revision_no
+        USING ERRCODE = 'check_violation';
+    END IF;
+    RETURN NULL;
+  END IF;
+  PERFORM public.price_change_set_publish_record_check(NEW.tenant_id, cs.id, cs.version, NEW.revision_no);
+  RETURN NULL;
+END
+$$;
+
+-- A legacy_import set (one per tenant, its first revision, no validation or
+-- lines) is written only by the system import path, which sets
+-- app.system_privilege = 'pricing_legacy_import' (the 0111 / 0120 convention).
+CREATE FUNCTION change_sets_assert_legacy_import(p_change_set uuid) RETURNS void
+  LANGUAGE plpgsql
+  SET search_path = pg_catalog, public
+AS $$
+BEGIN
+  IF current_setting('app.system_privilege', true) IS DISTINCT FROM 'pricing_legacy_import' THEN
+    RAISE EXCEPTION 'change set %: a legacy_import set is written only by the system import path', p_change_set
+      USING ERRCODE = 'insufficient_privilege';
+  END IF;
 END
 $$;
 
@@ -990,7 +1117,9 @@ CREATE FUNCTION change_sets_created_as_draft() RETURNS trigger
   SET search_path = pg_catalog, public
 AS $$
 BEGIN
-  IF NEW.state <> 'draft' AND NEW.kind <> 'legacy_import' THEN
+  IF NEW.kind = 'legacy_import' THEN
+    PERFORM public.change_sets_assert_legacy_import(NEW.id);
+  ELSIF NEW.state <> 'draft' THEN
     RAISE EXCEPTION 'change set %: a % set is created as a draft, not %', NEW.id, NEW.kind, NEW.state
       USING ERRCODE = 'check_violation';
   END IF;
@@ -1005,6 +1134,11 @@ CREATE TRIGGER change_sets_content_rules BEFORE UPDATE ON change_sets
 CREATE CONSTRAINT TRIGGER change_sets_publish_complete AFTER UPDATE ON change_sets
   DEFERRABLE INITIALLY DEFERRED
   FOR EACH ROW EXECUTE FUNCTION change_sets_publish_complete();
+CREATE CONSTRAINT TRIGGER pricing_revisions_published AFTER INSERT ON pricing_revisions
+  DEFERRABLE INITIALLY DEFERRED
+  FOR EACH ROW EXECUTE FUNCTION pricing_revisions_published();
+-- One legacy import per tenant.
+CREATE UNIQUE INDEX ux_change_sets_one_legacy_import ON change_sets (tenant_id) WHERE kind = 'legacy_import';
 
 -- =============================================================================
 -- 6. Row-level security

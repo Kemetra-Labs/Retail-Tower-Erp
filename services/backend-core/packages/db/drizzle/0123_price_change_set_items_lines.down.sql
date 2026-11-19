@@ -5,7 +5,8 @@
 -- Drops the six Price Change Set content tables (item lists, items,
 -- validations, lines, preview lines, preview membership changes; with their
 -- indexes, triggers and policies), their functions, and change_sets'
--- created-as-draft, content-rules and publish-complete triggers. A Change Set's authored items, its validations with
+-- created-as-draft, content-rules and publish-complete triggers, its
+-- one-legacy-import index, and pricing_revisions' published trigger. A Change Set's authored items, its validations with
 -- the stored Impact Preview, and its lines (a published set's per-line
 -- before/after record, spec 042 §10) would be lost, so the rollback REFUSES
 -- while any item list or validation exists (every other content row hangs off
@@ -44,6 +45,9 @@ BEGIN
   IF to_regclass('change_sets') IS NOT NULL THEN
     LOCK TABLE change_sets IN ACCESS EXCLUSIVE MODE;
   END IF;
+  IF to_regclass('pricing_revisions') IS NOT NULL THEN
+    LOCK TABLE pricing_revisions IN ACCESS EXCLUSIVE MODE;
+  END IF;
   FOREACH tbl IN ARRAY ARRAY['price_change_set_preview_memberships', 'price_change_set_preview_lines',
                              'price_change_set_lines', 'price_change_set_validations',
                              'price_change_set_items', 'price_change_set_item_lists'] LOOP
@@ -72,6 +76,8 @@ $$;
 DROP TRIGGER IF EXISTS change_sets_content_rules ON change_sets;
 DROP TRIGGER IF EXISTS change_sets_publish_complete ON change_sets;
 DROP TRIGGER IF EXISTS change_sets_created_as_draft ON change_sets;
+DROP TRIGGER IF EXISTS pricing_revisions_published ON pricing_revisions;
+DROP INDEX IF EXISTS ux_change_sets_one_legacy_import;
 DROP TABLE IF EXISTS price_change_set_preview_memberships;
 DROP TABLE IF EXISTS price_change_set_preview_lines;
 DROP TABLE IF EXISTS price_change_set_lines;
@@ -79,7 +85,11 @@ DROP TABLE IF EXISTS price_change_set_validations;
 DROP TABLE IF EXISTS price_change_set_items;
 DROP TABLE IF EXISTS price_change_set_item_lists;
 
+DROP FUNCTION IF EXISTS pricing_revisions_published();
 DROP FUNCTION IF EXISTS change_sets_publish_complete();
+DROP FUNCTION IF EXISTS price_change_set_publish_record_check(uuid, uuid, integer, bigint);
+DROP FUNCTION IF EXISTS change_sets_assert_legacy_import(uuid);
+DROP FUNCTION IF EXISTS price_change_set_assert_tenant(uuid);
 DROP FUNCTION IF EXISTS change_sets_created_as_draft();
 DROP FUNCTION IF EXISTS change_sets_content_rules();
 DROP FUNCTION IF EXISTS price_change_set_preview_before_insert();

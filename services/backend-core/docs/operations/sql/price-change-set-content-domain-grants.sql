@@ -72,17 +72,16 @@ SELECT t.tbl, t.priv, has_table_privilege(:'domain_role', t.tbl, t.priv) AS gran
 SELECT c.col, has_column_privilege(:'domain_role', 'price_change_set_lines', c.col, 'UPDATE') AS granted
   FROM (VALUES ('new_event_id'), ('result_ids')) AS c(col);
 
--- No wider UPDATE: these columns must read `f`.
-SELECT c.tbl, c.col, has_column_privilege(:'domain_role', c.tbl, c.col, 'UPDATE') AS granted
-  FROM (VALUES
-                ('price_change_set_items', 'item'),
-                ('price_change_set_item_lists', 'item_count'),
-                ('price_change_set_validations', 'preview_hash'),
-                ('price_change_set_validations', 'summary'),
-                ('price_change_set_lines', 'new_price'),
-                ('price_change_set_lines', 'class'),
-                ('price_change_set_lines', 'replaced_ids'),
-                ('price_change_set_preview_lines', 'old_price')) AS c(tbl, col);
+-- No wider UPDATE: every column of the six tables but lines.new_event_id and
+-- lines.result_ids; this must return no row.
+SELECT c.relname AS tbl, a.attname AS col
+  FROM pg_catalog.pg_class c
+  JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+ WHERE c.relnamespace = 'public'::regnamespace
+   AND c.relname IN ('price_change_set_item_lists', 'price_change_set_items', 'price_change_set_validations',
+                     'price_change_set_lines', 'price_change_set_preview_lines', 'price_change_set_preview_memberships')
+   AND NOT (c.relname = 'price_change_set_lines' AND a.attname IN ('new_event_id', 'result_ids'))
+   AND has_column_privilege(:'domain_role', c.oid, a.attnum, 'UPDATE');
 
 SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
           FROM (VALUES
@@ -100,16 +99,16 @@ SELECT (SELECT bool_and(has_table_privilege(:'domain_role', t.tbl, t.priv))
                         ('price_change_set_preview_memberships', 'INSERT')) AS t(tbl, priv))
        AND has_column_privilege(:'domain_role', 'price_change_set_lines', 'new_event_id', 'UPDATE')
        AND has_column_privilege(:'domain_role', 'price_change_set_lines', 'result_ids', 'UPDATE')
-       AND NOT (SELECT bool_or(has_column_privilege(:'domain_role', c.tbl, c.col, 'UPDATE'))
-                  FROM (VALUES
-                                ('price_change_set_items', 'item'),
-                                ('price_change_set_item_lists', 'item_count'),
-                                ('price_change_set_validations', 'preview_hash'),
-                                ('price_change_set_validations', 'summary'),
-                                ('price_change_set_lines', 'new_price'),
-                                ('price_change_set_lines', 'class'),
-                                ('price_change_set_lines', 'replaced_ids'),
-                                ('price_change_set_preview_lines', 'old_price')) AS c(tbl, col))
+       AND NOT EXISTS (
+             SELECT 1
+               FROM pg_catalog.pg_class c
+               JOIN pg_catalog.pg_attribute a ON a.attrelid = c.oid AND a.attnum > 0 AND NOT a.attisdropped
+              WHERE c.relnamespace = 'public'::regnamespace
+                AND c.relname IN ('price_change_set_item_lists', 'price_change_set_items', 'price_change_set_validations',
+                                  'price_change_set_lines', 'price_change_set_preview_lines',
+                                  'price_change_set_preview_memberships')
+                AND NOT (c.relname = 'price_change_set_lines' AND a.attname IN ('new_event_id', 'result_ids'))
+                AND has_column_privilege(:'domain_role', c.oid, a.attnum, 'UPDATE'))
        AS domain_ok \gset
 
 \if :domain_ok

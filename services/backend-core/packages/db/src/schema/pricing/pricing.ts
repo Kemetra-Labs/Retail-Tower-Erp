@@ -45,6 +45,7 @@ import {
   text,
   timestamp,
   unique,
+  uniqueIndex,
   uuid,
 } from "drizzle-orm/pg-core";
 
@@ -94,6 +95,10 @@ export const changeSets = pgTable(
     check("change_sets_kind", sql`${t.kind} IN ('standard', 'emergency', 'rollback', 'legacy_import')`),
     check("change_sets_version_positive", sql`${t.version} >= 1`),
     index("ix_change_sets_tenant_state").on(t.tenantId, t.domain, t.state),
+    // 0123: one legacy import per tenant.
+    uniqueIndex("ux_change_sets_one_legacy_import")
+      .on(t.tenantId)
+      .where(sql`${t.kind} = 'legacy_import'`),
   ],
 );
 
