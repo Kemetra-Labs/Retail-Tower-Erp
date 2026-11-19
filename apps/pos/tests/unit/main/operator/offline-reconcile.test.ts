@@ -39,6 +39,8 @@ interface Harness {
   reconciler: OfflineReconciler;
   adopted: string[];
   conflicts: Array<{ session_id: string; cause: AuthorityLatchCause }>;
+  /** The admission ids a late answer renewed under a live session (the keeper verifies early). */
+  renewed: string[];
   logs: unknown[];
 }
 
@@ -47,6 +49,7 @@ function harness(): Harness {
   const fake = fakeCashierAdmission();
   const adopted: string[] = [];
   const conflicts: Harness['conflicts'] = [];
+  const renewed: string[] = [];
   const logs: unknown[] = [];
   const logger = {
     info: (...a: unknown[]) => logs.push(a),
@@ -57,6 +60,7 @@ function harness(): Harness {
     admission: fake.deps,
     onAdopted: (session_id) => adopted.push(session_id),
     onConflict: (session_id, cause) => conflicts.push({ session_id, cause }),
+    onLiveAdmissionRenewed: (admission_id) => renewed.push(admission_id),
     logger,
   });
   sessions.onStarted((record) => {
@@ -65,7 +69,7 @@ function harness(): Harness {
   sessions.onEnded((record) => {
     reconciler.onSessionEnded(record);
   });
-  return { sessions, fake, reconciler, adopted, conflicts, logs };
+  return { sessions, fake, reconciler, adopted, conflicts, renewed, logs };
 }
 
 function signInOffline(
@@ -491,6 +495,55 @@ describe('the session goes away', () => {
     expect(adopted).toEqual([]);
     expect(sessions.getCurrent()?.authority).toBe('offline_grant');
     expect(fake.endRequests).toHaveLength(1);
+  });
+
+  it('a late admitted for the id a NEW live session holds is not ended (that would end the live admission); the keeper is asked to verify early', async () => {
+    const h = harness();
+    let release: (r: CashierAdmissionResult) => void = () => undefined;
+    h.fake.setReconcile(() => new Promise<CashierAdmissionResult>((r) => (release = r)));
+    signInOffline(h.sessions);
+    await advance(0);
+    h.sessions.end('signed_out');
+    signInOnline(h.sessions); // same user, same device: the server hands back the SAME admission id
+    release({ ...ADMITTED, admission_generation: 'gen-rec-late' });
+    await advance(0);
+    expect(h.fake.endRequests).toEqual([]);
+    expect(h.renewed).toEqual([ADMITTED.admission_id]);
+    expect(h.sessions.getCurrent()?.authority).toBe('online_confirmed');
+  });
+
+  it('a pairing change while a request is in flight does not stop a transient failure from being retried on the live session', async () => {
+    const sessions = new SessionManager();
+    const fake = fakeCashierAdmission();
+    let pairing = 1;
+    fake.deps.grantSeam = {
+      onCashierAdmitted: () => undefined,
+      onCashierAdmissionInvalidated: () => undefined,
+      pairingGeneration: () => pairing,
+    };
+    const adopted: string[] = [];
+    const reconciler = new OfflineReconciler({
+      sessionManager: sessions,
+      admission: fake.deps,
+      onAdopted: (id) => adopted.push(id),
+      onConflict: () => undefined,
+      onLiveAdmissionRenewed: () => undefined,
+    });
+    sessions.onStarted((r) => {
+      reconciler.onSessionStarted(r);
+    });
+    let release: (r: CashierAdmissionResult) => void = () => undefined;
+    fake.setReconcile(() => new Promise<CashierAdmissionResult>((r) => (release = r)));
+    signInOffline(sessions);
+    await advance(0);
+    pairing = 2;
+    release(NO_CONNECTION);
+    await advance(0);
+    expect(reconciler.isSaleHeld(FAKE_USER_ID)).toBe(true);
+    fake.setReconcile({ ...ADMITTED });
+    await advance(RECONCILE_RETRY_MS);
+    expect(adopted).toHaveLength(1);
+    expect(sessions.getCurrent()?.authority).toBe('online_confirmed');
   });
 });
 

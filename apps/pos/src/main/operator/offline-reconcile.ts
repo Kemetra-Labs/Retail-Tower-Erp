@@ -33,8 +33,8 @@ import type {
  * offline admission silently supersede it, and `offline_admitted_at` (the
  * session's start) is provenance for audit only.
  *
- * Outcomes (every one is main-owned; nothing is reversed and no sale is
- * discarded):
+ * Outcomes (every one is main-owned; this module reverses no tender and
+ * discards no sale):
  *  - `admitted`: the session becomes `online_confirmed` (which also lifts the
  *    offline bound), the grant is refreshed through the seam and the keeper
  *    arms the heartbeat for the new admission;
@@ -54,6 +54,17 @@ import type {
  * before the till reconnected is not reconciled (that would leave a live server
  * admission for a cashier who is not signed in), and a restart loses the
  * in-memory session (D7): the next offline sign-in registers again.
+ *
+ * What this does NOT do (Backend-Core, not this module): the server accepts a
+ * device-path sale only inside a server admission window that starts at
+ * `created_at - 120 s`, and a `reconcile_offline` row is created at arrival
+ * time (`offline_admitted_at` is audit provenance, never read there:
+ * `operator-attribution.ts`). Reconciling therefore keeps the live session
+ * recorded going forward, but it does not by itself make the server accept
+ * sales made earlier outside every window (an outage longer than the 12 h TTL,
+ * or after an `end`). Such a sale is answered 403 and dead-lettered by the
+ * existing path, to be recovered through RT-1312 Phase 3 item 1 (quarantine
+ * and Console repair).
  *
  * Sales gate (D2: "before draining those sales"): {@link isSaleHeld} is true
  * from the start of the reconcile until its first answer, so the drain does not
@@ -87,6 +98,12 @@ export interface OfflineReconcilerDeps {
   onAdopted: (session_id: string) => void;
   /** Authority is lost: latch the session and end it at its first safe point. */
   onConflict: (session_id: string, cause: AuthorityLatchCause) => void;
+  /**
+   * A late `admitted` named the admission the CURRENT session already holds (a
+   * same-device re-admission returns the same id): the request renewed it, so
+   * the generation the session holds may be stale. The keeper verifies early.
+   */
+  onLiveAdmissionRenewed: (admission_id: string) => void;
   logger?: Pick<Logger, 'info' | 'warn'> | undefined;
 }
 
@@ -127,6 +144,14 @@ const INVALIDATING_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set(
   'refused',
   'active_elsewhere',
   'device_unauthorized',
+]);
+
+/** Answers that say nothing about the cashier: the reconcile simply tries again. */
+const TRANSIENT_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set([
+  'no_connection',
+  'no_token',
+  'unavailable',
+  'rate_limited',
 ]);
 
 /** Definite answers a retry cannot change. */
@@ -373,21 +398,37 @@ export class OfflineReconciler {
    */
   private release(entry: Entry, result: CashierAdmissionResult, who: AdmissionWho): void {
     if (INVALIDATING_KINDS.has(result.kind)) notifyGrantSeam(this.deps.admission, result, who);
-    if (result.kind === 'admitted') {
-      void endAdmissionTracked(
-        this.deps.admission,
-        result.admission_id,
-        result.admission_generation,
-        entry.user_id,
-      ).then((res) => {
-        this.deps.logger?.info(
-          { event: 'operator.offline_reconcile.end', outcome: res.kind },
-          'offline reconcile orphan admission end',
-        );
-      });
-    }
+    if (result.kind === 'admitted') this.releaseAdmitted(entry, result);
     if (entry.cancelled) return;
+    // A transient answer for a session that is still live is no reason to stop reconciling it.
+    if (this.isLive(entry) && TRANSIENT_KINDS.has(result.kind)) {
+      this.scheduleRetry(entry);
+      return;
+    }
     this.finish(entry);
+  }
+
+  /** End the orphan admission, unless the live session holds that same id (ending it would end theirs). */
+  private releaseAdmitted(entry: Entry, result: CashierAdmissionAdmitted): void {
+    if (this.heldByLiveSession(result.admission_id)) {
+      this.deps.onLiveAdmissionRenewed(result.admission_id);
+      return;
+    }
+    void endAdmissionTracked(
+      this.deps.admission,
+      result.admission_id,
+      result.admission_generation,
+      entry.user_id,
+    ).then((res) => {
+      this.deps.logger?.info(
+        { event: 'operator.offline_reconcile.end', outcome: res.kind },
+        'offline reconcile orphan admission end',
+      );
+    });
+  }
+
+  private heldByLiveSession(admission_id: string): boolean {
+    return this.deps.sessionManager.getCurrent()?.admission_id === admission_id;
   }
 
   private log(outcome: string): void {

@@ -310,6 +310,9 @@ export class CashierAdmissionKeeper {
       onConflict: (session_id, cause) => {
         if (deps.sessionManager.getCurrent()?.id === session_id) this.latchCurrentSession(cause);
       },
+      onLiveAdmissionRenewed: (admission_id) => {
+        if (this.armed?.admission_id === admission_id) this.reverifySoon(this.armed);
+      },
     });
     deps.sessionManager.onStarted((record) => {
       this.onSessionStarted(record);
