@@ -39,6 +39,7 @@ async function observeThroughWrapper(): Promise<ObservedRequest[]> {
 /** Method + contract path template of the calls that are the thirteen operations. */
 const REPORTING_CALL_TEMPLATES = [
   'get /api/pos/v1/catalog/snapshot',
+  'get /api/pos/v1/catalog/deltas',
   'get /api/pos/v1/cashier-admissions/roster',
   'post /api/pos/v1/cashier-admissions',
   'post /api/pos/v1/shifts',

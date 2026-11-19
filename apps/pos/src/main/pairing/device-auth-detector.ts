@@ -1,7 +1,7 @@
 import type { Logger } from 'pino';
 
 import type { DeviceRevokedSource } from '../../shared/pairing-types.js';
-import { SNAPSHOT_PATH } from '../catalogue/read-down/read-down-client.js';
+import { DELTAS_PATH, SNAPSHOT_PATH } from '../catalogue/read-down/read-down-client.js';
 import { ADMISSIONS_PATH } from '../operator/cashier-admission-client.js';
 
 /**
@@ -61,11 +61,12 @@ export type UrlMatchedDeviceSource = Exclude<DeviceRevokedSource, 'sale_sync'>;
  * The device-bearer route of each family (decision 2). The paths are the
  * clients' own constants, so the detector cannot drift from them.
  */
-const DEVICE_BEARER_ROUTE: Readonly<Record<UrlMatchedDeviceSource, string>> = {
+const DEVICE_BEARER_ROUTES: Readonly<Record<UrlMatchedDeviceSource, readonly string[]>> = {
   // posCreateCashierAdmission, posEndCashierAdmission, posListCashierAdmissionRoster
-  cashier_admissions: ADMISSIONS_PATH,
-  // the 010 catalogue read-down (AD-7: `Authorization: Bearer <device_token>`)
-  read_down: SNAPSHOT_PATH,
+  cashier_admissions: [ADMISSIONS_PATH],
+  // the 010 catalogue read-down (AD-7: `Authorization: Bearer <device_token>`):
+  // the snapshot and, since RT-1487, the delta route.
+  read_down: [SNAPSHOT_PATH, DELTAS_PATH],
 };
 
 /** `ok` = a 2xx; `unauthorized` = a 401; `other` = any other answer or none. */
@@ -94,9 +95,12 @@ export function isDeviceBearerRoute(
   source: UrlMatchedDeviceSource,
 ): boolean {
   const target = parseUrl(url);
-  const route = parseUrl(`${baseUrl.replace(/\/$/, '')}${DEVICE_BEARER_ROUTE[source]}`);
-  if (target === null || route === null) return false;
-  return isWithinRoute(target, route);
+  if (target === null) return false;
+  const root = baseUrl.replace(/\/$/, '');
+  return DEVICE_BEARER_ROUTES[source].some((path) => {
+    const route = parseUrl(`${root}${path}`);
+    return route !== null && isWithinRoute(target, route);
+  });
 }
 
 /** Same origin, and the route's own path or one of its sub-paths. */

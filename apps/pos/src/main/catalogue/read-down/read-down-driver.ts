@@ -30,6 +30,11 @@
  * `pairingStore` at the composition root, T039); mirrors `finalize-listener`.
  */
 
+/*
+ * RT-1487: after the first successful snapshot a tick syncs by delta from the
+ * stored cursor (`posGetCatalogDeltas`) and re-baselines with a full snapshot only
+ * when the server or the writer asks for it. See `deltaTick`.
+ */
 import type { ReadDownClient } from './read-down-client-types.js';
 import type {
   ReadDownWriter,
@@ -46,6 +51,8 @@ export interface TickOutcome {
   productsWritten: number;
   recordsRejected: number;
   /** `'transport'` when the fetch failed before the writer ran; else the writer's category. */
+  // RT-1487: a `delta-rejected` apply is never returned here — the tick
+  // re-baselines with a snapshot instead.
   failureCategory: ReadDownFailureCategory | 'transport' | null;
 }
 
@@ -91,39 +98,88 @@ export function createReadDownDriver(deps: CreateReadDownDriverDeps): ReadDownDr
   let inFlight = false;
   let intervalHandle: NodeJS.Timeout | null = null;
 
-  /** The async body of one tick. Resolves to the committed outcome, never rejects. */
-  async function runTick(): Promise<TickOutcome> {
-    const stamp = now();
-    try {
-      const fetched = await client.fetchSnapshot();
+  /**
+   * Transport failure: the writer must NOT run. Record a failed attempt so the
+   * freshness surface can show "last attempt failed" while `last_success_at`
+   * (and the stored cursor) stay put (SC-10). The writer owns its own
+   * attempt-recording for writer-side failures; the driver owns this one.
+   */
+  function transportFailure(stamp: string): TickOutcome {
+    writer.recordFetchFailure({ tenantId, branchId, now: stamp });
+    return {
+      outcome: 'failed',
+      productsWritten: 0,
+      recordsRejected: 0,
+      failureCategory: 'transport',
+    };
+  }
 
-      if (fetched.kind !== 'ok') {
-        // Transport failure: the writer must NOT run. Record a failed attempt so
-        // the freshness surface can show "last attempt failed" while
-        // `last_success_at` stays put (SC-10). The writer owns its own
-        // attempt-recording for writer-side failures; the driver owns this one.
-        writer.recordFetchFailure({ tenantId, branchId, now: stamp });
-        return {
-          outcome: 'failed',
-          productsWritten: 0,
-          recordsRejected: 0,
-          failureCategory: 'transport',
-        };
-      }
+  function toOutcome(result: ReadDownRunResult): TickOutcome {
+    return {
+      outcome: result.outcome,
+      productsWritten: result.productsWritten,
+      recordsRejected: result.recordsRejected,
+      failureCategory: result.failureCategory,
+    };
+  }
 
-      const result = writer.run({
+  /** The full-snapshot path (first sync, and every re-baseline). */
+  async function snapshotTick(stamp: string): Promise<TickOutcome> {
+    const fetched = await client.fetchSnapshot();
+    if (fetched.kind !== 'ok') return transportFailure(stamp);
+    return toOutcome(
+      writer.run({
         tenantId,
         branchId,
         sourceSnapshotId: fetched.sourceSnapshotId,
         now: stamp,
         rows: fetched.rows,
-      });
-      return {
-        outcome: result.outcome,
-        productsWritten: result.productsWritten,
-        recordsRejected: result.recordsRejected,
-        failureCategory: result.failureCategory,
-      };
+      }),
+    );
+  }
+
+  /**
+   * RT-1487 — the delta path. Returns the tick outcome, or `null` when the tick
+   * must re-baseline with a full snapshot: the server answered
+   * `snapshot_required` (cursor past its retained change log), the delta call
+   * was reached but failed (e.g. a non-disclosing refusal of a foreign-scope
+   * cursor), or an op was rejected. An unreachable backend or a refused device
+   * credential is NOT retried with a snapshot: the prior catalogue stays
+   * sellable offline and the next tick resumes from the same cursor.
+   */
+  async function deltaTick(
+    fetchDeltas: NonNullable<ReadDownClient['fetchDeltas']>,
+    cursor: string,
+    stamp: string,
+  ): Promise<TickOutcome | null> {
+    const delta = await fetchDeltas(cursor);
+    if (delta.kind === 'no_connection' || delta.kind === 'device_unauthorized') {
+      return transportFailure(stamp);
+    }
+    if (delta.kind !== 'ok') return null;
+    const applied = writer.applyDeltas({
+      tenantId,
+      branchId,
+      cursor: delta.cursor,
+      now: stamp,
+      ops: delta.ops,
+    });
+    return applied.failureCategory === 'delta-rejected' ? null : toOutcome(applied);
+  }
+
+  /** The async body of one tick. Resolves to the committed outcome, never rejects. */
+  async function runTick(): Promise<TickOutcome> {
+    const stamp = now();
+    try {
+      // RT-1487: after a successful snapshot, sync by delta from the stored
+      // cursor; with no cursor (first sync, or another store's) take a snapshot.
+      const fetchDeltas = client.fetchDeltas?.bind(client);
+      const cursor = fetchDeltas ? writer.currentCursor(tenantId, branchId) : null;
+      if (fetchDeltas && cursor !== null) {
+        const outcome = await deltaTick(fetchDeltas, cursor, stamp);
+        if (outcome !== null) return outcome;
+      }
+      return await snapshotTick(stamp);
     } finally {
       inFlight = false;
     }
