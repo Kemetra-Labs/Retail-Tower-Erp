@@ -143,22 +143,14 @@ describe("sale quarantine — operations", () => {
     expect(o["x-audit-action"]).toBe(audit);
   });
 
-  it.each(CONSOLE_OPS.filter(([id]) => id !== "consoleRepairQuarantinedSale"))(
-    "%s is implemented (RT-1312 Phase 3(b) slice B): no contract-only marker, no note",
+  it.each(CONSOLE_OPS)(
+    "%s is implemented (RT-1312 Phase 3(b) slices B and C): no contract-only marker, no note",
     (_id, path, method) => {
       const o = op(ops, path, method);
       expect(o["x-runtime-status"]).toBeUndefined();
       expect(o["x-runtime-note"]).toBeUndefined();
     },
   );
-
-  it("consoleRepairQuarantinedSale stays contract-only until slice C, and its note says so", () => {
-    const o = op(ops, REPAIR, "post");
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(String(o["x-runtime-note"]).replace(/\s+/g, " ")).toEqual(
-      expect.stringContaining("RT-1312 Phase 3(b) slice C"),
-    );
-  });
 
   it("posQuarantineSale is implemented (RT-1312 Phase 3(b)): no contract-only marker, its audit action kept", () => {
     const o = op(pos, UPLOAD, "post");

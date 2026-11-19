@@ -1,5 +1,5 @@
 /**
- * RT-1312 Phase 3(b), slice B: the wiring and error mapping of the Console
+ * RT-1312 Phase 3(b), slices B and C: the wiring and error mapping of the Console
  * quarantine routes (`SaleQuarantineOpsController`), without a database. The
  * HTTP behaviour over real Postgres is `sale-quarantine-ops.integration.spec.ts`.
  *
@@ -33,7 +33,7 @@ const REF = "0190f0f0-0000-7000-8000-00000000c001";
 const request = (over: Record<string, unknown> = {}): never =>
   ({ context: { tenantId: TENANT, storeId: null, userId: "u1" }, ...over }) as never;
 
-const handler = (name: "list" | "get" | "writeOff"): object =>
+const handler = (name: "list" | "get" | "writeOff" | "repair"): object =>
   Object.getOwnPropertyDescriptor(SaleQuarantineOpsController.prototype, name)?.value as object;
 
 describe("SaleQuarantineOpsController wiring", () => {
@@ -50,6 +50,13 @@ describe("SaleQuarantineOpsController wiring", () => {
     expect(Reflect.getMetadata(METHOD_METADATA, handler("writeOff"))).toBe(1); // POST
   });
 
+  it("serves the repair under the contract path as a POST (slice C)", () => {
+    expect(Reflect.getMetadata(PATH_METADATA, handler("repair"))).toBe(
+      "api/v1/catalog/sale-sync-ops/quarantined-sales/:quarantineRef/repair",
+    );
+    expect(Reflect.getMetadata(METHOD_METADATA, handler("repair"))).toBe(1); // POST
+  });
+
   it("authenticates the human session, then the tenant context, for every route", () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, SaleQuarantineOpsController)).toEqual([
       DashboardAuthGuard,
@@ -57,7 +64,7 @@ describe("SaleQuarantineOpsController wiring", () => {
     ]);
   });
 
-  it.each(["list", "get", "writeOff"] as const)("%s is gated to owner and tenant_admin (C1)", (name) => {
+  it.each(["list", "get", "writeOff", "repair"] as const)("%s is gated to owner and tenant_admin (C1)", (name) => {
     expect(Reflect.getMetadata(GUARDS_METADATA, handler(name))).toEqual([RolesGuard]);
     expect(Reflect.getMetadata(ROLES_METADATA_KEY, handler(name))).toMatchObject({
       any: ["owner", "tenant_admin"],
@@ -69,20 +76,24 @@ describe("SaleQuarantineOpsController wiring", () => {
     expect(Reflect.getMetadata(AUDITABLE_KEY, handler("list"))).toBe("sale_sync_ops.quarantine.listed");
     expect(Reflect.getMetadata(AUDITABLE_KEY, handler("get"))).toBe("sale_sync_ops.quarantine.read");
     expect(Reflect.getMetadata(AUDITABLE_KEY, handler("writeOff"))).toBe("sale_sync_ops.quarantine.written_off");
+    expect(Reflect.getMetadata(AUDITABLE_KEY, handler("repair"))).toBe("sale_sync_ops.quarantine.repair.requested");
   });
 
   it("uses the rate-limit classes the contract's class file declares", () => {
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("list"))).toBe("expensiveRead");
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("get"))).toBe("cheapRead");
     expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("writeOff"))).toBe("write");
+    expect(Reflect.getMetadata(CONSOLE_RATE_LIMIT_CLASS_KEY, handler("repair"))).toBe("write");
   });
 
-  it("answers the write-off 200 as the contract documents (a bare POST would be 201)", () => {
+  it("answers the write-off and the repair 200 as the contract documents (a bare POST would be 201)", () => {
     expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler("writeOff"))).toBe(200);
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, handler("repair"))).toBe(200);
   });
 
-  it("requires an Idempotency-Key on the write-off only", () => {
+  it("requires an Idempotency-Key on the two writes only", () => {
     expect(Reflect.getMetadata(IDEMPOTENT_POLICY_KEY, handler("writeOff"))).toBe("required");
+    expect(Reflect.getMetadata(IDEMPOTENT_POLICY_KEY, handler("repair"))).toBe("required");
     expect(Reflect.getMetadata(IDEMPOTENT_POLICY_KEY, handler("list"))).toBeUndefined();
     expect(Reflect.getMetadata(IDEMPOTENT_POLICY_KEY, handler("get"))).toBeUndefined();
   });
@@ -90,8 +101,10 @@ describe("SaleQuarantineOpsController wiring", () => {
 
 describe("SaleQuarantineOpsController behaviour", () => {
   const ops = { list: jest.fn(), get: jest.fn(), writeOff: jest.fn() };
+  const repairs = { repair: jest.fn() };
   const readModel = { assertStoreInScope: jest.fn() };
-  const controller = (): SaleQuarantineOpsController => new SaleQuarantineOpsController(ops as never, readModel as never);
+  const controller = (): SaleQuarantineOpsController =>
+    new SaleQuarantineOpsController(ops as never, repairs as never, readModel as never);
 
   beforeEach(() => {
     jest.resetAllMocks();
@@ -103,7 +116,9 @@ describe("SaleQuarantineOpsController behaviour", () => {
     await expect(controller().list(noTenant, {})).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(controller().get(noTenant, REF)).rejects.toBeInstanceOf(UnauthorizedException);
     await expect(controller().writeOff(noTenant, REF, { note: "n" })).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(controller().repair(noTenant, REF)).rejects.toBeInstanceOf(UnauthorizedException);
     expect(ops.list).not.toHaveBeenCalled();
+    expect(repairs.repair).not.toHaveBeenCalled();
   });
 
   it("list passes the default page size, no cursor and no store; state is left to the service", async () => {
@@ -162,6 +177,50 @@ describe("SaleQuarantineOpsController behaviour", () => {
     expect((conflict as ConflictException).getResponse()).toEqual({
       code: "repair_conflict",
       message: "The quarantined sale is not open.",
+    });
+  });
+
+  it("repair is 401 without a signed-in user, and a malformed ref is a 400, both before any service call", async () => {
+    const noUser = { context: { tenantId: TENANT, storeId: null, userId: null } } as never;
+    await expect(controller().repair(noUser, REF)).rejects.toBeInstanceOf(UnauthorizedException);
+    await expect(controller().repair(request(), "nope")).rejects.toBeInstanceOf(BadRequestException);
+    expect(repairs.repair).not.toHaveBeenCalled();
+  });
+
+  it("repair runs as the signed-in user in the caller's tenant, and returns the item", async () => {
+    repairs.repair.mockResolvedValueOnce({ quarantineRef: REF, storeId: STORE, state: "captured", lastRepair: { outcome: "captured" } });
+    await expect(controller().repair(request(), REF)).resolves.toMatchObject({ state: "captured" });
+    expect(repairs.repair).toHaveBeenCalledWith(expect.objectContaining({ tenantId: TENANT, repairerUserId: "u1" }), REF);
+  });
+
+  it("repair maps not-found to 404 and not-open to 409 repair_conflict", async () => {
+    repairs.repair.mockRejectedValueOnce(new QuarantineNotFoundError());
+    await expect(controller().repair(request(), REF)).rejects.toBeInstanceOf(NotFoundException);
+    repairs.repair.mockRejectedValueOnce(new RepairConflictError());
+    const conflict = await controller()
+      .repair(request(), REF)
+      .catch((e: unknown) => e);
+    expect(conflict).toBeInstanceOf(ConflictException);
+    expect((conflict as ConflictException).getResponse()).toEqual({
+      code: "repair_conflict",
+      message: "The quarantined sale is not open.",
+    });
+  });
+
+  it("repair annotates the audit row with ids, the state and the outcome only", async () => {
+    repairs.repair.mockResolvedValueOnce({
+      quarantineRef: REF,
+      storeId: STORE,
+      state: "open",
+      lastRepair: { at: "t", outcome: "refused", httpStatus: 422, errorCode: "sale_tender_mismatch" },
+    });
+    const req = request();
+    await controller().repair(req, REF);
+    expect((req as { auditMetadata?: Record<string, unknown> }).auditMetadata).toEqual({
+      quarantine_ref: REF,
+      store_id: STORE,
+      state: "open",
+      outcome: "refused",
     });
   });
 

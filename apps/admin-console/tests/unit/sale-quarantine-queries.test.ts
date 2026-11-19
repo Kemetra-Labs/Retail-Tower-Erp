@@ -9,6 +9,7 @@ vi.mock("@/generated/client", () => ({
 import {
   consoleGetQuarantinedSale,
   consoleListQuarantinedSales,
+  consoleRepairQuarantinedSale,
   consoleWriteOffQuarantinedSale,
 } from "@/lib/sale-quarantine-queries";
 import { QUARANTINE_REF, STORE, idempotencyKey } from "./sale-quarantine-fixtures";
@@ -18,7 +19,7 @@ function response(status: number, headers: Record<string, string> = {}) {
 }
 
 /**
- * RT-1312 slice B Console wrappers: each calls exactly its generated path with
+ * RT-1312 slice B and C Console wrappers: each calls exactly its generated path with
  * the contract's params and returns `{ status, data, error, retryAfter }`.
  */
 describe("sale quarantine wrappers", () => {
@@ -77,5 +78,16 @@ describe("sale quarantine wrappers", () => {
     const res = await consoleWriteOffQuarantinedSale(QUARANTINE_REF, "x", idempotencyKey("b"));
     expect(res.status).toBe(429);
     expect(res.retryAfter).toBe(12);
+  });
+
+  test("consoleRepairQuarantinedSale posts to the repair path with the key and no body", async () => {
+    POST.mockResolvedValue({ data: { quarantineRef: QUARANTINE_REF }, response: response(200) });
+    const key = idempotencyKey("c");
+    const res = await consoleRepairQuarantinedSale(QUARANTINE_REF, key);
+    expect(POST).toHaveBeenCalledWith(
+      "/api/v1/catalog/sale-sync-ops/quarantined-sales/{quarantineRef}/repair",
+      { params: { path: { quarantineRef: QUARANTINE_REF }, header: { "Idempotency-Key": key } } },
+    );
+    expect(res.status).toBe(200);
   });
 });

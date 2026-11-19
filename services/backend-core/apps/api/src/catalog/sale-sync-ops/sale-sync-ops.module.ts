@@ -14,8 +14,8 @@
  * bearer. `RolesGuard` + `@Roles` gate the surface (default deny).
  *
  * RT-1312 Phase 3(b) slice B adds the Console half of the sale quarantine
- * (`SaleQuarantineOpsController`: list, read and write-off of the 0093
- * `sale_quarantine_items`); the repair follows in slice C.
+ * (`SaleQuarantineOpsController`: list, read, write-off and, in slice C, the
+ * repair of the 0093 `sale_quarantine_items`).
  *
  * Imports:
  *   - `AuthModule`        — provides `PG_POOL` + the human `DashboardAuthGuard`.
@@ -34,13 +34,14 @@ import { ContextModule } from "../../context/context.module";
 import { IdempotencyModule } from "../../idempotency/idempotency.module";
 import { SaleQuarantineOpsController } from "./sale-quarantine-ops.controller";
 import { SaleQuarantineOpsService } from "./sale-quarantine-ops.service";
+import { SaleQuarantineRepairService } from "./sale-quarantine-repair.service";
 import { SaleSyncOpsController } from "./sale-sync-ops.controller";
 import { SaleSyncOpsReadModelService } from "./sale-sync-ops.read-model.service";
 
 @Module({
   imports: [AuthModule, AuditModule, ContextModule, IdempotencyModule],
   controllers: [SaleSyncOpsController, SaleQuarantineOpsController],
-  providers: [SaleSyncOpsReadModelService, SaleQuarantineOpsService],
+  providers: [SaleSyncOpsReadModelService, SaleQuarantineOpsService, SaleQuarantineRepairService],
   exports: [SaleSyncOpsReadModelService],
 })
 export class SaleSyncOpsModule {}

@@ -7,8 +7,7 @@
  *   GET  /quarantined-sales                           consoleListQuarantinedSales
  *   GET  /quarantined-sales/{quarantineRef}           consoleGetQuarantinedSale
  *   POST /quarantined-sales/{quarantineRef}/write-off consoleWriteOffQuarantinedSale
- *
- * `consoleRepairQuarantinedSale` is slice C and has no route here.
+ *   POST /quarantined-sales/{quarantineRef}/repair    consoleRepairQuarantinedSale
  *
  * Authenticated by the HUMAN `cookieAuth` -> `DashboardAuthGuard`, then
  * `TenantContextGuard` (publishes `request.context`); `RolesGuard` + `@Roles`
@@ -19,8 +18,10 @@
  * bounds every read and the write-off in the service; an item or `store_id`
  * outside it is the same non-disclosing 404.
  *
- * The write-off is the only write: audited (`@Auditable`, with ids only in the
- * audit metadata, never the free-text note), `Idempotency-Key` required.
+ * The write-off and the repair (slice C, `SaleQuarantineRepairService`) are the
+ * writes: each audited (`@Auditable`, ids and states only in the audit metadata,
+ * never the free-text note), `Idempotency-Key` required. A wrong role answers 404,
+ * as the rest of the sale-sync-ops family (owner decision, RT-1312 comment 17812).
  */
 import {
   BadRequestException,
@@ -52,6 +53,7 @@ import {
   type QuarantineListQuery,
   type QuarantineWriteOffBody,
 } from "./dto/sale-quarantine-ops.dto";
+import { SaleQuarantineRepairService } from "./sale-quarantine-repair.service";
 import {
   QuarantineNotFoundError,
   SaleQuarantineOpsService,
@@ -72,6 +74,7 @@ const BASE = "api/v1/catalog/sale-sync-ops/quarantined-sales";
 export class SaleQuarantineOpsController {
   constructor(
     private readonly service: SaleQuarantineOpsService,
+    private readonly repairs: SaleQuarantineRepairService,
     private readonly readModel: SaleSyncOpsReadModelService,
   ) {}
 
@@ -134,6 +137,35 @@ export class SaleQuarantineOpsController {
     const item = await settle(() => this.service.writeOff(scoped, quarantineRef, body.note));
     // Ids and the new state only: the note is operator free text (FR-AUDIT-3, §XIV).
     annotateAudit(request, { quarantine_ref: item.quarantineRef, store_id: item.storeId, state: item.state });
+    return item;
+  }
+
+  /** POST — re-ingest an open item's stored body through the capture rules (decision C2). */
+  @Post(`${BASE}/:quarantineRef/repair`)
+  // The contract documents 200 only (every outcome, `refused` included); a bare Nest POST answers 201.
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  @Idempotent("required")
+  @Auditable("sale_sync_ops.quarantine.repair.requested")
+  // RT-1312 Phase 3(b) slice C (RT-574 D3): consoleRepairQuarantinedSale.
+  @ConsoleRateLimit("write")
+  async repair(
+    @Req() request: TenantContextRequest,
+    @Param("quarantineRef") quarantineRef: string,
+  ): Promise<QuarantinedSaleBody> {
+    const scoped = sessionScope(request);
+    const repairerUserId = request.context?.userId;
+    if (!repairerUserId) throw new UnauthorizedException("Unauthorized");
+    assertRef(quarantineRef);
+    const item = await settle(() => this.repairs.repair({ ...scoped, repairerUserId }, quarantineRef));
+    // Ids, the new state and the outcome only: never the body (FR-AUDIT-3, §XIV).
+    annotateAudit(request, {
+      quarantine_ref: item.quarantineRef,
+      store_id: item.storeId,
+      state: item.state,
+      outcome: item.lastRepair?.outcome ?? null,
+    });
     return item;
   }
 }

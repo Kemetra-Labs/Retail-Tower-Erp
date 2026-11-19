@@ -5,3 +5,4 @@
  * `tools/module-boundaries` enforces this.
  */
 export { listSpecificAccessMembersOfStore } from "./store-members";
+export { wasTenantMemberAt } from "./membership-at";

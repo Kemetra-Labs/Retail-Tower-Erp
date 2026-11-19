@@ -11,13 +11,12 @@
  * note replays the same Idempotency-Key. A 409 or a 404 leaves nothing to commit.
  */
 import { Banner, type BannerVariant } from "@/components/Banner";
-import { ConfirmModal } from "@/components/ConfirmModal";
 import { InlineError } from "@/components/InlineError";
 import { TextArea } from "@/devices/RevokeFields";
 import { type T, useT } from "@/i18n";
-import { Machine } from "@/sale-sync/parts";
 import type { SaleScope } from "@/sales/useSales";
 import { useId } from "react";
+import { WriteConfirm, type WriteDialogWords } from "./parts";
 import { type WriteOffOutcome, writeOffNoteProblem } from "./quarantineLogic";
 import { type WriteOffState, isFinishedOutcome, useWriteOff } from "./useQuarantine";
 
@@ -31,6 +30,15 @@ const VARIANTS: Record<WriteOffOutcome["kind"], BannerVariant> = {
   forbidden: "danger",
   session: "danger",
   rejected: "danger",
+};
+
+const WORDS: WriteDialogWords = {
+  title: "saleQuarantine.writeOff.dialogTitle",
+  consequence: "saleQuarantine.writeOff.consequence",
+  commit: "saleQuarantine.writeOff.commit",
+  committing: "saleQuarantine.writeOff.committing",
+  cancel: "saleQuarantine.writeOff.cancel",
+  done: "saleQuarantine.writeOff.done",
 };
 
 function outcomeMessage(t: T, outcome: WriteOffOutcome): string {
@@ -89,32 +97,19 @@ export function WriteOffDialog({
   /** `recorded`: the write-off (or a conflict) ended the item's open state, not merely cancelled. */
   onClose: (finished: boolean) => void;
 }>): React.JSX.Element {
-  const t = useT();
   const flow = useWriteOff({ scope, quarantineRef });
   const finished = isFinishedOutcome(flow.outcome);
-  const ready = !flow.pending && writeOffNoteProblem(flow.note) === null;
   return (
-    <ConfirmModal
-      title={t("saleQuarantine.writeOff.dialogTitle")}
+    <WriteConfirm
+      words={WORDS}
+      reference={reference}
+      flow={flow}
       finished={finished}
-      pending={flow.pending}
-      cancelLabel={t("saleQuarantine.writeOff.cancel")}
-      doneLabel={t("saleQuarantine.writeOff.done")}
-      commit={{
-        label: t(
-          flow.pending ? "saleQuarantine.writeOff.committing" : "saleQuarantine.writeOff.commit",
-        ),
-        disabled: !ready,
-        busy: flow.pending,
-        onClick: () => void flow.commit(),
-      }}
+      canCommit={!flow.pending && writeOffNoteProblem(flow.note) === null}
       onClose={onClose}
     >
-      <p className="confirm-modal__consequence">
-        {t.rich("saleQuarantine.writeOff.consequence", { ref: <Machine value={reference} /> })}
-      </p>
       {flow.outcome ? <OutcomeBanner outcome={flow.outcome} /> : null}
       {finished ? null : <NoteForm flow={flow} />}
-    </ConfirmModal>
+    </WriteConfirm>
   );
 }

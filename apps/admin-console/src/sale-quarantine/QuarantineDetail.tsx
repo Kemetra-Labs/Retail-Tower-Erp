@@ -1,11 +1,11 @@
 /**
  * RT-1312 (Phase 3(b) slice B) — one sale the till could not send (`consoleGetQuarantinedSale`),
  * for owner / tenant_admin. The item's state, what the till recorded about the refusal, a minimal
- * summary of the stored sale (never the stored body: the server does not send it), and the one
- * guarded write, "Close without recording" (`consoleWriteOffQuarantinedSale`), offered only while
- * the server says the item is `open`.
+ * summary of the stored sale (never the stored body: the server does not send it), and the two
+ * guarded writes, "Record the sale" (`consoleRepairQuarantinedSale`, slice C) and "Close without
+ * recording" (`consoleWriteOffQuarantinedSale`), offered only while the server says the item is
+ * `open`. Each opens its own confirmation; the page never calls either by itself.
  *
- * Repair (`consoleRepairQuarantinedSale`) is slice C and is not offered here; the page says so.
  * A state this build does not know is shown as unknown and offers nothing. Times are in the
  * item's store zone when the store is known (RT-401). A 404 is the API's uniform refusal and
  * reads as not found or not available, whatever the cause.
@@ -29,6 +29,7 @@ import type { SaleScope } from "@/sales/useSales";
 import { useStoreOf } from "@/shift-closes/useShiftCloses";
 import { useEffect, useRef, useState } from "react";
 import { Link, useParams } from "react-router";
+import { RepairDialog } from "./RepairDialog";
 import { WriteOffDialog } from "./WriteOffDialog";
 import { QuarantineStateBadge, TillTotal } from "./parts";
 import { canWriteOff, quarantineStateView, reasonKindKey } from "./quarantineLogic";
@@ -155,6 +156,14 @@ function lastRepairLabel(t: T, outcome: string): string {
     : t("saleQuarantine.lastRepair.unknown");
 }
 
+/** The status and code of the last refused repair, as the server recorded them (either may be null). */
+function refusalDetail({
+  httpStatus,
+  errorCode,
+}: NonNullable<QuarantinedSale["lastRepair"]>): string {
+  return [httpStatus, errorCode].filter((part) => part !== null).join(" ");
+}
+
 function HistoryFacts({ item, timeZone }: Readonly<Zoned>): React.JSX.Element {
   const t = useT();
   const { writeOff, lastRepair } = item;
@@ -169,6 +178,11 @@ function HistoryFacts({ item, timeZone }: Readonly<Zoned>): React.JSX.Element {
             at: <DateTime value={lastRepair.at} timeZone={timeZone} />,
             outcome: lastRepairLabel(t, lastRepair.outcome),
           })}
+        </Field>
+      ) : null}
+      {lastRepair?.outcome === "refused" ? (
+        <Field label={t("saleQuarantine.field.lastRefusal")}>
+          <Machine value={refusalDetail(lastRepair)} />
         </Field>
       ) : null}
       {item.saleRef ? (
@@ -191,20 +205,28 @@ function HistoryFacts({ item, timeZone }: Readonly<Zoned>): React.JSX.Element {
 }
 
 function OpenHandling({
+  onRepair,
   onWriteOff,
   opener,
 }: Readonly<{
+  onRepair: () => void;
   onWriteOff: () => void;
   opener: React.RefObject<HTMLButtonElement | null>;
 }>): React.JSX.Element {
   const t = useT();
   return (
     <div className="sale-sync__repair">
+      <h3 className="sale-sync__subtitle">{t("saleQuarantine.repair.title")}</h3>
+      <p className="content__sub">{t("saleQuarantine.repair.explain")}</p>
+      <div>
+        <button ref={opener} type="button" className="btn-secondary" onClick={onRepair}>
+          {t("saleQuarantine.repair.action")}
+        </button>
+      </div>
       <h3 className="sale-sync__subtitle">{t("saleQuarantine.writeOff.title")}</h3>
-      <p className="content__sub">{t("saleQuarantine.handling.repairLater")}</p>
       <p className="content__sub">{t("saleQuarantine.writeOff.explain")}</p>
       <div>
-        <button ref={opener} type="button" className="btn-danger-quiet" onClick={onWriteOff}>
+        <button type="button" className="btn-danger-quiet" onClick={onWriteOff}>
           {t("saleQuarantine.writeOff.action")}
         </button>
       </div>
@@ -221,7 +243,7 @@ function HandlingSection({
   Zoned & { scope: SaleScope; titleRef: React.RefObject<HTMLHeadingElement | null> }
 >): React.JSX.Element {
   const t = useT();
-  const [writing, setWriting] = useState(false);
+  const [dialog, setDialog] = useState<"repair" | "write-off" | null>(null);
   const opener = useRef<HTMLButtonElement>(null);
   const known = quarantineStateView(item.state).badge !== "badge--danger";
   const open = canWriteOff(item);
@@ -231,30 +253,42 @@ function HandlingSection({
   // dialog owns focus while it is up, so this waits for it to close.
   const wasOpen = useRef(open);
   useEffect(() => {
-    if (writing) return;
+    if (dialog !== null) return;
     const active = document.activeElement;
     if (wasOpen.current && !open && (active === null || active === document.body)) {
       titleRef.current?.focus();
     }
     wasOpen.current = open;
-  }, [writing, open, titleRef]);
+  }, [dialog, open, titleRef]);
 
   return (
     <Section id="quarantine-handling" titleKey="saleQuarantine.section.handling" index={4}>
       {open ? (
-        <OpenHandling onWriteOff={() => setWriting(true)} opener={opener} />
+        <OpenHandling
+          onRepair={() => setDialog("repair")}
+          onWriteOff={() => setDialog("write-off")}
+          opener={opener}
+        />
       ) : (
         <p className="content__sub">
           {t(known ? "saleQuarantine.handling.closed" : "saleQuarantine.handling.unknownState")}
         </p>
       )}
       {known ? <HistoryFacts item={item} timeZone={timeZone} /> : null}
-      {writing ? (
+      {dialog === "repair" ? (
+        <RepairDialog
+          scope={scope}
+          quarantineRef={item.quarantineRef}
+          reference={item.externalId}
+          onClose={() => setDialog(null)}
+        />
+      ) : null}
+      {dialog === "write-off" ? (
         <WriteOffDialog
           scope={scope}
           quarantineRef={item.quarantineRef}
           reference={item.externalId}
-          onClose={() => setWriting(false)}
+          onClose={() => setDialog(null)}
         />
       ) : null}
     </Section>
