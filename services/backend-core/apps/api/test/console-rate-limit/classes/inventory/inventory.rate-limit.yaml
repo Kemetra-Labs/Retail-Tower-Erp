@@ -2,15 +2,20 @@
 # packages/contracts/openapi/inventory/inventory.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
 
 approveCountSession: write
+approveShipmentTransfer: write
 bindTrackingResolution: write
 cancelCountSession: write
+cancelShipmentTransfer: write
+closeShipmentTransfer: write
 correctTrackingIdentityExpiry: write
 createCountSession: write
 createInventoryRecall: write
 createRelocation: write
+createShipmentTransfer: write
 createStatusMove: write
 createStockMovement: write
 createStockTransfer: write
+dispatchShipmentTransfer: write
 getCountSelfApprovalSetting: cheapRead
 getCountSession: cheapRead
 getCountSessionsSetting: cheapRead
@@ -18,6 +23,7 @@ getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
 getSafetyTtlSetting: cheapRead
+getShipmentTransfer: cheapRead
 getTrackedSellingSetting: cheapRead
 getTrackingHold: cheapRead
 getTrackingIdentity: cheapRead
@@ -28,6 +34,8 @@ listCountVarianceLines: expensiveRead
 listInventoryRecalls: cheapRead
 listInventorySafetyFindings: expensiveRead
 listSaleLineFindings: expensiveRead
+listShipmentTransferReceipts: cheapRead
+listShipmentTransfers: cheapRead
 listStockLocations: cheapRead
 listStockMovements: expensiveRead
 listTrackingHolds: cheapRead
@@ -36,6 +44,7 @@ listTrackingIdentityExpiryCorrections: cheapRead
 listTrackingResolutionQueue: expensiveRead
 placeQualityHold: write
 recordCountObservations: write
+recordShipmentTransferReceipt: write
 recordStockCount: write
 releaseTrackingHold: write
 requestCountRecount: write

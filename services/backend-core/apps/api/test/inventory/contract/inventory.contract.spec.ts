@@ -41,6 +41,9 @@ import "reflect-metadata";
 
 import { resolve } from "node:path";
 
+import Ajv2020 from "ajv/dist/2020";
+import addFormats from "ajv-formats";
+
 import {
   INVENTORY_REASON_CODES,
   INVENTORY_STATUSES,
@@ -112,6 +115,16 @@ const OPERATION_IDS = [
   "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
+  // RT-1512 (contract-only): the Gate 5 shipment transfer surface.
+  "approveShipmentTransfer",
+  "cancelShipmentTransfer",
+  "closeShipmentTransfer",
+  "createShipmentTransfer",
+  "dispatchShipmentTransfer",
+  "getShipmentTransfer",
+  "listShipmentTransferReceipts",
+  "listShipmentTransfers",
+  "recordShipmentTransferReceipt",
 ] as const;
 
 // Operator-surface ops use cookieAuth.
@@ -164,6 +177,16 @@ const OPERATOR_OPERATION_IDS = [
   "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
+  // RT-1512 (contract-only): the Gate 5 shipment transfer surface.
+  "approveShipmentTransfer",
+  "cancelShipmentTransfer",
+  "closeShipmentTransfer",
+  "createShipmentTransfer",
+  "dispatchShipmentTransfer",
+  "getShipmentTransfer",
+  "listShipmentTransferReceipts",
+  "listShipmentTransfers",
+  "recordShipmentTransferReceipt",
 ];
 
 // Write ops that MUST carry a required Idempotency-Key.
@@ -186,6 +209,13 @@ const WRITE_OPERATION_IDS = [
   "resolveCountLateEvent",
   "submitCountSession",
   "takeCountCut",
+  // RT-1512: shipment transfer commands.
+  "approveShipmentTransfer",
+  "cancelShipmentTransfer",
+  "closeShipmentTransfer",
+  "createShipmentTransfer",
+  "dispatchShipmentTransfer",
+  "recordShipmentTransferReceipt",
 ];
 // releaseTrackingHold is naturally idempotent (a released hold is final; a
 // second release writes nothing), so it carries no Idempotency-Key.
@@ -216,6 +246,10 @@ const READ_OPERATION_IDS = [
 
 // RT-1419: the Count Session reads (the commands are in WRITE_OPERATION_IDS).
 const COUNT_SESSION_READ_IDS = [
+  // RT-1512: the shipment transfer reads.
+  "getShipmentTransfer",
+  "listShipmentTransferReceipts",
+  "listShipmentTransfers",
   "getCountSelfApprovalSetting",
   "listCountSessions",
   "getCountSession",
@@ -1510,7 +1544,7 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
   it("keeps the 1.16.0 note (version moved on in RT-1423, RT-1424 and RT-1444), a wording-only note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.20.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1545,7 +1579,7 @@ describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
 
   it("keeps the 1.17.0 note (version moved on in RT-1424 and RT-1444), the activation note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.20.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
     expect(description).toContain("`count_sessions_readiness_unmet`");
@@ -1587,7 +1621,7 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
     "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation";
 
   it("keeps the 1.18.0 note (version moved on in RT-1444); the note cites the owner delegation and the oasdiff acknowledgement", () => {
-    expect(inventoryDoc.info?.version).toBe("1.20.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.18.0-draft (RT-1424, additive;");
     expect(description).toContain("`erp_absorbed`");
@@ -1620,5 +1654,217 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
     expect(schema("StockMovement").properties?.["integrationState"]?.enum).toEqual(
       expect.arrayContaining(["erp_neutral", "erp_absorbed"]),
     );
+  });
+});
+
+// ===========================================================================
+// RT-1512 (Inventory Gate 5, RT-291) — shipment transfer contract (1.21.0-draft)
+// ===========================================================================
+describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft, contract-only)", () => {
+  type Op = OperationObject & {
+    "x-runtime-status"?: string;
+    "x-runtime-note"?: string;
+    deprecated?: boolean;
+    description?: string;
+  };
+  const BASE = "/api/inventory/v1/shipment-transfers";
+  const ONE = `${BASE}/{transferId}`;
+  const OPS: ReadonlyArray<readonly [string, string, string]> = [
+    [BASE, "post", "createShipmentTransfer"],
+    [BASE, "get", "listShipmentTransfers"],
+    [ONE, "get", "getShipmentTransfer"],
+    [`${ONE}/approve`, "post", "approveShipmentTransfer"],
+    [`${ONE}/cancel`, "post", "cancelShipmentTransfer"],
+    [`${ONE}/dispatch`, "post", "dispatchShipmentTransfer"],
+    [`${ONE}/receipts`, "post", "recordShipmentTransferReceipt"],
+    [`${ONE}/receipts`, "get", "listShipmentTransferReceipts"],
+    [`${ONE}/close`, "post", "closeShipmentTransfer"],
+  ];
+  const COMMANDS = new Set([
+    "createShipmentTransfer",
+    "approveShipmentTransfer",
+    "cancelShipmentTransfer",
+    "dispatchShipmentTransfer",
+    "recordShipmentTransferReceipt",
+    "closeShipmentTransfer",
+  ]);
+  const SHIPMENT_SCHEMAS = [
+    "ShipmentTransferState",
+    "ShipmentTransfer",
+    "ShipmentTransferLine",
+    "ShipmentTransferList",
+    "ShipmentTransferReservation",
+    "ShipmentTransferActorStamp",
+    "ShipmentTransferShortClose",
+    "ShipmentTransferCancellation",
+    "ShipmentTransferReceipt",
+    "ShipmentTransferReceiptLine",
+    "ShipmentTransferReceiptList",
+    "ShipmentReceiptDisposition",
+    "CreateShipmentTransferCommand",
+    "CreateShipmentTransferLine",
+    "ApproveShipmentTransferCommand",
+    "CancelShipmentTransferCommand",
+    "DispatchShipmentTransferCommand",
+    "RecordShipmentTransferReceiptCommand",
+    "ShipmentTransferReceiptLineInput",
+    "CloseShipmentTransferCommand",
+    "ShipmentTransferReceiptResult",
+    "ShipmentLegIntegrationState",
+  ];
+  const schemaText = (name: string): string => JSON.stringify(inventoryDoc.components?.schemas?.[name] ?? {});
+  const op = (path: string, method: string): Op => (inventoryDoc.paths?.[path]?.[method] ?? {}) as Op;
+  const validator = (name: string) => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(inventoryDoc as object), $id: "inventory" });
+    return ajv.compile({ $ref: `inventory#/components/schemas/${name}` });
+  };
+  const U = (n: number) => `0198b000-0000-7000-8000-${String(n).padStart(12, "0")}`;
+
+  it("bumps to 1.21.0-draft with a note citing the planning record, the owner rulings and the runtime issue", () => {
+    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
+    const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
+    expect(description).toContain("**1.21.0-draft (RT-1512, additive, contract-only;");
+    expect(description).toContain("RT-291 comments 17800 and 17801");
+    expect(description).toContain("RT-1513");
+  });
+
+  it.each(OPS)("maps %s %s to %s, cookieAuth and contract-only until RT-1513", (path, method, operationId) => {
+    const o = op(path, method);
+    expect(o.operationId).toBe(operationId);
+    expect(o["x-runtime-status"]).toBe("contract-only");
+    expect(o["x-runtime-note"]).toContain("RT-1513");
+    expect(o.security).toContainEqual({ cookieAuth: [] });
+    for (const status of ["401", "403", "404", "429", "5XX"]) expect(o.responses).toHaveProperty(status);
+    expect(JSON.stringify(o.responses)).toContain("TooManyRequests");
+    if (COMMANDS.has(operationId)) {
+      expect(JSON.stringify(o.responses?.["409"] ?? {})).toContain("ShipmentTransferConflict");
+    }
+  });
+
+  it("names the Gate 5 lifecycle states exactly (802; Dispatched and In Transit are one stored state)", () => {
+    const states = (inventoryDoc.components?.schemas?.["ShipmentTransferState"] as { enum?: string[] } | undefined)?.enum;
+    expect(states).toEqual(["draft", "approved", "in_transit", "partially_received", "received", "closed", "cancelled"]);
+  });
+
+  it("keeps In Transit a transfer-owned quantity on each line, never a Stock Location or status (G4-1, 736)", () => {
+    const line = inventoryDoc.components?.schemas?.["ShipmentTransferLine"];
+    for (const field of ["quantity", "dispatchedQuantity", "receivedQuantity", "shortClosedQuantity", "inTransitQuantity"]) {
+      expect(line?.required).toContain(field);
+    }
+    const statuses = (inventoryDoc.components?.schemas?.["InventoryStatus"] as { enum?: string[] } | undefined)?.enum;
+    expect(statuses).not.toContain("in_transit");
+  });
+
+  it("lets a receipt land only in sellable or damaged (811); a held identity lands in its hold status server-side", () => {
+    const disposition = (inventoryDoc.components?.schemas?.["ShipmentReceiptDisposition"] as { enum?: string[] } | undefined)?.enum;
+    expect(disposition).toEqual(["sellable", "damaged"]);
+    expect(schemaText("ShipmentTransferReceiptLine")).toContain("InventoryStatus");
+  });
+
+  it("documents every typed refusal of the Gate 5 workflow in the existing error envelope", () => {
+    const text = JSON.stringify(inventoryDoc.components?.responses?.["ShipmentTransferConflict"] ?? {});
+    for (const code of [
+      "shipment_transfer_not_in_state",
+      "cross_legal_entity_transfer",
+      "tracking_identity_required",
+      "tracking_identity_held_or_expired",
+      "serial_transfer_not_supported",
+      "transfer_warehouse_unmapped",
+      "over_receipt_requires_approval",
+      "short_close_reason_required",
+      "idempotency_key_conflict",
+    ]) {
+      expect(text).toContain(code);
+    }
+    expect(text).toContain("Error");
+  });
+
+  it("keeps every shipment schema strict and free of ERPNext document fields (873)", () => {
+    for (const name of SHIPMENT_SCHEMAS) {
+      const schema = inventoryDoc.components?.schemas?.[name] as (SchemaObject & { enum?: unknown }) | undefined;
+      expect(schema).toBeDefined();
+      if (schema?.type === "object") expect(schema.additionalProperties).toBe(false);
+      expect(JSON.stringify(schema)).not.toMatch(/erpnext|warehouse|stockEntry|stock_entry|doctype/i);
+    }
+  });
+
+  it("requires an explicit reservation expiry on approval (797) and reserves at approval (806)", () => {
+    const approve = inventoryDoc.components?.schemas?.["ApproveShipmentTransferCommand"];
+    expect(approve?.required).toEqual(["reservationExpiresAt"]);
+    expect(op(`${ONE}/approve`, "post").description).toContain("reserves");
+  });
+
+  it("validates a draft command with an optional tracking identity per line and refuses junk", () => {
+    const v = validator("CreateShipmentTransferCommand");
+    const good = {
+      sourceStoreId: U(1),
+      destinationStoreId: U(2),
+      lines: [{ tenantProductRef: U(3), quantity: "2.5", stockingUnit: "Box", trackingIdentityId: null }],
+      reason: null,
+    };
+    expect(v(good)).toBe(true);
+    expect(v({ ...good, lines: [] })).toBe(false);
+    expect(v({ ...good, lines: [{ ...good.lines[0], quantity: "0" }] })).toBe(false);
+    expect(v({ ...good, warehouse: "X" })).toBe(false);
+  });
+
+  it("validates a receipt command and refuses a disposition outside sellable or damaged", () => {
+    const v = validator("RecordShipmentTransferReceiptCommand");
+    const good = {
+      lines: [{ transferLineId: U(4), quantity: "1", disposition: "damaged", stockLocationId: null }],
+      note: null,
+    };
+    expect(v(good)).toBe(true);
+    expect(v({ ...good, lines: [{ ...good.lines[0], disposition: "expired" }] })).toBe(false);
+    expect(v({ ...good, lines: [{ ...good.lines[0], quantity: "-1" }] })).toBe(false);
+    expect(v({ lines: [] , note: null })).toBe(false);
+  });
+
+  it("makes the close command carry a nullable short-close reason, required as a key", () => {
+    const close = inventoryDoc.components?.schemas?.["CloseShipmentTransferCommand"];
+    expect(close?.required).toEqual(["shortCloseReason"]);
+    const v = validator("CloseShipmentTransferCommand");
+    expect(v({ shortCloseReason: null })).toBe(true);
+    expect(v({ shortCloseReason: "Box lost in transit" })).toBe(true);
+    expect(v({})).toBe(false);
+  });
+
+  it("deprecates the legacy instant transfer (974) without removing or un-routing it", () => {
+    const legacy = op(TRANSFERS_PATH, "post");
+    expect(legacy.operationId).toBe("createStockTransfer");
+    expect(legacy.deprecated).toBe(true);
+    expect(legacy["x-runtime-status"]).toBeUndefined();
+    const description = (legacy.description ?? "").replace(/\s+/g, " ");
+    expect(description).toContain("not the target shipment workflow (974)");
+    expect(description).toContain("`transfer_workflow_required`");
+    expect(JSON.stringify(legacy.responses?.["409"])).toContain("StockTransferConflict");
+    const conflict = JSON.stringify(inventoryDoc.components?.responses?.["StockTransferConflict"] ?? {});
+    for (const code of ["idempotency_key_conflict", "transfer_workflow_required"]) expect(conflict).toContain(code);
+  });
+
+  it("shows each ERP leg's posting state for the Console (owner decision 2026-11-19)", () => {
+    const legStates = (inventoryDoc.components?.schemas?.["ShipmentLegIntegrationState"] as { enum?: string[] } | undefined)?.enum;
+    expect(legStates).toEqual(["not_posted", "pending", "confirmed", "rejected", "reconciliation_required"]);
+    expect(inventoryDoc.components?.schemas?.["ShipmentTransfer"]?.required).toContain("dispatchIntegrationState");
+    expect(inventoryDoc.components?.schemas?.["ShipmentTransferReceipt"]?.required).toContain("integrationState");
+    expect(schemaText("ShipmentTransfer")).toContain("ShipmentLegIntegrationState");
+    expect(schemaText("ShipmentTransferReceipt")).toContain("ShipmentLegIntegrationState");
+  });
+
+  it("allows approval below Available to Sell (flagged, 743) and lets one manager run every step (audited)", () => {
+    const approve = (op(`${ONE}/approve`, "post").description ?? "").replace(/\s+/g, " ");
+    expect(approve).toContain("never refused for lack of stock");
+    expect(approve).toContain("the same person may create, approve and dispatch");
+  });
+
+  it("caps a Transfer and a receipt at 100 lines, the row limit of one ERP Stock Entry", () => {
+    const items = (name: string, field: string) =>
+      ((inventoryDoc.components?.schemas?.[name]?.properties ?? {})[field] as { maxItems?: number } | undefined)?.maxItems;
+    expect(items("CreateShipmentTransferCommand", "lines")).toBe(100);
+    expect(items("RecordShipmentTransferReceiptCommand", "lines")).toBe(100);
+    expect(items("ShipmentTransfer", "lines")).toBe(100);
+    expect(items("ShipmentTransferReceipt", "lines")).toBe(100);
   });
 });
