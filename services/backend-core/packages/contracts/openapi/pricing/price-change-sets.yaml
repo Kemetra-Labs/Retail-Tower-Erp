@@ -1,0 +1,1774 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Retail Pricing Change Sets (authoring, approval, publish, rollback) API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1151 (RT-282 PR-04, authoring half). Every price change reaches a
+    Store only through a **Price Change Set**: authored, validated against the
+    timeline, previewed, approved by policy and published as one immutable,
+    tenant-wide **Pricing Revision**. Rollback is a new Change Set. Nothing is
+    edited in place. Design of record: spec 042
+    (`services/backend-core/specs/042-price-change-set-lifecycle/plan.md`,
+    decisions 522–535, 637–638, 705–707) on the spec 041 model; Q-B2 and Q-B3
+    owner-ratified (RT-484 comment 12650), Q-B1 and Q-B4–Q-B8 selected.
+    Plan: `specs/041-pricing-domain/rt-1151-implementation-plan.md`.
+
+
+    **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
+    owner on RT-1151 (D1, comment 17783). Every operation is
+    `x-runtime-status: contract-only` until RT-1484 (RT-282 PR-09/PR-10)
+    ships the runtime. The approval-mode setting (`pricing.change_set_approval`,
+    v1 default `always`, Q-B1) and the optional lead time are RT-1484's.
+
+
+    **State machine (spec 042 §3).** `draft` → `validate` → `validated` →
+    `submit` → `pending_approval` → `approve` → `approved` → `publish` →
+    `published`. Terminal: `published` (later derived `superseded` or
+    `rolled_back`) and `cancelled`. Editing a `validated` set returns it to
+    `draft`; `reject` returns a `pending_approval` set to `draft`. Every
+    mutating call carries `expectedVersion`; a mismatch is `409
+    version_conflict` (decision 532). A call not allowed in the current state
+    is `409 change_set_invalid_state`.
+
+
+    **Staleness (§3, Q-B7, Q-B8).** Validation is bound to the tenant's head
+    revision at validation (`validatedAtRevision`) and to the hashed target
+    Store set (`targetStoreSetHash`, in `previewHash`). When the head has
+    moved, `submit`, `approve` and `publish` (the last under the tenant's
+    publish lock) check whether a later revision **intersects** the set (a
+    shared `(Store, product, sell unit)`, a membership change of one of its
+    Stores, or a move into or out of a Zone one of its Zone lines targets).
+    Intersecting, or a changed target Store set, is `409 stale_validation`
+    and the set returns to `draft`; otherwise `validatedAtRevision` advances.
+    First publish wins; unrelated approvals survive.
+
+
+    **Approval (§7, Q-B1, Q-B2, Q-B3).** Only `owner` and `tenant_admin`
+    author, approve and publish; **Store Managers have no price authoring in
+    V1** (Q-B2, owner-ratified). A set is **sensitive** when the approval mode
+    is `always` (the v1 default) or it exceeds the delta/store thresholds,
+    moves a Store's Zone, is past-dated, or is a `rollback` or `emergency`.
+    A sensitive set must be approved by a **different** `owner` /
+    `tenant_admin` than its author and submitter (`403
+    self_approval_forbidden`). `approve` is bound to the `previewHash` the
+    approver saw (`409 preview_changed`; decisions 526–527). **Emergency**
+    (`kind: emergency`, Q-B3, owner-ratified): requires a `reason` and the
+    `pricing.emergency` capability; may skip lead time and may past-date with
+    a reason; it is always sensitive and **must be approved before
+    publication by an independent second authorized person**; `publish`
+    refuses a missing, stale or self-made approval. There is no post-hoc
+    review path.
+
+
+    **Publish (§3, Q-B4).** One transaction under the tenant's pricing publish
+    lock: re-check staleness, allocate the next `revisionNo`, insert events and
+    membership rows, supersede what they replace, fan the revision out to the
+    Stores it can change, write audit rows and emit
+    `pricing.revision.published` on the outbox. All-or-nothing (528, 530).
+    Publishing always happens **now**; future effective times live on the
+    events ("scheduled" = published ahead of effect), so nothing can fail to
+    publish later.
+
+
+    **Rollback (§8).** `rollback` creates a **new** `kind: rollback` Change Set
+    whose items restore, from a chosen instant forward (default now), what the
+    target revision superseded and end what it introduced. It runs the same
+    machine and is always sensitive. History before the rollback instant is
+    never rewritten (521, 531, 534). A target whose events or memberships were
+    already superseded by later revisions is `409 rollback_blocked` with the
+    blocking revisions.
+
+
+    **Money and time.** Prices are exact decimal strings and must be exact at
+    the Book currency's minor unit; `0` is not a valid price in v1 (Q-4).
+    Helpers (`adjust_amount`, `adjust_percent`) resolve to concrete prices at
+    validation (515–517); a non-representable result is shown rounded half-up
+    in the preview and the author must accept it explicitly on `submit`
+    (`acknowledgedFindings: [rounded_price]`). `timeBasis`
+    `store_local` (default) takes a local date-time without offset,
+    interpreted in each Store's IANA zone (Q-1, Q-2 DST rule); `absolute`
+    takes an RFC 3339 instant with offset. One price key never mixes bases
+    while active (Q-6). Zone moves are always `absolute`.
+
+
+    **Audit (§10, Q-B5).** Each transition writes one `audit_events` row,
+    `pricing.change_set.<transition>`, with actor, reason, version,
+    `revisionNo`, `previewHash`, kind and earliest effective instant. The
+    per-line before/after record lives in the immutable change-set lines,
+    referenced from the audit row. No PII.
+
+
+    **Who.** The human `cookieAuth` session only. A set of another tenant or
+    absent, and a role outside `owner` / `tenant_admin`, are the same
+    non-disclosing `404`. Every unsafe request is subject to the RT-430
+    `Origin` check. ERPNext is never written or read (461, 589).
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: pricing-change-sets-console
+    description: Admin-Console Price Change Set lifecycle (RT-1151).
+
+paths:
+  /api/v1/pricing/change-sets:
+    get:
+      summary: List the tenant's Price Change Sets.
+      operationId: consoleListPriceChangeSets
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Newest first by (`createdAt`, `id`), keyset paginated, optionally
+        filtered by `state` and `kind`. Items are headers without `items`.
+        Roles `owner` / `tenant_admin`.
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ChangeSetState"
+        - name: kind
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ChangeSetKind"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of Change Set headers.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSetPage"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    post:
+      summary: Create a draft Price Change Set.
+      operationId: consoleCreatePriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Creates a `draft` at `version` 1 with the given items (possibly none).
+        `kind` is `standard` or `emergency`; `rollback` sets are created only by
+        the rollback call. An `emergency` set needs a `reason` and the
+        `pricing.emergency` capability (`403 pricing_emergency_not_permitted`).
+        The tenant must have a retail Price Book (`409 price_book_missing`).
+        Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePriceChangeSetRequest"
+      responses:
+        "201":
+          description: "Created. A same-key retry replays this `201` with `Idempotent-Replayed: true`."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WriteForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    get:
+      summary: Read a Price Change Set with its items.
+      operationId: consoleGetPriceChangeSet
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: Roles `owner` / `tenant_admin`.
+      responses:
+        "200":
+          description: The Change Set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    patch:
+      summary: Edit a draft or validated Change Set (returns it to draft).
+      operationId: consoleUpdatePriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Replaces the given fields (`items` is replaced as a whole) of a set in
+        `draft` or `validated`, increments `version` and leaves it in `draft`;
+        a stored preview is discarded. Other states are `409
+        change_set_invalid_state`. Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/UpdatePriceChangeSetRequest"
+      responses:
+        "200":
+          description: "Updated. A same-key retry replays this `200` with `Idempotent-Replayed: true`."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WriteForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/validate:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Validate, materialize and preview a draft.
+      operationId: consoleValidatePriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Materializes the selectors into concrete lines at the head revision
+        (categories frozen now), computes helper prices, classifies every line
+        against the timeline (spec 042 §5), stores the Impact Preview with its
+        `previewHash` and moves the set to `validated`, even when some lines
+        are blocking (`invalid`, or `past_dated` outside the emergency path):
+        those block `submit`. An empty set is `422 change_set_empty`; more than
+        50 000 lines is `422 change_set_too_large` (Q-B6). Roles `owner` /
+        `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VersionedRequest"
+      responses:
+        "200":
+          description: Validated; `summary` holds the preview summary.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/ValidateUnprocessable"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/preview:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    get:
+      summary: Read the stored Impact Preview, a page of lines at a time.
+      operationId: consoleGetPriceChangeSetPreview
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        The preview stored by the last `validate` (spec 042 §6): summary,
+        Zone-membership changes and a page of lines ordered by (`storeId`,
+        `productId`, `sellUnit`, `effectiveFrom`), optionally filtered by
+        `class`. A set with no stored preview (never validated, or edited
+        since) is `409 change_set_not_validated`. A published set keeps its
+        preview as the record of what was approved. Roles `owner` /
+        `tenant_admin`.
+      parameters:
+        - name: class
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/LineClass"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of the preview.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSetPreview"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/submit:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Submit a validated set for approval.
+      operationId: consoleSubmitPriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Moves a `validated` set to `pending_approval`, or straight to
+        `approved` when it is not sensitive (self-approval of a non-sensitive
+        set, spec 042 §7). The author acknowledges every rounded helper price
+        (`acknowledgedFindings`, spec 041 §6). Blocking lines are `422
+        blocking_findings`; a missing acknowledgement is `422
+        acknowledgement_required`; a stale validation is `409
+        stale_validation` (the set returns to `draft`). An `emergency` set
+        re-checks the `pricing.emergency` capability (`403
+        pricing_emergency_not_permitted`). Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SubmitPriceChangeSetRequest"
+      responses:
+        "200":
+          description: Submitted.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WriteForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/SubmitUnprocessable"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/approve:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Approve a pending set for exactly the preview shown.
+      operationId: consoleApprovePriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Moves a `pending_approval` set to `approved` for the given
+        `previewHash` (a different hash is `409 preview_changed`). Approving
+        must list every `replaces` and `invalidates_dependent` finding of the
+        preview in `acknowledgedFindings` (spec 042 §5; else `422
+        acknowledgement_required`). A sensitive set approved by its author or submitter is `403
+        self_approval_forbidden` (four eyes; Q-B3 for emergency). A stale
+        validation is `409 stale_validation`. Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApprovePriceChangeSetRequest"
+      responses:
+        "200":
+          description: Approved.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WriteForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/SubmitUnprocessable"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/reject:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Reject a pending set back to draft.
+      operationId: consoleRejectPriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Moves a `pending_approval` set back to `draft` with a reason (recorded
+        as `lastRejection`). Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectPriceChangeSetRequest"
+      responses:
+        "200":
+          description: Rejected.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/publish:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Publish an approved set as one immutable Pricing Revision.
+      operationId: consolePublishPriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Publishes an `approved` set now, all-or-nothing, under the tenant's
+        pricing publish lock (info **Publish**), and answers the new
+        `revisionNo`. Repeats the staleness check (`409 stale_validation`; the
+        set returns to `draft`; a line targeting a Zone retired since
+        validation is stale too) and, for a sensitive set, refuses a missing,
+        stale or self-made approval (`403 self_approval_forbidden`). Roles
+        `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VersionedRequest"
+      responses:
+        "200":
+          description: Published.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PublishPriceChangeSetResponse"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/WriteForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/rollback:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Create a rollback Change Set for a published set.
+      operationId: consoleRollbackPriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Generates a new `kind: rollback` set in `draft` (info **Rollback**)
+        for a `published` target, restoring from `from` (default now) forward.
+        The target becomes `rolled_back` only when the rollback set is
+        published. A target already rolled back, or not published, is `409
+        change_set_invalid_state`; one whose rows later revisions superseded is
+        `409 rollback_blocked` (body `RollbackBlocked`). Roles `owner` /
+        `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RollbackPriceChangeSetRequest"
+      responses:
+        "201":
+          description: The rollback set, in `draft`.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RollbackConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/change-sets/{changeSetId}/cancel:
+    parameters:
+      - $ref: "#/components/parameters/ChangeSetId"
+    post:
+      summary: Abandon a set before publish.
+      operationId: consoleCancelPriceChangeSet
+      x-idempotency: required
+      tags: [pricing-change-sets-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-10), which removes the marker.
+      description: >
+        Moves a `draft`, `validated`, `pending_approval` or `approved` set to
+        `cancelled`, kept for audit. Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VersionedRequest"
+      responses:
+        "200":
+          description: Cancelled.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceChangeSet"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only credential accepted here: a
+        machine bearer (`dashboard_api` included), a POS `device` token or an
+        `operatorAuthorization` envelope is 401.
+
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay, which carries
+        the stored status. Absent on a first-time call.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    ChangeSetId:
+      name: changeSetId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The Change Set id. Not a UUID is 400; another tenant's or absent is the non-disclosing 404.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`; omit it for the
+        first page. A value the server did not issue is 400 `validation_error`.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+      description: Maximum items per page. The server MAY return fewer.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on every write: 16 to 128 printable ASCII characters with no
+        whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on
+        the verified actor. An identical retry replays the stored response
+        with `Idempotent-Replayed: true`; key reuse with a different body is
+        409 `idempotency_key_conflict`; a key still being processed is 425
+        `idempotency_in_progress`. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`.
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    DecimalPrice:
+      type: string
+      pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: Exact-decimal price string (`numeric(19,4)`); never a float.
+    SignedDecimal:
+      type: string
+      pattern: '^-?[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: Exact-decimal signed amount string; never a float.
+    Percent:
+      type: string
+      pattern: '^-?[0-9]{1,3}(\.[0-9]{1,2})?$'
+      description: An authored signed percentage with up to two decimals, e.g. `-12.50` (at most 999.99).
+    DeltaPercent:
+      type: string
+      pattern: '^-?[0-9]{1,13}(\.[0-9]{1,2})?$'
+      description: A computed signed percentage change with two decimals; unbounded above (0.01 to 100.00 is `999900.00`).
+    RevisionNo:
+      type: integer
+      format: int64
+      minimum: 1
+    Version:
+      type: integer
+      format: int32
+      minimum: 1
+      description: The set's optimistic-concurrency version; every edit increments it (decision 532).
+    SellUnit:
+      type: string
+      enum: [each]
+      default: each
+      description: v1 has only `each` (OD-2).
+    TimeBasis:
+      type: string
+      enum: [store_local, absolute]
+      default: store_local
+      description: >
+        `store_local`: a local date-time without offset, interpreted per Store
+        (Q-1, Q-2). `absolute`: an RFC 3339 instant with offset.
+    LocalOrAbsoluteDateTime:
+      type: string
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}((:[0-9]{2})?|:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2}))$'
+      description: >
+        With `timeBasis: store_local`, a local date-time with no offset
+        (`2026-11-01T00:00`); with `absolute`, an RFC 3339 instant with an
+        offset. A mismatch is 400 `validation_error`.
+    TimeBasisRule:
+      description: >
+        `effectiveFrom` / `effectiveTo` match the item's `timeBasis`: no offset
+        for `store_local` (the default), an offset for `absolute`.
+      if:
+        required: [timeBasis]
+        properties:
+          timeBasis:
+            const: absolute
+      then:
+        properties:
+          effectiveFrom:
+            $ref: "#/components/schemas/Instant"
+          effectiveTo:
+            $ref: "#/components/schemas/Instant"
+      else:
+        properties:
+          effectiveFrom:
+            pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?$'
+          effectiveTo:
+            pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}(:[0-9]{2})?$'
+    Instant:
+      type: string
+      format: date-time
+      pattern: '^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$'
+      description: An RFC 3339 instant with seconds and an offset.
+    ChangeSetKind:
+      type: string
+      enum: [standard, emergency, rollback, legacy_import]
+      description: >
+        `legacy_import` is the system set that records the RT-1485 legacy price
+        import (spec 044 §4.2); it is never created through this API.
+    ChangeSetState:
+      type: string
+      enum: [draft, validated, pending_approval, approved, published, superseded, rolled_back, cancelled]
+    LineClass:
+      type: string
+      enum: [new, replaces, conflicts_pending, shadowed, invalidates_dependent, past_dated, invalid]
+      description: >
+        Spec 042 §5. Blocking: `invalid`, and `past_dated` outside the
+        emergency path. `replaces` and `invalidates_dependent` are acknowledged
+        by approving the preview.
+
+    ScopeSelector:
+      description: Where the price applies (spec 042 §4.3). Store Groups expand to `stores` before submit.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind]
+          properties:
+            kind:
+              type: string
+              const: book
+        - type: object
+          additionalProperties: false
+          required: [kind, zoneId]
+          properties:
+            kind:
+              type: string
+              const: zone
+            zoneId:
+              $ref: "#/components/schemas/Uuid"
+        - $ref: "#/components/schemas/StoresScope"
+    StoresScope:
+      type: object
+      additionalProperties: false
+      required: [kind, storeIds]
+      properties:
+        kind:
+          type: string
+          const: stores
+        storeIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/Uuid"
+    ProductSelector:
+      description: Which products. A category is frozen (subtree) at validation.
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [kind, productIds]
+          properties:
+            kind:
+              type: string
+              const: items
+            productIds:
+              type: array
+              minItems: 1
+              maxItems: 5000
+              uniqueItems: true
+              items:
+                $ref: "#/components/schemas/Uuid"
+        - type: object
+          additionalProperties: false
+          required: [kind, categoryId]
+          properties:
+            kind:
+              type: string
+              const: category
+            categoryId:
+              $ref: "#/components/schemas/Uuid"
+
+    PriceChangeItem:
+      description: One operation on a selector (spec 042 §4.2), discriminated by `op`.
+      oneOf:
+        - $ref: "#/components/schemas/SetPriceItem"
+        - $ref: "#/components/schemas/AdjustAmountItem"
+        - $ref: "#/components/schemas/AdjustPercentItem"
+        - $ref: "#/components/schemas/EndPriceItem"
+        - $ref: "#/components/schemas/ResetStoreOverrideItem"
+        - $ref: "#/components/schemas/MoveStoreZoneItem"
+    SetPriceItem:
+      type: object
+      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TimeBasisRule"
+      required: [op, scope, products, price, effectiveFrom]
+      properties:
+        op:
+          type: string
+          const: set_price
+        scope:
+          $ref: "#/components/schemas/ScopeSelector"
+        products:
+          $ref: "#/components/schemas/ProductSelector"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        price:
+          $ref: "#/components/schemas/DecimalPrice"
+        timeBasis:
+          $ref: "#/components/schemas/TimeBasis"
+        effectiveFrom:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+        effectiveTo:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+    AdjustAmountItem:
+      type: object
+      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TimeBasisRule"
+      required: [op, scope, products, amount, effectiveFrom]
+      description: Resolves to a concrete price per target from the price inherited at its effective instant (515–517).
+      properties:
+        op:
+          type: string
+          const: adjust_amount
+        scope:
+          $ref: "#/components/schemas/ScopeSelector"
+        products:
+          $ref: "#/components/schemas/ProductSelector"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        amount:
+          $ref: "#/components/schemas/SignedDecimal"
+        timeBasis:
+          $ref: "#/components/schemas/TimeBasis"
+        effectiveFrom:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+        effectiveTo:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+    AdjustPercentItem:
+      type: object
+      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TimeBasisRule"
+      required: [op, scope, products, percent, effectiveFrom]
+      description: As `adjust_amount`, by a percentage.
+      properties:
+        op:
+          type: string
+          const: adjust_percent
+        scope:
+          $ref: "#/components/schemas/ScopeSelector"
+        products:
+          $ref: "#/components/schemas/ProductSelector"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        percent:
+          $ref: "#/components/schemas/Percent"
+        timeBasis:
+          $ref: "#/components/schemas/TimeBasis"
+        effectiveFrom:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+        effectiveTo:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+    EndPriceItem:
+      type: object
+      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TimeBasisRule"
+      required: [op, scope, products, effectiveFrom]
+      description: Ends the target-scope interval at `effectiveFrom` (the end instant).
+      properties:
+        op:
+          type: string
+          const: end_price
+        scope:
+          $ref: "#/components/schemas/ScopeSelector"
+        products:
+          $ref: "#/components/schemas/ProductSelector"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        timeBasis:
+          $ref: "#/components/schemas/TimeBasis"
+        effectiveFrom:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+    ResetStoreOverrideItem:
+      type: object
+      additionalProperties: false
+      allOf:
+        - $ref: "#/components/schemas/TimeBasisRule"
+      required: [op, scope, products, effectiveFrom]
+      description: Ends Store-scope events from `effectiveFrom` so the inherited price applies (491).
+      properties:
+        op:
+          type: string
+          const: reset_store_override
+        scope:
+          $ref: "#/components/schemas/StoresScope"
+        products:
+          $ref: "#/components/schemas/ProductSelector"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        timeBasis:
+          $ref: "#/components/schemas/TimeBasis"
+        effectiveFrom:
+          $ref: "#/components/schemas/LocalOrAbsoluteDateTime"
+    MoveStoreZoneItem:
+      type: object
+      additionalProperties: false
+      required: [op, storeId, zoneId, effectiveFrom]
+      description: >
+        A new Zone membership for one Store over `[effectiveFrom, effectiveTo)`
+        (absolute instants only, data-model §2.3); always sensitive and always
+        previewed (488).
+      properties:
+        op:
+          type: string
+          const: move_store_zone
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        zoneId:
+          $ref: "#/components/schemas/Uuid"
+        timeBasis:
+          type: string
+          const: absolute
+          default: absolute
+        effectiveFrom:
+          $ref: "#/components/schemas/Instant"
+        effectiveTo:
+          $ref: "#/components/schemas/Instant"
+
+    CreatePriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [kind, title]
+      properties:
+        kind:
+          type: string
+          enum: [standard, emergency]
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Required for `emergency` and for any past-dated item. Short free text, no PII.
+        items:
+          type: array
+          maxItems: 500
+          default: []
+          items:
+            $ref: "#/components/schemas/PriceChangeItem"
+      if:
+        properties:
+          kind:
+            const: emergency
+      then:
+        required: [reason]
+    UpdatePriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      minProperties: 2
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        title:
+          type: string
+          minLength: 1
+          maxLength: 200
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+          description: Replaces the reason. It cannot be removed (`emergency` always carries one).
+        items:
+          type: array
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/PriceChangeItem"
+    VersionedRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+    AcknowledgedFindings:
+      type: array
+      uniqueItems: true
+      items:
+        type: string
+        enum: [replaces, invalidates_dependent, rounded_price]
+      description: >
+        Explicit acknowledgement of the preview's findings that need one: every
+        kind present in the stored preview must be listed (spec 042 §5:
+        `replaces`, `invalidates_dependent`; spec 041 §6: a helper price
+        `rounded_price` half-up). A missing one is `422
+        acknowledgement_required`.
+    SubmitPriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        acknowledgedFindings:
+          $ref: "#/components/schemas/AcknowledgedFindings"
+    ApprovePriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, previewHash]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        previewHash:
+          $ref: "#/components/schemas/PreviewHash"
+        acknowledgedFindings:
+          $ref: "#/components/schemas/AcknowledgedFindings"
+    RejectPriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedVersion, reason]
+      properties:
+        expectedVersion:
+          $ref: "#/components/schemas/Version"
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    RollbackPriceChangeSetRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        from:
+          type: string
+          format: date-time
+          description: Restore from this instant forward. Default now. History before it is never rewritten.
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 1000
+    PreviewHash:
+      type: string
+      pattern: '^sha256:[0-9a-f]{64}$'
+      description: >
+        sha256 of the canonical preview (lines, classes, `targetStoreSetHash`,
+        `validatedAtRevision`). Approval is bound to it.
+
+    Actor:
+      type: object
+      additionalProperties: false
+      required: [userId, at]
+      properties:
+        userId:
+          $ref: "#/components/schemas/Uuid"
+        at:
+          type: string
+          format: date-time
+    PriceChangeSetHeader:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - kind
+        - title
+        - reason
+        - state
+        - publicationStatus
+        - version
+        - validatedAtRevision
+        - previewHash
+        - sensitive
+        - sensitivityReasons
+        - revisionNo
+        - rollsBackChangeSetId
+        - rolledBackByChangeSetId
+        - created
+        - submitted
+        - approved
+        - published
+        - cancelled
+        - lastRejection
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        kind:
+          $ref: "#/components/schemas/ChangeSetKind"
+        title:
+          type: string
+        reason:
+          type: [string, "null"]
+        state:
+          $ref: "#/components/schemas/ChangeSetState"
+        publicationStatus:
+          type: [string, "null"]
+          enum: [scheduled, active, null]
+          description: >
+            For a `published` set only: `scheduled` until the earliest exact
+            per-Store activation instant of its events and memberships, then
+            `active` (computed at read time, spec 042 §3). Null otherwise.
+        version:
+          $ref: "#/components/schemas/Version"
+        validatedAtRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 0
+          description: The head revision the stored preview was computed at; 0 when the tenant had none; null when not validated.
+        previewHash:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/PreviewHash"
+        sensitive:
+          type: [boolean, "null"]
+          description: Known after validation; null before.
+        sensitivityReasons:
+          type: array
+          items:
+            type: string
+            enum: [approval_mode_always, delta_threshold, store_threshold, zone_move, past_dated, rollback, emergency]
+        revisionNo:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+          description: The Pricing Revision it published; null until published.
+        rollsBackChangeSetId:
+          type: [string, "null"]
+          format: uuid
+          description: "For `kind: rollback`, the set it rolls back."
+        rolledBackByChangeSetId:
+          type: [string, "null"]
+          format: uuid
+        created:
+          $ref: "#/components/schemas/Actor"
+        submitted:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Actor"
+        approved:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Actor"
+        published:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Actor"
+        cancelled:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/Actor"
+        lastRejection:
+          oneOf:
+            - type: "null"
+            - type: object
+              additionalProperties: false
+              required: [userId, at, reason]
+              properties:
+                userId:
+                  $ref: "#/components/schemas/Uuid"
+                at:
+                  type: string
+                  format: date-time
+                reason:
+                  type: string
+    PriceChangeSet:
+      type: object
+      additionalProperties: false
+      required: [header, items, summary]
+      properties:
+        header:
+          $ref: "#/components/schemas/PriceChangeSetHeader"
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceChangeItem"
+        summary:
+          description: The stored preview summary; null when not validated.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/PreviewSummary"
+    PriceChangeSetPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceChangeSetHeader"
+        nextCursor:
+          type: [string, "null"]
+    PublishPriceChangeSetResponse:
+      type: object
+      additionalProperties: false
+      required: [revisionNo, changeSet]
+      properties:
+        revisionNo:
+          $ref: "#/components/schemas/RevisionNo"
+        changeSet:
+          $ref: "#/components/schemas/PriceChangeSet"
+
+    PreviewSummary:
+      type: object
+      additionalProperties: false
+      required: [lines, stores, devices, products, increases, decreases, unchanged, maxIncreasePct, maxDecreasePct, earliestEffectiveAt, findings, blocking]
+      properties:
+        lines:
+          type: integer
+          minimum: 0
+        stores:
+          type: integer
+          minimum: 0
+        devices:
+          type: integer
+          minimum: 0
+          description: Active (not retired) devices of the affected Stores.
+        products:
+          type: integer
+          minimum: 0
+        increases:
+          type: integer
+          minimum: 0
+        decreases:
+          type: integer
+          minimum: 0
+        unchanged:
+          type: integer
+          minimum: 0
+          description: Lines dropped because the new price equals the current one.
+        maxIncreasePct:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DeltaPercent"
+        maxDecreasePct:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DeltaPercent"
+        earliestEffectiveAt:
+          type: [string, "null"]
+          format: date-time
+        findings:
+          type: object
+          additionalProperties: false
+          required: [replaces, shadowed, invalidates_dependent, conflicts_pending, past_dated, invalid]
+          properties:
+            replaces:
+              type: integer
+              minimum: 0
+            shadowed:
+              type: integer
+              minimum: 0
+            invalidates_dependent:
+              type: integer
+              minimum: 0
+            conflicts_pending:
+              type: integer
+              minimum: 0
+            past_dated:
+              type: integer
+              minimum: 0
+            invalid:
+              type: integer
+              minimum: 0
+        blocking:
+          type: boolean
+          description: True when any line blocks submit (`invalid`, or `past_dated` outside the emergency path).
+    PriceChangeSetPreview:
+      type: object
+      additionalProperties: false
+      required: [changeSetId, version, validatedAtRevision, previewHash, summary, membershipChanges, lines, nextCursor]
+      properties:
+        changeSetId:
+          $ref: "#/components/schemas/Uuid"
+        version:
+          $ref: "#/components/schemas/Version"
+        validatedAtRevision:
+          type: integer
+          format: int64
+          minimum: 0
+        previewHash:
+          $ref: "#/components/schemas/PreviewHash"
+        summary:
+          $ref: "#/components/schemas/PreviewSummary"
+        membershipChanges:
+          type: array
+          description: Every Zone move of the set with the membership rows it supersedes (data-model §2.3).
+          items:
+            $ref: "#/components/schemas/PreviewMembershipChange"
+        lines:
+          type: array
+          items:
+            $ref: "#/components/schemas/PreviewLine"
+        nextCursor:
+          type: [string, "null"]
+    PreviewLine:
+      type: object
+      additionalProperties: false
+      required: [storeId, productId, sellUnit, oldPrice, oldSourceScope, newPrice, newSourceScope, deltaPct, effectiveFrom, class, devices, messages]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        productId:
+          $ref: "#/components/schemas/Uuid"
+        sellUnit:
+          $ref: "#/components/schemas/SellUnit"
+        oldPrice:
+          description: The price resolved at the line's effective instant in the Store, at `validatedAtRevision`; null when unpriced.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DecimalPrice"
+        oldSourceScope:
+          type: [string, "null"]
+          enum: [book, zone, store, null]
+        newPrice:
+          description: The price after publish (for a helper, the concrete computed price); null when the line leaves it unpriced.
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DecimalPrice"
+        newSourceScope:
+          type: [string, "null"]
+          enum: [book, zone, store, null]
+        deltaPct:
+          oneOf:
+            - type: "null"
+            - $ref: "#/components/schemas/DeltaPercent"
+        roundedFrom:
+          description: >
+            Present when a helper's exact result was not representable at the
+            minor unit: the unrounded value. `newPrice` is it rounded half-up;
+            approving accepts it (spec 041 §6).
+          type: string
+          pattern: '^-?[0-9]{1,15}(\.[0-9]{1,8})?$'
+        effectiveFrom:
+          type: string
+          format: date-time
+          description: The exact activation instant in this Store.
+        class:
+          $ref: "#/components/schemas/LineClass"
+        devices:
+          type: integer
+          minimum: 0
+        messages:
+          type: array
+          description: Machine codes explaining the class (e.g. `price_not_positive`, `currency_mismatch`, `mixed_time_basis`).
+          items:
+            type: string
+    PreviewMembershipChange:
+      type: object
+      additionalProperties: false
+      required: [storeId, fromZoneId, toZoneId, effectiveFrom, effectiveTo, supersededMembershipIds]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        fromZoneId:
+          type: [string, "null"]
+          format: uuid
+          description: The Zone at `effectiveFrom` before the move; null for the default-Zone fallback.
+        toZoneId:
+          $ref: "#/components/schemas/Uuid"
+        effectiveFrom:
+          type: string
+          format: date-time
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+        supersededMembershipIds:
+          type: array
+          items:
+            $ref: "#/components/schemas/Uuid"
+
+    RollbackBlocked:
+      type: object
+      required: [error, blockingRevisionNos]
+      description: The `409 rollback_blocked` body; roll back newest-first or author a corrective set.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              const: rollback_blocked
+            message:
+              type: string
+            request_id:
+              type: string
+              format: uuid
+        blockingRevisionNos:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/RevisionNo"
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path id or query parameter, or a
+        cursor the server did not issue. Checked before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        400: `validation_error` (a malformed path id or body, an unknown key, a
+        float or over-precise money value, a date-time that does not match its
+        `timeBasis`, `effectiveTo` not after `effectiveFrom`) or the
+        `IdempotencyInterceptor`'s `idempotency_key_required` /
+        `idempotency_key_malformed`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`: no human dashboard session. A bearer-only request
+        (`dashboard_api` included) is refused. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated write whose
+        `Origin` is missing or not allowed. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteForbidden:
+      description: >
+        403, `error.code` one of: `origin_rejected` (RT-430);
+        `pricing_emergency_not_permitted` (an `emergency` set without the
+        `pricing.emergency` capability, Q-B3); `self_approval_forbidden` (a
+        sensitive set approved by its author or submitter, or published with
+        such an approval). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`, non-disclosing: identical for a set of another
+        tenant, an absent id and a role outside `owner` / `tenant_admin`
+        (a `store_manager` included, Q-B2).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: >
+        409, `error.code` one of: `version_conflict` (`expectedVersion` is not
+        the current version); `change_set_invalid_state` (the call is not
+        allowed in the set's state); `stale_validation` (a later revision
+        intersects the set, or its target Store set changed; the set is now
+        `draft` and its `version` is incremented); `preview_changed` (`previewHash` is not the stored one);
+        `change_set_not_validated` (no stored preview); `price_book_missing`
+        (the tenant has no retail Price Book); `idempotency_key_conflict`.
+        Nothing is written, except the return to `draft` on
+        `stale_validation`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RollbackConflict:
+      description: >
+        409: `rollback_blocked` (body `RollbackBlocked`, with the revisions
+        that superseded the target's rows), `change_set_invalid_state` or
+        `idempotency_key_conflict` (body `Error`). Nothing is written.
+      content:
+        application/json:
+          schema:
+            anyOf:
+              - $ref: "#/components/schemas/RollbackBlocked"
+              - $ref: "#/components/schemas/Error"
+    ValidateUnprocessable:
+      description: >
+        422, `error.code` one of: `change_set_empty` (no items);
+        `change_set_too_large` (more than 50 000 materialized lines, Q-B6;
+        split the set); `lead_time_violation` (a `standard` set whose earliest
+        effective instant is inside the tenant's `pricing.min_lead_time`, spec
+        042 §7; emergency sets are exempt). Nothing is stored.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SubmitUnprocessable:
+      description: >
+        422, `error.code` one of: `blocking_findings` (the stored preview has an
+        `invalid` line, or a `past_dated` one outside the emergency path,
+        decision 520; fix the items and validate again);
+        `acknowledgement_required` (`acknowledgedFindings` does not list every
+        finding kind of the preview that needs acknowledgement).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this
+        `Idempotency-Key` is still being processed. Retry after `Retry-After`
+        seconds with the same key and body.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. Canonical error envelope with a
+        non-disclosing message; its `request_id` equals `X-Request-Id`. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: The request id, equal to `error.request_id` in the body.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error, recorded server-side
+        under `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
