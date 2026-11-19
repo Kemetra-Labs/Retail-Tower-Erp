@@ -718,3 +718,29 @@ export function isRt1372ExemptFile(branch: string, file: string): boolean {
     (RT_1372_OD10_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/rt-1487-pos-catalog-deltas` implements Jira RT-1487: the POS catalogue read-down syncs by
+ * delta (`GET /api/pos/v1/catalog/deltas`, `posGetCatalogDeltas`) after a snapshot. That route uses
+ * the same device bearer as the snapshot, so the device-401 detector must count a 401 on it as a
+ * `read_down` 401; otherwise a revoked terminal that only syncs by delta would never be detected.
+ * The detector and its unit test live under the forbidden `src/main/pairing/` prefix.
+ *
+ * Authority: the owner's approval in chat on 2026-11-19 ("Add narrow exemption", then "do all
+ * recommended / pr and merge authorized"), following the RT-1316 file-list pattern: exactly TWO
+ * files on exactly ONE branch (exact name; the `-preflight` branch is not exempt). Narrowness is
+ * asserted by `source-scope-guard-rt1487.test.ts`.
+ */
+export const RT_1487_CATALOG_DELTAS_BRANCH = 'claude/rt-1487-pos-catalog-deltas' as const;
+export const RT_1487_CATALOG_DELTAS_EXEMPT_FILES = [
+  'src/main/pairing/__tests__/device-auth-detector.test.ts',
+  'src/main/pairing/device-auth-detector.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-1487 exemption allows on `branch`. */
+export function isRt1487ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1487_CATALOG_DELTAS_BRANCH &&
+    (RT_1487_CATALOG_DELTAS_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

@@ -521,6 +521,16 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     invoke: (fetch) => readDownClient(fetch).fetchSnapshot(),
   },
   {
+    // RT-1487: delta sync from the stored snapshot/delta cursor (`posGetCatalogDeltas`).
+    id: 'readDownClient.fetchDeltas',
+    module: 'src/main/catalogue/read-down/read-down-client.ts',
+    method: 'get',
+    pathTemplate: '/api/pos/v1/catalog/deltas',
+    wiring:
+      'index.ts read-down driver: `getDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
+    invoke: (fetch) => readDownClient(fetch).fetchDeltas('contract-conformance-cursor'),
+  },
+  {
     id: 'saleSyncClient.postSale',
     module: 'src/main/sales-sync/create-sale-sync-client.ts',
     method: 'post',

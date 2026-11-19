@@ -50,7 +50,7 @@ describe('source-scope guard — RT-1372 exemption is narrow', () => {
     const guard = readFileSync(path.join(HERE, 'source-scope-guard.test.ts'), 'utf8');
     expect(guard.match(/isRt1372ExemptFile/g)).toHaveLength(2); // import + use
     expect(guard).toMatch(
-      /!isRt1343CreditVoidExemptFile\(currentBranch, file\) &&\s*!isRt1372ExemptFile\(currentBranch, file\),/,
+      /!isRt1343CreditVoidExemptFile\(currentBranch, file\) &&\s*!isRt1372ExemptFile\(currentBranch, file\)( &&|,)/,
     );
   });
 });
