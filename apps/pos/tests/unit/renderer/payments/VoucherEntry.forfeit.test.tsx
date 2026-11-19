@@ -139,6 +139,19 @@ describe('RT-1331 — VoucherEntry forfeit confirmation', () => {
     });
     expect(spy).toHaveBeenCalledTimes(2);
     expect(onApplied).not.toHaveBeenCalled();
+    // The safe option owns focus again: clicking confirm disabled both buttons, which
+    // dropped focus to <body>, and the prompt stayed mounted so autoFocus did not re-run.
+    await waitFor(() => {
+      expect(screen.getByTestId('voucher-entry-forfeit-cancel')).toHaveFocus();
+    });
+  });
+
+  it('opens with the safe option (cancel) focused', async () => {
+    const user = userEvent.setup();
+    mount(REQUIRED_250);
+    await submit(user);
+    await screen.findByTestId('voucher-entry-forfeit');
+    expect(screen.getByTestId('voucher-entry-forfeit-cancel')).toHaveFocus();
   });
 
   it('a double click on confirm sends one acknowledged request', async () => {

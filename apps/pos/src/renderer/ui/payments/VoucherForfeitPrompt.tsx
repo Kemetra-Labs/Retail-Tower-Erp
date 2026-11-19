@@ -1,4 +1,4 @@
-import type { JSX } from 'react';
+import { useEffect, useRef, type JSX } from 'react';
 
 import { touchTarget } from '../tokens/touch.js';
 import { formatCheckoutMoney } from './format-checkout-money.js';
@@ -40,6 +40,18 @@ export function VoucherForfeitPrompt({
   onConfirm,
   onCancel,
 }: Readonly<VoucherForfeitPromptProps>): JSX.Element {
+  const cancelRef = useRef<HTMLButtonElement>(null);
+
+  // The safe option owns focus whenever the prompt is waiting on the cashier (UX-11): on
+  // open, and again after a confirmed call that came back asking about a different amount.
+  // `autoFocus` only runs on mount, and clicking confirm disables both buttons (focus drops
+  // to <body>) while this component stays mounted, so focus is placed by this effect.
+  useEffect(() => {
+    if (!busy) {
+      cancelRef.current?.focus();
+    }
+  }, [busy, forfeitedMinor]);
+
   return (
     <section
       className="voucher-entry__forfeit"
@@ -57,8 +69,7 @@ export function VoucherForfeitPrompt({
           className="v5-btn"
           data-testid="voucher-entry-forfeit-cancel"
           style={{ minHeight: touchTarget.commit }}
-          // The safe option owns focus when a consequence prompt opens (UX-11).
-          autoFocus
+          ref={cancelRef}
           disabled={busy}
           onClick={onCancel}
         >
