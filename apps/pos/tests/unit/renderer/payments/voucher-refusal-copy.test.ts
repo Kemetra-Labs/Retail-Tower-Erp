@@ -70,6 +70,16 @@ describe('voucherRefusalCopy — validate-time refusals', () => {
     expect(voucherRefusalCopy(reason)).toBe(VOUCHER_REFUSAL_GENERIC_COPY);
   });
 
+  // The reason arrives from the main process as an untrusted string: a name that exists on
+  // every object must not resolve to an inherited member.
+  it.each(['constructor', '__proto__', 'toString', 'hasOwnProperty'])(
+    'the object-member name %s keeps the generic line, and never settle copy',
+    (reason) => {
+      expect(voucherRefusalCopy(reason)).toBe(VOUCHER_REFUSAL_GENERIC_COPY);
+      expect(settleVoucherRefusalCopy(reason)).toBeNull();
+    },
+  );
+
   it('a lost answer (no reason) keeps the generic line', () => {
     expect(voucherRefusalCopy(null)).toBe(VOUCHER_REFUSAL_GENERIC_COPY);
     expect(voucherRefusalCopy(undefined)).toBe(VOUCHER_REFUSAL_GENERIC_COPY);

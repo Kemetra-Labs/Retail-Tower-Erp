@@ -49,36 +49,40 @@ const UNKNOWN_CODE: Line = {
 };
 const CHOOSE_ANOTHER = 'اختر طريقة دفع أخرى.';
 
-const LINES: Readonly<Record<string, Line>> = Object.freeze({
-  voucher_not_found: UNKNOWN_CODE,
+// A Map, not an object: a reason such as `constructor` or `__proto__` must never resolve to an
+// inherited member, and `get` answers `undefined` for every key it does not hold.
+const LINES: ReadonlyMap<string, Line> = new Map<string, Line>([
+  ['voucher_not_found', UNKNOWN_CODE],
   // Another organization's code must not be distinguishable from an unknown one.
-  voucher_tenant_mismatch: UNKNOWN_CODE,
-  validation_failure: UNKNOWN_CODE,
-  voucher_expired: { fact: 'هذه القسيمة منتهية الصلاحية.', action: CHOOSE_ANOTHER },
-  voucher_cancelled: { fact: 'هذه القسيمة ملغاة.', action: CHOOSE_ANOTHER },
-  voucher_already_redeemed: { fact: 'هذه القسيمة استُخدمت من قبل.', action: CHOOSE_ANOTHER },
-  voucher_branch_mismatch: { fact: 'هذه القسيمة غير صالحة في هذا المتجر.', action: CHOOSE_ANOTHER },
+  ['voucher_tenant_mismatch', UNKNOWN_CODE],
+  ['validation_failure', UNKNOWN_CODE],
+  ['voucher_expired', { fact: 'هذه القسيمة منتهية الصلاحية.', action: CHOOSE_ANOTHER }],
+  ['voucher_cancelled', { fact: 'هذه القسيمة ملغاة.', action: CHOOSE_ANOTHER }],
+  ['voucher_already_redeemed', { fact: 'هذه القسيمة استُخدمت من قبل.', action: CHOOSE_ANOTHER }],
+  [
+    'voucher_branch_mismatch',
+    { fact: 'هذه القسيمة غير صالحة في هذا المتجر.', action: CHOOSE_ANOTHER },
+  ],
   // Says neither the voucher's value nor what is left to pay.
-  non_cash_overpayment_refused: {
-    fact: 'المبلغ المطبّق غير مقبول لهذه القسيمة.',
-    action: 'عدّل المبلغ.',
-  },
+  [
+    'non_cash_overpayment_refused',
+    { fact: 'المبلغ المطبّق غير مقبول لهذه القسيمة.', action: 'عدّل المبلغ.' },
+  ],
   // A retry can help here: nothing was decided about the voucher.
-  dependency_unavailable: {
-    fact: 'تعذّر الوصول إلى خدمة القسائم الآن.',
-    action: 'أعد المحاولة بعد قليل.',
-  },
+  [
+    'dependency_unavailable',
+    { fact: 'تعذّر الوصول إلى خدمة القسائم الآن.', action: 'أعد المحاولة بعد قليل.' },
+  ],
   // RT-1110: a session without a cashier admission cannot apply a voucher.
-  role_denied: {
-    fact: 'لا يمكن تطبيق القسيمة من هذه الجلسة.',
-    action: 'سجّل الدخول بحساب كاشير.',
-  },
-});
+  [
+    'role_denied',
+    { fact: 'لا يمكن تطبيق القسيمة من هذه الجلسة.', action: 'سجّل الدخول بحساب كاشير.' },
+  ],
+]);
 
-/** The line for a reason, or null when this module has none (`Object.hasOwn`: never inherited). */
+/** The line for a reason, or null when this module has none. */
 function lineFor(reason: string | null | undefined): Line | null {
-  if (typeof reason !== 'string') return null;
-  return Object.hasOwn(LINES, reason) ? (LINES[reason] ?? null) : null;
+  return typeof reason === 'string' ? (LINES.get(reason) ?? null) : null;
 }
 
 /**
@@ -108,5 +112,6 @@ const SETTLE_VOUCHER_REASONS: ReadonlySet<string> = new Set([
  */
 export function settleVoucherRefusalCopy(reason: string | null | undefined): string | null {
   if (typeof reason !== 'string') return null;
-  return SETTLE_VOUCHER_REASONS.has(reason) ? (lineFor(reason)?.fact ?? null) : null;
+  const line = SETTLE_VOUCHER_REASONS.has(reason) ? lineFor(reason) : null;
+  return line === null ? null : line.fact;
 }
