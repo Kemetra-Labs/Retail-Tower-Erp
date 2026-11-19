@@ -3,12 +3,15 @@
  *
  * RT-1151 (RT-282 PR-04, authoring half): the Retail Pricing authoring
  * contracts, `pricing/price-structure.yaml` and `pricing/price-change-sets.yaml`
- * 1.0.0-draft. `[GATED]` contract-first; every operation is
- * `x-runtime-status: contract-only` until RT-1484.
+ * 1.0.0-draft. `[GATED]` contract-first. RT-1484 (RT-282 PR-09a) ships the
+ * runtime of every `price-structure` operation, which loses its markers; the
+ * `price-change-sets` operations stay `x-runtime-status: contract-only` until
+ * their RT-1484 slices.
  *
  * Structural / load-only plus AJV 2020-12 fixtures; no app boot, no HTTP.
  * Pins:
- *   1. Every operation at its path and method, contract-only with a note,
+ *   1. Every operation at its path and method, runtime (price-structure) or
+ *      contract-only with a note (price-change-sets),
  *      cookieAuth only, no operationId collision with any other contract.
  *   2. Every write: `x-idempotency: required` with the `Idempotency-Key`
  *      header, 403 (Origin) and 425 documented.
@@ -157,14 +160,30 @@ describe("pricing authoring contracts — operations (RT-1151 PR-04)", () => {
     }
   });
 
-  it.each(OPERATIONS)("$id is contract-only, cookieAuth only and unique", (op) => {
+  it.each(OPERATIONS)("$id is cookieAuth only and unique", (op) => {
     const o = operation(op);
     expect(o.operationId).toBe(op.id);
-    expect(o["x-runtime-status"]).toBe("contract-only");
-    expect(String(o["x-runtime-note"] ?? "")).toMatch(/RT-1484/);
     expect(o.security).toEqual([{ cookieAuth: [] }]);
     expect(others[op.contract].has(op.id)).toBe(false);
   });
+
+  it.each(OPERATIONS.filter((op) => op.contract === "price-change-sets"))(
+    "$id is contract-only with an RT-1484 note",
+    (op) => {
+      const o = operation(op);
+      expect(o["x-runtime-status"]).toBe("contract-only");
+      expect(String(o["x-runtime-note"] ?? "")).toMatch(/RT-1484/);
+    },
+  );
+
+  it.each(OPERATIONS.filter((op) => op.contract === "price-structure"))(
+    "$id is implemented (RT-1484 PR-09a): no contract-only marker, no note",
+    (op) => {
+      const o = operation(op);
+      expect(o["x-runtime-status"]).toBeUndefined();
+      expect(o["x-runtime-note"]).toBeUndefined();
+    },
+  );
 
   it.each(WRITES)("$id is idempotent, Origin-checked and documents 425", (op) => {
     const o = operation(op);

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.16.0-draft"
+  version: "1.17.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -545,6 +545,33 @@ info:
     SAME gated change the feed adopts them on `PostingWorkItem`; (3) only
     then does RT-1513 emit them, behind per-tenant activation.
 
+    RT-1514 (1.17.0-draft; [GATED: contract] owner authorization in chat
+    2026-11-19, "One gated PR", following the RT-1512 rollout order; RT-291
+    comments 17800 and 17801): the feed adopts `transfer_dispatch` and
+    `transfer_receive`, the flat adoption planned in the RT-1512 note, as
+    RT-1422 did for `inventory_count`. `PostingWorkItem.kind` gains the two
+    values. Two new OPTIONAL bodies carry them: `transfer`
+    (`TransferDispatchPosting`, required for and only for `transfer_dispatch`)
+    and `receipt` (`TransferReceivePosting`, required for and only for
+    `transfer_receive`). A transfer item carries neither `sale`, `reversalOf`,
+    `count` nor the other transfer body, and `sale_post`, `reversal` and
+    `inventory_count` items carry neither new body. The `externalId` of a
+    transfer item is its leg-level provenance key
+    (`transfer_dispatch:<transferId>` or `transfer_receipt:<receiptId>`); the
+    rule JSON Schema cannot express, that the suffix equals `transfer.transferRef`
+    or `receipt.receiptRef`, is enforced by the Connector with the typed refusal
+    `invalid_shape`. The ack is unchanged: a transfer leg acks `posted` with a
+    Stock Entry `documentRef`, and `verified_noop` and `lines` stay count-only.
+    The standalone `TransferDispatchWorkItem` and `TransferReceiveWorkItem`
+    shapes stay referenced by no schema. DEPLOY ORDER: the Connector carrying
+    this change is deployed first. Backend-Core MUST NOT emit
+    `transfer_dispatch` or `transfer_receive` until RT-1513 has deployed its
+    runtime, AND until the connector-health contract and its heartbeat
+    validator accept the two kinds in `acceptedWorkItemKinds`: the Connector
+    deliberately keeps advertising only `sale_post`, `reversal` and
+    `inventory_count` in its heartbeat until then, so Backend-Core must not
+    read their absence there as a refusal.
+
 servers:
   - url: https://api.example.com
 
@@ -805,8 +832,13 @@ components:
             outcome ack to identify which posting this outcome resolves.
         kind:
           type: string
-          enum: [sale_post, reversal, inventory_count]
+          enum: [sale_post, reversal, inventory_count, transfer_dispatch, transfer_receive]
           description: >
+            `transfer_dispatch` (RT-1514) — post the dispatch leg of one shipment Transfer as ONE
+            ERPNext Stock Entry (Material Transfer, add to transit), carried in `transfer`.
+            `transfer_receive` (RT-1514) — post one receipt of a Transfer as ONE Stock Entry from the
+            transit warehouse to the destination warehouse against the dispatch Stock Entry, carried in
+            `receipt`. Neither carries a `sale`.
             `inventory_count` (RT-1422) — post one chunk of a physical count as ONE native
             ERPNext Stock Reconciliation, carried in `count`; there is no `sale`.
             `sale_post` — post the sale as a submitted ERPNext Sales Invoice,
@@ -855,6 +887,10 @@ components:
           $ref: "#/components/schemas/Sale"
         count:
           $ref: "#/components/schemas/CountPosting"
+        transfer:
+          $ref: "#/components/schemas/TransferDispatchPosting"
+        receipt:
+          $ref: "#/components/schemas/TransferReceivePosting"
         itemCursor:
           type: string
           minLength: 1
@@ -876,7 +912,10 @@ components:
           then:
             required: [sale]
             not:
-              required: [count]
+              anyOf:
+                - required: [count]
+                - required: [transfer]
+                - required: [receipt]
         - if:
             properties:
               kind:
@@ -887,6 +926,38 @@ components:
               anyOf:
                 - required: [sale]
                 - required: [reversalOf]
+                - required: [transfer]
+                - required: [receipt]
+        - if:
+            properties:
+              kind:
+                const: transfer_dispatch
+          then:
+            required: [transfer]
+            properties:
+              externalId:
+                pattern: '^transfer_dispatch:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            not:
+              anyOf:
+                - required: [sale]
+                - required: [reversalOf]
+                - required: [count]
+                - required: [receipt]
+        - if:
+            properties:
+              kind:
+                const: transfer_receive
+          then:
+            required: [receipt]
+            properties:
+              externalId:
+                pattern: '^transfer_receipt:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+            not:
+              anyOf:
+                - required: [sale]
+                - required: [reversalOf]
+                - required: [count]
+                - required: [transfer]
 
     ReversalRef:
       type: object

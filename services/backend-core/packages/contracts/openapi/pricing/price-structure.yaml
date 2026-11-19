@@ -12,8 +12,8 @@ info:
 
 
     **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
-    owner on RT-1151 (D1, comment 17783). Every operation is
-    `x-runtime-status: contract-only` until RT-1484 ships the runtime.
+    owner on RT-1151 (D1, comment 17783). RT-1484 (RT-282 PR-09a) ships the
+    runtime of every operation here, so none carries `x-runtime-status`.
     Inquiry is `pricing/price-inquiry.yaml`; prices and Zone moves change only
     through `pricing/price-change-sets.yaml`.
 
@@ -63,10 +63,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-08/PR-09), which removes the marker.
       description: >
         Every Book of the tenant, retired ones included, newest first. In v1
         this is zero or one Book. Roles `owner`, `tenant_admin`,
@@ -93,10 +89,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-09), which removes the marker.
       description: >
         Creates the Book (pricing context `retail`) and, in the same
         transaction, its default Zone. Roles `owner` / `tenant_admin`. A tenant
@@ -153,10 +145,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
-        removes the marker.
       description: >
         The Book and all its Zones (retired ones included), the default Zone
         first, then by `code`. Roles `owner`, `tenant_admin`, `store_manager`.
@@ -188,10 +176,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
-        removes the marker.
       description: >
         A new, empty, non-default Zone; it inherits the Book's currency
         (decision 486). Stores join it only through a Change Set
@@ -244,10 +228,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
-        removes the marker.
       description: >
         Retires a Zone that no active membership and no active price event
         references at any instant (data-model §2.2), so no resolved price
@@ -307,10 +287,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
-        removes the marker.
       description: >
         Stores whose Zone in this Book at `at` (default: now), as known at
         `as_of_revision` (default: head), is this Zone: explicit members and,
@@ -357,10 +333,6 @@ paths:
       tags: [pricing-structure-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
-        removes the marker.
       description: >
         The Store's explicit membership rows visible at `as_of_revision`
         (default: head; data-model §2.3 visibility), ordered by
