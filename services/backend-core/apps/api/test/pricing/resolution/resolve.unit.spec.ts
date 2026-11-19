@@ -111,7 +111,7 @@ describe("resolvePrice — precedence (spec 041 §4.2 steps 3-5)", () => {
     expect(r).toMatchObject({ status: "priced", price: "130.0000" });
   });
 
-  it("creation order and revision numbers play no part (499-500)", () => {
+  it("precedence is by scope, not revision: an older Store event beats a newer Book event (499-500)", () => {
     const older = storeEvent({ publishedInRevision: 9, price: "10.0000" });
     const bookNewer = bookEvent({ publishedInRevision: 10, price: "20.0000" });
     expect(resolve(data({ events: [bookNewer, older] }))).toMatchObject({ price: "10.0000" });
@@ -253,9 +253,20 @@ describe("resolvePrice — Zone membership (step 4)", () => {
     expect(r).toMatchObject({ status: "priced", price: "1.0000" });
   });
 
-  it("with no default Zone known and no membership, skips the Zone layer", () => {
-    const r = resolve(data({ defaultZoneId: null, events: [deflt, bookEvent({ price: "5.0000" })] }));
-    expect(r).toMatchObject({ price: "5.0000" });
+  it.each([null, undefined, ""])(
+    "a Book whose default Zone is %p fails closed (Q-8 loader defect), never falling through to the Book",
+    (missing) => {
+      const broken = book({ defaultZoneId: missing as unknown as string });
+      expect(() => resolve(data({ book: broken, events: [deflt, bookEvent({ price: "5.0000" })] }))).toThrow(
+        TypeError,
+      );
+    },
+  );
+
+  it("the default Zone comes from the Book", () => {
+    const r = resolve(data({ book: book({ defaultZoneId: ZONE_B }), events: [zoneA, zoneB, deflt] }));
+    expect(r).toMatchObject({ price: "222.0000" });
+    expect(r.status === "priced" && r.provenance.priceZoneId).toBe(ZONE_B);
   });
 });
 

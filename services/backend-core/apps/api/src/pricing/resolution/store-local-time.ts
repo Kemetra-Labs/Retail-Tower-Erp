@@ -53,7 +53,9 @@ function offsetAt(instantMs: number, zone: string): number {
   const fields: Record<string, string> = {};
   for (const part of formatterFor(zone).formatToParts(new Date(instantMs))) fields[part.type] = part.value;
   const year = Number(fields["year"]) * (fields["era"] === "BC" ? -1 : 1);
-  // Not Date.UTC: it reads years 0-99 as 1900-1999.
+  // Not Date.UTC: ECMAScript's MakeFullYear maps a year of 0-99 to 1900-1999,
+  // which would put a 1900-year error into the offset of any early date.
+  // setUTCFullYear takes the year as given.
   const local = new Date(0);
   local.setUTCFullYear(year, Number(fields["month"]) - 1, Number(fields["day"]));
   local.setUTCHours(Number(fields["hour"]), Number(fields["minute"]), Number(fields["second"]), 0);

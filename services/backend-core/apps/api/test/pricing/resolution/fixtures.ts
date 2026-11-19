@@ -33,6 +33,7 @@ export const book = (over: Partial<ResolutionPriceBook> = {}): ResolutionPriceBo
   tenantId: TENANT,
   currencyCode: "EGP",
   taxPriceBasis: "inclusive",
+  defaultZoneId: DEFAULT_ZONE,
   ...over,
 });
 
@@ -92,7 +93,6 @@ export const membership = (
 
 export const data = (over: Partial<ResolutionData> = {}): ResolutionData => ({
   book: book(),
-  defaultZoneId: DEFAULT_ZONE,
   memberships: [],
   events: [],
   ...over,

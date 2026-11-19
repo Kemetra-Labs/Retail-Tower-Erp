@@ -175,6 +175,11 @@ export function resolvePrice(
   if (Number.isNaN(instant.getTime())) throw new RangeError("Invalid instant");
   const book = data.book;
   if (book === null || book.tenantId !== store.tenantId) return { status: "unpriced", reason: "no_price_book" };
+  // Q-8: every Book has a default Zone. A Book without one is a loader defect;
+  // fail closed rather than silently skipping the Zone layer.
+  if (typeof book.defaultZoneId !== "string" || book.defaultZoneId === "") {
+    throw new TypeError("Price Book has no default Zone (Q-8)");
+  }
   const instantMs = instant.getTime();
   const key = { productId, sellUnit, store, bookId: book.id, instantMs, asOfRevision };
   const candidates = data.events.flatMap((event) => candidateOf(event, key));
@@ -184,8 +189,7 @@ export function resolvePrice(
     () => {
       const zone = zoneFor(data.memberships, store, book, instantMs, asOfRevision);
       if (zone !== null && "status" in zone) return zone;
-      const zoneId = zone?.zoneId ?? data.defaultZoneId;
-      if (zoneId === null) return NONE;
+      const zoneId = zone?.zoneId ?? book.defaultZoneId;
       return pickOne(candidates.filter((c) => c.event.scope === "zone" && c.event.priceZoneId === zoneId));
     },
     () => pickOne(candidates.filter((c) => c.event.scope === "book")),

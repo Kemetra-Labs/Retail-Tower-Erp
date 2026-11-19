@@ -15,11 +15,18 @@ import type { priceBooks, priceEvents, priceZoneMemberships, stores } from "@dat
 /** The Store being priced: its tenant and its IANA time zone (`stores.timezone`). */
 export type ResolutionStore = Pick<typeof stores.$inferSelect, "id" | "tenantId" | "timezone">;
 
-/** The tenant's retail Price Book (v1: the only one, data-model §2.1). */
+/**
+ * The tenant's retail Price Book (v1: the only one, data-model §2.1), with
+ * its default Zone. Q-8 guarantees exactly one immutable default Zone per
+ * Book (0121's deferred check), so the loader always has one to pass.
+ */
 export type ResolutionPriceBook = Pick<
   typeof priceBooks.$inferSelect,
   "id" | "tenantId" | "currencyCode" | "taxPriceBasis"
->;
+> & {
+  /** `price_zones.id` of the Book's `is_default` Zone. */
+  readonly defaultZoneId: string;
+};
 
 /** A Store → Zone membership row; absolute instants (data-model §2.3). */
 export type ResolutionZoneMembership = Pick<
@@ -64,8 +71,6 @@ export type ResolutionPriceEvent = Pick<
 export interface ResolutionData {
   /** The tenant's retail Book, or null when the tenant has none (`no_price_book`). */
   readonly book: ResolutionPriceBook | null;
-  /** The Book's default Zone (Q-8: one per Book, immutable), or null when unknown. */
-  readonly defaultZoneId: string | null;
   readonly memberships: ReadonlyArray<ResolutionZoneMembership>;
   readonly events: ReadonlyArray<ResolutionPriceEvent>;
 }

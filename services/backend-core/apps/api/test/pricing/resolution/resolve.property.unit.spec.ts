@@ -169,7 +169,7 @@ describe("resolvePrice properties", () => {
     });
   });
 
-  it("an event of a more specific scope covering the instant always wins over a Book price", () => {
+  it("a Store event covering the instant always wins over Book prices", () => {
     forEachCase(SEED + 4, (c, rng) => {
       const asOf = Math.max(1, c.asOf);
       const storeLevel = event({
@@ -185,6 +185,30 @@ describe("resolvePrice properties", () => {
         status: "priced",
         price: "1.0000",
         provenance: { sourceScope: "store", priceEventId: storeLevel.id },
+      });
+    });
+  });
+
+  it("a default-Zone event covering the instant always wins over Book prices (no membership)", () => {
+    forEachCase(SEED + 8, (c, rng) => {
+      const asOf = Math.max(1, c.asOf);
+      const zoneLevel = event({
+        id: id("e", int(rng, 1, 1_000_000_000)),
+        scope: "zone",
+        priceZoneId: DEFAULT_ZONE,
+        price: "2.0000",
+        effectiveFrom: new Date(c.instant.getTime() - DAY),
+        publishedInRevision: asOf,
+      });
+      const bookOnly = {
+        ...c.d,
+        memberships: [],
+        events: [...c.d.events.filter((e) => e.scope === "book"), zoneLevel],
+      };
+      expect(run({ ...c, asOf }, bookOnly)).toMatchObject({
+        status: "priced",
+        price: "2.0000",
+        provenance: { sourceScope: "zone", priceEventId: zoneLevel.id, priceZoneId: DEFAULT_ZONE },
       });
     });
   });
