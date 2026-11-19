@@ -325,6 +325,8 @@ describe("price-inquiry contract — AJV fixtures", () => {
     const base = explanationFixture();
     expect(v({ ...base, layers: [store, zone, { scope: "book", outcome: "shadowed" }] })).toBe(false);
     expect(v({ ...base, layers: [{ ...store, priceEventId: EVENT }, zone, book] })).toBe(false);
+    expect(v({ ...base, layers: [{ ...store, effectiveFrom: "2026-11-01T00:00:00+02:00" }, zone, book] })).toBe(false);
+    expect(v({ ...base, layers: [{ ...store, changeSetId: CHANGE_SET }, zone, book] })).toBe(false);
   });
 
   it("an error result reports the conflicting layer and stops", () => {
