@@ -1,0 +1,67 @@
+{
+  "_comment": "RT-1512 wire examples for the RESERVED transfer_dispatch and transfer_receive work items (posting-feed.yaml 1.16.0-draft). Validated against the contract by posting-feed.contract.spec.ts. Not emitted by any runtime in this version.",
+  "dispatch": {
+    "workItemRef": "00000000-0000-7000-8000-00000000d001",
+    "kind": "transfer_dispatch",
+    "sourceSystem": "retail-tower",
+    "externalId": "transfer_dispatch:00000000-0000-7000-8000-00000000d0e1",
+    "transfer": {
+      "transferRef": "00000000-0000-7000-8000-00000000d0e1",
+      "sourceStoreId": "00000000-0000-7000-8000-00000000570a",
+      "destinationStoreId": "00000000-0000-7000-8000-00000000570b",
+      "sourceWarehouseRef": { "doctype": "Warehouse", "name": "Store A - RT" },
+      "transitWarehouseRef": { "doctype": "Warehouse", "name": "Goods In Transit - RT" },
+      "postingDatetime": "2026-11-20T09:30:00.000000Z",
+      "lines": [
+        {
+          "lineSeq": 1,
+          "transferLineRef": "00000000-0000-7000-8000-00000000d1e1",
+          "erpnextItemRef": { "doctype": "Item", "name": "PANADOL-24" },
+          "erpnextBatchRef": null,
+          "quantity": "10",
+          "unit": "Box"
+        },
+        {
+          "lineSeq": 2,
+          "transferLineRef": "00000000-0000-7000-8000-00000000d1e2",
+          "erpnextItemRef": { "doctype": "Item", "name": "AMOXIL-12" },
+          "erpnextBatchRef": { "doctype": "Batch", "name": "AMX-2611" },
+          "quantity": "4",
+          "unit": "Strip"
+        }
+      ]
+    },
+    "payloadHash": "9f86d081884c7d659a2feaa0c55ad015a3bf4f1b2b0b822cd15d6c15b0f00a08",
+    "businessDate": "2026-11-20",
+    "itemCursor": "c1"
+  },
+  "receive": {
+    "workItemRef": "00000000-0000-7000-8000-00000000d002",
+    "kind": "transfer_receive",
+    "sourceSystem": "retail-tower",
+    "externalId": "transfer_receipt:00000000-0000-7000-8000-00000000d2e1",
+    "receipt": {
+      "transferRef": "00000000-0000-7000-8000-00000000d0e1",
+      "receiptRef": "00000000-0000-7000-8000-00000000d2e1",
+      "destinationStoreId": "00000000-0000-7000-8000-00000000570b",
+      "transitWarehouseRef": { "doctype": "Warehouse", "name": "Goods In Transit - RT" },
+      "destinationWarehouseRef": { "doctype": "Warehouse", "name": "Store B - RT" },
+      "dispatchDocumentRef": { "doctype": "Stock Entry", "name": "MAT-STE-2026-00042" },
+      "postingDatetime": "2026-11-21T11:00:00.000000Z",
+      "lines": [
+        {
+          "lineSeq": 1,
+          "dispatchLineSeq": 1,
+          "transferLineRef": "00000000-0000-7000-8000-00000000d1e1",
+          "erpnextItemRef": { "doctype": "Item", "name": "PANADOL-24" },
+          "erpnextBatchRef": null,
+          "quantity": "6",
+          "unit": "Box"
+        }
+      ]
+    },
+    "payloadHash": "2c26b46b68ffc68ff99b453c1d30413413422d706483bfa0f98a5e886266e7ae",
+    "businessDate": "2026-11-21",
+    "itemCursor": "c2"
+  }
+}

@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — ERPNext Connector Posting-Feed API
-  version: "1.15.0-draft"
+  version: "1.16.0-draft"
   description: >
     Spec 012 ERPNext Connector Contracts surface — the DP2 ↔ connector boundary
     that realises the signed 011 posting + version-pin decisions over a
@@ -502,6 +502,48 @@ info:
     Backend-Core must not emit `inventory_count` (RT-1423) and must not expect
     `verified_noop` or `lines` until it has deployed the Connector that sends them, and
     RT-1423 must accept both on the ack route before it enables a tenant.
+
+    RT-1512 (1.16.0-draft; [GATED: OpenAPI] owner authorization in chat
+    2026-11-19, "Execute RT-1512"; Inventory Gate 5 planning record, RT-291
+    comments 17800 and 17801; decisions 815, 816, 876, 877, 883–889): the
+    work-item kinds `transfer_dispatch` and `transfer_receive` are RESERVED,
+    with no wire change. Backend-Core MUST NOT emit `transfer_dispatch` or
+    `transfer_receive` in this version. A shipment Transfer between two
+    stores of one company posts through this same feed as ERPNext's native
+    goods-in-transit pair (ERPNext v16.51.0): the dispatch is ONE Stock Entry
+    of purpose Material Transfer with `add_to_transit` from the source store
+    warehouse to the tenant's transit warehouse (a Warehouse of type Transit
+    in the same Company, mapped explicitly by Backend-Core, owner ruling O2);
+    each receipt is ONE further Material Transfer from the transit warehouse
+    to the destination store warehouse that names the dispatch Stock Entry,
+    so several partial receipts post against one dispatch. Shapes:
+    `TransferDispatchWorkItem` with `TransferDispatchPosting` and
+    `TransferDispatchLine`; `TransferReceiveWorkItem` with
+    `TransferReceivePosting` and `TransferReceiveLine`; `ErpnextStockEntryRef`.
+    They are referenced by no operation and `PostingWorkItem.kind` keeps
+    `sale_post | reversal | inventory_count`. FLAT and kind-specific, as
+    `CountWorkItem`: no `sale`, no `reversalOf`, no valuation and no serial
+    field (serial transfers are refused until the serial gate); a batch line
+    carries the ERPNext Batch from the edge map (885). Idempotency is
+    leg-level (888, 889): `transfer_dispatch:<transferId>` and
+    `transfer_receipt:<receiptId>`, with `sourceSystem` stored as the Stock
+    Entry provenance (`rt_source_system`, `rt_external_id` under a unique
+    index, G8-2). A receipt work item is released only after its dispatch is
+    confirmed and carries that dispatch's Stock Entry and each line's
+    dispatch row (`dispatchLineSeq`): the Connector never looks either up
+    (886). Post-write verification reads the Stock Ledger (G8-3): dispatch −q
+    at the source and +q at transit; receipt −q at transit and +q at the
+    destination; equal Batch on both sides. NOT DECIDED HERE: the ERP leg of
+    an approved short-close (the quantity written off while in transit). The
+    reserved `InventoryDisposition` cannot carry it as it stands (its types
+    are `scrap` and `vendor_return`, its Batch is required, and it names no
+    dispatch), and a Material Issue from the transit warehouse would leave
+    the dispatch Stock Entry partly transferred in ERPNext. RT-1513 and
+    RT-1514 decide that shape before either emits it.
+    ROLLOUT ORDER (Connector first, as for `inventory_count`): (1) RT-1514
+    makes the Connector accept and post both kinds and repins; (2) in the
+    SAME gated change the feed adopts them on `PostingWorkItem`; (3) only
+    then does RT-1513 emit them, behind per-tenant activation.
 
 servers:
   - url: https://api.example.com
@@ -2080,6 +2122,244 @@ components:
               type: string
               format: uuid
               description: Server-side correlation id; the actual cause is recorded server-side.
+
+    # -----------------------------------------------------------------------
+    # RT-1512 (1.16.0-draft) — RESERVED `transfer_dispatch` and
+    # `transfer_receive` kinds. Referenced by no operation; never emitted in
+    # this version (see the info note).
+    # -----------------------------------------------------------------------
+    ErpnextStockEntryRef:
+      type: object
+      additionalProperties: false
+      required: [doctype, name]
+      description: >
+        RT-1512, RESERVED. A reference to a submitted ERPNext **Stock Entry**
+        (the transfer's dispatch document). Generic doctype+name addressing
+        (O-6) with `doctype` fixed to "Stock Entry".
+      properties:
+        doctype:
+          type: string
+          const: "Stock Entry"
+        name:
+          type: string
+          minLength: 1
+          maxLength: 200
+    TransferDispatchWorkItem:
+      type: object
+      additionalProperties: false
+      required: [workItemRef, kind, sourceSystem, externalId, payloadHash, businessDate, transfer, itemCursor]
+      description: >
+        RT-1512, RESERVED (not on the feed in this version). The dispatch leg of
+        one shipment Transfer, posted as ONE ERPNext Stock Entry (Material
+        Transfer, `add_to_transit`) from the source store warehouse to the
+        tenant transit warehouse. Self-contained like `PostingWorkItem`: no
+        `tenant_id`, no credentials.
+      properties:
+        workItemRef:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          const: transfer_dispatch
+        sourceSystem:
+          type: string
+          minLength: 1
+          maxLength: 100
+        externalId:
+          type: string
+          pattern: '^transfer_dispatch:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          maxLength: 200
+          description: >
+            `transfer_dispatch:<transferId>` (888). It MUST equal
+            `transfer.transferRef`. With `sourceSystem` it is the idempotency
+            anchor; a cancelled document found by the key is an unknown
+            outcome, never re-posted silently.
+        transfer:
+          $ref: "#/components/schemas/TransferDispatchPosting"
+        itemCursor:
+          type: string
+          minLength: 1
+        payloadHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 of the canonical `transfer` payload.
+        businessDate:
+          type: string
+          format: date
+          description: The dispatch's business date in the source store timezone. Informational.
+    TransferDispatchPosting:
+      type: object
+      additionalProperties: false
+      required: [transferRef, sourceStoreId, destinationStoreId, sourceWarehouseRef, transitWarehouseRef, postingDatetime, lines]
+      description: >
+        RT-1512, RESERVED. The dispatch intent, created in one transaction with
+        the `transfer_out` effects (DC-2). Every reference is resolved by
+        Backend-Core and frozen; the Connector posts it as given.
+      properties:
+        transferRef:
+          type: string
+          format: uuid
+          description: The Backend-Core shipment Transfer id.
+        sourceStoreId:
+          type: string
+          format: uuid
+        destinationStoreId:
+          type: string
+          format: uuid
+          description: Lineage only; the receipt names the destination warehouse.
+        sourceWarehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
+        transitWarehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
+        postingDatetime:
+          type: string
+          format: date-time
+          description: The dispatch's `occurred_at` (914), never the time of posting.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TransferDispatchLine"
+    TransferDispatchLine:
+      type: object
+      additionalProperties: false
+      required: [lineSeq, transferLineRef, erpnextItemRef, erpnextBatchRef, quantity, unit]
+      description: >
+        RT-1512, RESERVED. One dispatched quantity. `lineSeq` values are
+        unique and contiguous from 1 to the line count, and equal the row
+        `idx` of the dispatch Stock Entry, so a receipt names its row by
+        `dispatchLineSeq`. The Connector also stores `transferLineRef` on the
+        row and verifies the two agree; a mismatch is refused, never guessed.
+      properties:
+        lineSeq:
+          type: integer
+          minimum: 1
+        transferLineRef:
+          type: string
+          format: uuid
+        erpnextItemRef:
+          $ref: "#/components/schemas/ErpnextItemRef"
+        erpnextBatchRef:
+          oneOf:
+            - $ref: "#/components/schemas/ErpnextBatchRef"
+            - type: "null"
+          description: The Batch from the edge map for a batch line (885); null for an untracked product.
+        quantity:
+          type: string
+          pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,13}(\.[0-9]{1,6})?$'
+          description: Strictly positive exact decimal (at most 13 integer and 6 fractional digits).
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 140
+    TransferReceiveWorkItem:
+      type: object
+      additionalProperties: false
+      required: [workItemRef, kind, sourceSystem, externalId, payloadHash, businessDate, receipt, itemCursor]
+      description: >
+        RT-1512, RESERVED (not on the feed in this version). One receipt leg of
+        a shipment Transfer, posted as ONE ERPNext Stock Entry (Material
+        Transfer) from the transit warehouse to the destination store
+        warehouse against the dispatch Stock Entry. Released only after the
+        dispatch is confirmed.
+      properties:
+        workItemRef:
+          type: string
+          format: uuid
+        kind:
+          type: string
+          const: transfer_receive
+        sourceSystem:
+          type: string
+          minLength: 1
+          maxLength: 100
+        externalId:
+          type: string
+          pattern: '^transfer_receipt:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
+          maxLength: 200
+          description: >
+            `transfer_receipt:<receiptId>` (889). It MUST equal
+            `receipt.receiptRef`.
+        receipt:
+          $ref: "#/components/schemas/TransferReceivePosting"
+        itemCursor:
+          type: string
+          minLength: 1
+        payloadHash:
+          type: string
+          pattern: '^[a-f0-9]{64}$'
+          description: SHA-256 of the canonical `receipt` payload.
+        businessDate:
+          type: string
+          format: date
+          description: The receipt's business date in the destination store timezone. Informational.
+    TransferReceivePosting:
+      type: object
+      additionalProperties: false
+      required:
+        [transferRef, receiptRef, destinationStoreId, transitWarehouseRef, destinationWarehouseRef, dispatchDocumentRef,
+         postingDatetime, lines]
+      properties:
+        transferRef:
+          type: string
+          format: uuid
+        receiptRef:
+          type: string
+          format: uuid
+          description: The stable Backend-Core receipt id (889).
+        destinationStoreId:
+          type: string
+          format: uuid
+        transitWarehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
+        destinationWarehouseRef:
+          $ref: "#/components/schemas/ErpnextWarehouseRef"
+        dispatchDocumentRef:
+          $ref: "#/components/schemas/ErpnextStockEntryRef"
+        postingDatetime:
+          type: string
+          format: date-time
+          description: The receipt's `occurred_at` (914), never the time of posting.
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/TransferReceiveLine"
+    TransferReceiveLine:
+      type: object
+      additionalProperties: false
+      required: [lineSeq, dispatchLineSeq, transferLineRef, erpnextItemRef, erpnextBatchRef, quantity, unit]
+      description: >
+        RT-1512, RESERVED. One received quantity, linked to its dispatch row
+        (`dispatchLineSeq`). The receipt's inventory status (sellable or
+        damaged) is Retail-only: V1 has one ERP bucket per store, so every
+        received quantity moves into the destination store warehouse.
+      properties:
+        lineSeq:
+          type: integer
+          minimum: 1
+        dispatchLineSeq:
+          type: integer
+          minimum: 1
+          description: The `lineSeq` of the dispatch line this quantity is received against.
+        transferLineRef:
+          type: string
+          format: uuid
+        erpnextItemRef:
+          $ref: "#/components/schemas/ErpnextItemRef"
+        erpnextBatchRef:
+          oneOf:
+            - $ref: "#/components/schemas/ErpnextBatchRef"
+            - type: "null"
+        quantity:
+          type: string
+          pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,13}(\.[0-9]{1,6})?$'
+        unit:
+          type: string
+          minLength: 1
+          maxLength: 140
 
   responses:
     ValidationFailure:

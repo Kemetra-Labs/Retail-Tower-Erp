@@ -1,8 +1,39 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.20.0-draft"
+  version: "1.21.0-draft"
   description: >
+    **1.21.0-draft (RT-1512, additive, contract-only; [GATED: OpenAPI] owner
+    authorization in chat 2026-11-19 ("Execute RT-1512"); design source the
+    Inventory Gate 5 planning record, RT-291 comments 17800 and 17801, with
+    decisions 794–798, 800–817, 876–889, 962, 963 and 974).** The shipment
+    Transfer surface, as nine operations under
+    `/api/inventory/v1/shipment-transfers`: `createShipmentTransfer`,
+    `listShipmentTransfers`, `getShipmentTransfer`, `approveShipmentTransfer`
+    (approval reserves the source stock until an explicit expiry),
+    `cancelShipmentTransfer` (only before dispatch), `dispatchShipmentTransfer`,
+    `recordShipmentTransferReceipt` (partial, damaged and repeated receipts),
+    `listShipmentTransferReceipts` and `closeShipmentTransfer` (with an
+    approved short-close of what is still in transit). The states are
+    `draft`, `approved`, `in_transit`, `partially_received`, `received`,
+    `closed` and `cancelled`. In Transit is a transfer-owned quantity on each
+    line, never a Stock Location or an inventory status (G4-1, 736). Each
+    operation is `x-runtime-status: contract-only` until the Backend-Core
+    runtime issue RT-1513, which also owns the per-tenant activation; until a
+    tenant is activated each operation answers the non-disclosing 404. Typed
+    refusals are 409 codes of the existing error envelope
+    (`ShipmentTransferConflict`). No ERPNext field appears in this contract
+    (873): the ERP legs are the reserved `transfer_dispatch` and
+    `transfer_receive` work items of `erpnext-connector/posting-feed.yaml`
+    1.16.0-draft; each leg's ERP posting state is projected
+    (`ShipmentLegIntegrationState`). Owner decisions 2026-11-19 (chat): an
+    approval is never refused for lack of stock (flagged, 743); one person
+    may create, approve and dispatch (audited); a receipt lands only at the
+    destination (sending goods back is a new Transfer).
+    `createStockTransfer`, the instant transfer, is marked
+    `deprecated` (974) and keeps its route and behaviour until its tenant is
+    activated; its removal is RT-1517.
+
     **1.20.0-draft (RT-1468, text only).** `SupportSessionRefused` now
     describes the RT-1468 rule: a platform admin is admitted with or without
     a support session, and 403 `support_session_required` means only that
@@ -664,9 +695,17 @@ paths:
   /api/inventory/v1/transfers:
     post:
       operationId: createStockTransfer
+      deprecated: true
       tags: [inventory]
-      summary: Transfer stock between stores as linked movements.
+      summary: Transfer stock between stores as linked movements (deprecated).
       description: >
+        DEPRECATED (RT-1512, decision 974): the instant transfer is not the
+        target shipment workflow (974). It stays served, unchanged, until the
+        tenant activates shipment transfers (RT-1513); from then it answers 409
+        `transfer_workflow_required` (one writable transfer workflow, 976), and
+        RT-1517 removes it. Use the `/api/inventory/v1/shipment-transfers`
+        operations instead. Its movements are never posted to ERP (they stay
+        `not_posted`).
         Create an intra-tenant transfer as LINKED movements — a `transfer_out`
         at the source store and a `transfer_in` at the destination, sharing a
         transfer group id so they are mutually discoverable (FR-020/SC-004).
@@ -696,7 +735,7 @@ paths:
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
-        "409": { $ref: "#/components/responses/IdempotencyConflict" }
+        "409": { $ref: "#/components/responses/StockTransferConflict" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
@@ -1735,6 +1774,422 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
+  /api/inventory/v1/shipment-transfers:
+    post:
+      operationId: createShipmentTransfer
+      tags: [inventory]
+      summary: Create a shipment Transfer in Draft.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime and the per-tenant activation ship
+        in RT-1513. Until then no route serves this operation.
+      description: >
+        RT-1512 (RT-291 Gate 5; decisions 800–802, 962, 963; G7-4). Creates a
+        shipment Transfer in state `draft` from the source store to the
+        destination store, one line per product (and per tracking identity for
+        a tracked product). A move inside one store is a Relocation, not a
+        Transfer (800): equal stores are a 400 `validation_error`. Both stores
+        resolve inside the caller's tenant; a store of another tenant is the
+        non-disclosing 404. Authority over BOTH stores is checked (962): the
+        caller must be allowed to send from the source and the destination
+        must be a store the tenant may receive into. Stores of different legal
+        entities are refused with 409 `cross_legal_entity_transfer` (817, 963;
+        an intercompany workflow is out of scope). A tracked product needs one
+        `trackingIdentityId` per line (409 `tracking_identity_required`); a
+        serial product is refused with 409 `serial_transfer_not_supported`
+        until the serial gate. A Transfer has at most 100 lines, the row
+        limit of one ERP Stock Entry. A Draft reserves nothing and changes no
+        quantity. Owner, tenant_admin or a store_manager of the source store.
+        Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreateShipmentTransferCommand"
+      responses:
+        "201":
+          description: Shipment Transfer created in `draft`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    get:
+      operationId: listShipmentTransfers
+      tags: [inventory]
+      summary: List shipment Transfers, newest first, in keyset pages.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512. The tenant's shipment Transfers newest first
+        (`createdAt DESC, id DESC`), optionally filtered by `storeId` (as source
+        or destination, per `direction`) and by `state`. Keyset pagination as
+        `listStockMovements` (RT-731): an opaque `cursor` bound to this
+        operation, the tenant and the filters; a value the server did not
+        issue, or one reused with other filters, is 400 `validation_error`.
+        Owner or tenant_admin see every store; a store_manager sees only
+        Transfers whose source or destination is in its store scope.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: storeId
+          in: query
+          required: false
+          description: Only Transfers touching this store (see `direction`).
+          schema: { type: string, format: uuid }
+        - name: direction
+          in: query
+          required: false
+          description: >
+            With `storeId`: `outbound` (the store is the source), `inbound` (the
+            store is the destination) or `any`. Ignored without `storeId`.
+          schema: { type: string, enum: [outbound, inbound, any], default: any }
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/ShipmentTransferState"
+        - $ref: "#/components/parameters/CountCursor"
+        - $ref: "#/components/parameters/CountLimit"
+      responses:
+        "200":
+          description: A page of shipment Transfers, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransferList"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}:
+    get:
+      operationId: getShipmentTransfer
+      tags: [inventory]
+      summary: Read one shipment Transfer.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512. One shipment Transfer with its state, lines (ordered,
+        dispatched, received, short-closed and in-transit quantities per line),
+        reservation, approval, dispatch, short-close, closure and cancellation.
+        A Transfer of another tenant, or one whose source and destination are
+        both outside the caller's store scope, is the non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+      responses:
+        "200":
+          description: The shipment Transfer.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}/approve:
+    post:
+      operationId: approveShipmentTransfer
+      tags: [inventory]
+      summary: Approve a Draft; approval reserves the source stock.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512 (805, 806, 794–798; owner ruling O1, O2). Moves a `draft` to
+        `approved`. Approval reserves the source stock of every line (item,
+        source store position and quantity) until the explicit
+        `reservationExpiresAt` (797), in the same transaction; the reservation
+        lowers the source Available to Sell, never its Physical or Sellable On
+        Hand, and a reserved quantity is never deducted a second time at
+        dispatch. A reservation that expires before dispatch is released by an
+        audited event and the Transfer returns to `draft` (798). Approval
+        re-checks the legal entities (409 `cross_legal_entity_transfer`) and
+        each tracked line's identity (409 `tracking_identity_held_or_expired`
+        for an identity under an active hold or past its expiry at the source
+        store's business date, G7-4), and fails closed with 409
+        `transfer_warehouse_unmapped` while the source, destination or tenant
+        transit warehouse has no ERP mapping (O2). Approval is capability
+        controlled (805): owner, tenant_admin or a store_manager of the source
+        store; the same person may create, approve and dispatch (each step is
+        audited with its actor; owner decision 2026-11-19). Approval is never
+        refused for lack of stock: a reservation above the source Available to
+        Sell is recorded and the negative Available to Sell is preserved and
+        flagged (743), as every other stock write is (owner decision
+        2026-11-19). Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ApproveShipmentTransferCommand"
+      responses:
+        "200":
+          description: Transfer approved and its source stock reserved.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}/cancel:
+    post:
+      operationId: cancelShipmentTransfer
+      tags: [inventory]
+      summary: Cancel a Transfer before dispatch.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512. Moves a `draft` or `approved` Transfer to the terminal
+        `cancelled` state with a recorded reason; an approved Transfer's
+        reservation is released by an audited event (798) and no quantity
+        changes. From `in_transit` onward a Transfer cannot be cancelled (409
+        `shipment_transfer_not_in_state`): goods already left the source, so
+        they leave In Transit only through a receipt at the destination or an
+        approved short-close. Owner, tenant_admin or a
+        store_manager of the source store. Idempotent via the `Idempotency-Key`
+        header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CancelShipmentTransferCommand"
+      responses:
+        "200":
+          description: Transfer cancelled.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}/dispatch:
+    post:
+      operationId: dispatchShipmentTransfer
+      tags: [inventory]
+      summary: Dispatch an approved Transfer; its goods go In Transit.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512 (807, 808; 876, 888). Moves an `approved` Transfer to
+        `in_transit`. One Inventory Business Event writes one `transfer_out`
+        effect per line at the source position, which lowers the source
+        Physical and Sellable On Hand; the line's reservation is consumed by
+        that effect, so the quantity is deducted once. Each line's
+        `inTransitQuantity` becomes its dispatched quantity; In Transit counts
+        in neither store's On Hand nor Available to Sell (736). The whole
+        approved quantity of every line is dispatched; to send less, cancel and
+        create a new Transfer. A Transfer whose reservation expired is back in
+        `draft` (409 `shipment_transfer_not_in_state`). Tracked lines are
+        re-checked as on approval (G7-4). The ERP leg is one
+        `transfer_dispatch` work item, created in the same transaction as the
+        effects (DC-2); ERP confirmation changes integration state only and
+        never moves the lifecycle. Owner, tenant_admin or a store_manager of the
+        source store. Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/DispatchShipmentTransferCommand"
+      responses:
+        "200":
+          description: Transfer dispatched and In Transit.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}/receipts:
+    post:
+      operationId: recordShipmentTransferReceipt
+      tags: [inventory]
+      summary: Record a (possibly partial) receipt at the destination.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512 (803, 804, 809–813; 877, 889; owner ruling O5). Records one
+        receipt event for an `in_transit` or `partially_received` Transfer. A
+        Transfer may have any number of receipts; each gets a stable receipt
+        id (889) and writes one `transfer_in` effect per line at the
+        destination position, in the line's `disposition` (`sellable` or
+        `damaged`, 811), and lowers that line's `inTransitQuantity`. A line
+        of a tracked identity under an active hold lands in that hold's status
+        instead (G7-4). A line may not receive more than its
+        `inTransitQuantity`: an over-receipt is refused with 409
+        `over_receipt_requires_approval` (813) and nothing is written; the
+        excess is recorded, with approval, as a separate inventory adjustment
+        at the destination (`createStockMovement`, movement type
+        `adjustment`), never on the Transfer. A short receipt fabricates
+        nothing (812): the open quantity stays In Transit until a later receipt
+        or an approved short-close. When every line's `inTransitQuantity`
+        reaches zero the Transfer is `received`, otherwise
+        `partially_received`. The ERP leg is one `transfer_receive` work item
+        per receipt, released only after the dispatch is ERP-confirmed. Owner,
+        tenant_admin or a store_manager of the destination store. Idempotent via
+        the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RecordShipmentTransferReceiptCommand"
+      responses:
+        "201":
+          description: Receipt recorded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransferReceiptResult"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    get:
+      operationId: listShipmentTransferReceipts
+      tags: [inventory]
+      summary: List a Transfer's receipts, oldest first.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512. The receipts of one shipment Transfer, oldest first
+        (`receivedAt ASC, id ASC`), in keyset pages bound to the Transfer.
+        Visible to whoever may read the Transfer.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/CountCursor"
+        - $ref: "#/components/parameters/CountLimit"
+      responses:
+        "200":
+          description: A page of receipts, oldest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransferReceiptList"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/shipment-transfers/{transferId}/close:
+    post:
+      operationId: closeShipmentTransfer
+      tags: [inventory]
+      summary: Close a Transfer, short-closing what is still in transit.
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1512 contract-first; the runtime ships in RT-1513.
+      description: >
+        RT-1512 (812). Moves a `received` Transfer to `closed`
+        (`shortCloseReason` null). A `partially_received` Transfer, or an
+        `in_transit` one, can be closed only as an approved short-close: the
+        caller gives `shortCloseReason`, each line's remaining
+        `inTransitQuantity` becomes its `shortClosedQuantity` and is written
+        off as a loss (its ERP leg is decided with RT-1513 and RT-1514, see
+        `posting-feed.yaml` 1.16.0-draft), and the Transfer is `closed`.
+        Without a reason while any quantity is in transit the close is refused
+        with 409 `short_close_reason_required`. A short-close needs the
+        discrepancy approval capability: owner or tenant_admin. Closing a fully
+        received Transfer: also a store_manager of the destination store.
+        Idempotent via the `Idempotency-Key` header.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/TransferIdPath"
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CloseShipmentTransferCommand"
+      responses:
+        "200":
+          description: Transfer closed.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfer"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundOrCrossTenant" }
+        "409": { $ref: "#/components/responses/ShipmentTransferConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
   /api/inventory/v1/stores/{storeId}/count-sessions:
     post:
       operationId: createCountSession
@@ -2534,6 +2989,12 @@ components:
       description: A captured sale (`pos-sales/sales.yaml` `Sale.saleRef`); resolved inside the caller's tenant only.
       schema: { type: string, format: uuid }
 
+    TransferIdPath:
+      name: transferId
+      in: path
+      required: true
+      description: A shipment Transfer; resolved inside the caller's tenant and store scope only.
+      schema: { type: string, format: uuid }
     CountSessionIdPath:
       name: sessionId
       in: path
@@ -3805,6 +4266,337 @@ components:
         transferGroupId: { type: string, format: uuid }
         outbound: { $ref: "#/components/schemas/StockMovement" }
         inbound: { $ref: "#/components/schemas/StockMovement" }
+
+    # ----- RT-1512 (Inventory Gate 5) shipment Transfer — contract-only until RT-1513
+    ShipmentTransferState:
+      type: string
+      enum: [draft, approved, in_transit, partially_received, received, closed, cancelled]
+      description: >
+        RT-1512 — the Gate 5 lifecycle (802). `approved` means approved AND
+        reserved (806). Dispatched and In Transit are one stored state,
+        `in_transit`, entered by the dispatch event. `received` means nothing is
+        left in transit; `closed` and `cancelled` are terminal.
+    ShipmentLegIntegrationState:
+      type: string
+      enum: [not_posted, pending, confirmed, rejected, reconciliation_required]
+      description: >
+        RT-1512 — the ERP posting state of one Transfer leg (the dispatch, or
+        one receipt), as the `StockMovement.integrationState` of its effects
+        (G2-3). `not_posted` until its work item exists (a receipt waits for
+        its dispatch to be `confirmed`); ERP confirmation never moves the
+        Transfer lifecycle (DC-3). Shown so the Console and the delayed-transfer
+        alert can see a stuck leg (owner decision 2026-11-19).
+    ShipmentReceiptDisposition:
+      type: string
+      enum: [sellable, damaged]
+      description: >
+        RT-1512 — where a received line lands at the destination (810, 811). A
+        line of a tracked identity under an active hold lands in that hold's
+        status instead, decided server-side (G7-4).
+    ShipmentTransferActorStamp:
+      type: object
+      additionalProperties: false
+      required: [by, at]
+      properties:
+        by: { type: string, format: uuid, description: The acting principal. }
+        at: { type: string, format: date-time }
+    ShipmentTransferReservation:
+      type: object
+      additionalProperties: false
+      required: [reservedBy, reservedAt, expiresAt, releasedAt]
+      description: >
+        RT-1512 (794–798). The source-stock reservation made by approval. It
+        lowers the source Available to Sell only. `releasedAt` is set when the
+        reservation is consumed by dispatch, released by cancel or expired.
+      properties:
+        reservedBy: { type: string, format: uuid }
+        reservedAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        releasedAt:
+          type: [string, "null"]
+          format: date-time
+    ShipmentTransferShortClose:
+      type: object
+      additionalProperties: false
+      required: [approvedBy, approvedAt, reason]
+      description: RT-1512 (812). The approved write-off of what was still in transit at close.
+      properties:
+        approvedBy: { type: string, format: uuid }
+        approvedAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ShipmentTransferCancellation:
+      type: object
+      additionalProperties: false
+      required: [cancelledBy, cancelledAt, reason]
+      properties:
+        cancelledBy: { type: string, format: uuid }
+        cancelledAt: { type: string, format: date-time }
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    ShipmentTransferLine:
+      type: object
+      additionalProperties: false
+      required:
+        [id, lineSeq, tenantProductRef, stockingUnit, trackingIdentityId, quantity, dispatchedQuantity,
+         receivedQuantity, shortClosedQuantity, inTransitQuantity, dispatchMovementId]
+      description: >
+        RT-1512 — one line of a shipment Transfer. In Transit is this
+        transfer-owned quantity, `dispatchedQuantity − receivedQuantity −
+        shortClosedQuantity`, never a Stock Location or an inventory status
+        (G4-1, 736).
+      properties:
+        id: { type: string, format: uuid }
+        lineSeq: { type: integer, minimum: 1 }
+        tenantProductRef: { type: string, format: uuid }
+        stockingUnit:
+          $ref: "#/components/schemas/StockingUnit"
+        trackingIdentityId:
+          type: [string, "null"]
+          format: uuid
+          description: The line's tracking identity (one per line, G7-4); null for an untracked product.
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        dispatchedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        receivedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        shortClosedQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        inTransitQuantity:
+          $ref: "#/components/schemas/NonNegativeDecimalQuantity"
+        dispatchMovementId:
+          type: [string, "null"]
+          format: uuid
+          description: The line's `transfer_out` movement; null before dispatch.
+    ShipmentTransfer:
+      type: object
+      additionalProperties: false
+      required:
+        [id, sourceStoreId, destinationStoreId, state, lines, reason, createdBy, createdAt, approval, reservation,
+         dispatch, dispatchIntegrationState, shortClose, closure, cancellation, receiptCount, updatedAt]
+      description: RT-1512 — a shipment Transfer (Gate 5).
+      properties:
+        id: { type: string, format: uuid }
+        sourceStoreId: { type: string, format: uuid }
+        destinationStoreId: { type: string, format: uuid }
+        state:
+          $ref: "#/components/schemas/ShipmentTransferState"
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ShipmentTransferLine"
+        reason: { type: [string, "null"], maxLength: 500 }
+        createdBy: { type: string, format: uuid }
+        createdAt: { type: string, format: date-time }
+        approval:
+          description: >
+            Null in `draft`. A reservation that expires returns the Transfer to
+            `draft` and clears `approval` and `reservation`; a later approval
+            stamps them anew.
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferActorStamp"
+            - type: "null"
+        reservation:
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferReservation"
+            - type: "null"
+        dispatch:
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferActorStamp"
+            - type: "null"
+        dispatchIntegrationState:
+          description: The dispatch leg's ERP posting state; null before dispatch.
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentLegIntegrationState"
+            - type: "null"
+        shortClose:
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferShortClose"
+            - type: "null"
+        closure:
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferActorStamp"
+            - type: "null"
+        cancellation:
+          oneOf:
+            - $ref: "#/components/schemas/ShipmentTransferCancellation"
+            - type: "null"
+        receiptCount: { type: integer, minimum: 0 }
+        updatedAt: { type: string, format: date-time }
+    ShipmentTransferList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ShipmentTransfer"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+    ShipmentTransferReceiptLine:
+      type: object
+      additionalProperties: false
+      required: [transferLineId, quantity, inventoryStatus, stockLocationId, movementId]
+      properties:
+        transferLineId: { type: string, format: uuid }
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        inventoryStatus:
+          $ref: "#/components/schemas/InventoryStatus"
+        stockLocationId: { type: string, format: uuid }
+        movementId:
+          type: string
+          format: uuid
+          description: The `transfer_in` movement this line wrote.
+    ShipmentTransferReceipt:
+      type: object
+      additionalProperties: false
+      required: [id, transferId, receivedBy, receivedAt, note, integrationState, lines]
+      description: >
+        RT-1512 (803, 804, 889) — one receipt event. `id` is the stable
+        receipt identity; a replay with the same `Idempotency-Key` returns the
+        same receipt.
+      properties:
+        id: { type: string, format: uuid }
+        transferId: { type: string, format: uuid }
+        receivedBy: { type: string, format: uuid }
+        receivedAt: { type: string, format: date-time }
+        note: { type: [string, "null"], maxLength: 500 }
+        integrationState:
+          $ref: "#/components/schemas/ShipmentLegIntegrationState"
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ShipmentTransferReceiptLine"
+    ShipmentTransferReceiptList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          maxItems: 200
+          items:
+            $ref: "#/components/schemas/ShipmentTransferReceipt"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; null when exhausted.
+    ShipmentTransferReceiptResult:
+      type: object
+      additionalProperties: false
+      required: [transfer, receipt]
+      properties:
+        transfer:
+          $ref: "#/components/schemas/ShipmentTransfer"
+        receipt:
+          $ref: "#/components/schemas/ShipmentTransferReceipt"
+    CreateShipmentTransferLine:
+      type: object
+      additionalProperties: false
+      required: [tenantProductRef, quantity, stockingUnit, trackingIdentityId]
+      properties:
+        tenantProductRef: { type: string, format: uuid }
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+          description: >
+            At most 13 integer digits in practice: an ERP leg carries at most
+            13 integer and 6 fractional digits, so a larger quantity is refused
+            with 400 `validation_error`.
+        stockingUnit:
+          $ref: "#/components/schemas/StockingUnit"
+        trackingIdentityId:
+          type: [string, "null"]
+          format: uuid
+          description: >
+            Required (non-null) for a tracked product, one identity per line;
+            null for an untracked product (G7-4).
+    CreateShipmentTransferCommand:
+      type: object
+      additionalProperties: false
+      required: [sourceStoreId, destinationStoreId, lines, reason]
+      description: >
+        Strict command. The source store is checked against the caller's store
+        scope; the destination is a target reference in the same tenant. Both
+        authorities are checked (962). Tenant and actor come from the session.
+      properties:
+        sourceStoreId: { type: string, format: uuid }
+        destinationStoreId:
+          type: string
+          format: uuid
+          description: MUST differ from `sourceStoreId` (a move inside one store is a Relocation, 800).
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/CreateShipmentTransferLine"
+        reason: { type: [string, "null"], maxLength: 500 }
+    ApproveShipmentTransferCommand:
+      type: object
+      additionalProperties: false
+      required: [reservationExpiresAt]
+      properties:
+        reservationExpiresAt:
+          type: string
+          format: date-time
+          description: The explicit reservation expiry (797); MUST be in the future.
+    CancelShipmentTransferCommand:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason: { type: string, minLength: 1, maxLength: 500 }
+    DispatchShipmentTransferCommand:
+      type: object
+      additionalProperties: false
+      required: [note]
+      properties:
+        note: { type: [string, "null"], maxLength: 500 }
+    ShipmentTransferReceiptLineInput:
+      type: object
+      additionalProperties: false
+      required: [transferLineId, quantity, disposition, stockLocationId]
+      properties:
+        transferLineId: { type: string, format: uuid }
+        quantity:
+          $ref: "#/components/schemas/PositiveDecimalQuantity"
+        disposition:
+          $ref: "#/components/schemas/ShipmentReceiptDisposition"
+        stockLocationId:
+          type: [string, "null"]
+          format: uuid
+          description: A destination store location; null means the store's primary location.
+    RecordShipmentTransferReceiptCommand:
+      type: object
+      additionalProperties: false
+      required: [lines, note]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ShipmentTransferReceiptLineInput"
+        note: { type: [string, "null"], maxLength: 500 }
+    CloseShipmentTransferCommand:
+      type: object
+      additionalProperties: false
+      required: [shortCloseReason]
+      properties:
+        shortCloseReason:
+          type: [string, "null"]
+          minLength: 1
+          maxLength: 500
+          description: >
+            Null closes a fully `received` Transfer. Required (non-null) when
+            any quantity is still in transit: that quantity is short-closed as
+            an approved loss (812).
     StockCountResult:
       type: object
       required: [stockCountId, countedQuantity, variance]
@@ -4706,6 +5498,51 @@ components:
               code: count_flagged_line_not_acknowledged
               message: A flagged line needs an acknowledgement.
               request_id: 0198a0c5-0002-7000-8000-000000000002
+    StockTransferConflict:
+      description: >
+        409 on the deprecated `createStockTransfer`.
+        `idempotency_key_conflict`: the `Idempotency-Key` was already used for
+        a different command. `transfer_workflow_required` (RT-1512, from the
+        RT-1513 runtime): the tenant has activated shipment transfers, so the
+        instant transfer is refused and nothing is written (976); use
+        `/api/inventory/v1/shipment-transfers`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: transfer_workflow_required
+              message: Shipment transfers are active for this tenant; use the shipment transfer workflow.
+              request_id: 0198b000-0003-7000-8000-000000000003
+    ShipmentTransferConflict:
+      description: >
+        409 — RT-1512 (RT-291 Gate 5). `shipment_transfer_not_in_state`: the
+        command is not allowed in the Transfer's state (for example cancel
+        after dispatch, or dispatch after the reservation expired).
+        `cross_legal_entity_transfer`: the stores belong to different legal
+        entities; that is a future intercompany workflow, not a Transfer (817,
+        963). `tracking_identity_required`: a tracked product's line has no
+        tracking identity. `tracking_identity_held_or_expired`: the identity is
+        under an active hold, or past its expiry at the source store's business
+        date (G7-4). `serial_transfer_not_supported`: serial products cannot be
+        transferred until the serial gate. `transfer_warehouse_unmapped`: the
+        source, destination or tenant transit warehouse has no ERP mapping, so
+        the Transfer fails closed (O2). `over_receipt_requires_approval`: a
+        receipt line exceeds the line's in-transit quantity (813).
+        `short_close_reason_required`: a close while quantity is still in
+        transit has no short-close reason (812). `idempotency_key_conflict`:
+        the `Idempotency-Key` was already used for a different command.
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+          example:
+            error:
+              code: over_receipt_requires_approval
+              message: A receipt line exceeds the quantity in transit.
+              request_id: 0198b000-0002-7000-8000-000000000002
     CountSelfApprovalOwnerOnly:
       description: >
         403 `count_self_approval_owner_only` — RT-1420. Only the tenant owner
