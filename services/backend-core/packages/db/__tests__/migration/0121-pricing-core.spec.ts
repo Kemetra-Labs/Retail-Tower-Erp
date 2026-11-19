@@ -896,13 +896,8 @@ describe("0121_pricing_core — publish flows", () => {
       await c.query(`UPDATE price_events SET state = 'superseded', ended_in_revision = 2 WHERE id = $1`, [EVENT_A_STORE]);
       await markPublished(c, rb, 2);
       await c.query(`UPDATE change_sets SET state = 'rolled_back' WHERE id = $1`, [CS_A1]);
-      // A second rollback of the same set is refused.
-      await createChangeSet(c, id("0a224"), TENANT_A, "rollback", CS_A1).then(
-        () => {
-          throw new Error("a second live rollback of one set was accepted");
-        },
-        () => undefined,
-      );
+      // A second live rollback of the same set is refused by uq_change_sets_rolls_back.
+      expect(await sp(c, () => createChangeSet(c, id("0a224"), TENANT_A, "rollback", CS_A1))).toBe("23505");
     });
   });
 
