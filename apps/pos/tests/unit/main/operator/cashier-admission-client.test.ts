@@ -240,6 +240,71 @@ describe('admit — outcome mapping', () => {
   });
 });
 
+const OFFLINE_AT = '2026-10-04T09:00:00.000Z';
+const RECONCILE_REQ = {
+  mode: 'reconcile_offline' as const,
+  user_id: USER_ID,
+  offline_admitted_at: OFFLINE_AT,
+  idempotency_key: KEY,
+};
+
+describe('reconcile (RT-1312 F17, RT-113 P4)', () => {
+  it('POSTs the strict reconcile_offline body (no takeover) to the admissions path with the device bearer only', async () => {
+    const { client, calls } = makeClient(() => jsonResponse(200, ADMITTED));
+    await client.reconcile(RECONCILE_REQ);
+
+    expect(calls).toHaveLength(1);
+    const [call] = calls;
+    expect(call?.url).toBe(`${BASE}/api/pos/v1/cashier-admissions`);
+    expect(call?.init.method).toBe('POST');
+    const headers = headersOf(call ?? { url: '', init: {} });
+    expect(Object.keys(headers).sort()).toEqual(['authorization', 'content-type']);
+    expect(headers['authorization']).toBe(`Bearer ${DEVICE_TOKEN}`);
+    const body = JSON.parse(call?.init.body as string) as Record<string, unknown>;
+    expect(body).toEqual(RECONCILE_REQ);
+    expect('takeover' in body).toBe(false);
+    expect(contractErrors('PosCashierAdmissionReconcileRequest', body)).toEqual([]);
+    expect(contractErrors('PosCashierAdmissionRequest', body)).toEqual([]);
+  });
+
+  it('a body with a takeover is not the contract (the server would answer 400), so the client never sends one', () => {
+    expect(
+      contractErrors('PosCashierAdmissionReconcileRequest', { ...RECONCILE_REQ, takeover: false }),
+    ).not.toEqual([]);
+  });
+
+  it('no token held: sends nothing and answers no_token', async () => {
+    const { client, calls } = makeClient(() => jsonResponse(200, ADMITTED), { token: null });
+    await expect(client.reconcile(RECONCILE_REQ)).resolves.toEqual({ kind: 'no_token' });
+    expect(calls).toHaveLength(0);
+  });
+
+  it('200 admitted → admitted; 200 active_elsewhere → active_elsewhere', async () => {
+    const a = makeClient(() => jsonResponse(200, ADMITTED));
+    await expect(a.client.reconcile(RECONCILE_REQ)).resolves.toEqual(ADMITTED);
+    const b = makeClient(() => jsonResponse(200, { kind: 'active_elsewhere' }));
+    await expect(b.client.reconcile(RECONCILE_REQ)).resolves.toEqual({ kind: 'active_elsewhere' });
+  });
+
+  it.each([
+    [403, errorBody('refused'), 'refused'],
+    [401, errorBody('unauthorized'), 'device_unauthorized'],
+    [409, errorBody('idempotency_key_conflict'), 'idempotency_conflict'],
+    [400, errorBody('validation_error'), 'rejected'],
+    [500, errorBody('internal'), 'unavailable'],
+  ])('HTTP %i → %s', async (status, body, kind) => {
+    const { client } = makeClient(() => jsonResponse(status, body));
+    await expect(client.reconcile(RECONCILE_REQ)).resolves.toEqual({ kind });
+  });
+
+  it('a malformed 200 → rejected; a transport failure → no_connection', async () => {
+    const a = makeClient(() => jsonResponse(200, { ...ADMITTED, admission_generation: undefined }));
+    await expect(a.client.reconcile(RECONCILE_REQ)).resolves.toEqual({ kind: 'rejected' });
+    const b = makeClient(() => Promise.reject(new TypeError('fetch failed')));
+    await expect(b.client.reconcile(RECONCILE_REQ)).resolves.toEqual({ kind: 'no_connection' });
+  });
+});
+
 describe('end', () => {
   it('RT-219: POSTs to …/{admission_id}/end with the device bearer and the echoed generation', async () => {
     const { client, calls } = makeClient(() => jsonResponse(200, { kind: 'ended' }));

@@ -158,6 +158,7 @@ function makeHarness(): Harness {
     secretStore: { marker: 'secretStore' },
     deviceTokenKey: 'device-token-key',
     deviceAuthDetector: { observe: vi.fn() },
+    isSaleHeldForReconcile: vi.fn(),
     terminalStatusPublisher: { setSyncReader },
     workerRegistry: { register: workersRegister },
     mainLogger: logger,
@@ -199,6 +200,12 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
       { terminal_id: 'terminal-1' },
       'sale_sync_engine:started',
     );
+  });
+
+  it('RT-1312 F17: hands the engine the offline-reconcile hold, so reconcile_offline goes out before the drain', () => {
+    const h = makeHarness();
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(engineDeps()['isSaleHeldForReconcile']).toBe(h.deps.isSaleHeldForReconcile);
   });
 
   it('builds the capture client on the backend fetch, the device path and both credentials', () => {

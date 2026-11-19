@@ -496,6 +496,21 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
       }),
   },
   {
+    // RT-1312 F17: the same operation, `mode: reconcile_offline` (strict body, no `takeover`).
+    id: 'cashierAdmissionClient.reconcile',
+    module: CASHIER_ADMISSION_CLIENT,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/cashier-admissions',
+    wiring: CASHIER_ADMISSION_WIRING,
+    invoke: (fetch) =>
+      cashierAdmissionClient(fetch).reconcile({
+        mode: 'reconcile_offline',
+        user_id: UUID,
+        offline_admitted_at: '2026-11-19T10:00:00.000Z',
+        idempotency_key: 'pos-cashier-adm-contract-conformance-reconcile',
+      }),
+  },
+  {
     id: 'cashierAdmissionClient.end',
     module: CASHIER_ADMISSION_CLIENT,
     method: 'post',
