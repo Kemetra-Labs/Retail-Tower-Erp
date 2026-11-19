@@ -13,8 +13,9 @@
 --     `PriceChangeItem`, `LineClass`, `PreviewLine`
 --   - packages/db/__tests__/migration/0123-price-change-set-items-lines.spec.ts
 --
--- Two new tables, plus one trigger on 0121's change_sets (section 3: every
--- return to draft increments the version). No runtime reads or writes them
+-- Two new tables, plus two columns and one trigger on 0121's change_sets
+-- (section 3: the versions holding the item list and the latest validation;
+-- every return to draft increments the version). No runtime reads or writes them
 -- until RT-1484 (PR-10).
 --
 -- Concurrency: the item and line insert triggers lock the set's change_sets
@@ -68,13 +69,16 @@
 -- Deploy window: none. Both tables are new and empty; no existing table
 -- changes. Apply 0123 and the grants script before the API that uses them.
 --
--- Lock impact: ONE transaction, lock_timeout 2s. The new FKs take SHARE ROW
--- EXCLUSIVE on change_sets, price_books, price_zones, stores,
--- tenant_products and price_events until COMMIT (all but stores and
--- tenant_products are new and unused before RT-1484). Reads continue.
+-- Lock impact: ONE transaction, lock_timeout 2s. Adding change_sets' two
+-- columns takes ACCESS EXCLUSIVE on change_sets until COMMIT (new in 0121 and
+-- unused before RT-1484; no rewrite, the columns are NULL). The new FKs take
+-- SHARE ROW EXCLUSIVE on price_books, price_zones, stores, tenant_products and
+-- price_events (all but stores and tenant_products new and unused). Reads of
+-- stores and tenant_products continue.
 --
 -- Reversal: 0123_price_change_set_items_lines.down.sql REFUSES while either
--- table holds a row; otherwise it drops both and their functions.
+-- table holds a row or a set records an item list or a validation; otherwise
+-- it drops both tables, their functions, change_sets' trigger and columns.
 
 BEGIN;
 
@@ -108,7 +112,8 @@ CREATE TABLE price_change_set_items (
 );
 
 -- Items are written only while their set is a draft at exactly that version,
--- and never below a version already written.
+-- after the header recorded the item list as written at that version
+-- (change_sets.items_version, section 3), and never below a later version.
 CREATE FUNCTION price_change_set_items_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -116,14 +121,20 @@ AS $$
 DECLARE
   v_state text;
   v_version integer;
+  v_items_version integer;
 BEGIN
-  SELECT cs.state, cs.version INTO v_state, v_version
+  SELECT cs.state, cs.version, cs.items_version INTO v_state, v_version, v_items_version
     FROM public.change_sets cs
    WHERE cs.tenant_id = NEW.tenant_id AND cs.id = NEW.change_set_id
      FOR NO KEY UPDATE;
   IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version THEN
     RAISE EXCEPTION 'price_change_set_items: change set % is % at version %, not a draft at version %',
       NEW.change_set_id, v_state, v_version, NEW.change_set_version
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF v_items_version IS DISTINCT FROM NEW.change_set_version THEN
+    RAISE EXCEPTION 'price_change_set_items: change set % records its items at version %, not %',
+      NEW.change_set_id, v_items_version, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
   IF EXISTS (SELECT 1 FROM public.price_change_set_items i
@@ -262,8 +273,11 @@ CREATE INDEX ix_price_change_set_lines_store
 CREATE UNIQUE INDEX uq_price_change_set_lines_new_event
   ON price_change_set_lines (tenant_id, new_event_id) WHERE new_event_id IS NOT NULL;
 
--- Lines are written only while their set is a draft at exactly that version
--- (validation writes them, then moves the set to `validated`).
+-- Lines are written only while their set is a draft at exactly that version,
+-- after the header recorded this validation (change_sets.lines_version), and
+-- only from the item list the header records (change_sets.items_version): an
+-- empty replacement writes no item rows, so no line can come from it.
+-- Validation writes them, then moves the set to `validated`.
 CREATE FUNCTION price_change_set_lines_before_insert() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
@@ -271,20 +285,23 @@ AS $$
 DECLARE
   v_state text;
   v_version integer;
+  v_items_version integer;
+  v_lines_version integer;
 BEGIN
-  SELECT cs.state, cs.version INTO v_state, v_version
+  SELECT cs.state, cs.version, cs.items_version, cs.lines_version
+    INTO v_state, v_version, v_items_version, v_lines_version
     FROM public.change_sets cs
    WHERE cs.tenant_id = NEW.tenant_id AND cs.id = NEW.change_set_id
      FOR NO KEY UPDATE;
-  IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version THEN
-    RAISE EXCEPTION 'price_change_set_lines: change set % is % at version %, not a draft at version %',
-      NEW.change_set_id, v_state, v_version, NEW.change_set_version
+  IF v_state IS DISTINCT FROM 'draft' OR v_version IS DISTINCT FROM NEW.change_set_version
+     OR v_lines_version IS DISTINCT FROM NEW.change_set_version THEN
+    RAISE EXCEPTION 'price_change_set_lines: change set % is % at version % (validation at %), not a draft validated at version %',
+      NEW.change_set_id, v_state, v_version, v_lines_version, NEW.change_set_version
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.item_version IS DISTINCT FROM (
-       SELECT max(i.change_set_version) FROM public.price_change_set_items i
-        WHERE i.tenant_id = NEW.tenant_id AND i.change_set_id = NEW.change_set_id) THEN
-    RAISE EXCEPTION 'price_change_set_lines: a line is materialized from the set''s latest items, not version %', NEW.item_version
+  IF NEW.item_version IS DISTINCT FROM v_items_version THEN
+    RAISE EXCEPTION 'price_change_set_lines: a line is materialized from the set''s current items (version %), not version %',
+      v_items_version, NEW.item_version
       USING ERRCODE = 'check_violation';
   END IF;
   IF NEW.new_event_id IS NOT NULL THEN
@@ -298,38 +315,47 @@ $$;
 
 -- The only change: new_event_id, NULL -> the event, once, by the transaction
 -- that published the set (its revision was issued here), only on a line of the
--- set's latest validation, and only to an event of this set published in that
--- revision (the unique index makes each event one line's result).
+-- set's latest validation (change_sets.lines_version, which a validation that
+-- materialized no line still records), and only to an event of this set
+-- published in that revision for this line's own target, product, sell unit,
+-- price, time basis and start (the unique index makes each event one line's
+-- result).
 CREATE FUNCTION price_change_set_lines_guard() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
 DECLARE
   v_revision bigint;
+  v_lines_version integer;
 BEGIN
   IF OLD.new_event_id IS NOT NULL OR NEW.new_event_id IS NULL
      OR (to_jsonb(NEW) - 'new_event_id') IS DISTINCT FROM (to_jsonb(OLD) - 'new_event_id') THEN
     RAISE EXCEPTION 'price_change_set_lines: a line is immutable; only new_event_id is set, once, at publish'
       USING ERRCODE = 'check_violation';
   END IF;
-  IF NEW.change_set_version IS DISTINCT FROM (
-       SELECT max(l.change_set_version) FROM public.price_change_set_lines l
-        WHERE l.tenant_id = NEW.tenant_id AND l.change_set_id = NEW.change_set_id) THEN
-    RAISE EXCEPTION 'price_change_set_lines: only the lines of the set''s latest validation are published, not version %',
-      NEW.change_set_version
-      USING ERRCODE = 'check_violation';
-  END IF;
-  SELECT cs.revision_no INTO v_revision
+  SELECT cs.revision_no, cs.lines_version INTO v_revision, v_lines_version
     FROM public.change_sets cs
    WHERE cs.tenant_id = NEW.tenant_id AND cs.id = NEW.change_set_id;
+  IF NEW.change_set_version IS DISTINCT FROM v_lines_version THEN
+    RAISE EXCEPTION 'price_change_set_lines: only the lines of the set''s latest validation (version %) are published, not version %',
+      v_lines_version, NEW.change_set_version
+      USING ERRCODE = 'check_violation';
+  END IF;
   IF v_revision IS NULL OR NOT public.pricing_revision_issued_here(NEW.tenant_id, v_revision) THEN
     RAISE EXCEPTION 'price_change_set_lines: change set % was not published by this transaction', NEW.change_set_id
       USING ERRCODE = 'check_violation';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM public.price_events e
                   WHERE e.tenant_id = NEW.tenant_id AND e.id = NEW.new_event_id
-                    AND e.change_set_id = NEW.change_set_id AND e.published_in_revision = v_revision) THEN
-    RAISE EXCEPTION 'price_change_set_lines: event % is not an event this set published', NEW.new_event_id
+                    AND e.change_set_id = NEW.change_set_id AND e.published_in_revision = v_revision
+                    AND e.price_book_id = NEW.price_book_id AND e.scope = NEW.scope
+                    AND e.price_zone_id IS NOT DISTINCT FROM NEW.price_zone_id
+                    AND e.store_id IS NOT DISTINCT FROM NEW.store_id
+                    AND e.product_id = NEW.product_id AND e.sell_unit = NEW.sell_unit
+                    AND e.price = NEW.new_price AND e.time_basis = NEW.time_basis
+                    AND e.effective_from IS NOT DISTINCT FROM NEW.effective_from
+                    AND e.effective_from_local IS NOT DISTINCT FROM NEW.effective_from_local) THEN
+    RAISE EXCEPTION 'price_change_set_lines: event % is not the event this set published for this line', NEW.new_event_id
       USING ERRCODE = 'check_violation';
   END IF;
   RETURN NEW;
@@ -346,14 +372,28 @@ CREATE TRIGGER price_change_set_lines_no_delete_truncate BEFORE TRUNCATE ON pric
   FOR EACH STATEMENT EXECUTE FUNCTION price_change_set_content_append_only();
 
 -- =============================================================================
--- 3. change_sets: every return to draft increments the version
+-- 3. change_sets: the content versions, and every return to draft is a new version
 -- =============================================================================
 
+-- The header records which version holds the set's current item list and its
+-- latest validation, so neither is inferred from rows that may not exist: an
+-- empty item replacement writes no item rows (unlike a header-only edit, which
+-- keeps the earlier list), and a validation may materialize no line (every
+-- price unchanged, an empty category). NULL: never written. 0121's change_sets
+-- is new and unused before RT-1484, so the columns need no backfill.
+ALTER TABLE change_sets
+  ADD COLUMN items_version INTEGER NULL,
+  ADD COLUMN lines_version INTEGER NULL,
+  ADD CONSTRAINT change_sets_items_version CHECK (items_version IS NULL OR items_version BETWEEN 1 AND version),
+  ADD CONSTRAINT change_sets_lines_version CHECK (lines_version IS NULL OR lines_version BETWEEN 1 AND version);
+
 -- Items and lines are keyed by the set's version and written only while it is
--- a draft at that version, keeping every earlier validation. So any move back
--- into `draft` (an edit, a stale validation, a reject) must start a new
--- version, or the next validation would collide with the kept lines.
-CREATE FUNCTION change_sets_redraft_bumps_version() RETURNS trigger
+-- a draft at that version, keeping every earlier one. So any move back into
+-- `draft` (an edit, a stale validation, a reject) must start a new version, or
+-- the next validation would collide with the kept lines. items_version and
+-- lines_version move only while the set is a draft, only to its current
+-- version, and never back.
+CREATE FUNCTION change_sets_content_versions() RETURNS trigger
   LANGUAGE plpgsql
   SET search_path = pg_catalog, public
 AS $$
@@ -362,12 +402,24 @@ BEGIN
     RAISE EXCEPTION 'change set %: a return to draft from % increments the version', OLD.id, OLD.state
       USING ERRCODE = 'check_violation';
   END IF;
+  IF NEW.items_version IS DISTINCT FROM OLD.items_version
+     AND (OLD.state <> 'draft' OR NEW.items_version IS DISTINCT FROM NEW.version
+          OR NEW.items_version < OLD.items_version) THEN
+    RAISE EXCEPTION 'change set %: the item list is recorded only on a draft, at its current version', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
+  IF NEW.lines_version IS DISTINCT FROM OLD.lines_version
+     AND (OLD.state <> 'draft' OR NEW.lines_version IS DISTINCT FROM NEW.version
+          OR NEW.lines_version < OLD.lines_version) THEN
+    RAISE EXCEPTION 'change set %: a validation is recorded only on a draft, at its current version', OLD.id
+      USING ERRCODE = 'check_violation';
+  END IF;
   RETURN NEW;
 END
 $$;
 
-CREATE TRIGGER change_sets_redraft_bumps_version BEFORE UPDATE OF state ON change_sets
-  FOR EACH ROW EXECUTE FUNCTION change_sets_redraft_bumps_version();
+CREATE TRIGGER change_sets_content_versions BEFORE UPDATE ON change_sets
+  FOR EACH ROW EXECUTE FUNCTION change_sets_content_versions();
 
 -- =============================================================================
 -- 4. Row-level security

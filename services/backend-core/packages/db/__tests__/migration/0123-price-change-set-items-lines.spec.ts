@@ -12,7 +12,9 @@
  *     set's latest items (also after a version bump with no item rewrite);
  *     the scope target, Zone-move, price, time-basis and class rules; no
  *     `new_event_id` at validation; an `invalid` helper line may carry no price;
- *   - every return to draft increments the version (the 0123 change_sets trigger);
+ *   - the header records the item list and the latest validation
+ *     (change_sets.items_version / lines_version), so an empty replacement and a
+ *     validation with no line are told apart; every return to draft increments the version;
  *   - publish: `new_event_id` is set once, only by the transaction that
  *     published the set, only to an event that set published; nothing else
  *     on a line ever changes; lines are never deleted;
@@ -69,7 +71,7 @@ const FUNCTIONS = [
   "price_change_set_content_append_only()",
   "price_change_set_lines_before_insert()",
   "price_change_set_lines_guard()",
-  "change_sets_redraft_bumps_version()",
+  "change_sets_content_versions()",
 ];
 
 let env: PgTestEnv | null = null;
@@ -111,11 +113,17 @@ async function createChangeSet(q: Q, csId: string, tenant: string): Promise<void
   );
 }
 
+/** The header records the item list (items_version) or a validation (lines_version) at `version`, as the runtime does first. */
+async function record(q: Q, cs: string, column: "items_version" | "lines_version", version: number): Promise<void> {
+  await q.query(`UPDATE change_sets SET ${column} = $2 WHERE id = $1 AND ${column} IS DISTINCT FROM $2`, [cs, version]);
+}
+
 async function insertItem(
   q: Q,
   i: { cs: string; version: number; position: number; op?: string; item?: Record<string, unknown>; tenant?: string },
 ): Promise<void> {
   const op = i.op ?? "set_price";
+  await record(q, i.cs, "items_version", i.version);
   await q.query(
     `INSERT INTO price_change_set_items (tenant_id, change_set_id, change_set_version, position, op, item, created_by_user_id, correlation_id)
      VALUES ($1, $2, $3, $4, $5, $6, $7, $8)`,
@@ -150,6 +158,7 @@ interface Line {
 
 async function insertLine(q: Q, l: Line): Promise<void> {
   const absolute = l.timeBasis === "absolute";
+  await record(q, l.cs, "lines_version", l.version);
   await q.query(
     `INSERT INTO price_change_set_lines
        (tenant_id, change_set_id, change_set_version, line_no, item_version, item_position, op, scope, price_book_id,
@@ -239,12 +248,13 @@ async function committed(fn: (client: PoolClient) => Promise<unknown>): Promise<
   }
 }
 
-/** Removes every Change Set content row as the superuser, with the triggers off (test cleanup only). */
+/** Removes every Change Set content row and the header's record of it, as the superuser with the triggers off (test cleanup only). */
 async function clearContent(): Promise<void> {
   const failed = await committed(async (c) => {
     await c.query("SET LOCAL session_replication_role = replica");
     await c.query("DELETE FROM price_change_set_lines");
     await c.query("DELETE FROM price_change_set_items");
+    await c.query("UPDATE change_sets SET items_version = NULL, lines_version = NULL");
   });
   if (failed !== null) throw new Error(`cleanup failed: ${failed}`);
 }
@@ -508,10 +518,12 @@ describe("0123_price_change_set_items_lines — lines", () => {
     await inRolledBackTx(guard().admin, async (c) => {
       await insertItem(c, { cs: CS_DRAFT, version: 1, position: 1 });
       // An earlier validation at version 1, then the one that is published, at version 2.
-      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1, product: PROD_A2 });
       await c.query(`UPDATE change_sets SET version = 2 WHERE id = $1`, [CS_DRAFT]);
-      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1 });
-      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 2, itemVersion: 1, scope: "zone", zone: ZONE_A_NORTH });
+      // Lines 1 and 2 have the published event's target, product, price and start; line 3 is a Zone line.
+      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1, product: PROD_A2 });
+      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 2, itemVersion: 1, product: PROD_A2 });
+      await insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 3, itemVersion: 1, product: PROD_A2, scope: "zone", zone: ZONE_A_NORTH });
       const setEventAt = (version: number, lineNo: number, event: string): Promise<string | null> =>
         sp(c, () =>
           c.query(
@@ -532,7 +544,9 @@ describe("0123_price_change_set_items_lines — lines", () => {
       expect(
         await sp(c, () => c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1 AND line_no = 1`, [CS_DRAFT, event])),
       ).toBe("23514");
-      // This set's event on the latest line is accepted, once, and on one line only.
+      // An event of this set for another target is refused (the Zone line), and one for another product.
+      expect(await setEvent(3, event)).toBe("23514");
+      // This set's event on its own latest line is accepted, once, and on one line only.
       expect(await setEvent(1, event)).toBeNull();
       expect(await setEvent(1, event)).toBe("23514");
       expect(await setEvent(2, event)).toBe("23505");
@@ -588,6 +602,59 @@ describe("0123_price_change_set_items_lines — a return to draft starts a new v
       expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1 }))).toBeNull();
       const kept = await c.query(`SELECT change_set_version FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY 1`, [CS_DRAFT]);
       expect(kept.rows).toEqual([{ change_set_version: 1 }, { change_set_version: 2 }]);
+    });
+  });
+});
+
+describe("0123_price_change_set_items_lines — the header records the item list and the latest validation", () => {
+  const rawItem = (c: Q, version: number, position: number): Promise<unknown> =>
+    c.query(
+      `INSERT INTO price_change_set_items (tenant_id, change_set_id, change_set_version, position, op, item, created_by_user_id, correlation_id)
+       VALUES ($1, $2, $3, $4, 'set_price', '{"op":"set_price"}', $5, $6)`,
+      [TENANT_A, CS_DRAFT, version, position, ACTOR, CORR],
+    );
+
+  it("refuses items the header has not recorded, and a recorded version that is not the current one", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      expect(await sp(c, () => rawItem(c, 1, 1))).toBe("23514");
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET items_version = 2 WHERE id = $1`, [CS_DRAFT]))).toBe("23514");
+      await record(c, CS_DRAFT, "items_version", 1);
+      expect(await sp(c, () => rawItem(c, 1, 1))).toBeNull();
+      // Neither version moves back, nor while the set is past draft.
+      await c.query(`UPDATE change_sets SET version = 2, items_version = 2 WHERE id = $1`, [CS_DRAFT]);
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET items_version = 1 WHERE id = $1`, [CS_DRAFT]))).toBe("23514");
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET lines_version = 1 WHERE id = $1`, [CS_DRAFT]))).toBe("23514");
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET items_version = 3 WHERE id = $1`, [CS_PUB]))).toBe("23514");
+    });
+  });
+
+  it("an empty item replacement leaves nothing to materialize, unlike a header-only edit", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await insertItem(c, { cs: CS_DRAFT, version: 1, position: 1 });
+      // A header-only edit: version 2 keeps the version-1 list, so lines come from it.
+      await c.query(`UPDATE change_sets SET version = 2 WHERE id = $1`, [CS_DRAFT]);
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 2, lineNo: 1, itemVersion: 1 }))).toBeNull();
+      // An empty replacement at version 3 records the list with no rows: no line can come from the old one.
+      await c.query(`UPDATE change_sets SET version = 3, items_version = 3 WHERE id = $1`, [CS_DRAFT]);
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 3, lineNo: 1, itemVersion: 1 }))).toBe("23514");
+      expect(await sp(c, () => insertLine(c, { cs: CS_DRAFT, version: 3, lineNo: 1, itemVersion: 3 }))).toBe("23503");
+    });
+  });
+
+  it("a re-validation that materializes no line still retires the earlier validation's lines", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await insertItem(c, { cs: CS_DRAFT, version: 1, position: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1, product: PROD_A2 });
+      // Version 2 validates to no line (every price unchanged): only the header records it.
+      await c.query(`UPDATE change_sets SET version = 2, lines_version = 2 WHERE id = $1`, [CS_DRAFT]);
+      const event = id("0a403");
+      await publish(c, CS_DRAFT, 2, event, TENANT_A, BOOK_A, PROD_A2);
+      expect(
+        await sp(c, () => c.query(`UPDATE price_change_set_lines SET new_event_id = $2 WHERE change_set_id = $1`, [CS_DRAFT, event])),
+      ).toBe("23514");
     });
   });
 });
@@ -663,7 +730,7 @@ describe("0123_price_change_set_items_lines — down migration", () => {
     }
   }
 
-  it("REFUSES while an item exists, also as a NOSUPERUSER owner under FORCE RLS", async () => {
+  it("REFUSES while an item exists or a set records its content, also as a NOSUPERUSER owner under FORCE RLS", async () => {
     if (skip()) return;
     const e = guard();
     expect(await runSqlFile(e, DOWN_PATH)).toBe("P0001");
@@ -672,6 +739,10 @@ describe("0123_price_change_set_items_lines — down migration", () => {
       expect(await runFileWithEmptyGuc(DOWN_PATH, owner.role)).toBe("P0001");
     });
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, true]);
+    // With no item or line left, a set whose header records an (empty) item list still blocks it.
+    await clearContent();
+    expect(await committed((c) => c.query(`UPDATE change_sets SET items_version = 1 WHERE id = $1`, [CS_DRAFT]))).toBeNull();
+    expect(await runSqlFile(e, DOWN_PATH)).toBe("P0001");
   });
 
   it("drops the tables and functions once empty, is rerunnable, and the up recreates them", async () => {

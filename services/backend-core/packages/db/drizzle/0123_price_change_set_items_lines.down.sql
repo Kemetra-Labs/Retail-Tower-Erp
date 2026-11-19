@@ -3,7 +3,8 @@
 -- RT-1151 (RT-282 PR-05) -- rollback for 0123_price_change_set_items_lines.sql.
 --
 -- Drops price_change_set_lines and price_change_set_items (with their
--- indexes, triggers and policies) and their functions. A Change Set's authored
+-- indexes, triggers and policies), their functions, and change_sets'
+-- items_version / lines_version columns and content-versions trigger. A Change Set's authored
 -- items and its materialized lines (the per-line before/after record of a
 -- published set, spec 042 §10) would be lost, so the rollback REFUSES while
 -- any item or line exists: back up, decide, and have a
@@ -50,6 +51,10 @@ BEGIN
       EXECUTE 'SELECT count(*) FROM price_change_set_lines WHERE tenant_id = $1' INTO n USING t;
       rows_found := rows_found + n;
     END IF;
+    -- An empty item list or a validation with no line is recorded only on the header.
+    EXECUTE 'SELECT count(*) FROM change_sets WHERE tenant_id = $1 AND (items_version IS NOT NULL OR lines_version IS NOT NULL)'
+      INTO n USING t;
+    rows_found := rows_found + n;
   END LOOP;
   IF rows_found > 0 THEN
     RAISE EXCEPTION '0123 down refused: % Change Set item / line row(s) exist; Change Set content would be lost', rows_found
@@ -61,8 +66,13 @@ $$;
 DROP TABLE IF EXISTS price_change_set_lines;
 DROP TABLE IF EXISTS price_change_set_items;
 
-DROP TRIGGER IF EXISTS change_sets_redraft_bumps_version ON change_sets;
-DROP FUNCTION IF EXISTS change_sets_redraft_bumps_version();
+DROP TRIGGER IF EXISTS change_sets_content_versions ON change_sets;
+DROP FUNCTION IF EXISTS change_sets_content_versions();
+ALTER TABLE IF EXISTS change_sets
+  DROP CONSTRAINT IF EXISTS change_sets_items_version,
+  DROP CONSTRAINT IF EXISTS change_sets_lines_version,
+  DROP COLUMN IF EXISTS items_version,
+  DROP COLUMN IF EXISTS lines_version;
 DROP FUNCTION IF EXISTS price_change_set_lines_guard();
 DROP FUNCTION IF EXISTS price_change_set_lines_before_insert();
 DROP FUNCTION IF EXISTS price_change_set_items_before_insert();

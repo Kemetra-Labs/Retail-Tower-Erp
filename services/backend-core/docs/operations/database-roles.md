@@ -925,10 +925,14 @@ A script without the marker, such as the owner-gated
   `DELETE` and `TRUNCATE`. No `DELETE` policy on either: never grant `DELETE`
   or `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API refuses to
   boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege
-  on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0123 creates two new, empty tables
-  (no backfill, no change to any existing table) and needs no maintenance
-  window. Its down migration refuses while any item is stored. No runtime reads
-  or writes the tables until RT-1484.
+  on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0123 also adds `change_sets
+  (items_version, lines_version)` (NULL, no backfill; 0121's table is unused
+  before RT-1484), whose column-level `UPDATE` is in
+  [`sql/pricing-domain-grants.sql`](sql/pricing-domain-grants.sql) with the
+  other `change_sets` columns, so a deploy runs both scripts. 0123 creates two
+  new, empty tables and needs no maintenance window. Its down migration
+  refuses while any item or line is stored, or a set records an item list or
+  a validation. No runtime reads or writes the tables until RT-1484.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)

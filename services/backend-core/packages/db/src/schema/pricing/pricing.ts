@@ -87,12 +87,17 @@ export const changeSets = pgTable(
     rejectedAt: timestamp("rejected_at", { withTimezone: true }),
     rejectionReason: text("rejection_reason"),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
+    /** 0123: the version holding the current item list, and the latest validation; NULL never written. */
+    itemsVersion: integer("items_version"),
+    linesVersion: integer("lines_version"),
   },
   (t) => [
     unique("change_sets_tenant_id_uk").on(t.tenantId, t.id),
     check("change_sets_domain", sql`${t.domain} IN ('pricing')`),
     check("change_sets_kind", sql`${t.kind} IN ('standard', 'emergency', 'rollback', 'legacy_import')`),
     check("change_sets_version_positive", sql`${t.version} >= 1`),
+    check("change_sets_items_version", sql`${t.itemsVersion} IS NULL OR ${t.itemsVersion} BETWEEN 1 AND ${t.version}`),
+    check("change_sets_lines_version", sql`${t.linesVersion} IS NULL OR ${t.linesVersion} BETWEEN 1 AND ${t.version}`),
     index("ix_change_sets_tenant_state").on(t.tenantId, t.domain, t.state),
   ],
 );

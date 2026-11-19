@@ -42,6 +42,9 @@ const CHANGE_SET_UPDATE_COLUMNS = [
   "rejected_by_user_id",
   "rejected_at",
   "rejection_reason",
+  // 0123: the versions holding the item list and the latest validation.
+  "items_version",
+  "lines_version",
 ] as const;
 
 export const GRANTS: GrantFragment = {

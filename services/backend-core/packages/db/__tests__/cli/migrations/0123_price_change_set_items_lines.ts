@@ -1,7 +1,7 @@
 /**
  * 0123_price_change_set_items_lines (RT-1151, RT-282 PR-05): the Change Set
  * items and lines tables, their policies (2 SELECT + 2 INSERT + 1 UPDATE) and
- * their five functions (one is a trigger on change_sets).
+ * their five functions (one is a trigger on change_sets, which also gains two columns).
  */
 import { countFunctions, countPolicies, countTables, type MigrationEntry } from "../migration-probes";
 
@@ -12,7 +12,7 @@ const FUNCTIONS = [
   "price_change_set_content_append_only",
   "price_change_set_lines_before_insert",
   "price_change_set_lines_guard",
-  "change_sets_redraft_bumps_version",
+  "change_sets_content_versions",
 ];
 
 export const MIGRATION: MigrationEntry = {
