@@ -2170,8 +2170,8 @@ components:
           pattern: '^transfer_dispatch:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           maxLength: 200
           description: >
-            `transfer_dispatch:<transferId>` (888). It MUST equal
-            `transfer.transferRef`. With `sourceSystem` it is the idempotency
+            `transfer_dispatch:<transferId>` (888): its suffix after
+            `transfer_dispatch:` MUST equal `transfer.transferRef`. With `sourceSystem` it is the idempotency
             anchor; a cancelled document found by the key is an unknown
             outcome, never re-posted silently.
         transfer:
@@ -2279,8 +2279,8 @@ components:
           pattern: '^transfer_receipt:[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}$'
           maxLength: 200
           description: >
-            `transfer_receipt:<receiptId>` (889). It MUST equal
-            `receipt.receiptRef`.
+            `transfer_receipt:<receiptId>` (889): its suffix after
+            `transfer_receipt:` MUST equal `receipt.receiptRef`.
         receipt:
           $ref: "#/components/schemas/TransferReceivePosting"
         itemCursor:
