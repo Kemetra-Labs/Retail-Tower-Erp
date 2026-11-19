@@ -137,16 +137,28 @@ describe("sale quarantine — operations", () => {
     expect(Object.keys(ops.paths ?? {}).filter((p) => p.startsWith("/api/pos/"))).toEqual([]);
   });
 
-  it.each(CONSOLE_OPS)(
-    "%s is contract-only, with an RT-1312 note and its audit action",
-    (id, path, method, audit) => {
+  it.each(CONSOLE_OPS)("%s has its contract path and audit action", (id, path, method, audit) => {
+    const o = op(ops, path, method);
+    expect(o.operationId).toBe(id);
+    expect(o["x-audit-action"]).toBe(audit);
+  });
+
+  it.each(CONSOLE_OPS.filter(([id]) => id !== "consoleRepairQuarantinedSale"))(
+    "%s is implemented (RT-1312 Phase 3(b) slice B): no contract-only marker, no note",
+    (_id, path, method) => {
       const o = op(ops, path, method);
-      expect(o.operationId).toBe(id);
-      expect(o["x-runtime-status"]).toBe("contract-only");
-      expect(o["x-runtime-note"]).toEqual(expect.stringContaining("RT-1312 Phase 3(b)"));
-      expect(o["x-audit-action"]).toBe(audit);
+      expect(o["x-runtime-status"]).toBeUndefined();
+      expect(o["x-runtime-note"]).toBeUndefined();
     },
   );
+
+  it("consoleRepairQuarantinedSale stays contract-only until slice C, and its note says so", () => {
+    const o = op(ops, REPAIR, "post");
+    expect(o["x-runtime-status"]).toBe("contract-only");
+    expect(String(o["x-runtime-note"]).replace(/\s+/g, " ")).toEqual(
+      expect.stringContaining("RT-1312 Phase 3(b) slice C"),
+    );
+  });
 
   it("posQuarantineSale is implemented (RT-1312 Phase 3(b)): no contract-only marker, its audit action kept", () => {
     const o = op(pos, UPLOAD, "post");
@@ -184,6 +196,12 @@ describe("sale quarantine — the POS upload", () => {
     expect(pos.components?.responses?.["PayloadTooLarge"]?.description).toEqual(
       expect.stringContaining("payload_too_large"),
     );
+  });
+
+  it("names a NUL character as a cause of the 400, so no sale is left unexplained (RT-1312 c16720)", () => {
+    const text = String(pos.components?.responses?.["ValidationFailure"]?.description).replace(/\s+/g, " ");
+    expect(text).toEqual(expect.stringContaining("NUL (U+0000) character"));
+    expect(text).toEqual(expect.stringContaining("the sale stays on the till"));
   });
 
   it("compares a repeat upload by every field capture leaves out of payload_hash, store first", () => {

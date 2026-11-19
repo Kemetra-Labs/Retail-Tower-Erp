@@ -13,6 +13,10 @@
  * 025 console convention) — NOT the POS operator-identity device scheme, NOT a machine
  * bearer. `RolesGuard` + `@Roles` gate the surface (default deny).
  *
+ * RT-1312 Phase 3(b) slice B adds the Console half of the sale quarantine
+ * (`SaleQuarantineOpsController`: list, read and write-off of the 0093
+ * `sale_quarantine_items`); the repair follows in slice C.
+ *
  * Imports:
  *   - `AuthModule`        — provides `PG_POOL` + the human `DashboardAuthGuard`.
  *   - `ContextModule`     — `TenantContextGuard` (publishes `request.context`).
@@ -28,13 +32,15 @@ import { AuditModule } from "../../audit/audit.module";
 import { AuthModule } from "../../auth/auth.module";
 import { ContextModule } from "../../context/context.module";
 import { IdempotencyModule } from "../../idempotency/idempotency.module";
+import { SaleQuarantineOpsController } from "./sale-quarantine-ops.controller";
+import { SaleQuarantineOpsService } from "./sale-quarantine-ops.service";
 import { SaleSyncOpsController } from "./sale-sync-ops.controller";
 import { SaleSyncOpsReadModelService } from "./sale-sync-ops.read-model.service";
 
 @Module({
   imports: [AuthModule, AuditModule, ContextModule, IdempotencyModule],
-  controllers: [SaleSyncOpsController],
-  providers: [SaleSyncOpsReadModelService],
+  controllers: [SaleSyncOpsController, SaleQuarantineOpsController],
+  providers: [SaleSyncOpsReadModelService, SaleQuarantineOpsService],
   exports: [SaleSyncOpsReadModelService],
 })
 export class SaleSyncOpsModule {}
