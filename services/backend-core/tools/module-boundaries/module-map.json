@@ -272,6 +272,8 @@
   "unownedTables": [
     "change_sets",
     "price_books",
+    "price_change_set_items",
+    "price_change_set_lines",
     "price_events",
     "price_zone_memberships",
     "price_zones",

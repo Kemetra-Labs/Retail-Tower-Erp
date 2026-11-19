@@ -897,6 +897,24 @@ A script without the marker, such as the owner-gated
   maintenance window. Its down migration refuses while any Change Set or Price
   Book is stored. No runtime reads or writes the tables until RT-1484.
 
+- **Migration `0123_price_change_set_items_lines` (RT-1151, RT-282 PR-05).** Run
+  [`sql/price-change-set-content-domain-grants.sql`](sql/price-change-set-content-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  `price_change_set_items` and `price_change_set_lines`, plus column-level
+  `UPDATE` only on `price_change_set_lines (new_event_id)`, which a 0123 guard
+  lets the publishing transaction set once; the boot check reads it from
+  `domainRequiredColumns`. Items are insert-only: a 0123 trigger refuses
+  `UPDATE`, `DELETE` and `TRUNCATE` on them for every role, and lines refuse
+  `DELETE` and `TRUNCATE`. No `DELETE` policy on either: never grant `DELETE`
+  or `TRUNCATE`, nor a wider `UPDATE`. Without the grants the API refuses to
+  boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege
+  on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0123 creates two new, empty tables
+  (no backfill, no change to any existing table) and needs no maintenance
+  window. Its down migration refuses while any item is stored. No runtime reads
+  or writes the tables until RT-1484.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

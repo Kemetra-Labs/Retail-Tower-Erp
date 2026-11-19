@@ -51,28 +51,8 @@ import {
 import { tenantProducts } from "../catalog/tenant-products";
 import { xid8 } from "../offers/offer-versions";
 import { stores } from "../stores";
-import { tenants } from "../tenants";
+import { effectiveBoundsColumns, pricingAuthorshipColumns, tenantIdColumn, timelineColumns } from "./columns";
 
-/** `tenant_id`, NOT NULL, FK to tenants (RESTRICT). */
-const tenantIdColumn = () =>
-  uuid("tenant_id")
-    .notNull()
-    .references(() => tenants.id, { onDelete: "restrict" });
-
-/** Who wrote a row, when, and under which request (every pricing table). */
-const pricingAuthorshipColumns = () => ({
-  createdByUserId: uuid("created_by_user_id").notNull(),
-  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-  correlationId: uuid("correlation_id").notNull(),
-});
-
-/** The timeline row lifecycle shared by memberships and events. */
-const timelineColumns = () => ({
-  state: text("state").notNull().default("active"),
-  publishedInRevision: bigint("published_in_revision", { mode: "number" }).notNull(),
-  endedInRevision: bigint("ended_in_revision", { mode: "number" }),
-  carriedForward: boolean("carried_forward").notNull().default(false),
-});
 
 export const changeSets = pgTable(
   "change_sets",
@@ -268,11 +248,7 @@ export const priceEvents = pgTable(
     priceKind: text("price_kind").notNull().default("regular"),
     price: numeric("price", { precision: 19, scale: 4 }).notNull(),
     currencyCode: char("currency_code", { length: 3 }).notNull(),
-    timeBasis: text("time_basis").notNull(),
-    effectiveFrom: timestamp("effective_from", { withTimezone: true }),
-    effectiveTo: timestamp("effective_to", { withTimezone: true }),
-    effectiveFromLocal: timestamp("effective_from_local", { withTimezone: false }),
-    effectiveToLocal: timestamp("effective_to_local", { withTimezone: false }),
+    ...effectiveBoundsColumns(),
     ...timelineColumns(),
     supersedesEventId: uuid("supersedes_event_id"),
     changeSetId: uuid("change_set_id").notNull(),
