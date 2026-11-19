@@ -147,6 +147,8 @@ interface QuarantineUploader {
 
 export function createQuarantineUploader(deps: QuarantineUploaderDeps): QuarantineUploader {
   const skipsReported = new Set<string>();
+  // No upload before this instant (ms): the last `Retry-After` of the device's bucket.
+  let pausedUntil = 0;
   const minRevision = deps.minRevision ?? QUARANTINE_UPLOAD_MIN_REVISION;
   const batchLimit = deps.batchLimit ?? QUARANTINE_UPLOAD_BATCH_LIMIT;
 
@@ -223,6 +225,10 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
         );
         const next = new Date(Date.parse(stamp) + delay).toISOString();
         deps.store.markRetry(saleId, scope, outcome.status, next, stamp);
+        // The server's `Retry-After` is for the device's whole bucket, not for this sale
+        // alone: no other sale goes before it, whatever the scheduler's backoff says.
+        if (outcome.retryAfterMs !== undefined)
+          pausedUntil = Date.parse(stamp) + outcome.retryAfterMs;
         return { kind: 'retry' };
       }
     }
@@ -232,13 +238,26 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
   async function admit(): Promise<{ scope: QuarantineScope; token: string } | null> {
     const before = deps.scope();
     if (deps.isStopped() || !advertised() || before === null) return null;
+    if (deps.now().getTime() < pausedUntil) return null;
     const token = await deps.readToken();
-    if (token === null || token === '' || deps.isStopped()) return null;
+    // The gate is read again after the await: a heartbeat reply that lowered or cleared
+    // the revision meanwhile must stop the pass.
+    if (token === null || token === '' || deps.isStopped() || !advertised()) return null;
     // A re-pair completing during the token read could leave the token of one pairing
     // and the candidates classified for another (`previousTerminalId`): send nothing,
     // the next pass starts over.
     const scope = deps.scope();
     return scope === null || scope.terminalId !== before.terminalId ? null : { scope, token };
+  }
+
+  /**
+   * Before each upload: not stopped, still advertised (a heartbeat reply may have lowered
+   * or cleared the revision since the pass began) and still the same pairing (a re-pair
+   * since then means the candidates were classified for an identity that is gone; the
+   * next pass lists them again).
+   */
+  function mayContinue(scope: QuarantineScope): boolean {
+    return !deps.isStopped() && advertised() && deps.scope()?.terminalId === scope.terminalId;
   }
 
   async function drain(): Promise<QuarantineDrainOutcome> {
@@ -249,11 +268,7 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
     const nowIso = deps.now().toISOString();
     let sent = 0;
     for (const candidate of deps.store.listCandidates(scope, nowIso)) {
-      // A re-pair since the pass began: nothing more under an identity the candidates
-      // were not classified for (the next pass lists them again).
-      if (sent >= batchLimit || deps.isStopped() || deps.scope()?.terminalId !== scope.terminalId) {
-        break;
-      }
+      if (sent >= batchLimit || !mayContinue(scope)) break;
       const upload = buildFor(candidate, scope, nowIso);
       if (upload === null) continue;
       const outcome = await deps.client.upload(token, upload);

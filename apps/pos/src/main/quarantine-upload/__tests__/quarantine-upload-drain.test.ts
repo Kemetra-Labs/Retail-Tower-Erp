@@ -201,6 +201,38 @@ describe('quarantine uploader — inert until Backend-Core advertises the revisi
     expect(t.sent).toHaveLength(1);
   });
 
+  it('sends nothing when a reply drops the revision while the token is read', async () => {
+    let revision: number | null = 3;
+    const t = setup([dead('sale-1')], [], {
+      readRevision: () => revision,
+      readToken: () => {
+        revision = 2; // a heartbeat reply from an older Backend-Core lands here
+        return Promise.resolve('device-token');
+      },
+    });
+    expect(await t.uploader.drain()).toEqual({ kind: 'idle' });
+    expect(t.calls.listCandidates).toBe(0);
+    expect(t.sent).toHaveLength(0);
+  });
+
+  it('stops the pass when a reply drops the revision between two uploads', async () => {
+    let revision: number | null = 3;
+    const inner = fakeClient([]);
+    const t = setup([dead('a'), dead('b')], [], {
+      readRevision: () => revision,
+      client: {
+        upload: async (token, body) => {
+          const answer = await inner.client.upload(token, body);
+          revision = null; // a 400 cleared the heartbeat ack
+          return answer;
+        },
+      },
+    });
+    expect(await t.uploader.drain()).toEqual({ kind: 'progress' });
+    expect(inner.sent).toHaveLength(1);
+    expect(t.marks.uploaded.map((m) => m.saleId)).toEqual(['a']);
+  });
+
   it('does nothing when unpaired, with no device token, or once stopped', async () => {
     for (const over of [
       { scope: () => null },
@@ -261,6 +293,32 @@ describe('quarantine uploader — the answers', () => {
       },
     ]);
     expect(t.sent).toHaveLength(1);
+  });
+
+  it('a 429 Retry-After pauses the whole uploader, not only the sale it answered', async () => {
+    let clock = NOW.getTime();
+    const t = setup(
+      [dead('a'), dead('b')],
+      [{ kind: 'retry', status: 429, retryAfterMs: 120_000 }],
+      {
+        now: () => new Date(clock),
+      },
+    );
+    expect(await t.uploader.drain()).toEqual({ kind: 'retry' });
+    expect(t.sent).toHaveLength(1);
+    // The scheduler's backoff would run the next pass in seconds: the other sale waits too.
+    clock += 30_000;
+    expect(await t.uploader.drain()).toEqual({ kind: 'idle' });
+    expect(t.sent).toHaveLength(1);
+    expect(t.calls.listCandidates).toBe(1);
+    clock += 100_000; // past the 120 s deadline
+    expect((await t.uploader.drain()).kind).toBe('progress');
+    // (the fake store lists both sales again: a, which had been answered 429, and b)
+    expect(t.sent.map((s) => s.body.externalId)).toEqual([
+      'pos-pulse:handoff-a',
+      'pos-pulse:handoff-a',
+      'pos-pulse:handoff-b',
+    ]);
   });
 
   it('honours Retry-After when it is longer than the backoff', async () => {

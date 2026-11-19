@@ -161,7 +161,11 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
   your file (lines for other files are noise: the subset does not run their tests). Fix it by removing
   unreachable branches, not by writing tests for dead code: under `noUncheckedIndexedAccess`,
   `record[key] ?? null` leaves an unreachable branch, while `map.get(key) ?? null` is covered both ways (and a
-  `Map` cannot resolve inherited names such as `constructor`).
+  `Map` cannot resolve inherited names such as `constructor`). The gate is also per file for `src/main/**`
+  (80% branches): a new bootstrap wiring file whose callbacks, `?:` and `catch` arms only a real run would reach
+  needs its own test on a migrated database (RT-1312 #724: `sale-quarantine-upload.ts` 62.5% and a store with two
+  `?? ''` fallbacks 75%, red after a push whose local run had skipped `--coverage`). Run that
+  `--coverage --coverage.include=<new files>` command with the new files before the first push.
 - **The CircleCI MCP tools can read this project but cannot trigger it (verified 2026-11-16, RT-1425/RT-1423).**
   Retail-Tower-Erp is a CircleCI **GitHub App** project. Reads (`list_runs`, `get_run`, `list_job_tests` and the
   like) work with the slug `circleci/XUuruzngh1JYidtrRaWDLy/5VLFtkZC7SB3XYRpJiZZt4` or with the project UUID
