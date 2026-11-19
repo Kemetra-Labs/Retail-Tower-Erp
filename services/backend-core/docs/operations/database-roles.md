@@ -912,6 +912,33 @@ A script without the marker, such as the owner-gated
   maintenance window. Its down migration refuses while any Change Set or Price
   Book is stored. No runtime reads or writes the tables until RT-1484.
 
+- **Migration `0123_price_change_set_items_lines` (RT-1151, RT-282 PR-05).** Run
+  [`sql/price-change-set-content-domain-grants.sql`](sql/price-change-set-content-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` and `INSERT` on
+  the six Price Change Set content tables (`price_change_set_item_lists`,
+  `price_change_set_items`, `price_change_set_validations`,
+  `price_change_set_lines`, `price_change_set_preview_lines`,
+  `price_change_set_preview_memberships`), plus column-level `UPDATE` only on
+  `price_change_set_lines (new_event_id, result_ids)`, the publish record a
+  0123 guard lets the publishing transaction set once; the boot check reads
+  the columns from `domainRequiredColumns`. Everything else is insert-only: a
+  0123 trigger refuses `UPDATE`, `DELETE` and `TRUNCATE` for every role (lines
+  refuse `DELETE` and `TRUNCATE`). No `DELETE` policy on any of them: never
+  grant `DELETE` or `TRUNCATE`, nor a wider `UPDATE`. Without the grants the
+  API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must
+  hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0123 creates six
+  new, empty tables, plus triggers and a partial unique index on 0121's
+  `change_sets` and a COMMIT-time trigger on its `pricing_revisions` (unused
+  before RT-1484), with no backfill, and needs no maintenance window. Its
+  COMMIT-time checks run only under the row's own `app.current_tenant`, so a
+  role without `BYPASSRLS` writes pricing content for one tenant per
+  transaction (a backfill or ops script too). A `legacy_import` Change Set is
+  written only under `app.system_privilege = 'pricing_legacy_import'`. Its down
+  migration refuses while any item list or validation is stored. No runtime
+  reads or writes the tables until RT-1484.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

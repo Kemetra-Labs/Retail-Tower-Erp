@@ -85,3 +85,4 @@ export * from "./offers/offer-pauses";
 export * from "./offers/offer-pack";
 export * from "./offers/sale-promotions";
 export * from "./pricing/pricing";
+export * from "./pricing/change-set-content";
