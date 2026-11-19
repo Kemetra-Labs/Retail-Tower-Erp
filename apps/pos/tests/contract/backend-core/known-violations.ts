@@ -47,6 +47,18 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'paths (RT-869). RT-1046 vendors it under its own exemption and deletes this entry.',
   },
   {
+    call: 'quarantineUploadClient.upload',
+    kind: 'endpoint-missing',
+    tickets: ['RT-1312'],
+    note:
+      'POST /api/pos/v1/quarantined-sales (posQuarantineSale) is real (RT-1312 Phase 3(b), ' +
+      'Backend-Core #508, device bearer; pos-sales/sale-quarantine.yaml 1.0.0-draft). It is not ' +
+      'vendored yet: pinning it is a [GATED: generated client pin] repin that regenerates ' +
+      'src/shared/api-types.ts, left to a follow-up so this slice adds no generated code. The ' +
+      'client sends the device bearer the contract names, so no credential-mismatch is expected ' +
+      'once it is pinned. Delete this entry when the repin brings the contract in.',
+  },
+  {
     call: 'unknownItemCaptureClient.send',
     kind: 'endpoint-missing',
     tickets: ['RT-1490', 'RT-1046'],
