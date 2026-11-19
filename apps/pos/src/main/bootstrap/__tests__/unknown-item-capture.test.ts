@@ -21,6 +21,8 @@ import {
   initCatalogueSql,
 } from '../../catalogue/__tests__/__helpers__/catalogue-fixture.js';
 import type { PairedWorkerStarter } from '../../app/paired-workers.js';
+vi.mock('../env.js', () => ({ resolveApiBaseUrl: () => 'https://default.test' }));
+
 import {
   registerUnknownItemCapture,
   UNKNOWN_ITEM_CAPTURE_INTERVAL_MS,
@@ -203,5 +205,41 @@ describe('RT-1490 — registerUnknownItemCapture', () => {
     h.stops.get('unknown-item capture interval')?.();
     await tick();
     expect(h.fetch).not.toHaveBeenCalled();
+  });
+
+  it('uses the resolved API base URL when none is given', async () => {
+    const h = harness();
+    const deps: UnknownItemCaptureDeps = { ...h.deps };
+    Reflect.deleteProperty(deps, 'baseUrl');
+    registerUnknownItemCapture(deps)('6221000000099', SESSION);
+    h.starters.get('unknown-item capture')?.(PAIRED);
+    await tick();
+    expect(h.fetch.mock.calls[0]?.[0]).toBe(
+      'https://default.test/api/pos/v1/catalog/unknown-items',
+    );
+  });
+
+  it('sends nothing once the terminal is no longer paired', async () => {
+    const h = harness();
+    let terminalId: string | null = 'terminal-1';
+    const deps = { ...h.deps, pairingStore: { getCurrentTerminalId: () => terminalId } };
+    registerUnknownItemCapture(deps)('6221000000099', SESSION);
+    h.starters.get('unknown-item capture')?.(PAIRED);
+    terminalId = null;
+    await tick();
+    expect(h.fetch).not.toHaveBeenCalled();
+    expect(rows()[0]?.[1]).toBe('pending');
+  });
+
+  it('defers with setImmediate by default', async () => {
+    const h = harness();
+    const deps: UnknownItemCaptureDeps = { ...h.deps };
+    Reflect.deleteProperty(deps, 'defer');
+    registerUnknownItemCapture(deps)('6221000000099', SESSION);
+    expect(rows()).toEqual([]);
+    await new Promise<void>((resolve) => {
+      setImmediate(resolve);
+    });
+    expect(rows()).toHaveLength(1);
   });
 });
