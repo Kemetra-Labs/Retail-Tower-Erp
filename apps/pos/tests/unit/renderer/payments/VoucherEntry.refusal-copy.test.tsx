@@ -1,16 +1,17 @@
 /**
- * 006-payments-tender Wave 5c — <VoucherEntry> F-A4B-003 refusal-copy
- * enforcement test (RED).
+ * 006-payments-tender Wave 5c — <VoucherEntry> refusal-copy test.
  *
- * Asserts the §A4-B reviewer decision recorded in
- * `specs/006-payments-tender/reviews/a4b-vouchers-bridge-brief.md` §6,
- * finding F-A4B-003:
+ * HISTORY / SUPERSEDED: this file pinned the §A4-B reviewer decision F-A4B-003
+ * (`specs/006-payments-tender/reviews/a4b-vouchers-bridge-brief.md` §6): all eight voucher
+ * refusal reasons map to ONE generic string. By the owner's decision (chat, 2026-11-19,
+ * RT-1331) the cashier is now told which voucher problem stopped the apply
+ * (`voucher-refusal-copy.ts`, pinned in `voucher-refusal-copy.test.ts`). What this file still
+ * enforces from F-A4B-003:
  *
- *   ALL EIGHT voucher refusal reasons map to the SAME generic renderer
- *   copy string. The structured `refusal.reason` MUST NEVER enter the
- *   DOM — an attacker who can interact with the POS surface MUST NOT
- *   be able to enumerate voucher validity, balance, or holder
- *   existence by probing codes and reading the rendered response.
+ *   The structured `refusal.reason` MUST NEVER enter the DOM, a rejected bridge promise
+ *   collapses to the generic line with no error detail, and the banner clears on an input edit.
+ *   (Whether a code from another organization can be told apart from an unknown one is pinned
+ *   in `voucher-refusal-copy.test.ts`.)
  *
  * The 8 reasons (closed enum, from contracts/bridge-api.md
  * §"vouchers.validate" + spec FR-006 + scripts/openapi-snapshot.json
@@ -43,13 +44,15 @@ import userEvent from '@testing-library/user-event';
 import '@testing-library/jest-dom/vitest';
 
 import { VoucherEntry } from '../../../../src/renderer/ui/payments/VoucherEntry.js';
+import {
+  VOUCHER_REFUSAL_GENERIC_COPY as GENERIC_VOUCHER_REFUSAL_COPY,
+  voucherRefusalCopy,
+} from '../../../../src/renderer/ui/payments/voucher-refusal-copy.js';
 import type { TenderApplyRequest, TenderApplyResponse } from '../../../../src/shared/bridge-api.js';
 
 afterEach(() => {
   cleanup();
 });
-
-const GENERIC_VOUCHER_REFUSAL_COPY = 'تعذّر استخدام هذه القسيمة حالياً.';
 
 // The 8 voucher-specific refusal reasons enumerated in the contract.
 const VOUCHER_REFUSAL_REASONS = [
@@ -64,10 +67,10 @@ const VOUCHER_REFUSAL_REASONS = [
 ] as const;
 
 // Additional refusal reasons that the wider TenderApply envelope may
-// surface — all must collapse to the same generic copy.
+// surface — these keep the generic copy (`role_denied` and `dependency_unavailable` have their
+// own lines, see below).
 const ENVELOPE_REFUSAL_REASONS = [
   'no_session',
-  'role_denied',
   'attempt_terminal',
   'idempotency_payload_mismatch',
   'wrong_owner',
@@ -98,16 +101,35 @@ async function driveRefusal(
   return { refusedNode: screen.getByTestId('voucher-entry-refused'), container };
 }
 
-describe('F-A4B-003 — VoucherEntry refusal-copy enforcement (8 voucher reasons)', () => {
+describe('RT-1331 — VoucherEntry per-reason refusal copy (8 voucher reasons)', () => {
   it.each(VOUCHER_REFUSAL_REASONS)(
-    'voucher refusal "%s" renders the SAME generic copy',
+    'voucher refusal "%s" renders its own line, and the reason code stays out of the DOM',
     async (reason) => {
       const { refusedNode } = await driveRefusal(reason);
-      expect(refusedNode).toHaveTextContent(GENERIC_VOUCHER_REFUSAL_COPY);
+      expect(refusedNode).toHaveTextContent(voucherRefusalCopy(reason));
       // The structured reason MUST NOT leak to the DOM.
       expect(refusedNode).not.toHaveTextContent(reason);
     },
   );
+
+  it.each(['role_denied', 'dependency_unavailable'] as const)(
+    'the session / service refusal "%s" renders its own line',
+    async (reason) => {
+      const { refusedNode } = await driveRefusal(reason);
+      expect(refusedNode).toHaveTextContent(voucherRefusalCopy(reason));
+      expect(refusedNode).not.toHaveTextContent(GENERIC_VOUCHER_REFUSAL_COPY);
+    },
+  );
+
+  it('an expired, a cancelled and an unknown voucher read differently', async () => {
+    const lines = new Set<string>();
+    for (const reason of ['voucher_expired', 'voucher_cancelled', 'voucher_not_found']) {
+      const { refusedNode } = await driveRefusal(reason);
+      lines.add(refusedNode.textContent);
+      cleanup();
+    }
+    expect(lines.size).toBe(3);
+  });
 
   it.each(VOUCHER_REFUSAL_REASONS)(
     'voucher refusal "%s" does NOT leak the reason anywhere in the rendered subtree',
@@ -121,7 +143,7 @@ describe('F-A4B-003 — VoucherEntry refusal-copy enforcement (8 voucher reasons
   );
 });
 
-describe('F-A4B-003 — VoucherEntry envelope refusals (collapse to same copy)', () => {
+describe('RT-1331 — VoucherEntry envelope refusals (keep the generic copy)', () => {
   it.each(ENVELOPE_REFUSAL_REASONS)(
     'envelope refusal "%s" renders the SAME generic copy',
     async (reason) => {
@@ -132,7 +154,7 @@ describe('F-A4B-003 — VoucherEntry envelope refusals (collapse to same copy)',
   );
 });
 
-describe('F-A4B-003 — VoucherEntry rejected-promise path', () => {
+describe('RT-1331 — VoucherEntry rejected-promise path (generic line, no detail)', () => {
   it('rejected bridge promise collapses to the SAME generic copy (no stuck-applying state)', async () => {
     const bridge = vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(() =>
       Promise.reject(new Error('IPC channel closed — sensitive detail')),
@@ -158,7 +180,44 @@ describe('F-A4B-003 — VoucherEntry rejected-promise path', () => {
   });
 });
 
-describe('F-A4B-003 — VoucherEntry refusal banner clears on input edit', () => {
+describe('RT-1331 — a refusal that arrives after the input was edited is discarded', () => {
+  // A per-reason line states a fact about the code that was sent. If the cashier has since
+  // typed another code or amount, showing it would state that fact about input no longer on
+  // screen, so the late answer is dropped (the forfeit prompt already follows the same rule).
+  it.each([
+    ['code', 'voucher-entry-code-input', 'X'],
+    ['amount', 'voucher-entry-amount-input', '{Backspace}'],
+  ])('a late refusal after the %s was edited shows nothing', async (_field, inputTestId, keys) => {
+    let resolveAnswer: (r: TenderApplyResponse) => void = () => undefined;
+    const bridge = vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(
+      () =>
+        new Promise<TenderApplyResponse>((resolve) => {
+          resolveAnswer = resolve;
+        }),
+    );
+    const user = userEvent.setup();
+    render(
+      <VoucherEntry remainingBalanceMinor={5000} paymentAttemptId="pa-1" tenderApply={bridge} />,
+    );
+    await user.type(screen.getByTestId('voucher-entry-code-input'), 'VOUCHER10');
+    await user.type(screen.getByTestId('voucher-entry-amount-input'), '15.00');
+    await user.click(screen.getByTestId('voucher-entry-confirm'));
+    await user.type(screen.getByTestId(inputTestId), keys);
+    resolveAnswer({ kind: 'refused', reason: 'voucher_expired' });
+
+    await waitFor(() => {
+      expect(screen.queryByTestId('voucher-entry-applying')).not.toBeInTheDocument();
+    });
+    expect(screen.queryByTestId('voucher-entry-refused')).not.toBeInTheDocument();
+  });
+
+  it('a refusal for unchanged input still shows its line', async () => {
+    const { refusedNode } = await driveRefusal('voucher_expired');
+    expect(refusedNode).toHaveTextContent(voucherRefusalCopy('voucher_expired'));
+  });
+});
+
+describe('RT-1331 — VoucherEntry refusal banner clears on input edit', () => {
   it('typing in either input clears the refusal banner (so retry is unambiguous)', async () => {
     const bridge = vi.fn<(req: TenderApplyRequest) => Promise<TenderApplyResponse>>(
       async () => await Promise.resolve({ kind: 'refused', reason: 'voucher_not_found' }),

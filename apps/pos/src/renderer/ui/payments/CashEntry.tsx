@@ -78,6 +78,15 @@ export interface CashEntryProps {
   onOpenShift?: (() => void) | undefined;
 }
 
+/**
+ * The refusal reason of a `tender.apply` answer, or undefined for any other answer. Cash
+ * never gets the voucher-only `forfeit_confirmation_required` (RT-1331); if it did, it
+ * has no reason here and falls through to the generic refusal line.
+ */
+function refusalReasonOf(response: TenderApplyResponse): string | undefined {
+  return response.kind === 'refused' ? response.reason : undefined;
+}
+
 export function CashEntry({
   remainingBalanceMinor,
   onConfirm,
@@ -190,16 +199,16 @@ export function CashEntry({
         });
         if (response.kind === 'ok') {
           onApplied?.(response);
-        } else if (response.reason === 'cash_amount_out_of_range') {
+        } else if (refusalReasonOf(response) === 'cash_amount_out_of_range') {
           // RT-437 (M-P29) — retrying the same amount can never help: keep it
           // in the field for correction and give the field focus back.
           setRefusedAmountMinor(amountAppliedMinor);
           inputRef.current?.focus();
-        } else if (response.reason === 'shift_not_open') {
+        } else if (refusalReasonOf(response) === 'shift_not_open') {
           // RT-998 — retrying can never help until a shift is open: say so, and
           // keep the amount in the field so the same cash applies right after.
           setNeedsShift(true);
-        } else if (response.reason === 'attempt_fully_tendered') {
+        } else if (refusalReasonOf(response) === 'attempt_fully_tendered') {
           // Retrying can never help here, so this is not the generic line.
           setNothingOwed(true);
           onNothingOwed?.();

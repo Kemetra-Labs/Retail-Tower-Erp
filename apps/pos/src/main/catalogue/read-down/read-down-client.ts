@@ -50,10 +50,21 @@
  */
 
 import type { SellableCatalogRow } from './map-sellable-row.js';
-import type { ReadDownClient, ReadDownFetchResult } from './read-down-client-types.js';
+import type {
+  ReadDownClient,
+  ReadDownDeltaResult,
+  ReadDownFetchResult,
+} from './read-down-client-types.js';
+import { fetchCatalogDeltas } from './read-down-delta-client.js';
+import { isSellableCatalogRow } from './sellable-row-guard.js';
 
 /** RT-215: exported so the device-401 detector matches the same route. */
 export const SNAPSHOT_PATH = '/api/pos/v1/catalog/snapshot';
+/**
+ * RT-1487: `posGetCatalogDeltas` — same device bearer, so exported for the
+ * device-401 detector too.
+ */
+export const DELTAS_PATH = '/api/pos/v1/catalog/deltas';
 const PAGE_TOKEN_PARAM = 'page_token';
 const DEFAULT_TIMEOUT_MS = 30_000;
 /**
@@ -93,25 +104,6 @@ interface CatalogSnapshotPage {
   next_page_token?: unknown;
 }
 
-/** Narrow an unknown value to a `SellableCatalogRow` (structural; never throws). */
-function isSellableCatalogRow(value: unknown): value is SellableCatalogRow {
-  if (typeof value !== 'object' || value === null) return false;
-  const row = value as Record<string, unknown>;
-  const price = row['price'];
-  if (typeof price !== 'object' || price === null) return false;
-  const priceObj = price as Record<string, unknown>;
-  return (
-    typeof row['product_id'] === 'string' &&
-    typeof row['sku'] === 'string' &&
-    typeof row['name'] === 'string' &&
-    typeof priceObj['amount'] === 'string' &&
-    typeof priceObj['currency_code'] === 'string' &&
-    typeof row['tax_category'] === 'string' &&
-    typeof row['active'] === 'boolean' &&
-    typeof row['row_cursor'] === 'string'
-  );
-}
-
 /** A successfully fetched + structurally-valid single page. */
 interface ValidPage {
   rows: SellableCatalogRow[];
@@ -128,11 +120,44 @@ type PageResult =
   | { kind: 'failed' }
   | { kind: 'device_unauthorized' };
 
-export function createReadDownClient(deps: CreateReadDownClientDeps): ReadDownClient {
+/** The live client always implements the RT-1487 delta fetch. */
+type LiveReadDownClient = ReadDownClient & {
+  fetchDeltas(since: string): Promise<ReadDownDeltaResult>;
+};
+
+export function createReadDownClient(deps: CreateReadDownClientDeps): LiveReadDownClient {
   const { fetch: fetchImpl, baseUrl, getDeviceToken } = deps;
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
   const maxPages = deps.maxPages ?? DEFAULT_MAX_PAGES;
   const root = baseUrl.replace(/\/$/, '');
+
+  // The device token is the sole credential. No token (unpaired, or RT-215: the
+  // device was revoked) → the caller treats it as a reached-but-failed request.
+  // RT-215 / Codex P2: it is re-read before EVERY page, so a revocation confirmed
+  // mid-walk stops the next page from carrying the revoked token.
+  async function sendableToken(): Promise<string | null> {
+    try {
+      const token = await getDeviceToken();
+      return token !== null && token.length > 0 ? token : null;
+    } catch {
+      return null;
+    }
+  }
+
+  /** GET with the device bearer; `null` on a transport fault. Never throws. */
+  async function send(deviceToken: string, url: URL): Promise<Response | null> {
+    try {
+      return await fetchImpl(url.toString(), {
+        method: 'GET',
+        headers: {
+          Authorization: `Bearer ${deviceToken}`,
+        },
+        signal: AbortSignal.timeout(timeoutMs),
+      });
+    } catch {
+      return null;
+    }
+  }
 
   /** Fetch + structurally validate ONE page. `pageToken` advances pagination. */
   async function fetchPage(deviceToken: string, pageToken: string | null): Promise<PageResult> {
@@ -141,16 +166,8 @@ export function createReadDownClient(deps: CreateReadDownClientDeps): ReadDownCl
       url.searchParams.set(PAGE_TOKEN_PARAM, pageToken);
     }
 
-    let response: Response;
-    try {
-      response = await fetchImpl(url.toString(), {
-        method: 'GET',
-        headers: {
-          Authorization: `Bearer ${deviceToken}`,
-        },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch {
+    const response = await send(deviceToken, url);
+    if (response === null) {
       // Transport fault (DNS / TLS / refused / timeout) — backend unreachable.
       return { kind: 'no_connection' };
     }
@@ -205,20 +222,8 @@ export function createReadDownClient(deps: CreateReadDownClientDeps): ReadDownCl
 
   return {
     async fetchSnapshot(): Promise<ReadDownFetchResult> {
-      // The device token is the sole credential. No token (unpaired, or RT-215:
-      // the device was revoked) → treat as a reached-but-failed request: the
-      // driver records a failed attempt and the working catalogue is preserved
-      // (the writer never runs). RT-215 / Codex P2: it is re-read before EVERY
-      // page, so a revocation confirmed mid-walk stops the next page from
-      // carrying the revoked token.
-      async function sendableToken(): Promise<string | null> {
-        try {
-          const token = await getDeviceToken();
-          return token !== null && token.length > 0 ? token : null;
-        } catch {
-          return null;
-        }
-      }
+      // No sendable device token → a reached-but-failed request: the driver
+      // records a failed attempt and the working catalogue is preserved.
 
       // Walk every page, accumulating `items`. All pages MUST share one `cursor`
       // (the snapshot's consistent point — header lines 30-31); `next_page_token`
@@ -277,6 +282,10 @@ export function createReadDownClient(deps: CreateReadDownClientDeps): ReadDownCl
         sourceSnapshotId: cursor,
         rows,
       };
+    },
+
+    fetchDeltas(since: string): Promise<ReadDownDeltaResult> {
+      return fetchCatalogDeltas({ root, path: DELTAS_PATH, sendableToken, send }, since);
     },
   };
 }

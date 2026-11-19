@@ -26,6 +26,24 @@ WORKFLOW = """jobs:
 """
 
 
+MARIADB = "mariadb:11.8@sha256:" + "a" * 64
+
+
+def frappe_workflow(**overrides):
+    """A workflow carrying the ERPNext bench pins (RT-1467 CI-12), as the three bench workflows do."""
+    pins = {"FRAPPE_REF": "v16.52.0", "ERPNEXT_REF": "v16.51.0", "BENCH_VERSION": "5.31.0",
+            "mariadb": MARIADB, **overrides}
+    return ("env:\n"
+            f"  FRAPPE_REF: {pins['FRAPPE_REF']}\n"
+            f"  ERPNEXT_REF: {pins['ERPNEXT_REF']}\n"
+            f"  BENCH_VERSION: \"{pins['BENCH_VERSION']}\"\n"
+            "jobs:\n"
+            "  bench:\n"
+            "    services:\n"
+            "      mariadb:\n"
+            f"        image: {pins['mariadb']}\n")
+
+
 class ToolchainVersionsTests(unittest.TestCase):
     def setUp(self):
         self._tmp = tempfile.TemporaryDirectory()
@@ -33,6 +51,7 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.write(".nvmrc", "24\n")
         self.write(".python-version", "3.14\n")
         self.write(".github/workflows/ci.yml", WORKFLOW)
+        self.write_frappe_pins()
         self.write("svc/Dockerfile", "FROM node:24-bookworm-slim@sha256:abc AS base\nFROM base AS api\n")
         self.package("svc/package.json", engines=">=24", types="24.19.2")
         self.package("web/package.json", engines="^24.8.0 || >=25", types="^24.19.2")
@@ -49,6 +68,10 @@ class ToolchainVersionsTests(unittest.TestCase):
         os.makedirs(os.path.dirname(full), exist_ok=True)
         with open(full, "w", encoding="utf-8") as fh:
             fh.write(text)
+
+    def write_frappe_pins(self):
+        for name in ("erpnext-connector", "connector-bench-nightly", "finance-report-role-bench"):
+            self.write(f".github/workflows/{name}.yml", frappe_workflow())
 
     def package(self, path, engines=None, types=None, electron=None):
         pkg = {"name": path.split("/")[0], "devDependencies": {}}
@@ -183,6 +206,47 @@ class ToolchainVersionsTests(unittest.TestCase):
         self.write("svc/node_modules/x/.python-version", "3.8\n")
         self.write(".claude/worktrees/old/.python-version", "3.12\n")
         self.assertEqual(self.problems(), [])
+
+    def test_f_frappe_pin_mismatch_names_the_pin_and_each_value(self):
+        for key, other in (("FRAPPE_REF", "v16.53.0"), ("ERPNEXT_REF", "v16.52.0"), ("BENCH_VERSION", "5.32.0")):
+            with self.subTest(pin=key):
+                self.write_frappe_pins()
+                self.write(".github/workflows/connector-bench-nightly.yml",
+                           frappe_workflow(**{key: other}))
+                self.assert_one("f", key)
+                self.assertIn(other, self.problems()[0])
+
+    def test_f_mariadb_image_digest_mismatch(self):
+        self.write(".github/workflows/finance-report-role-bench.yml",
+                   frappe_workflow(mariadb="mariadb:11.8@sha256:" + "b" * 64))
+        self.assert_one("f", "mariadb image")
+
+    def test_f_a_workflow_that_lost_a_pin_is_a_violation(self):
+        self.write(".github/workflows/finance-report-role-bench.yml",
+                   frappe_workflow().replace('  BENCH_VERSION: "5.31.0"\n', ""))
+        self.assert_one("f", "finance-report-role-bench.yml: no BENCH_VERSION")
+
+    def test_f_an_unquoted_numeric_pin_is_a_violation(self):
+        """YAML types `5.30` as the float 5.3 and `5.31` as 5.31: the comparison would depend on quoting."""
+        for text in ("5.31", "5.30", "5"):
+            with self.subTest(value=text):
+                self.write(".github/workflows/connector-bench-nightly.yml",
+                           frappe_workflow().replace('BENCH_VERSION: "5.31.0"', f"BENCH_VERSION: {text}"))
+                self.assert_one("f", "connector-bench-nightly.yml: BENCH_VERSION must be a quoted string")
+
+    def test_f_quoted_and_unquoted_forms_of_a_string_pin_agree(self):
+        self.write(".github/workflows/connector-bench-nightly.yml",
+                   frappe_workflow().replace("FRAPPE_REF: v16.52.0", 'FRAPPE_REF: "v16.52.0"'))
+        self.assertEqual(self.problems(), [])
+
+    def test_f_a_missing_pin_workflow_is_a_violation(self):
+        os.remove(os.path.join(self.repo, ".github/workflows/connector-bench-nightly.yml"))
+        self.assert_one("f", "connector-bench-nightly.yml: missing")
+
+    def test_f_a_value_that_differs_inside_one_workflow(self):
+        text = frappe_workflow() + "  other:\n    env:\n      FRAPPE_REF: v16.99.0\n"
+        self.write(".github/workflows/erpnext-connector.yml", text)
+        self.assert_one("f", "FRAPPE_REF")
 
     def test_unreadable_nvmrc_exits_2(self):
         self.write(".nvmrc", "lts/*\n")

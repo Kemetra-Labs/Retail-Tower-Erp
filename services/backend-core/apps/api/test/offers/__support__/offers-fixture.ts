@@ -13,10 +13,16 @@
  *               P_OLD   (SHOES, retired) P_OFF  (SHOES, inactive)
  *   tenant B    one category, brand and product (isolation)
  *
+ * RT-1470 adds two platform admins in tenant A: `SES_PA` (no membership) and `SES_PA_MANAGER`
+ * (also a store_manager of STORE_A_X only).
+ *
  * STORE_A_X is in Africa/Cairo; STORE_A_Y stays UTC. `.ts` (not `.spec.ts`) so Jest
  * does not collect it. IDs use the `1337` mnemonic (hex only).
  */
 import type { Pool } from "pg";
+
+import { seedConsoleMember } from "../../_helpers/console-members";
+import { registerTestSession } from "../../catalog/erpnext-reconciliation/__support__/read-store-scope";
 
 import type { PgTestEnv } from "../../_helpers/postgres-container";
 import { STORE_A_X, STORE_A_Y, TENANT_A, TENANT_B } from "../../catalog/__support__/isolation-harness";
@@ -60,6 +66,32 @@ export const P_B = idB("a001");
 /** A store that is not of tenant A. */
 export const STORE_ABSENT = id("5fff");
 export const ACTOR = "0a000000-0000-7000-8000-0000000000ac";
+/** RT-1470: a platform admin with no membership in tenant A, and one who is a STORE_A_X manager. */
+export const USER_PA = id("e001");
+export const SES_PA = id("e101");
+export const USER_PA_MANAGER = id("e002");
+export const SES_PA_MANAGER = id("e102");
+
+async function seedPlatformAdmins(admin: Pool): Promise<void> {
+  await admin.query(`INSERT INTO users (id, email, is_platform_admin) VALUES ($1, 'rt1470-pa@example.test', true)`, [USER_PA]);
+  await admin.query(
+    `INSERT INTO sessions (id, user_id, active_tenant_id, active_store_id, absolute_expires_at, credential_hash)
+     VALUES ($1, $2, $3, NULL, now() + interval '1 hour', decode(md5(random()::text), 'hex'))`,
+    [SES_PA, USER_PA, TENANT_A],
+  );
+  registerTestSession(SES_PA, USER_PA);
+  await seedConsoleMember(admin, {
+    tenantId: TENANT_A,
+    userId: USER_PA_MANAGER,
+    email: "rt1470-pa-manager@example.test",
+    membershipId: id("e201"),
+    roleId: id("e301"),
+    roleCode: "store_manager",
+    stores: [STORE_A_X],
+    sessions: { [SES_PA_MANAGER]: null },
+  });
+  await admin.query(`UPDATE users SET is_platform_admin = true WHERE id = $1`, [USER_PA_MANAGER]);
+}
 
 async function seedCatalog(admin: Pool): Promise<void> {
   await admin.query(`UPDATE stores SET timezone = 'Africa/Cairo' WHERE id = $1`, [STORE_A_X]);
@@ -100,6 +132,7 @@ async function seedCatalog(admin: Pool): Promise<void> {
 export async function seedOffersFixture(env: PgTestEnv): Promise<void> {
   await seedPolicyFixture(env);
   await seedCatalog(env.admin);
+  await seedPlatformAdmins(env.admin);
 }
 
 export { STORE_A_X, STORE_A_Y, TENANT_A, TENANT_B };

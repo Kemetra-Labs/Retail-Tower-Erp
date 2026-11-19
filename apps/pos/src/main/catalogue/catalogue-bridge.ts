@@ -98,6 +98,26 @@ export interface CatalogueBridgeDependencies {
    * never throws or leaks (IPC-1).
    */
   freshness?: CatalogueFreshnessSource;
+  /**
+   * RT-1490 — told about an exact barcode lookup that answered `not_found`
+   * (only that outcome), to queue a `posCaptureItem` report. Fire-and-forget:
+   * the lookup's response never depends on it, and a throw is swallowed.
+   */
+  onBarcodeNotFound?: (barcode: string, session: OperatorSessionForCatalogue) => void;
+}
+
+/** RT-1490 — notify the unknown-item reporter; never affects the lookup. */
+function reportNotFound(
+  hook: CatalogueBridgeDependencies['onBarcodeNotFound'],
+  barcode: string,
+  session: OperatorSessionForCatalogue,
+): void {
+  if (hook === undefined) return;
+  try {
+    hook(barcode, session);
+  } catch {
+    // The report is best effort; the scan's answer stands.
+  }
 }
 
 /** Map the repo's discriminated result to the bridge lookup response. */
@@ -142,6 +162,8 @@ export function createCatalogueBridge(deps: CatalogueBridgeDependencies): Catalo
       if (productRepo === undefined)
         return await Promise.resolve({ kind: 'catalogue_unavailable' });
       const result = productRepo.lookupByBarcode(gate.session.tenant_id, req.barcode);
+      if (result.kind === 'not_found')
+        reportNotFound(deps.onBarcodeNotFound, req.barcode, gate.session);
       return await Promise.resolve(lookupResultToResponse(result));
     },
 

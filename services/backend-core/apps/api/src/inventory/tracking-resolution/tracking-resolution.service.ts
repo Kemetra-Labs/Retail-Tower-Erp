@@ -70,6 +70,7 @@ import {
   type SafetyHistoryCursorBinding,
 } from '../safety/safety-history.cursor';
 import { byText, fingerprint, idempotencyConflict, normalizeNote, normalizeReasonCode } from '../safety/safety.common';
+import { findCallerRoleCode } from '../../context';
 
 const DEFAULT_LIMIT = 50;
 const MAX_LIMIT = 200;
@@ -278,9 +279,8 @@ export class TrackingResolutionService {
     const limit = pageLimit(input.limit);
     const tenantContext = { tenantId: input.tenantId, isPlatformAdmin: false };
     return runWithTenantContext(this.pool, tenantContext, async (client) => {
-      const userId = input.context.userId;
-      const role =
-        userId === null ? null : await this.memberships.findRoleCodeForUserInTenant(userId, input.tenantId, client);
+      // RT-1470: a session platform admin decides as an owner, member or not.
+      const role = await findCallerRoleCode(this.memberships, client, input);
       const scope = await callerStoreScope(client, this.memberships, input);
       const scoped = scopeStoreIds(scope);
       const count = await client.query<{ n: number }>(COUNT_SQL, [input.tenantId, storeId, scoped]);

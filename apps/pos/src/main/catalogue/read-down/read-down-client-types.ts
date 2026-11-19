@@ -52,6 +52,28 @@ export type ReadDownFetchResult =
   | ReadDownFetchFailed
   | ReadDownFetchDeviceUnauthorized;
 
+/**
+ * RT-1487 — one ordered change from `posGetCatalogDeltas` (decisions 424–431).
+ * `upsert` carries the full sellable row; `remove_from_sellable` is the explicit
+ * tombstone (the product leaves the sellable stream: retired or unpriced).
+ */
+export type ReadDownDeltaOp =
+  | { op: 'upsert'; productId: string; row: SellableCatalogRow }
+  | { op: 'remove_from_sellable'; productId: string };
+
+/**
+ * RT-1487 — outcome of a delta fetch. `ok` holds every op of every page, in
+ * order, and the advanced cursor. `snapshot_required` is the contract's 409: the
+ * stored cursor is older than the server's retained change log, so the caller
+ * re-baselines with a full snapshot. The other kinds mirror the snapshot fetch.
+ */
+export type ReadDownDeltaResult =
+  | { kind: 'ok'; cursor: string; ops: ReadDownDeltaOp[] }
+  | { kind: 'snapshot_required' }
+  | ReadDownFetchNoConnection
+  | ReadDownFetchFailed
+  | ReadDownFetchDeviceUnauthorized;
+
 export interface ReadDownClient {
   /**
    * Fetch the current catalogue snapshot for the device-principal's scope.
@@ -60,4 +82,10 @@ export interface ReadDownClient {
    * (`Authorization: Bearer <device_token>`, plan AD-7) and never surfaced here.
    */
   fetchSnapshot(): Promise<ReadDownFetchResult>;
+  /**
+   * RT-1487 — fetch the changes after `since` (the cursor of the last applied
+   * snapshot or delta). Same transport rules as `fetchSnapshot`. Optional: a
+   * client without it keeps the snapshot-only behaviour.
+   */
+  fetchDeltas?(since: string): Promise<ReadDownDeltaResult>;
 }

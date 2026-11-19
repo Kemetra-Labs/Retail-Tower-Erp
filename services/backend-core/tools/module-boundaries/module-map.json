@@ -71,6 +71,7 @@
         "sale_credit_reversal_tenders",
         "sale_credit_reversals",
         "sale_line_findings",
+        "sale_line_pricing_provenance",
         "sale_line_promotions",
         "sale_lines",
         "sale_quarantine_items",
@@ -269,5 +270,13 @@
       ]
     }
   },
-  "unownedTables": []
+  "unownedTables": [
+    "change_sets",
+    "price_books",
+    "price_events",
+    "price_zone_memberships",
+    "price_zones",
+    "pricing_revision_stores",
+    "pricing_revisions"
+  ]
 }

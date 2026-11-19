@@ -36,6 +36,7 @@ import { PG_POOL } from "../database";
 import { MembershipRepository } from "../context/membership.repository";
 import { callerStoreScope, scopeStoreIds } from "../context/operator-store-scope";
 import type { ResolvedContext } from "../context/types";
+import { findCallerRoleCode } from "../context";
 
 /** Roles that resolve every person of the tenant (D-2). */
 const TENANT_WIDE_ROLES: ReadonlySet<string> = new Set(["owner", "tenant_admin"]);
@@ -116,11 +117,8 @@ export class ConsolePeopleService {
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client) => {
-        const userId = input.context.userId;
-        const roleCode =
-          userId !== null
-            ? await this.memberships.findRoleCodeForUserInTenant(userId, input.tenantId, client)
-            : null;
+        // RT-1470: a session platform admin decides as an owner (tenant-wide), member or not.
+        const roleCode = await findCallerRoleCode(this.memberships, client, input);
         const storeIds =
           roleCode !== null && TENANT_WIDE_ROLES.has(roleCode)
             ? null

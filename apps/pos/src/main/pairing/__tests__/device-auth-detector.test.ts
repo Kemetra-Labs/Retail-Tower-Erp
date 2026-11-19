@@ -363,6 +363,9 @@ describe('device-401 detector — which 401s count (decision 2, review F5)', () 
     ['', 'cashier_admissions', ROSTER],
     ['', 'cashier_admissions', END],
     ['', 'read_down', SNAPSHOT],
+    // RT-1487: the read-down's delta route is the same device-bearer family.
+    ['', 'read_down', `${BASE}/api/pos/v1/catalog/deltas?since=c1`],
+    ['/backend', 'read_down', `${BASE}/backend/api/pos/v1/catalog/deltas?since=c1`],
     ['/backend', 'cashier_admissions', `${BASE}/backend/api/pos/v1/cashier-admissions`],
     ['/backend/', 'cashier_admissions', `${BASE}/backend/api/pos/v1/cashier-admissions/roster`],
     ['/backend', 'read_down', `${BASE}/backend/api/pos/v1/catalog/snapshot?page_token=x`],

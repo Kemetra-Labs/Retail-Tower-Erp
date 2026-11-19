@@ -85,13 +85,27 @@ The renderer holds the plaintext value during entry (it's keyboard input), but i
 7. Renderer shows the applied line + remaining balance.
 8. Cashier confirms → `payments.confirm`. Handler calls V-A `vouchers.redeem` with the intent token. V-A returns `{ kind: 'redeemed', redemption_id: 'red-XYZ' }`. Attempt transitions to `settled`.
 
-### Authority refusal flow (F-A4B-003)
+### Authority refusal flow (RT-1331; supersedes F-A4B-003)
 
-V-A may refuse for 8 distinct reasons (`voucher_not_found`, `voucher_expired`, `voucher_cancelled`, `voucher_already_redeemed`, `voucher_tenant_mismatch`, `voucher_branch_mismatch`, `non_cash_overpayment_refused`, `validation_failure`). **All 8 collapse to ONE cashier-visible copy:**
+V-A may refuse for 8 distinct reasons (`voucher_not_found`, `voucher_expired`, `voucher_cancelled`, `voucher_already_redeemed`, `voucher_tenant_mismatch`, `voucher_branch_mismatch`, `non_cash_overpayment_refused`, `validation_failure`). The original §A4-B decision (F-A4B-003) collapsed all 8 into ONE cashier-visible line. **Owner decision (chat, 2026-11-19, RT-1331): the cashier is told which voucher problem stopped the apply.** The closed Arabic lines live in [`voucher-refusal-copy.ts`](../../src/renderer/ui/payments/voucher-refusal-copy.ts):
 
-> "This voucher cannot be used right now."
+| Reason | Cashier line (summary) |
+|:--|:--|
+| `voucher_not_found`, `voucher_tenant_mismatch`, `validation_failure` | unknown code: check and re-enter (a code from another organization reads exactly like an unknown one) |
+| `voucher_expired` / `voucher_cancelled` / `voucher_already_redeemed` | expired / cancelled / already used: choose another payment method |
+| `voucher_branch_mismatch` | not valid in this store: choose another payment method |
+| `non_cash_overpayment_refused` | the amount is not accepted for this voucher: adjust it (says neither the voucher's value nor what is left to pay) |
+| `dependency_unavailable` | the voucher service is unreachable: retry shortly (the only line that offers a retry) |
+| `role_denied` | this session cannot apply a voucher: sign in as a cashier |
+| anything else (session, attempt or contract errors; a lost answer) | the generic line «تعذّر استخدام هذه القسيمة حالياً.» |
 
-The audit log distinguishes the actual reason; the cashier-visible copy does NOT. This prevents an attacker from probing codes against the POS surface to enumerate valid voucher numbers, expiry windows, redemption status, etc. (§A4-B reviewer decision F-A4B-003.)
+A settle that V-A refuses at redeem time shows the same line for the six closed `voucher_*` reasons (and then that the payment ended), never the «try again» line. The structured reason code never reaches the DOM. The audit log still records the actual reason.
+
+**Residual risk (accepted by the owner's decision).**
+
+- «expired», «cancelled», «already used» and «not valid in this store» confirm that a code exists in this organization. Backend-Core's per-device limiter (RT-1112, `posVoucherLookupFailure`) bounds only **failed** lookups: about 10 misses per 15 minutes per device. A lookup that finds its code gives its hit back, so someone who already holds real codes (from receipts, or a leak) can check each one's state without a limit, and the limiter fails open when Redis or the limiter itself fails. The cashier's admitted session is the other bound.
+- No refusal line states the voucher's value. The forfeit prompt does reveal it (value = applied + forfeited), by design (RT-1098). The overpayment refusal also tells a cashier who holds a code whether an amount exceeds the value.
+- What stays hidden: a code from another organization (it reads like an unknown code) and the voucher's holder.
 
 ### Authority unreachable flow
 
@@ -103,8 +117,9 @@ If V-A is unreachable (network/transport failure) during:
 
 ### Edge cases
 
-- **Voucher exceeds remaining balance.** Refused with the generic copy (one of the 8 reasons collapses to it).
-- **Already-redeemed voucher.** Refused with the generic copy.
+- **Voucher exceeds remaining balance.** Refused with the «amount not accepted for this voucher» line (see the table above).
+- **Already-redeemed voucher.** Refused with the «already used» line.
+- **Voucher worth more than the amount applied (RT-1331, decision 1A).** The cashier is shown the part that would be forfeited and must confirm before the line is applied; cancelling sends nothing.
 - **Cashier wants to remove a voucher line.** Tap **Reverse** on the line. Handler calls `tender.reverse` → V-A `vouchers.reverse` → if `reversed`, line → `reversed` state; if `authority_unreachable`, line → `reversal_pending` and the resolver retries on app start / network restore.
 
 ### Implementation references
@@ -112,7 +127,7 @@ If V-A is unreachable (network/transport failure) during:
 - Renderer: [`src/renderer/ui/payments/VoucherEntry.tsx`](../../src/renderer/ui/payments/VoucherEntry.tsx)
 - V-A client: [`src/main/payments/voucher-authority-client/`](../../src/main/payments/voucher-authority-client/) (`validate.ts`, `redeem.ts`, `reverse.ts`, `refusal-mapping.ts`, `error-body.ts`)
 - Handler chain: [`tender-apply.ts`](../../src/main/payments/handlers/tender-apply.ts) → [`apply-voucher-line.ts`](../../src/main/payments/handlers/apply-voucher-line.ts) → V-A
-- Generic refusal copy enforcement: [`tests/unit/renderer/payments/VoucherEntry.refusal-copy.test.tsx`](../../tests/unit/renderer/payments/VoucherEntry.refusal-copy.test.tsx)
+- Refusal copy: [`voucher-refusal-copy.ts`](../../src/renderer/ui/payments/voucher-refusal-copy.ts), pinned by [`voucher-refusal-copy.test.ts`](../../tests/unit/renderer/payments/voucher-refusal-copy.test.ts) and [`VoucherEntry.refusal-copy.test.tsx`](../../tests/unit/renderer/payments/VoucherEntry.refusal-copy.test.tsx)
 
 ---
 

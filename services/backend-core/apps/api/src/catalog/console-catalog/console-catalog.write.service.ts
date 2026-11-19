@@ -68,6 +68,7 @@ import type {
   UpdateCatalogProductBody,
   UpsertStoreOverrideBody,
 } from "./console-catalog.write-bodies";
+import { findCallerRoleCode } from "../../context";
 
 export type CatalogWriteRefusalCode =
   | "stale_write"
@@ -706,7 +707,8 @@ export class ConsoleCatalogWriteService {
     input: CatalogWriteInput,
     target: { readonly storeId: string },
   ): Promise<StoreAccess> {
-    const roleCode = await this.memberships.findRoleCodeForUserInTenant(input.actorUserId, input.tenantId, client);
+    // RT-1470: a session platform admin decides as an owner (tenant-wide), member or not.
+    const roleCode = await findCallerRoleCode(this.memberships, client, input);
     const scope: StoreScope = readScope({ context: input.context, roleCode });
     if (!inStoreScope(scope, target.storeId)) throw new CatalogStoreNotInScopeError();
     const store = await client.query(LIVE_STORE_SQL, [target.storeId, input.tenantId]);

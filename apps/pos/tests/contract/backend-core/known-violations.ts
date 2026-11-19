@@ -46,4 +46,16 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'src/shared/api-types.ts (a forbidden path) and needs codegen to keep only /api/pos/v1/ ' +
       'paths (RT-869). RT-1046 vendors it under its own exemption and deletes this entry.',
   },
+  {
+    call: 'unknownItemCaptureClient.send',
+    kind: 'endpoint-missing',
+    tickets: ['RT-1490', 'RT-1046'],
+    note:
+      'POST /api/pos/v1/catalog/unknown-items (posCaptureItem) is real (spec 005, ' +
+      'catalog/unknown-items.yaml). It is not vendored for the same reason as branding: the file ' +
+      'also holds the Console /api/v1/catalog/unknown-items routes, which the POS codegen may not ' +
+      'carry (RT-869). When it is vendored, expect a credential-mismatch: the contract still names ' +
+      'the legacy `clerkJwt` scheme, but the route is guarded by PosOperatorAuthGuard, which accepts ' +
+      'only the pos_operator envelope this client sends (the same credential as the sale read).',
+  },
 ];

@@ -73,7 +73,38 @@ export function resizeTo(nextWidth: number, nextHeight = height): void {
   });
 }
 
-/** The tier hook's debounce (100 ms) plus a margin, in real time. */
+/** The tier hook subscribes to all four queries in one effect, so all four must have a listener. */
+function allQueriesSubscribed(): boolean {
+  return QUERIES.every((query) => (listeners.get(query) ?? []).length > 0);
+}
+
+/**
+ * RT-1501 — resolves once every query has a `change` listener (the tier hook
+ * subscribes to all four in one effect). Await it after a mount that
+ * happens outside `act` (a route that appears after an awaited read) and
+ * before the first `resizeTo`: a resize in that gap reaches no listener, so
+ * the hook never updates and no wait can recover it. A synchronous `render()`
+ * flushes its effects inside `act` and does not need it.
+ */
+export async function viewportSubscribed(timeoutMs = 2000): Promise<void> {
+  await vi.waitFor(
+    () => {
+      if (!allQueriesSubscribed()) {
+        throw new Error('no viewport subscriber: the tier hook has not subscribed to matchMedia');
+      }
+    },
+    { timeout: timeoutMs, interval: 2 },
+  );
+}
+
+/**
+ * The tier hook's debounce (100 ms) plus a margin, in real time (real timers
+ * only; under fake timers the sleep would not run the debounce). Sound once the
+ * hook has subscribed (`viewportSubscribed`): `resizeTo` starts the hook's
+ * 100 ms timer before this 150 ms one is created, and timers fire in expiry
+ * order, so the debounce has run, and `act` has flushed its update, by the time
+ * this resolves.
+ */
 export async function settleTier(): Promise<void> {
   await act(async () => {
     await new Promise((resolve) => setTimeout(resolve, 150));

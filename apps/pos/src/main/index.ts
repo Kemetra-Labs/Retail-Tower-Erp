@@ -1299,8 +1299,7 @@ singleInstanceReady
       recoveryRef,
     };
     const paymentsCore = registerCart(paymentsCartDeps);
-    // `paymentAttemptFsm` and `paymentAuditEmitter` are also read, lazily, by the held-cart wiring
-    // above (RT-442); it only calls them at a sign-in or session end.
+    // The held-cart wiring above (RT-442) also reads the FSM and audit emitter, lazily, at sign-in/end.
     const { forwardAuditEvent, settledAuditReconciler, paymentAttemptFsm, paymentAuditEmitter } =
       paymentsCore;
     const deviceReadDownDeps = {
@@ -1314,6 +1313,7 @@ singleInstanceReady
       backendFetch,
       deviceAuthDetector,
       readSendableDeviceToken,
+      operatorEnvelopeHolder, // RT-1490: the unknown-item capture's credential
     };
     const { bootPairing } = await registerCatalogue(deviceReadDownDeps);
     registerBranding(deviceReadDownDeps);

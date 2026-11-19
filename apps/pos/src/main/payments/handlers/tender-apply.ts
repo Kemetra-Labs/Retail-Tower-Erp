@@ -192,6 +192,10 @@ export function createTenderApplyHandler(deps: TenderApplyHandlerDeps): TenderAp
     if (outcome.kind === 'refused') {
       return { kind: 'refused', reason: outcome.reason };
     }
+    if (outcome.kind === 'forfeit_confirmation_required') {
+      // RT-1331: no line, no audit; the renderer shows the amount and asks again.
+      return outcome;
+    }
     return {
       kind: 'ok',
       tender_line_id: outcome.tender_line_id,

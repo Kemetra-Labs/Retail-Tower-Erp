@@ -176,7 +176,7 @@ async function payCash(app: App, attempt: string, amount: number): Promise<void>
     amount_applied_minor: amount,
     idempotency_key: crypto.randomUUID(),
   });
-  if (r.kind !== 'ok') throw new Error(`apply refused: ${r.reason}`);
+  if (r.kind !== 'ok') throw new Error(`apply refused: ${JSON.stringify(r)}`);
 }
 
 function one(sql: string, params: unknown[]): Record<string, unknown> {

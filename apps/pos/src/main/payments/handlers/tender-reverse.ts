@@ -187,8 +187,8 @@ export function createTenderReverseHandler(deps: TenderReverseHandlerDeps): Tend
       // refusal); other V-A codes (validation_failure, idempotency,
       // tenant/branch mismatch, etc.) collapse to `line_not_applied`
       // because they are out-of-band for the cashier-facing reverse
-      // surface. F-A4B-003 8→1 refusal-copy mapping continues to
-      // apply at the renderer.
+      // surface. (F-A4B-003's 8→1 copy rule was superseded for the apply path by
+      // RT-1331; the reverse path still collapses to `line_not_applied`.)
       return { kind: 'refused', reason: mapReverseRefusal(outcome.reason) };
     }
     const audit = voucherAuditBase(req, line, attempt, session);
@@ -357,8 +357,8 @@ function mapReverseRefusal(
     | 'redemption_tenant_mismatch'
     | 'redemption_branch_mismatch',
 ): 'line_not_applied' {
-  // F-A4B-003 — 8-code → 1 generic refusal-copy mapping. Every V-A
-  // reverse refusal collapses to `line_not_applied` on the bridge.
+  // Reverse path: every V-A reverse refusal collapses to `line_not_applied` on the
+  // bridge (F-A4B-003's rule; superseded for the apply path by RT-1331, kept here).
   // The structured `code` remains in the V-A client's logger for ops
   // triage; the bridge response never carries the underlying reason.
   void code;

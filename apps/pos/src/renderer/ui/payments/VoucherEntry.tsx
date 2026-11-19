@@ -4,6 +4,8 @@ import type { TenderApplyRequest, TenderApplyResponse } from '../../../shared/br
 import { touchTarget } from '../tokens/touch.js';
 import { PinnedPrimary } from './CheckoutActionBar.js';
 import { parseCurrencyToMinor } from './parse-currency-to-minor.js';
+import { VOUCHER_REFUSAL_GENERIC_COPY, voucherRefusalCopy } from './voucher-refusal-copy.js';
+import { VoucherForfeitPrompt } from './VoucherForfeitPrompt.js';
 import { normalizeNumericInput } from '../forms/normalize-digits.js';
 
 /**
@@ -20,10 +22,11 @@ import { normalizeNumericInput } from '../forms/normalize-digits.js';
  * `applied` and the intent token stays main-side (FR-017).
  *
  * SECURITY:
- *   - F-A4B-003 enforcement: all 8 voucher refusal reasons map to
- *     ONE generic renderer copy string. The structured `refusal.reason`
- *     NEVER enters the DOM — that's the §A4-B reviewer decision
- *     recorded in `reviews/a4b-vouchers-bridge-brief.md` §6.
+ *   - Refusal copy (RT-1331, owner decision 2026-11-19, superseding
+ *     F-A4B-003's one-generic-line rule): each refusal reason maps to a
+ *     closed Arabic line in `voucher-refusal-copy.ts`. The structured
+ *     `refusal.reason` NEVER enters the DOM, and a cross-tenant code reads
+ *     like an unknown one.
  *   - FR-017: no voucher tokens, no voucher balance, no holder PII,
  *     no campaign metadata in props or rendered output. The voucher
  *     code IS rendered (it's the cashier's own input).
@@ -43,16 +46,27 @@ export interface VoucherEntryProps {
   onApplied?: (response: Extract<TenderApplyResponse, { kind: 'ok' }>) => void;
 }
 
-/**
- * F-A4B-003 reviewer decision: every voucher refusal reason — closed
- * enum from `contracts/bridge-api.md` §"vouchers.*" + spec FR-006 —
- * maps to this single renderer string. An attacker cannot enumerate
- * voucher validity, balance, or holder existence by probing codes
- * against the POS surface; only the audit log distinguishes.
- */
-const GENERIC_VOUCHER_REFUSAL_COPY = 'تعذّر استخدام هذه القسيمة حالياً.';
-
 const VOUCHER_CODE_PATTERN = /^[A-Z0-9_-]+$/;
+
+/**
+ * The forfeit a `forfeit_confirmation_required` answer asks the cashier to confirm, or
+ * null for any other answer. An answer without a positive safe integer is not a prompt
+ * (there is nothing to confirm): it falls through to the generic refusal, failing closed.
+ */
+function usableForfeit(response: TenderApplyResponse): number | null {
+  if (response.kind !== 'forfeit_confirmation_required') {
+    return null;
+  }
+  const forfeited = response.forfeited_amount_minor;
+  return Number.isSafeInteger(forfeited) && forfeited > 0 ? forfeited : null;
+}
+
+/** A confirmation the cashier has been asked for; edits to the inputs discard it. */
+interface PendingForfeit {
+  readonly forfeitedMinor: number;
+  readonly amountMinor: number;
+  readonly code: string;
+}
 
 /*
  * 022 Phase C — `formatMinorUnits` was removed with the duplicate
@@ -74,9 +88,11 @@ export function VoucherEntry({
 }: Readonly<VoucherEntryProps>): JSX.Element {
   const [voucherCode, setVoucherCode] = useState<string>('');
   const [rawAmountInput, setRawAmountInput] = useState<string>('');
-  const [bridgeRefusal, setBridgeRefusal] = useState<boolean>(false);
+  // The Arabic line for the refusal on screen, or null (RT-1331: per reason, never the code).
+  const [refusalCopy, setRefusalCopy] = useState<string | null>(null);
   const [isApplying, setIsApplying] = useState<boolean>(false);
   const [appliedOk, setAppliedOk] = useState<boolean>(false);
+  const [pendingForfeit, setPendingForfeit] = useState<PendingForfeit | null>(null);
 
   // CR-1 (PR #226): React's `disabled` reflects state asynchronously,
   // so two rapid clicks can dispatch two bridge calls before
@@ -87,6 +103,17 @@ export function VoucherEntry({
   // double-fire deterministically; the render-state `disabled` stays
   // as secondary UX feedback.
   const submitLockRef = useRef<boolean>(false);
+
+  // RT-1331: bumped on every accepted edit of the code or the amount. A forfeit answer
+  // belongs to the input that was sent; if either input changed while the request was in
+  // flight, the answer is discarded (nothing was persisted for it), so a prompt is never
+  // restored for a code or amount the cashier no longer sees, and confirming can never
+  // acknowledge input other than what is on screen.
+  const inputRevisionRef = useRef<number>(0);
+  const noteInputEdited = (): void => {
+    inputRevisionRef.current += 1;
+    if (pendingForfeit !== null) setPendingForfeit(null);
+  };
 
   const amountAppliedMinor = useMemo(() => parseCurrencyToMinor(rawAmountInput), [rawAmountInput]);
 
@@ -107,12 +134,69 @@ export function VoucherEntry({
 
   const canSubmit = codeIsWellFormed && amountIsWellFormed && !isApplying;
 
-  const handleSubmit = (): void => {
+  /**
+   * One `tender.apply` round trip. Without `forfeitAckMinor` main may answer
+   * `forfeit_confirmation_required` (RT-1331); with it, main applies the line only when
+   * the forfeit it just saw still equals the amount the cashier confirmed, else it asks
+   * again with the new amount. Every call carries a FRESH idempotency key: the first
+   * answer persisted nothing, so there is nothing to replay.
+   */
+  const send = (amount: number, code: string, forfeitAckMinor?: number): void => {
     // Synchronous ref-lock first — beats React's render-state lag
     // against rapid double-clicks.
     if (submitLockRef.current) {
       return;
     }
+    submitLockRef.current = true;
+    const sentRevision = inputRevisionRef.current;
+    setRefusalCopy(null);
+    setIsApplying(true);
+    void (async (): Promise<void> => {
+      try {
+        const response = await tenderApply({
+          payment_attempt_id: paymentAttemptId,
+          tender_type: 'internal_voucher',
+          amount_applied_minor: amount,
+          voucher_code: code,
+          ...(forfeitAckMinor !== undefined ? { voucher_forfeit_ack_minor: forfeitAckMinor } : {}),
+          idempotency_key: generateIdempotencyKey(),
+        });
+        if (response.kind === 'ok') {
+          setPendingForfeit(null);
+          setAppliedOk(true);
+          onApplied?.(response);
+          return;
+        }
+        const forfeitedMinor = usableForfeit(response);
+        if (forfeitedMinor !== null) {
+          if (sentRevision === inputRevisionRef.current) {
+            setPendingForfeit({ forfeitedMinor, amountMinor: amount, code });
+          }
+          return;
+        }
+        // RT-1331: the refusal's own Arabic line. The structured `response.reason` is
+        // looked up, never rendered. A forfeit answer without a usable amount has no
+        // reason and lands on the generic line: it fails closed. The line states a fact
+        // about the code that was sent, so a refusal that arrives after the cashier edited
+        // the code or the amount is dropped, like a stale forfeit answer above.
+        setPendingForfeit(null);
+        if (sentRevision === inputRevisionRef.current) {
+          setRefusalCopy(voucherRefusalCopy(response.kind === 'refused' ? response.reason : null));
+        }
+      } catch {
+        // A rejected bridge call (IPC error / main-process crash /
+        // timeout) MUST NOT leave the surface stuck in `isApplying`.
+        // The generic refusal line — error details stay upstream.
+        setPendingForfeit(null);
+        setRefusalCopy(VOUCHER_REFUSAL_GENERIC_COPY);
+      } finally {
+        setIsApplying(false);
+        submitLockRef.current = false;
+      }
+    })();
+  };
+
+  const handleSubmit = (): void => {
     // Use the raw `amountAppliedMinor` null-check as the guard — this
     // narrows the type cleanly. `canSubmit` is a downstream boolean
     // derived from the same value plus the upper-bound check; checking
@@ -121,37 +205,14 @@ export function VoucherEntry({
     if (amountAppliedMinor === null || !canSubmit) {
       return;
     }
-    submitLockRef.current = true;
-    const amount = amountAppliedMinor;
-    setBridgeRefusal(false);
-    setIsApplying(true);
-    void (async (): Promise<void> => {
-      try {
-        const response = await tenderApply({
-          payment_attempt_id: paymentAttemptId,
-          tender_type: 'internal_voucher',
-          amount_applied_minor: amount,
-          voucher_code: voucherCode,
-          idempotency_key: generateIdempotencyKey(),
-        });
-        if (response.kind === 'ok') {
-          setAppliedOk(true);
-          onApplied?.(response);
-          return;
-        }
-        // F-A4B-003: every refusal reason collapses to one generic copy.
-        // The structured `response.reason` is intentionally NOT rendered.
-        setBridgeRefusal(true);
-      } catch {
-        // A rejected bridge call (IPC error / main-process crash /
-        // timeout) MUST NOT leave the surface stuck in `isApplying`.
-        // Same generic refusal copy — error details stay upstream.
-        setBridgeRefusal(true);
-      } finally {
-        setIsApplying(false);
-        submitLockRef.current = false;
-      }
-    })();
+    send(amountAppliedMinor, voucherCode);
+  };
+
+  const handleForfeitConfirm = (): void => {
+    if (pendingForfeit === null) {
+      return;
+    }
+    send(pendingForfeit.amountMinor, pendingForfeit.code, pendingForfeit.forfeitedMinor);
   };
 
   return (
@@ -165,10 +226,10 @@ export function VoucherEntry({
 
       {/*
         v3.5 tender-slots / tender-row layout for the voucher path.
-        SECURITY invariants (F-A4B-003 / FR-017):
+        SECURITY invariants (FR-017; refusal copy per RT-1331):
           - The voucher code IS rendered (cashier's own input).
           - No voucher balance, holder PII, or campaign metadata in props or DOM.
-          - All 8 refusal reasons collapse to GENERIC_VOUCHER_REFUSAL_COPY only.
+          - Refusals render a closed per-reason line (`voucher-refusal-copy.ts`), never a code.
           - Client-side voucher lookup is FORBIDDEN — validity is resolved
             MAIN-SIDE via the V-A client. No VOUCHERS table, no voucherKnown.
       */}
@@ -188,8 +249,9 @@ export function VoucherEntry({
                 onChange={(e) => {
                   // Voucher codes are upper-case per receipt convention.
                   setVoucherCode(e.target.value.toUpperCase());
-                  if (bridgeRefusal) setBridgeRefusal(false);
+                  if (refusalCopy !== null) setRefusalCopy(null);
                   if (appliedOk) setAppliedOk(false);
+                  noteInputEdited();
                 }}
                 maxLength={64}
                 autoComplete="off"
@@ -227,7 +289,8 @@ export function VoucherEntry({
                 const next = normalizeNumericInput(e.target.value);
                 if (next === '' || /^\d*\.?\d{0,2}$/.test(next)) {
                   setRawAmountInput(next);
-                  if (bridgeRefusal) setBridgeRefusal(false);
+                  if (refusalCopy !== null) setRefusalCopy(null);
+                  noteInputEdited();
                 }
               }}
               inputMode="numeric"
@@ -240,7 +303,7 @@ export function VoucherEntry({
 
       {/* Voucher code error: shown when code length >= 2 but malformed (not well-formed).
           SECURITY: this is a FORMAT error only, NOT a validity signal.
-          The bridge is the only authority on voucher validity (F-A4B-003). */}
+          The bridge is the only authority on voucher validity. */}
       {voucherCode.length > 0 && !codeIsWellFormed && (
         <output className="voucher-error">رمز القسيمة غير صالح: يجب ألا يقل عن 3 أحرف.</output>
       )}
@@ -249,26 +312,37 @@ export function VoucherEntry({
       <p className="voucher-hint">أدخل رمز القسيمة والمبلغ المطلوب تطبيقه، ثم اضغط «تطبيق».</p>
 
       <PinnedPrimary>
-        <button
-          type="button"
-          className="voucher-entry__confirm v5-btn v5-btn--primary v5-btn--commit"
-          data-testid="voucher-entry-confirm"
-          style={{ minHeight: touchTarget.commit }}
-          disabled={!canSubmit}
-          aria-disabled={!canSubmit ? 'true' : undefined}
-          onClick={handleSubmit}
-        >
-          تطبيق القسيمة
-        </button>
+        {pendingForfeit === null ? (
+          <button
+            type="button"
+            className="voucher-entry__confirm v5-btn v5-btn--primary v5-btn--commit"
+            data-testid="voucher-entry-confirm"
+            style={{ minHeight: touchTarget.commit }}
+            disabled={!canSubmit}
+            aria-disabled={!canSubmit ? 'true' : undefined}
+            onClick={handleSubmit}
+          >
+            تطبيق القسيمة
+          </button>
+        ) : (
+          <VoucherForfeitPrompt
+            forfeitedMinor={pendingForfeit.forfeitedMinor}
+            busy={isApplying}
+            onConfirm={handleForfeitConfirm}
+            onCancel={() => {
+              setPendingForfeit(null);
+            }}
+          />
+        )}
         {isApplying && (
           <div data-testid="voucher-entry-applying" aria-busy="true">
             جارٍ التطبيق…
           </div>
         )}
 
-        {bridgeRefusal && (
+        {refusalCopy !== null && (
           <div data-testid="voucher-entry-refused" role="alert">
-            {GENERIC_VOUCHER_REFUSAL_COPY}
+            {refusalCopy}
           </div>
         )}
       </PinnedPrimary>

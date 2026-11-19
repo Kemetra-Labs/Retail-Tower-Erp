@@ -1,6 +1,6 @@
 import { usePaymentStore } from '../../stores/payment-store.js';
-import type { PaymentAttemptRendererView } from '../../../shared/payments/types.js';
-import { CONFIRM_ENDED_COPY } from './payment-read-copy.js';
+import type { PaymentAttemptRendererView, RefusalReason } from '../../../shared/payments/types.js';
+import { confirmEndedCopy } from './payment-read-copy.js';
 import {
   CANCEL_FAILED_COPY,
   CANCEL_HOLD_COPY,
@@ -168,7 +168,13 @@ function leaveEndedAttempt(ctx: SurfaceContext, attempt: PaymentAttemptRendererV
 export function followEndedWithReason(
   ctx: SurfaceContext,
   attempt: PaymentAttemptRendererView,
+  /**
+   * RT-1331: why the settle was refused, when its answer said (a V-A voucher refusal names
+   * itself). Required, not defaulted: a caller after a confirm that forgot it would silently
+   * lose the voucher fact. Pass `null` where no confirm answer is involved.
+   */
+  reason: RefusalReason | null,
 ): void {
-  ctx.setBridgeRefusalCopy(attempt.state === 'settled' ? null : CONFIRM_ENDED_COPY);
+  ctx.setBridgeRefusalCopy(attempt.state === 'settled' ? null : confirmEndedCopy(reason));
   followEndedAttempt(ctx, attempt);
 }

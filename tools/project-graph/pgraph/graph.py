@@ -17,6 +17,7 @@ MAX_GRAPH_BYTES = 256 * 1024
 LOW_RISK_TIERS = ("low", "tooling")
 PLAN_JOB = "plan"          # workflow job id of the RT-867 plan job
 PLAN_OUTPUT = "jobs"       # its output: JSON list of selected graph job keys
+PLAN_ACTION = "$/.github/actions/pgraph-plan"   # the composite action every plan job runs (RT-1467 CI-05)
 
 Classification = namedtuple("Classification", "kind owner tiers")
 
@@ -169,7 +170,7 @@ def _schema_errors(data):
             if tname == "high" or not isinstance(tier, dict) or not _is_str_list(tier.get("globs")) \
                     or not _is_str_list(tier.get("jobs")) or not _is_str_list(tier.get("exclude", [])):
                 errs.append(f"SCHEMA: tier {name}.{tname} is malformed")
-        # RT-949: the optional API Jest shadow selector's fast class (pgraph/api_jest_select.py).
+        # The optional API Jest fast class, read by .circleci/scripts/tia-risk-guard.cjs (RT-949, RT-1188).
         fast = prod.get("api_jest_fast")
         if fast is not None and (not isinstance(fast, dict) or not set(fast) <= {"globs", "exclude"}
                                  or not _is_str_list(fast.get("globs")) or not fast["globs"]
@@ -337,6 +338,24 @@ def _literal_name(job_id, job):
     return name if isinstance(name, str) and "${{" not in name else None
 
 
+def _plan_is_shared(plan):
+    """RT-1467 CI-05: a workflow's `plan` job runs the shared composite action and nothing of its
+    own, so the plan logic exists once. Its steps may only be `uses:` steps (checkout and the
+    action); an inline `run:` step would be a second copy of the plan logic."""
+    steps = plan.get("steps")
+    if not isinstance(steps, list) or not all(isinstance(s, dict) for s in steps):
+        return False
+    actions = [s for s in steps if s.get("uses") == PLAN_ACTION]
+    others = [s for s in steps if s.get("uses") != PLAN_ACTION]
+    if len(actions) != 1 or any("run" in s for s in steps):
+        return False
+    # The job output reads `steps.plan.outputs.jobs`, and a condition on the action step could skip the
+    # planning without any rule firing. Beside it only a checkout is allowed.
+    step = actions[0]
+    return (step.get("id") == "plan" and "if" not in step and "continue-on-error" not in step
+            and all(str(s.get("uses", "")).startswith("actions/checkout@") for s in others))
+
+
 def _check_guards(data, workflows, errs):
     """Rule 5b (RT-867, MR-4): CI executes only what the graph selects.
 
@@ -375,6 +394,8 @@ def _check_guards(data, workflows, errs):
             if not isinstance(plan, dict) or PLAN_OUTPUT not in (plan.get("outputs") or {}) \
                     or "if" in plan or _needs(plan):
                 errs.append(f"CI_PLAN_MISSING: {path}")
+            elif not _plan_is_shared(plan):
+                errs.append(f"CI_PLAN_NOT_SHARED: {path}")
         stack, seen = [ids[0]], set()
         while stack:
             jid = stack.pop()

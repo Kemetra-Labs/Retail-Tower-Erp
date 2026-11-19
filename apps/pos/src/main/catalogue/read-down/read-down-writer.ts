@@ -36,10 +36,11 @@
  */
 
 import type { DatabaseHandle } from '../../db/client.js';
-import { normalize } from '../normalize.js';
 import type { CatalogueSyncStateRepo, CatalogueSyncOutcome } from '../catalogue-sync-state-repo.js';
 import { mapSellableRow, type MappedRecord, type SellableCatalogRow } from './map-sellable-row.js';
 import { validateRecord } from './validate-record.js';
+import { createDeltaApplier, type ApplyDeltasInput } from './read-down-delta-writer.js';
+import { BARCODE_COLUMNS, PRODUCT_COLUMNS, prepareRecordInsert } from './record-insert.js';
 
 /**
  * FR-9 / R-RISK-4 abort-threshold (the rejected FRACTION above which a run is
@@ -54,7 +55,15 @@ import { validateRecord } from './validate-record.js';
  */
 export const ABORT_THRESHOLD_REJECTED_FRACTION = 0.5;
 
-export type ReadDownFailureCategory = 'no-store-scope' | 'threshold-exceeded' | 'db-error';
+/**
+ * `delta-rejected` (RT-1487): a delta op failed mapping/validation, so the whole
+ * delta apply was refused and the driver re-baselines with a full snapshot.
+ */
+export type ReadDownFailureCategory =
+  | 'no-store-scope'
+  | 'threshold-exceeded'
+  | 'db-error'
+  | 'delta-rejected';
 
 export interface ReadDownRunInput {
   /** Injected device-principal tenant scope (P17). */
@@ -92,6 +101,18 @@ export interface RecordFetchFailureInput {
 export interface ReadDownWriter {
   run(input: ReadDownRunInput): ReadDownRunResult;
   /**
+   * RT-1487 — apply ordered delta ops onto the live read model in ONE
+   * transaction, with the advanced cursor and freshness written inside it. Any
+   * rejected op refuses the whole apply (`delta-rejected`, nothing written).
+   */
+  applyDeltas(input: ApplyDeltasInput): ReadDownRunResult;
+  /**
+   * RT-1487 — the cursor of the last successful snapshot/delta for this store,
+   * or `null` when there is none (first sync, or the stored row is another
+   * store's), in which case the driver takes a full snapshot.
+   */
+  currentCursor(tenantId: string, branchId: string): string | null;
+  /**
    * Record a FAILED fetch attempt (transport failure before any write). The
    * driver calls this when the client returns `no_connection` / `failed`: the
    * writer never runs, so the driver still needs the freshness clock to show a
@@ -103,58 +124,6 @@ export interface ReadDownWriter {
 
 interface PrepareRun {
   run(...params: unknown[]): unknown;
-}
-
-// Explicit live/staging column lists (NOT `SELECT *`) so the promote INSERT…SELECT
-// can never silently misalign if a future migration reorders columns.
-const PRODUCT_COLUMNS = [
-  'product_id',
-  'tenant_id',
-  'branch_id',
-  'sku',
-  'sku_norm',
-  'name_ar',
-  'name_en',
-  'name_fold',
-  'aliases_json',
-  'alias_fold',
-  'price_minor',
-  'tax_category',
-  'unit_pack_label',
-  'active',
-  'controlled_substance',
-  'prescription_required',
-  'row_version',
-  'created_at',
-  'updated_at',
-] as const;
-
-const BARCODE_COLUMNS = [
-  'barcode_id',
-  'product_id',
-  'tenant_id',
-  'barcode',
-  'barcode_norm',
-  'barcode_kind',
-  'created_at',
-] as const;
-
-/**
- * R1 fold composition (verified against 009 `search.ts` — it LIKEs `name_fold`
- * and `alias_fold` as two separate columns, never concatenated):
- *   name_fold  = normalize(name_ar + ' ' + (name_en ?? ''))
- *   alias_fold = normalize(aliases.join(' '))  (null when no aliases)
- *   sku_norm / barcode_norm = normalize(raw value)
- */
-function nameFold(nameAr: string, nameEn: string | null): string {
-  return normalize(`${nameAr} ${nameEn ?? ''}`);
-}
-
-function aliasFold(aliasesJson: string | null): string | null {
-  if (aliasesJson === null) return null;
-  const aliases = JSON.parse(aliasesJson) as unknown;
-  if (!Array.isArray(aliases) || aliases.length === 0) return null;
-  return normalize((aliases as string[]).join(' '));
 }
 
 export function createReadDownWriter(deps: CreateReadDownWriterDeps): ReadDownWriter {
@@ -179,63 +148,19 @@ export function createReadDownWriter(deps: CreateReadDownWriterDeps): ReadDownWr
    * (~20 s → ~1 s).
    *
    * Live tables are untouched here (staging only), so this does NOT affect FR-7
-   * (the prior-catalogue-intact guarantee is a property of the promote tx alone —
-   * the ONLY live-table writer). A throw mid-loop rolls back the whole staging tx;
+   * (the prior-catalogue-intact guarantee is a property of the promote tx — the
+   * snapshot path's only live-table writer; the RT-1487 delta apply has its own
+   * single transaction). A throw mid-loop rolls back the whole staging tx;
    * `run()`'s outer catch still maps it to `failed` and `promote()` never runs, so
    * the observable outcome is unchanged (single-flight, single thread — no consumer
    * ever reads a half-populated staging). The two prepared statements are now
    * prepared ONCE (not per row) — a side win.
    */
   function stageAll(tenantId: string, branchId: string, recs: MappedRecord[]): void {
-    const productStmt = db.prepare(`
-      INSERT INTO products_staging (${PRODUCT_COLUMNS.join(', ')})
-      VALUES (${PRODUCT_COLUMNS.map(() => '?').join(', ')})
-    `) as PrepareRun;
-    const barcodeStmt = db.prepare(`
-      INSERT INTO product_barcodes_staging (${BARCODE_COLUMNS.join(', ')})
-      VALUES (${BARCODE_COLUMNS.map(() => '?').join(', ')})
-    `) as PrepareRun;
-
+    const insert = prepareRecordInsert(db, 'products_staging', 'product_barcodes_staging');
     const stageTx = db.transaction(() => {
       for (const rec of recs) {
-        const p = rec.product;
-        const fold = nameFold(p.name_ar, p.name_en);
-        const aFold = aliasFold(p.aliases_json);
-        const skuNorm = normalize(p.sku);
-        productStmt.run(
-          p.product_id,
-          tenantId,
-          branchId,
-          p.sku,
-          skuNorm,
-          p.name_ar,
-          p.name_en,
-          fold,
-          p.aliases_json,
-          aFold,
-          p.price_minor,
-          p.tax_category,
-          p.unit_pack_label,
-          p.active,
-          p.controlled_substance,
-          p.prescription_required,
-          p.row_version,
-          p.created_at,
-          p.updated_at,
-        );
-
-        // Explode the barcode records (duplicates preserved — no dedupe, FR-4).
-        for (const b of rec.barcodes) {
-          barcodeStmt.run(
-            b.barcode_id,
-            b.product_id,
-            tenantId,
-            b.barcode,
-            normalize(b.barcode),
-            b.barcode_kind,
-            p.created_at,
-          );
-        }
+        insert(tenantId, branchId, rec);
       }
     });
     stageTx();
@@ -285,7 +210,7 @@ export function createReadDownWriter(deps: CreateReadDownWriterDeps): ReadDownWr
     tx();
   }
 
-  function recordFailure(input: ReadDownRunInput): void {
+  function recordFailure(input: RecordFetchFailureInput): void {
     // Diagnostics only — never advances last_success_at (SC-10). Best-effort:
     // a bookkeeping write failure must not mask the original failure.
     try {
@@ -377,5 +302,12 @@ export function createReadDownWriter(deps: CreateReadDownWriterDeps): ReadDownWr
     }
   }
 
-  return { run, recordFetchFailure: recordFailure };
+  const deltas = createDeltaApplier({ db, syncStateRepo, recordFailure });
+
+  return {
+    run,
+    applyDeltas: (input) => deltas.applyDeltas(input),
+    currentCursor: (tenantId, branchId) => deltas.currentCursor(tenantId, branchId),
+    recordFetchFailure: recordFailure,
+  };
 }

@@ -47,7 +47,7 @@ export class PolicyPublishRefusedError extends Error {
 export interface PublishActor {
   readonly tenantId: string;
   readonly actorUserId: string;
-  /** The caller's membership role in the tenant (null for none). */
+  /** The caller's effective role (RT-1470: owner for a session platform admin), null for none. */
   readonly roleCode: string | null;
   readonly requestId: string | null;
 }

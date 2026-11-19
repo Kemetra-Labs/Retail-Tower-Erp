@@ -1,0 +1,11 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/pricing/price-structure.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+# Contract-only until RT-1484: these are the intended classes.
+
+consoleCreatePriceBook: write
+consoleCreatePriceZone: write
+consoleGetPriceBook: cheapRead
+consoleListPriceBooks: cheapRead
+consoleListPriceZoneStores: cheapRead
+consoleListStorePriceZoneMemberships: cheapRead
+consoleRetirePriceZone: write

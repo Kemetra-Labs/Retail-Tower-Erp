@@ -1,0 +1,96 @@
+# RT-1467 (CI-05): the one copy of the project-graph plan logic. Every root workflow's `plan` job is
+# `checkout` + this action, and pgraph static rule 5b (CI_PLAN_NOT_SHARED) fails if one carries its own
+# `run:` steps, so a fix to the planner is made here once.
+#
+# Trust model, unchanged from the six inline copies it replaces (RT-867, MR-4): the evaluator and
+# graph.yaml are the TRUSTED commit (the PR base; the pushed main commit on push), extracted with
+# `git archive`; the PR head is read as git data only, never executed. This action file itself is read
+# from the same ref as the calling workflow (a pull_request run uses the merge ref, as it does for the
+# workflow file); the enforcing gate (gate.yml) re-evaluates with base code only.
+#
+# Every run step sets `working-directory` to the workspace, so a calling workflow's `defaults.run.working-directory`
+# (backend-core, admin-console, pos, erpnext-connector set one) never decides where it runs.
+#
+# Caller contract: reference it as `uses: $/.github/actions/pgraph-plan` (self-repository syntax: this
+# repository at the commit that is running, so the action needs no checkout). Before it, run
+# `actions/checkout` with `fetch-depth: 0` (the evaluator diffs commits with git plumbing),
+# `persist-credentials: false` and a `sparse-checkout` (cone mode keeps the repo-root files, which is
+# where `.python-version` is read from).
+name: pgraph-plan
+description: Evaluate the trusted project graph for this event and output the selected graph job keys.
+
+outputs:
+  jobs:
+    description: JSON list of selected graph job keys.
+    value: ${{ steps.plan.outputs.jobs }}
+
+runs:
+  using: composite
+  steps:
+    - name: Resolve trusted, base and head commits
+      id: refs
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        EVENT: ${{ github.event_name }}
+        PR_BASE: ${{ github.event.pull_request.base.sha }}
+        PR_HEAD: ${{ github.event.pull_request.head.sha }}
+        SHA: ${{ github.sha }}
+      run: |
+        set -euo pipefail
+        case "$EVENT" in
+          pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
+          push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
+          *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
+        esac
+        [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]]
+        git cat-file -e "$base^{commit}"
+        { echo "base=$base"; echo "head=$head"; } >> "$GITHUB_OUTPUT"
+
+    - name: Extract the trusted evaluator (git archive of the base commit)
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        BASE_SHA: ${{ steps.refs.outputs.base }}
+      run: |
+        set -euo pipefail
+        mkdir -p "$RUNNER_TEMP/pgraph-base"
+        git archive "$BASE_SHA" tools/project-graph | tar -x -C "$RUNNER_TEMP/pgraph-base"
+
+    - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+      with:
+        python-version-file: .python-version
+
+    - name: Install pinned dependencies (from the base commit)
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      run: |
+        python -m pip install --require-hashes --only-binary=:all: --no-deps \
+          -r "$RUNNER_TEMP/pgraph-base/tools/project-graph/requirements.txt"
+
+    - name: Evaluate the project graph
+      id: plan
+      shell: bash
+      working-directory: ${{ github.workspace }}
+      env:
+        EVENT: ${{ github.event_name }}
+        BASE_SHA: ${{ steps.refs.outputs.base }}
+        HEAD_SHA: ${{ steps.refs.outputs.head }}
+      run: |
+        set -euo pipefail
+        cd "$RUNNER_TEMP/pgraph-base/tools/project-graph"
+        python -m pgraph evaluate --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" \
+          --event "$EVENT" --out "$RUNNER_TEMP/plan.json"
+        plan="$RUNNER_TEMP/plan.json"
+        # An invalid trusted graph selects nothing; fail loudly instead of running nothing quietly.
+        if [ "$(jq '.products | length' "$plan")" = "0" ]; then
+          echo "::error::trusted graph invalid: $(jq -c .graph_validation "$plan")"; exit 1
+        fi
+        jobs="$(jq -c '.needed_jobs | if all(test("^[a-z0-9/-]+$")) then . else error("bad job key") end' "$plan")"
+        echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
+        {
+          echo "### project graph plan"
+          echo "graph validation: \`$(jq -r .graph_validation.status "$plan")\` $(jq -c .graph_validation.reasons "$plan"), select_all: \`$(jq -r .select_all "$plan")\`"
+          echo
+          echo "selected: \`$jobs\`"
+        } >> "$GITHUB_STEP_SUMMARY"

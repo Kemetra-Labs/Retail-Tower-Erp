@@ -6,7 +6,6 @@ import tempfile
 import unittest
 
 import support
-from pgraph import api_jest_select as ajs
 from pgraph import evaluate as ev
 from pgraph import gitio
 from pgraph.cli import GRAPH_REPO_PATH, changes_for, proposed_graph
@@ -223,25 +222,6 @@ class SchemaTests(unittest.TestCase):
         g = load_graph(support.trusted_text())
         g["shared_classes"]["docs"]["selects"] = ["bc/nope"]
         self.assertIn("SCHEMA", {e.split(":", 1)[0] for e in validate_graph(g, workflow_jobs=dict(g["jobs"]))})
-
-
-class ApiJestShadowTests(unittest.TestCase):
-    """The RT-949 shadow selector reads a named-job class correctly."""
-
-    def setUp(self):
-        self.data = load_graph(support.trusted_text())
-
-    def _verdict(self, selects):
-        self.data["shared_classes"]["docs"]["selects"] = selects
-        graph = Graph(self.data)
-        return ajs._verdict(graph, ajs.fast_class(graph), ev.Change("M", "docs/x.md"))
-
-    def test_class_naming_the_job_forces_full(self):
-        self.assertEqual(self._verdict([ajs.JOB])[0], "full")
-
-    def test_class_not_naming_the_job_is_ignored(self):
-        self.assertEqual(self._verdict(["contracts/check"])[0], "ignore")
-        self.assertEqual(self._verdict([])[0], "ignore")
 
 
 if __name__ == "__main__":

@@ -52,6 +52,7 @@ import type {
   ObservationBody,
   VarianceLineBody,
 } from './count-session.store';
+import { isSessionPlatformAdminContext } from '../../context';
 
 const UuidSchema = z.string().uuid();
 const CursorSchema = z.string().min(1).max(1024).optional();
@@ -383,7 +384,7 @@ export class CountSessionsController {
     const ctx: ResolvedContext | undefined = request.context;
     if (!ctx || ctx.tenantId === null || ctx.userId === null)
       throw new UnauthorizedException('Unauthorized');
-    return { tenantId: ctx.tenantId, userId: ctx.userId };
+    return { tenantId: ctx.tenantId, userId: ctx.userId, isPlatformAdmin: isSessionPlatformAdminContext(ctx) };
   }
 
   /** The tenant-bound principal, with the path store authorized (404 outside its scope). */
@@ -392,6 +393,6 @@ export class CountSessionsController {
     if (!ctx || ctx.tenantId === null || ctx.userId === null)
       throw new UnauthorizedException('Unauthorized');
     authorizeInventoryStore(ctx, storeId);
-    return { tenantId: ctx.tenantId, userId: ctx.userId };
+    return { tenantId: ctx.tenantId, userId: ctx.userId, isPlatformAdmin: isSessionPlatformAdminContext(ctx) };
   }
 }
