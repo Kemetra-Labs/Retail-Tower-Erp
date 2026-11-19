@@ -491,7 +491,7 @@ class SaleLine:
 		)
 
 
-def _parse_batch_ref(raw: object) -> str | None:
+def _parse_batch_ref(raw: object, where: str = "SaleLine.erpnextBatchRef") -> str | None:
 	"""012 ``ErpnextBatchRef`` (RT-450): absent / null → None; else a strict ``{doctype: "Batch", name}``.
 
 	The Connector applies the name as given and never maps a lot code to a Batch (G7-11).
@@ -499,10 +499,10 @@ def _parse_batch_ref(raw: object) -> str | None:
 	if raw is None:
 		return None
 	if not isinstance(raw, Mapping) or raw.get("doctype") != "Batch":
-		raise ValueError(f"SaleLine.erpnextBatchRef must be a Batch reference, got {raw!r}")
+		raise ValueError(f"{where} must be a Batch reference, got {raw!r}")
 	name = raw.get("name")
 	if not isinstance(name, str) or not name:
-		raise ValueError(f"SaleLine.erpnextBatchRef.name must be a non-empty string, got {name!r}")
+		raise ValueError(f"{where}.name must be a non-empty string, got {name!r}")
 	return name
 
 
@@ -571,15 +571,15 @@ class Sale:
 _ABSENT = object()
 
 
-def _parse_warehouse_ref(raw: object) -> dict | None:
+def _parse_warehouse_ref(raw: object, where: str = "Sale.warehouseRef") -> dict | None:
 	"""012 ``ErpnextWarehouseRef`` (RT-331): a strict ``{doctype: "Warehouse", name}`` or absent (never null)."""
 	if raw is _ABSENT:
 		return None
 	if not isinstance(raw, Mapping) or raw.get("doctype") != "Warehouse":
-		raise ValueError(f"Sale.warehouseRef must be a Warehouse reference, got {raw!r}")
+		raise ValueError(f"{where} must be a Warehouse reference, got {raw!r}")
 	name = raw.get("name")
 	if not isinstance(name, str) or not name:
-		raise ValueError(f"Sale.warehouseRef.name must be a non-empty string, got {name!r}")
+		raise ValueError(f"{where}.name must be a non-empty string, got {name!r}")
 	return {"doctype": "Warehouse", "name": name}
 
 
@@ -815,7 +815,7 @@ class TransferDispatchLine:
 			line_seq=_positive_int(wire["lineSeq"], "TransferDispatchLine.lineSeq"),
 			transfer_line_ref=_non_empty_str(wire["transferLineRef"], "TransferDispatchLine.transferLineRef"),
 			item_code=item.name,
-			batch=_parse_batch_ref(wire["erpnextBatchRef"]),
+			batch=_parse_batch_ref(wire["erpnextBatchRef"], "TransferDispatchLine.erpnextBatchRef"),
 			quantity=_transfer_quantity(wire["quantity"], "TransferDispatchLine"),
 			unit=_non_empty_str(wire["unit"], "TransferDispatchLine.unit"),
 		)
@@ -837,12 +837,18 @@ class TransferDispatchPosting:
 	def from_wire(cls, wire: Mapping[str, object]) -> TransferDispatchPosting:
 		wire = _require_object(wire, "TransferDispatchPosting")
 		_reject_unknown_keys(wire, _TRANSFER_DISPATCH_KEYS, "TransferDispatchPosting", "transfer")
-		source = _parse_warehouse_ref(wire["sourceWarehouseRef"])
-		transit = _parse_warehouse_ref(wire["transitWarehouseRef"])
+		source = _parse_warehouse_ref(
+			wire["sourceWarehouseRef"], "TransferDispatchPosting.sourceWarehouseRef"
+		)
+		transit = _parse_warehouse_ref(
+			wire["transitWarehouseRef"], "TransferDispatchPosting.transitWarehouseRef"
+		)
 		return cls(
 			transfer_ref=_non_empty_str(wire["transferRef"], "TransferDispatchPosting.transferRef"),
-			source_store_id=str(wire["sourceStoreId"]),
-			destination_store_id=str(wire["destinationStoreId"]),
+			source_store_id=_non_empty_str(wire["sourceStoreId"], "TransferDispatchPosting.sourceStoreId"),
+			destination_store_id=_non_empty_str(
+				wire["destinationStoreId"], "TransferDispatchPosting.destinationStoreId"
+			),
 			source_warehouse=source["name"],  # type: ignore[index]
 			transit_warehouse=transit["name"],  # type: ignore[index]
 			posting_datetime=_non_empty_str(
@@ -876,7 +882,7 @@ class TransferReceiveLine:
 			dispatch_line_seq=_positive_int(wire["dispatchLineSeq"], "TransferReceiveLine.dispatchLineSeq"),
 			transfer_line_ref=_non_empty_str(wire["transferLineRef"], "TransferReceiveLine.transferLineRef"),
 			item_code=item.name,
-			batch=_parse_batch_ref(wire["erpnextBatchRef"]),
+			batch=_parse_batch_ref(wire["erpnextBatchRef"], "TransferReceiveLine.erpnextBatchRef"),
 			quantity=_transfer_quantity(wire["quantity"], "TransferReceiveLine"),
 			unit=_non_empty_str(wire["unit"], "TransferReceiveLine.unit"),
 		)
@@ -899,12 +905,18 @@ class TransferReceivePosting:
 	def from_wire(cls, wire: Mapping[str, object]) -> TransferReceivePosting:
 		wire = _require_object(wire, "TransferReceivePosting")
 		_reject_unknown_keys(wire, _TRANSFER_RECEIVE_KEYS, "TransferReceivePosting", "transfer")
-		transit = _parse_warehouse_ref(wire["transitWarehouseRef"])
-		destination = _parse_warehouse_ref(wire["destinationWarehouseRef"])
+		transit = _parse_warehouse_ref(
+			wire["transitWarehouseRef"], "TransferReceivePosting.transitWarehouseRef"
+		)
+		destination = _parse_warehouse_ref(
+			wire["destinationWarehouseRef"], "TransferReceivePosting.destinationWarehouseRef"
+		)
 		return cls(
 			transfer_ref=_non_empty_str(wire["transferRef"], "TransferReceivePosting.transferRef"),
 			receipt_ref=_non_empty_str(wire["receiptRef"], "TransferReceivePosting.receiptRef"),
-			destination_store_id=str(wire["destinationStoreId"]),
+			destination_store_id=_non_empty_str(
+				wire["destinationStoreId"], "TransferReceivePosting.destinationStoreId"
+			),
 			transit_warehouse=transit["name"],  # type: ignore[index]
 			destination_warehouse=destination["name"],  # type: ignore[index]
 			dispatch_document=ErpnextStockEntryRef.from_wire(

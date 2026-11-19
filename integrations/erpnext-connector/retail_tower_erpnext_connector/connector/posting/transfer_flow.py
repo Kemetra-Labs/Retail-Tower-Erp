@@ -268,7 +268,7 @@ def _item_problem(code: str, facts: TransferItemFacts | None, batch: str | None,
 		)
 
 
-def _row_payload(row: TransferRow, uom: str, extra: dict) -> dict:
+def _row_payload(row: TransferRow, uom: str | None, extra: dict) -> dict:
 	payload = {
 		"item_code": row.item_code,
 		"s_warehouse": row.s_warehouse,
@@ -328,7 +328,7 @@ def _dispatch_leg(body: TransferDispatchPosting, port: TransferErpPort, uom_map:
 			items=[
 				_row_payload(
 					row,
-					facts[line.item_code].stock_uom or line.unit,
+					facts[line.item_code].stock_uom,
 					{"rt_transfer_line_ref": line.transfer_line_ref},
 				)
 				for row, line in zip(rows, lines, strict=True)
@@ -437,7 +437,7 @@ def _receive_leg(body: TransferReceivePosting, port: TransferErpPort, uom_map: U
 			items=[
 				_row_payload(
 					row,
-					facts[line.item_code].stock_uom or line.unit,
+					facts[line.item_code].stock_uom,
 					{
 						"ste_detail": by_idx[line.dispatch_line_seq].row_name,
 						"against_stock_entry": dispatch.name,

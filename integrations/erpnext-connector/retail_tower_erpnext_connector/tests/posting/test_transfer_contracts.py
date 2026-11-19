@@ -156,11 +156,28 @@ class TestDispatchParse:
 			(lambda t: t["lines"][0].update(lineSeq=0), "lineSeq"),
 			(lambda t: t["lines"][0].update(unit=""), "unit"),
 			(lambda t: t["lines"][0].update(transferLineRef=""), "transferLineRef"),
-			(lambda t: t["lines"][1].update(erpnextBatchRef={"doctype": "Item", "name": "X"}), "Batch"),
-			(lambda t: t["lines"][1].update(erpnextBatchRef={"doctype": "Batch", "name": ""}), "Batch"),
+			(
+				lambda t: t["lines"][1].update(erpnextBatchRef={"doctype": "Item", "name": "X"}),
+				"TransferDispatchLine.erpnextBatchRef",
+			),
+			(
+				lambda t: t["lines"][1].update(erpnextBatchRef={"doctype": "Batch", "name": ""}),
+				"TransferDispatchLine.erpnextBatchRef.name",
+			),
 			(lambda t: t.update(lines=[]), "lines"),
 			(lambda t: t.update(lines=t["lines"][:1] * 101), "lines"),
-			(lambda t: t.update(sourceWarehouseRef={"doctype": "Item", "name": "x"}), "Warehouse"),
+			(
+				lambda t: t.update(sourceWarehouseRef={"doctype": "Item", "name": "x"}),
+				"TransferDispatchPosting.sourceWarehouseRef",
+			),
+			(
+				lambda t: t.update(transitWarehouseRef={"doctype": "Warehouse", "name": ""}),
+				"TransferDispatchPosting.transitWarehouseRef.name",
+			),
+			(lambda t: t.update(sourceStoreId=None), "TransferDispatchPosting.sourceStoreId"),
+			(lambda t: t.update(sourceStoreId=7), "TransferDispatchPosting.sourceStoreId"),
+			(lambda t: t.update(destinationStoreId=None), "TransferDispatchPosting.destinationStoreId"),
+			(lambda t: t.update(destinationStoreId=""), "TransferDispatchPosting.destinationStoreId"),
 			(lambda t: t.update(postingDatetime=""), "postingDatetime"),
 		],
 	)
@@ -213,6 +230,20 @@ class TestReceiveParse:
 			(lambda r: r["lines"][0].update(dispatchLineSeq=0), "dispatchLineSeq"),
 			(lambda r: r["lines"][0].pop("dispatchLineSeq"), "dispatchLineSeq"),
 			(lambda r: r.update(unknown=1), "invalid_shape"),
+			(lambda r: r.update(destinationStoreId=None), "TransferReceivePosting.destinationStoreId"),
+			(lambda r: r.update(destinationStoreId=7), "TransferReceivePosting.destinationStoreId"),
+			(
+				lambda r: r.update(transitWarehouseRef={"doctype": "Item", "name": "x"}),
+				"TransferReceivePosting.transitWarehouseRef",
+			),
+			(
+				lambda r: r.update(destinationWarehouseRef={"doctype": "Warehouse", "name": ""}),
+				"TransferReceivePosting.destinationWarehouseRef.name",
+			),
+			(
+				lambda r: r["lines"][0].update(erpnextBatchRef={"doctype": "Item", "name": "X"}),
+				"TransferReceiveLine.erpnextBatchRef",
+			),
 		],
 	)
 	def test_a_malformed_receipt_body_is_refused(self, mutate, match):
