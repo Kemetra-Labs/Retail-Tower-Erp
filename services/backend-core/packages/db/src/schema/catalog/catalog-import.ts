@@ -20,8 +20,10 @@
  *                              PK (tenant_id, batch_id, row_number). Deleted
  *                              by a re-upload and the retention purge.
  *
- * Drizzle cannot declare triggers, policies or the jsonpath CHECKs on the JSON
- * shapes; those live in 0124's SQL only: the guard triggers (created as a
+ * Declared here: columns, keys, foreign keys, the simple CHECKs and the three
+ * batch indexes. In 0124's SQL only (Drizzle does not declare triggers or
+ * policies, and this file does not mirror the multi-column and jsonpath
+ * CHECKs on the lifecycle columns and JSON shapes): the guard triggers (created as a
  * draft, identity fixed, version and validation generation forward, a closed
  * batch frozen except `rows_purged_at`, a warning never names its own batch,
  * a profile's id and name fixed, a row's identity and cells fixed), the

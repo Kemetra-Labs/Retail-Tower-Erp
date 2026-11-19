@@ -67,10 +67,14 @@
 -- batch changed after it was read is not expired (ix_..._expiry serves it).
 --
 -- What this migration does NOT enforce (the runtime does; spec 049 §5-§8):
--- the content of `cells`, `outcome`, `issues`, `counts` and `publish_summary`
--- beyond their JSON type; that a mapping names every column once; that a row
--- number is within the batch's data rows; the 7-day arithmetic; the 30-day
--- and 13-month purge ages.
+-- the content of `cells`, `outcome`, `issues`, `counts`, `columns`, `warnings`
+-- and `publish_summary` beyond their JSON type; that a mapping names each
+-- column exactly once (only its length = column_count, its element shape and
+-- keys are checked); that a row number is within the batch's data rows; that
+-- the rows of a closed batch stay unchanged (a closed batch's header is frozen,
+-- its rows are not: RT-1505 / RT-1507 write rows only of an open batch, and
+-- publish sets product_id in the publishing transaction); the 7-day
+-- arithmetic; the 30-day and 13-month purge ages.
 --
 -- RLS: ENABLE + FORCE on all three, with tenant policies (the empty-GUC CASE
 -- of 0010 / 0091 / 0097 / 0101 / 0121): SELECT, INSERT and UPDATE everywhere;
@@ -237,6 +241,10 @@ CREATE TABLE catalog_import_batches (
   CONSTRAINT catalog_import_batches_mapping CHECK (
     mapping IS NULL OR (
       jsonb_typeof(mapping) = 'array' AND jsonb_array_length(mapping) BETWEEN 1 AND 50
+      -- A confirmed mapping names every column of the file (the contract: each column exactly once).
+      AND jsonb_array_length(mapping) = column_count
+      -- additionalProperties: false: no key besides columnNumber and target.
+      AND NOT jsonb_path_exists(mapping, 'strict $[*].keyvalue() ? (@.key != "columnNumber" && @.key != "target")', '{}', true)
       AND NOT jsonb_path_exists(mapping, 'strict $[*] ? (@.type() != "object")', '{}', true)
       AND NOT jsonb_path_exists(mapping, '$[*] ? (!(exists(@.columnNumber) && @.columnNumber.type() == "number"
             && @.columnNumber >= 1 && @.columnNumber <= 50 && @.columnNumber.floor() == @.columnNumber
@@ -244,6 +252,8 @@ CREATE TABLE catalog_import_batches (
             && @.target like_regex "^(sku|barcode|plu|name|description|category|brand|tax_category|is_active|price|currency|ignore)$"))'))),
   CONSTRAINT catalog_import_batches_suggested_mapping CHECK (
     jsonb_typeof(suggested_mapping) = 'array' AND jsonb_array_length(suggested_mapping) <= 50
+    AND jsonb_array_length(suggested_mapping) <= column_count
+    AND NOT jsonb_path_exists(suggested_mapping, 'strict $[*].keyvalue() ? (@.key != "columnNumber" && @.key != "target")', '{}', true)
     AND NOT jsonb_path_exists(suggested_mapping, 'strict $[*] ? (@.type() != "object")', '{}', true)
     AND NOT jsonb_path_exists(suggested_mapping, '$[*] ? (!(exists(@.columnNumber) && @.columnNumber.type() == "number"
           && @.columnNumber >= 1 && @.columnNumber <= 50 && @.columnNumber.floor() == @.columnNumber

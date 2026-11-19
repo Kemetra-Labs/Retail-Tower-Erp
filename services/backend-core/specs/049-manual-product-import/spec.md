@@ -245,13 +245,16 @@ The states are the spec 042 §3 names, so the batch can become a `catalog`-domai
   new one only when validation runs) and the `status` query filter, not to `version`, so recording a review decision
   does not invalidate the paging, and a cursor is never reused under another filter (contract 1.0.2-draft).
 - One **open** batch per tenant at a time (a second upload while one is open is `409 import_batch_open`, with the open
-  batch's id), which keeps the preview honest and the publish lock simple. Cancel is explicit.
+  batch's id), which keeps the preview honest and the publish lock simple. Cancel is explicit: like expiry and
+  publish it closes the batch (`closed_at` set, `expires_at` cleared), and a cancelled batch keeps no
+  `preview_hash` (`preview_hash = NULL`; the counts of its last validation stay).
 - Every call that changes the batch sends `expectedVersion`; a mismatch is `409 version_conflict` (spec 042 code).
 - An open batch expires after 7 days (`expired`), keeping its rows for audit (30 days, OD-6). `expires_at` is the
   last change + 7 days, moved on every change. The expiry is a conditional
   `UPDATE … SET state = 'expired', … WHERE state IN ('draft','validated') AND version = $v AND expires_at <= now()`
   with the version the worker read, so a batch changed after that read is never expired; expiring closes the batch
-  (`closed_at` set, `expires_at` cleared) and bumps `version`.
+  (`closed_at` set, `expires_at` cleared, `preview_hash = NULL` for a `validated` batch, as the contract returns a
+  preview hash only when validated or published) and bumps `version`.
 
 ### 8.2 Validation is bound to catalogue state (402, 403)
 
@@ -496,6 +499,10 @@ Definition of Ready, with a contract revision where the wire changes:
 - **Reads after the row purge (S4 / S5).** Once the retention purge has deleted a batch's rows (`rows_purged_at` set),
   the row list, preview and error report have nothing to return. The contract has no refusal for that yet; a later
   contract revision adds one, and the runtime must not answer with an empty list as if the batch had no rows.
+- **Blank rows and `row_number` (S4).** A row's number is its source row number (row 1 is the header), so the row
+  numbers of a batch can have gaps where the file has fully blank rows. S4 decides whether a blank row is skipped (a
+  gap, and not counted in `data_row_count`) or staged as an `error` row, and states it with the no-silent-skip rule
+  (decision 419); 0124 only bounds `row_number` to 2..5001.
 
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 

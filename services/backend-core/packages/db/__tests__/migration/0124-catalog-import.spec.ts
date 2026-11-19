@@ -22,9 +22,10 @@
  *   - two-tenant isolation under FORCE RLS as the app role;
  *   - a role holding exactly the production grants
  *     (docs/operations/sql/catalog-import-domain-grants.sql);
- *   - UP -> DOWN -> UP, also as a NOSUPERUSER migration owner under FORCE RLS
- *     with the session tenant GUC pre-set to '' (the empty-GUC cast case), and
- *     the down REFUSES while a batch or a mapping profile exists.
+ *   - DOWN -> DOWN (rerun) -> UP as a NOSUPERUSER migration owner under FORCE
+ *     RLS with the session tenant GUC pre-set to '' (the empty-GUC cast case),
+ *     then DOWN -> UP as the superuser; the down REFUSES while a batch or a
+ *     mapping profile exists.
  *
  * Docker policy: missing Docker is a HARD failure unless
  * MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
@@ -239,15 +240,15 @@ async function seedBaseline(): Promise<void> {
 // -----------------------------------------------------------------------------
 
 /**
- * True only when the error says no container runtime is reachable. A file
- * error (a missing SQL fixture read by startPgEnv) or any other setup failure
- * is never mistaken for missing Docker, so MIGRATION_TEST_ALLOW_SKIP cannot
- * turn it into a silent skip.
+ * True only for Testcontainers' "no container runtime" error (testcontainers
+ * 11.x, container-runtime/clients/client.js), raised before any container
+ * exists. An image pull failure, a container start failure, a file error (a
+ * missing SQL fixture read by startPgEnv) or any other setup failure is
+ * rethrown, so MIGRATION_TEST_ALLOW_SKIP cannot turn it into a silent skip.
  */
 function isDockerUnavailable(err: unknown): boolean {
-  const e = err as { code?: unknown; syscall?: unknown; path?: unknown; message?: unknown };
-  if (typeof e?.path === "string" || (typeof e?.syscall === "string" && e.syscall !== "connect")) return false;
-  return /container runtime|docker/i.test(String(e?.message ?? err));
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Could not find a working container runtime strategy");
 }
 
 beforeAll(async () => {
@@ -507,6 +508,29 @@ describe("0124_catalog_import — batches", () => {
     });
   });
 
+  it("expires or cancels a validated batch only together with clearing its preview hash", async () => {
+    if (skip()) return;
+    await admin(async (c) => {
+      await validate(c, BATCH_A);
+      await c.query(`UPDATE catalog_import_batches SET expires_at = now() - interval '1 second' WHERE id = $1`, [BATCH_A]);
+      const keepHash = `UPDATE catalog_import_batches SET state = $2, version = version + 1, expires_at = NULL, closed_at = now()
+                         WHERE id = $1 AND state IN ('draft', 'validated') AND version = 2 AND expires_at <= now()`;
+      const clearHash = keepHash.replace("closed_at = now()", "closed_at = now(), preview_hash = NULL");
+      for (const state of ["expired", "cancelled"]) {
+        expect([state, await sp(c, () => c.query(keepHash, [BATCH_A, state]))]).toEqual([state, "23514"]);
+      }
+      const r = await c.query(clearHash, [BATCH_A, "expired"]);
+      expect(r.rowCount).toBe(1);
+      const row = await c.query<{ state: string; preview_hash: string | null; counts: unknown }>(
+        `SELECT state, preview_hash, counts FROM catalog_import_batches WHERE id = $1`,
+        [BATCH_A],
+      );
+      // The counts of the last validation stay with the closed batch.
+      expect(row.rows[0]).toMatchObject({ state: "expired", preview_hash: null });
+      expect(row.rows[0]!.counts).not.toBeNull();
+    });
+  });
+
   it("stores warnings that never name the batch itself", async () => {
     if (skip()) return;
     await admin(async (c) => {
@@ -525,22 +549,25 @@ describe("0124_catalog_import — batches", () => {
   it("stores mapping and suggested_mapping as the contract's ColumnMapping[]", async () => {
     if (skip()) return;
     await admin(async (c) => {
-      const bad = [
-        "[]",
-        '{"sku": 1}',
-        '[{"columnNumber": 0, "target": "sku"}]',
-        '[{"columnNumber": 51, "target": "sku"}]',
-        '[{"columnNumber": 1.5, "target": "sku"}]',
-        '[{"columnNumber": "1", "target": "sku"}]',
-        '[{"columnNumber": 1, "target": "price_list"}]',
-        '[{"target": "sku"}]',
-        '[{"columnNumber": 1}]',
+      // Each bad element is paired with a valid one, so the array has the batch's two columns and only the shape fails.
+      const VALID = '{"columnNumber": 2, "target": "name"}';
+      const badElements = [
+        '{"columnNumber": 0, "target": "sku"}',
+        '{"columnNumber": 51, "target": "sku"}',
+        '{"columnNumber": 1.5, "target": "sku"}',
+        '{"columnNumber": "1", "target": "sku"}',
+        '{"columnNumber": 1, "target": "price_list"}',
+        '{"target": "sku"}',
+        '{"columnNumber": 1}',
+        // additionalProperties: false.
+        '{"columnNumber": 1, "target": "sku", "extra": true}',
         // Non-object elements, also when a lax path would unwrap them.
-        "[[]]",
-        '[[{"columnNumber": 1, "target": "sku"}]]',
-        "[1]",
-        '["sku"]',
+        "[]",
+        '[{"columnNumber": 1, "target": "sku"}]',
+        "1",
+        '"sku"',
       ];
+      const bad = ["[]", '{"sku": 1}', ...badElements.map((el) => `[${el}, ${VALID}]`)];
       for (const value of bad) {
         expect([value, await sp(c, () => c.query(`UPDATE catalog_import_batches SET mapping = $2 WHERE id = $1`, [BATCH_A, value]))]).toEqual([
           value,
@@ -552,6 +579,22 @@ describe("0124_catalog_import — batches", () => {
           value,
           await sp(c, () => c.query(`UPDATE catalog_import_batches SET suggested_mapping = $2 WHERE id = $1`, [BATCH_A, value])),
         ]).toEqual([value, "23514"]);
+      }
+      // Length: a confirmed mapping has exactly column_count (2) entries; a suggestion at most that many.
+      const one = '[{"columnNumber": 1, "target": "sku"}]';
+      const three = `[{"columnNumber": 1, "target": "sku"}, ${VALID}, {"columnNumber": 3, "target": "brand"}]`;
+      for (const value of [one, three]) {
+        expect([value, await sp(c, () => c.query(`UPDATE catalog_import_batches SET mapping = $2 WHERE id = $1`, [BATCH_A, value]))]).toEqual([
+          value,
+          "23514",
+        ]);
+      }
+      expect(await sp(c, () => c.query(`UPDATE catalog_import_batches SET suggested_mapping = $2 WHERE id = $1`, [BATCH_A, three]))).toBe("23514");
+      for (const value of ["[]", one]) {
+        expect([value, await sp(c, () => c.query(`UPDATE catalog_import_batches SET suggested_mapping = $2 WHERE id = $1`, [BATCH_A, value]))]).toEqual([
+          value,
+          null,
+        ]);
       }
       const ok = '[{"columnNumber": 1, "target": "ignore"}, {"columnNumber": 2, "target": "barcode"}]';
       expect(await sp(c, () => c.query(`UPDATE catalog_import_batches SET mapping = $2, suggested_mapping = $2 WHERE id = $1`, [BATCH_A, ok]))).toBeNull();
@@ -820,13 +863,24 @@ describe("0124_catalog_import — down migration", () => {
     if (skip()) return;
     const e = guard();
     await clearImport();
-    const owner = { role: "rt1503_down_owner", tables: OWNER_TABLES, functions: FUNCTIONS };
+    // The owner also owns tenant_products: re-running UP as it creates the FKs to that table.
+    const owner = { role: "rt1503_down_owner", tables: [...OWNER_TABLES, "tenant_products"], functions: FUNCTIONS };
     await asMigrationOwner(e, owner, async () => {
       expect(await runFileWithEmptyGuc(DOWN_PATH, owner.role)).toBeNull();
+      for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, false]);
+      const fns = await e.admin.query(`SELECT 1 FROM pg_proc WHERE proname = ANY($1)`, [FUNCTIONS.map((f) => f.replace(/\(.*\)$/, ""))]);
+      expect(fns.rowCount).toBe(0);
+      // Rerunnable, then UP again, both as the NOSUPERUSER owner with the empty tenant GUC.
+      expect(await runFileWithEmptyGuc(DOWN_PATH, owner.role)).toBeNull();
+      expect(await runFileWithEmptyGuc(UP_PATH, owner.role)).toBeNull();
+      const owned = await e.admin.query<{ n: string }>(
+        `SELECT count(*)::text AS n FROM pg_class WHERE relname = ANY($1) AND pg_get_userbyid(relowner) = $2`,
+        [[...TABLES], owner.role],
+      );
+      expect(owned.rows[0]!.n).toBe("3");
     });
-    for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, false]);
-    const fns = await e.admin.query(`SELECT 1 FROM pg_proc WHERE proname = ANY($1)`, [FUNCTIONS.map((f) => f.replace(/\(.*\)$/, ""))]);
-    expect(fns.rowCount).toBe(0);
+    for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, true]);
+    // And the superuser round trip.
     await e.admin.query(downSql);
     await e.admin.query(upSql);
     for (const table of TABLES) expect([table, await exists(table)]).toEqual([table, true]);
