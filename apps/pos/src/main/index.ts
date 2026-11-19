@@ -1493,8 +1493,7 @@ singleInstanceReady
           pairingStatus,
         );
 
-        // RT-900 extraction 6c — the 011 sale-sync engine: capture client, rollout gates, engine,
-        // status handler, terminal-status sync axis and drain interval (see `bootstrap/sale-sync.ts`).
+        // RT-900 extraction 6c — the 011 sale-sync engine (see `bootstrap/sale-sync.ts`); RT-1312 F17 hold.
         startSaleSyncEngine(
           {
             guardedIpcMain,
@@ -1506,6 +1505,7 @@ singleInstanceReady
             pairingStore,
             secretStore,
             deviceTokenKey: DEVICE_TOKEN_KEY,
+            isSaleHeldForReconcile: cashierAdmissionKeeper.isSaleHeldForReconcile,
             deviceAuthDetector,
             terminalStatusPublisher,
             workerRegistry,

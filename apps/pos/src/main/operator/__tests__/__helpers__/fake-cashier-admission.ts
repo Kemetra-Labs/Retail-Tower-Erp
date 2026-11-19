@@ -5,6 +5,7 @@ import type {
   CashierAdmissionClient,
   CashierAdmissionEndResult,
   CashierAdmissionOnlineRequest,
+  CashierAdmissionReconcileRequest,
   CashierAdmissionResult,
   CashierRosterResult,
 } from '../../cashier-admission-client.js';
@@ -48,9 +49,17 @@ type AdmitImpl =
       req: CashierAdmissionOnlineRequest,
     ) => CashierAdmissionResult | Promise<CashierAdmissionResult>);
 
+type ReconcileImpl =
+  | CashierAdmissionResult
+  | ((
+      req: CashierAdmissionReconcileRequest,
+    ) => CashierAdmissionResult | Promise<CashierAdmissionResult>);
+
 export interface FakeAdmission {
   client: CashierAdmissionClient;
   admitCalls: CashierAdmissionOnlineRequest[];
+  /** RT-1312 F17 — every `mode: reconcile_offline` request as sent, in call order. */
+  reconcileCalls: CashierAdmissionReconcileRequest[];
   endCalls: string[];
   /** RT-219 — every `end` with the generation it echoed, in call order. */
   endRequests: FakeEndRequest[];
@@ -60,6 +69,8 @@ export interface FakeAdmission {
   /** Replace the admit behaviour for the next calls. */
   setAdmit(impl: AdmitImpl): void;
   setEnd(impl: EndImpl): void;
+  /** RT-1312 F17 — replace the reconcile behaviour (default: `admitted`). */
+  setReconcile(impl: ReconcileImpl): void;
 }
 
 export function fakeCashierAdmission(
@@ -68,8 +79,10 @@ export function fakeCashierAdmission(
 ): FakeAdmission {
   let admitImpl = admit;
   let endImpl: EndImpl = () => Promise.resolve({ kind: 'ended' });
+  let reconcileImpl: ReconcileImpl = ADMITTED;
   let keyCounter = 0;
   const admitCalls: CashierAdmissionOnlineRequest[] = [];
+  const reconcileCalls: CashierAdmissionReconcileRequest[] = [];
   const endCalls: string[] = [];
   const endRequests: FakeEndRequest[] = [];
   const admitted: CashierAdmittedEvent[] = [];
@@ -78,6 +91,12 @@ export function fakeCashierAdmission(
     admit: vi.fn((req: CashierAdmissionOnlineRequest) => {
       admitCalls.push(req);
       return Promise.resolve(typeof admitImpl === 'function' ? admitImpl(req) : admitImpl);
+    }),
+    reconcile: vi.fn((req: CashierAdmissionReconcileRequest) => {
+      reconcileCalls.push(req);
+      return Promise.resolve(
+        typeof reconcileImpl === 'function' ? reconcileImpl(req) : reconcileImpl,
+      );
     }),
     end: vi.fn((id: string, generation: string) => {
       endCalls.push(id);
@@ -97,6 +116,7 @@ export function fakeCashierAdmission(
   return {
     client,
     admitCalls,
+    reconcileCalls,
     endCalls,
     endRequests,
     admitted,
@@ -107,6 +127,9 @@ export function fakeCashierAdmission(
     },
     setEnd(impl) {
       endImpl = impl;
+    },
+    setReconcile(impl) {
+      reconcileImpl = impl;
     },
   };
 }
