@@ -34,7 +34,7 @@ interface CountScope {
   readonly terminalId: string | null;
 }
 
-export interface SaleQuarantineUploadStore extends QuarantineUploadStore {
+interface SaleQuarantineUploadStore extends QuarantineUploadStore {
   /** The uploaded rows, by what `readSyncStatus` would count them as. */
   countUploaded(scope: CountScope): UploadedQuarantineCounts;
 }
@@ -99,6 +99,14 @@ const RETRY_SQL = `
     updated_at = excluded.updated_at
   WHERE sale_quarantine_upload.state = 'pending'`;
 
+const PARKED_SQL = `
+  INSERT INTO sale_quarantine_upload
+    (sale_id, tenant_id, branch_id, state, attempts, next_attempt_at, created_at, updated_at)
+  VALUES (?, ?, ?, 'pending', 0, ?, ?, ?)
+  ON CONFLICT (sale_id) DO UPDATE SET
+    next_attempt_at = excluded.next_attempt_at, updated_at = excluded.updated_at
+  WHERE sale_quarantine_upload.state = 'pending'`;
+
 const COUNT_DEAD_SQL = `
   SELECT COUNT(*) AS n
   FROM sale_quarantine_upload q
@@ -143,6 +151,7 @@ export function bindQuarantineUploadStore(handle: DatabaseHandle): SaleQuarantin
   let uploadedStmt: RunStmt | null = null;
   let refusedStmt: RunStmt | null = null;
   let retryStmt: RunStmt | null = null;
+  let parkedStmt: RunStmt | null = null;
   let countDeadStmt: GetStmt | null = null;
   let countHeldStmt: GetStmt | null = null;
 
@@ -189,6 +198,16 @@ export function bindQuarantineUploadStore(handle: DatabaseHandle): SaleQuarantin
     markRefused(saleId: string, scope: QuarantineScope, status: number, atIso: string): void {
       refusedStmt ??= handle.prepare(REFUSED_SQL) as RunStmt;
       refusedStmt.run(saleId, scope.tenantId, scope.branchId, atIso, status, atIso, atIso, atIso);
+    },
+
+    markParked(
+      saleId: string,
+      scope: QuarantineScope,
+      nextAttemptAtIso: string,
+      atIso: string,
+    ): void {
+      parkedStmt ??= handle.prepare(PARKED_SQL) as RunStmt;
+      parkedStmt.run(saleId, scope.tenantId, scope.branchId, nextAttemptAtIso, atIso, atIso);
     },
 
     markRetry(

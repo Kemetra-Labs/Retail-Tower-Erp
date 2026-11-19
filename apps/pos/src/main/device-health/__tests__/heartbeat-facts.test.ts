@@ -132,11 +132,16 @@ describe('createSaleQueueReader', () => {
       expect(readerWith(undefined)()).toEqual(unchanged);
     });
 
-    it('is unknown (null) when the uploaded count cannot be read', () => {
+    it('reports the counts uncorrected, not unknown, when the uploaded count cannot be read', () => {
       const read = readerWith(() => {
         throw new Error('no such table: sale_quarantine_upload');
       });
-      expect(read()).toBeNull();
+      expect(read()).toEqual({
+        pending: 3,
+        deadLetter: 1,
+        heldPreviousPairing: 2,
+        oldestPendingAt: null,
+      });
     });
   });
 });

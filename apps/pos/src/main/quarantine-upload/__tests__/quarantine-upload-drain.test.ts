@@ -15,8 +15,10 @@
  *                              after the backoff (or `Retry-After`); the pass
  *                              stops, so a failing server gets one request
  *   unreachable              → the pass stops, the row is untouched
- * A sale with no sendable body is skipped without a request and without a mark,
- * and does not use up the batch.
+ * A sale with no sendable body is skipped without a request, does not use up the
+ * batch, and is PARKED (due again in an hour), so a branch full of them is not
+ * rebuilt on every pass. A re-pair during the pass stops it: nothing more is sent
+ * under an identity the candidates were not classified for.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -98,10 +100,11 @@ interface Marks {
   uploaded: Array<{ saleId: string; status: number; receipt: QuarantineReceipt | null }>;
   refused: Array<{ saleId: string; status: number }>;
   retried: Array<{ saleId: string; status: number | null; nextAttemptAt: string }>;
+  parked: Array<{ saleId: string; nextAttemptAt: string }>;
 }
 
 function fakeStore(candidates: QuarantineCandidate[]) {
-  const marks: Marks = { uploaded: [], refused: [], retried: [] };
+  const marks: Marks = { uploaded: [], refused: [], retried: [], parked: [] };
   const calls = { listCandidates: 0 };
   const store: QuarantineUploadStore = {
     listCandidates: () => {
@@ -116,6 +119,9 @@ function fakeStore(candidates: QuarantineCandidate[]) {
     },
     markRetry: (saleId, _scope, status, nextAttemptAt) => {
       marks.retried.push({ saleId, status, nextAttemptAt });
+    },
+    markParked: (saleId, _scope, nextAttemptAt) => {
+      marks.parked.push({ saleId, nextAttemptAt });
     },
   };
   return { store, marks, calls };
@@ -175,7 +181,7 @@ describe('quarantine uploader — inert until Backend-Core advertises the revisi
     expect(t.calls.listCandidates).toBe(0);
     expect(t.reads.token).toBe(0);
     expect(t.sent).toHaveLength(0);
-    expect(t.marks).toEqual({ uploaded: [], refused: [], retried: [] });
+    expect(t.marks).toEqual({ uploaded: [], refused: [], retried: [], parked: [] });
   });
 
   it('revision 3 uploads, and 4 does too', async () => {
@@ -266,7 +272,7 @@ describe('quarantine uploader — the answers', () => {
   it('an unreachable server stops the pass and leaves the row untouched', async () => {
     const t = setup([dead('sale-1'), dead('sale-2')], [{ kind: 'unreachable' }]);
     expect(await t.uploader.drain()).toEqual({ kind: 'undelivered' });
-    expect(t.marks).toEqual({ uploaded: [], refused: [], retried: [] });
+    expect(t.marks).toEqual({ uploaded: [], refused: [], retried: [], parked: [] });
     expect(t.sent).toHaveLength(1);
   });
 
@@ -287,8 +293,40 @@ describe('quarantine uploader — the answers', () => {
   });
 });
 
+describe('quarantine uploader — a re-pair is never uploaded across', () => {
+  it('sends nothing when the pairing changes while the token is read', async () => {
+    let terminalId = 'term-old';
+    const t = setup([held('s1')], [], {
+      scope: () => ({ ...SCOPE, terminalId }),
+      readToken: () => {
+        terminalId = 'term-new'; // a re-pair completes while the token is read
+        return Promise.resolve('device-token');
+      },
+    });
+    expect(await t.uploader.drain()).toEqual({ kind: 'idle' });
+    expect(t.calls.listCandidates).toBe(0);
+    expect(t.sent).toHaveLength(0);
+  });
+
+  it('stops the pass when the pairing changes between two uploads', async () => {
+    let terminalId = 'term-current';
+    const t = setup([dead('a'), dead('b')], [], {
+      scope: () => ({ ...SCOPE, terminalId }),
+    });
+    const send = t.client.upload.bind(t.client);
+    t.client.upload = async (token, body) => {
+      const answer = await send(token, body);
+      terminalId = 'term-new'; // re-paired after the first upload
+      return answer;
+    };
+    expect(await t.uploader.drain()).toEqual({ kind: 'progress' });
+    expect(t.sent).toHaveLength(1);
+    expect(t.marks.uploaded.map((m) => m.saleId)).toEqual(['a']);
+  });
+});
+
 describe('quarantine uploader — a sale with no sendable body', () => {
-  it('is skipped without a request or a mark, and does not use up the batch', async () => {
+  it('is skipped without a request, parked for an hour, and does not use up the batch', async () => {
     const skipped: Array<[string, string]> = [];
     const t = setup([dead('bad-1'), dead('bad-2'), dead('good-1'), dead('good-2')], [], {
       batchLimit: 2,
@@ -301,6 +339,12 @@ describe('quarantine uploader — a sale with no sendable body', () => {
       ['bad-1', 'not_sendable'],
       ['bad-2', 'not_sendable'],
     ]);
+    const hourLater = new Date(NOW.getTime() + 60 * 60_000).toISOString();
+    expect(t.marks.parked).toEqual([
+      { saleId: 'bad-1', nextAttemptAt: hourLater },
+      { saleId: 'bad-2', nextAttemptAt: hourLater },
+    ]);
+    expect(t.marks.retried).toEqual([]);
   });
 
   it('reports a skipped sale once, not on every pass', async () => {
@@ -314,10 +358,21 @@ describe('quarantine uploader — a sale with no sendable body', () => {
     expect(skipped).toEqual(['bad-1']);
   });
 
-  it('skips a sale that is no longer readable', async () => {
+  it('skips and parks a sale that is no longer readable', async () => {
     const t = setup([dead('gone')], [], { loadSale: () => null });
     expect(await t.uploader.drain()).toEqual({ kind: 'idle' });
     expect(t.sent).toHaveLength(0);
+    expect(t.marks.parked.map((p) => p.saleId)).toEqual(['gone']);
+  });
+
+  it('lets go of what is memoized for a parked sale', async () => {
+    const settled: string[] = [];
+    const t = setup([dead('bad-1')], [], {
+      loadSale: (saleId) => saleRow(saleId, { lines_json: 'x' }),
+      onSettled: (saleId) => settled.push(saleId),
+    });
+    await t.uploader.drain();
+    expect(settled).toEqual(['bad-1']);
   });
 
   it('stops after the batch limit of requests', async () => {

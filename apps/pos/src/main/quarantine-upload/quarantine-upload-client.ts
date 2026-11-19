@@ -15,9 +15,9 @@
  *                                        without the route; 429: the answer's
  *                                        `Retry-After`)
  *   no answer (network, timeout)       → unreachable
- * A status the contract does not name: another 4xx is refused (it is about this
- * sale, so retrying cannot fix it); any other status is retried, so a sale is
- * never given up on a surprise.
+ * Only 400 / 409 / 413 are final. A status the contract does not name (a WAF or
+ * proxy 403, a 405 from a half-deployed Backend-Core, a 422) is retried, so a
+ * paid sale is never given up on a surprise: a refusal is never retried.
  *
  * Never throws; never logs or stores the token. The request body holds the
  * sale (money, receipt operator name): nothing here logs it.
@@ -73,7 +73,7 @@ export interface QuarantineUploadClient {
   upload(deviceToken: string, body: QuarantineUploadBody): Promise<QuarantineUploadOutcome>;
 }
 
-export interface QuarantineUploadClientDeps {
+interface QuarantineUploadClientDeps {
   readonly baseUrl: string;
   /** The shared `backendFetch` (request id, build identity, status observer). */
   readonly fetch: FetchLike;
@@ -98,10 +98,7 @@ const STATUS_TABLE: Readonly<Partial<Record<number, Kind>>> = {
 };
 
 function kindOf(status: number): Kind {
-  const named = statusOutcome<Kind | undefined>(status, STATUS_TABLE, undefined);
-  if (named !== undefined) return named;
-  if (status >= 500) return 'retry';
-  return status >= 400 && status < 500 ? 'refused' : 'retry';
+  return statusOutcome<Kind>(status, STATUS_TABLE, 'retry');
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {

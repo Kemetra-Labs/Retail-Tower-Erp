@@ -225,4 +225,14 @@ describe('quarantine upload body — a sale that cannot be sent faithfully is sk
       reason: 'not_sendable',
     });
   });
+
+  it('lets an error that is not a sendability refusal reach the caller (a bug is not a skip)', () => {
+    const sale = saleRow();
+    Object.defineProperty(sale, 'lines_json', {
+      get: () => {
+        throw new Error('database connection is not open');
+      },
+    });
+    expect(() => build({ sale })).toThrow('database connection is not open');
+  });
 });

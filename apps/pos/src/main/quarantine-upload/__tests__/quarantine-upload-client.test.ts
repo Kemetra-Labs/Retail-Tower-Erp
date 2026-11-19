@@ -8,8 +8,8 @@
  *   401 / 404 / 408 / 425 / 429 / 5xx  → retry (404: an older Backend-Core
  *                                        without the route; 429: `Retry-After`)
  *   no answer                          → unreachable
- * A status the contract does not name: another 4xx is refused (it is about this
- * sale, retrying cannot fix it); anything else is retried (never lose a sale).
+ * Only 400 / 409 / 413 are final. A status the contract does not name is
+ * retried (never give up on a paid sale over a surprise).
  * The request carries the DEVICE bearer, no `Idempotency-Key` (natural
  * idempotency on the provenance), and the body verbatim.
  */
@@ -132,10 +132,16 @@ describe('quarantine upload client — the answers', () => {
     expect(await client.upload(TOKEN, BODY)).toEqual({ kind: 'retry', status: 429 });
   });
 
-  it('another 4xx the contract does not name is refused', async () => {
-    const { client } = clientAnswering(422);
-    expect(await client.upload(TOKEN, BODY)).toEqual({ kind: 'refused', status: 422 });
-  });
+  // A status the contract does not name (a WAF or proxy 403, a 405 from a half-deployed
+  // Backend-Core, a 422) says nothing final about THIS sale, and a refusal is never
+  // retried: it is retried, so a paid sale is never given up on a surprise.
+  it.each([403, 405, 410, 415, 422, 423])(
+    'an unnamed %i is retried, never refused',
+    async (status) => {
+      const { client } = clientAnswering(status);
+      expect(await client.upload(TOKEN, BODY)).toEqual({ kind: 'retry', status });
+    },
+  );
 
   it('a status outside 2xx / 4xx / 5xx is retried, never lost', async () => {
     const { client } = clientAnswering(302);

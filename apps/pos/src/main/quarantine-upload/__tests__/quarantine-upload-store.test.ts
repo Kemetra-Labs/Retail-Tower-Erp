@@ -205,11 +205,32 @@ describe('quarantine upload store — the marks', () => {
     expect(uploadRows()).toEqual([['s1', 'pending', 2, null, null, null, LATER, null]]);
   });
 
+  it('markParked hides a sale until it is due, charging no attempt and keeping no status', () => {
+    store().markParked('s1', SCOPE, LATER, NOW);
+    expect(uploadRows()).toEqual([['s1', 'pending', 0, null, null, null, LATER, null]]);
+    expect(store().listCandidates(SCOPE, NOW)).toEqual([]);
+    expect(
+      store()
+        .listCandidates(SCOPE, LATER)
+        .map((c) => c.saleId),
+    ).toEqual(['s1']);
+  });
+
+  it('markParked keeps the attempts and status an earlier retry recorded', () => {
+    store().markRetry('s1', SCOPE, 503, NOW, NOW);
+    store().markParked('s1', SCOPE, LATER, LATER);
+    expect(uploadRows()).toEqual([['s1', 'pending', 1, 503, null, null, LATER, null]]);
+  });
+
   it('a settled row is never changed by a later mark', () => {
+    store().markParked('s1', SCOPE, LATER, NOW);
+    store().markUploaded('s1', SCOPE, 201, { quarantineRef: 'ref-1', state: 'open' }, NOW);
+    store().markParked('s1', SCOPE, LATER, LATER);
     store().markUploaded('s1', SCOPE, 201, { quarantineRef: 'ref-1', state: 'open' }, NOW);
     store().markRetry('s1', SCOPE, 503, LATER, LATER);
     store().markRefused('s1', SCOPE, 400, LATER);
-    expect(uploadRows()).toEqual([['s1', 'uploaded', 0, 201, 'ref-1', 'open', NOW, NOW]]);
+    // (the row keeps the due time of the park it was uploaded from)
+    expect(uploadRows()).toEqual([['s1', 'uploaded', 0, 201, 'ref-1', 'open', LATER, NOW]]);
   });
 });
 

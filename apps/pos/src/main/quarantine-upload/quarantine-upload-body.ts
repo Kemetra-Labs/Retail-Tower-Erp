@@ -25,7 +25,10 @@
  */
 import {
   buildCapturePayload,
+  DiscountNotSendableError,
+  TenderNotSendableError,
   type BuildCapturePayloadOptions,
+  type CaptureSalePayload,
 } from '../sales-sync/capture-payload.js';
 import {
   DEFAULT_CURRENCY_CODE,
@@ -55,11 +58,11 @@ export type QuarantineSkipReason =
   | 'not_sendable'
   | 'invalid_key';
 
-export type QuarantineBuildResult =
+type QuarantineBuildResult =
   | { readonly kind: 'ok'; readonly upload: QuarantineUploadBody }
   | { readonly kind: 'skip'; readonly reason: QuarantineSkipReason };
 
-export interface BuildQuarantineUploadInput {
+interface BuildQuarantineUploadInput {
   readonly sale: SaleRow;
   readonly source: QuarantineSource;
   /** The sale's own route (`createSellingUserIdResolver`, asked with the sale's terminal). */
@@ -99,18 +102,38 @@ function skip(reason: QuarantineSkipReason): QuarantineBuildResult {
   return { kind: 'skip', reason };
 }
 
+/**
+ * What the capture drain refuses to send: a tender or discount it cannot send
+ * faithfully, and (the drain would hold it) a snapshot that is not valid JSON.
+ * Anything else is a bug or a dependency failure, and reaches the caller.
+ */
+function isUnsendable(err: unknown): boolean {
+  return (
+    err instanceof TenderNotSendableError ||
+    err instanceof DiscountNotSendableError ||
+    err instanceof SyntaxError
+  );
+}
+
 /** The wire body, or null when the sale cannot be sent faithfully. */
 function wireBodyOf(
   input: BuildQuarantineUploadInput,
   route: Exclude<SaleRoute, { kind: 'hold' }>,
 ): { externalId: string; sourceSystem: string; body: Record<string, unknown> } | null {
+  let payload: CaptureSalePayload;
   try {
-    const payload = buildCapturePayload(input.sale, {
+    payload = buildCapturePayload(input.sale, {
       tendersSince: input.cutoffs.tendersSince,
       receiptSince: input.cutoffs.receiptSince,
       resolvedRoles: input.resolvedRoles,
     });
-    const currency = input.currencyCode ?? DEFAULT_CURRENCY_CODE;
+  } catch (err) {
+    if (isUnsendable(err)) return null;
+    throw err;
+  }
+  const currency = input.currencyCode ?? DEFAULT_CURRENCY_CODE;
+  try {
+    // The wire transform refuses a corrupt amount (the client maps it to `permanent`).
     const body: Record<string, unknown> = {
       ...(route.kind === 'device'
         ? toCashierWireBody(payload, currency, route.operatorUserId)
@@ -118,8 +141,6 @@ function wireBodyOf(
     };
     return { externalId: payload.externalId, sourceSystem: payload.sourceSystem, body };
   } catch {
-    // A tender or discount the capture refuses to send, a corrupt amount, an
-    // unreadable snapshot: the till never had a body to send (P1).
     return null;
   }
 }

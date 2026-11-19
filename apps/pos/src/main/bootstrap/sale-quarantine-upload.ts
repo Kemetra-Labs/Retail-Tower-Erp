@@ -40,10 +40,14 @@ import { createSellingUserIdResolver } from '../sales-sync/selling-user-id.js';
 import { bindSalesRepository } from '../sales/repositories/sales.repository.js';
 import { resolveApiBaseUrl } from './env.js';
 
-/** One pass a minute: the upload has its own 120-per-hour per-device bucket. */
+/**
+ * One pass a minute, at most `QUARANTINE_UPLOAD_BATCH_LIMIT` requests each. The upload
+ * has its own per-device write bucket on Backend-Core (decision P6); a 429 is retried
+ * after its `Retry-After`, so a large backlog is paced by the server, not by this number.
+ */
 const QUARANTINE_UPLOAD_INTERVAL_MS = 60_000;
 
-export interface SaleQuarantineUploadDeps {
+interface SaleQuarantineUploadDeps {
   readonly db: DatabaseHandle;
   readonly store: QuarantineUploadStore;
   /** The shared `backendFetch` (request id, build identity, status observer). */

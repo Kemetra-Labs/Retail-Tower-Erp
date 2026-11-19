@@ -63,6 +63,9 @@ export const QUARANTINE_UPLOAD_MIN_REVISION = 3;
 /** Requests sent per pass; the rest wait for the next pass (the bucket is per device). */
 const QUARANTINE_UPLOAD_BATCH_LIMIT = 10;
 
+/** How long a sale with no sendable body waits before it is looked at again. */
+const QUARANTINE_PARK_MS = 60 * 60_000;
+
 /** The current pairing's scope; only this tenant and branch are uploaded (decision P2). */
 export interface QuarantineScope {
   readonly tenantId: string;
@@ -89,6 +92,11 @@ export interface QuarantineUploadStore {
     atIso: string,
   ): void;
   markRefused(saleId: string, scope: QuarantineScope, status: number, atIso: string): void;
+  /**
+   * A stranded sale with no sendable body: due again at `nextAttemptAtIso`, with no
+   * attempt charged and no status, so a branch full of them is not rebuilt every pass.
+   */
+  markParked(saleId: string, scope: QuarantineScope, nextAttemptAtIso: string, atIso: string): void;
   /** One more attempt; due again at `nextAttemptAtIso`. */
   markRetry(
     saleId: string,
@@ -133,7 +141,7 @@ export interface QuarantineUploaderDeps {
   readonly onSkipped?: (saleId: string, reason: QuarantineSkipReason | 'unreadable') => void;
 }
 
-export interface QuarantineUploader {
+interface QuarantineUploader {
   drain(): Promise<QuarantineDrainOutcome>;
 }
 
@@ -153,17 +161,28 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
     deps.onSkipped?.(saleId, reason);
   }
 
-  /** The upload body of one candidate, or null (reported once) when it cannot be sent. */
+  /** A sale that cannot be sent: reported once, and parked so it is not rebuilt every pass. */
+  function skip(
+    candidate: QuarantineCandidate,
+    scope: QuarantineScope,
+    nowIso: string,
+    reason: QuarantineSkipReason | 'unreadable',
+  ): null {
+    reportSkip(candidate.saleId, reason);
+    const next = new Date(Date.parse(nowIso) + QUARANTINE_PARK_MS).toISOString();
+    deps.store.markParked(candidate.saleId, scope, next, nowIso);
+    deps.onSettled?.(candidate.saleId);
+    return null;
+  }
+
+  /** The upload body of one candidate, or null (skipped and parked) when it cannot be sent. */
   function buildFor(
     candidate: QuarantineCandidate,
     scope: QuarantineScope,
     nowIso: string,
   ): QuarantineUploadBody | null {
     const sale = deps.loadSale(candidate.saleId);
-    if (sale === null) {
-      reportSkip(candidate.saleId, 'unreadable');
-      return null;
-    }
+    if (sale === null) return skip(candidate, scope, nowIso, 'unreadable');
     const built = buildQuarantineUpload({
       sale,
       source: candidate.source,
@@ -173,11 +192,7 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
       resolvedRoles: deps.rolesOf(sale),
       now: nowIso,
     });
-    if (built.kind === 'skip') {
-      reportSkip(candidate.saleId, built.reason);
-      return null;
-    }
-    return built.upload;
+    return built.kind === 'skip' ? skip(candidate, scope, nowIso, built.reason) : built.upload;
   }
 
   /** Persist one answer. Returns the pass's outcome when it must stop, else null. */
@@ -213,17 +228,32 @@ export function createQuarantineUploader(deps: QuarantineUploaderDeps): Quaranti
     }
   }
 
-  async function drain(): Promise<QuarantineDrainOutcome> {
-    if (deps.isStopped() || !advertised()) return { kind: 'idle' };
-    const scope = deps.scope();
-    if (scope === null) return { kind: 'idle' };
+  /** The pass's credentials, or null when it must stay idle (see {@link drain}). */
+  async function admit(): Promise<{ scope: QuarantineScope; token: string } | null> {
+    const before = deps.scope();
+    if (deps.isStopped() || !advertised() || before === null) return null;
     const token = await deps.readToken();
-    if (token === null || token === '' || deps.isStopped()) return { kind: 'idle' };
+    if (token === null || token === '' || deps.isStopped()) return null;
+    // A re-pair completing during the token read could leave the token of one pairing
+    // and the candidates classified for another (`previousTerminalId`): send nothing,
+    // the next pass starts over.
+    const scope = deps.scope();
+    return scope === null || scope.terminalId !== before.terminalId ? null : { scope, token };
+  }
+
+  async function drain(): Promise<QuarantineDrainOutcome> {
+    const admitted = await admit();
+    if (admitted === null) return { kind: 'idle' };
+    const { scope, token } = admitted;
 
     const nowIso = deps.now().toISOString();
     let sent = 0;
     for (const candidate of deps.store.listCandidates(scope, nowIso)) {
-      if (sent >= batchLimit || deps.isStopped()) break;
+      // A re-pair since the pass began: nothing more under an identity the candidates
+      // were not classified for (the next pass lists them again).
+      if (sent >= batchLimit || deps.isStopped() || deps.scope()?.terminalId !== scope.terminalId) {
+        break;
+      }
       const upload = buildFor(candidate, scope, nowIso);
       if (upload === null) continue;
       const outcome = await deps.client.upload(token, upload);

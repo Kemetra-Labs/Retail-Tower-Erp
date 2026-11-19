@@ -60,6 +60,21 @@ export interface UploadedQuarantineCounts {
 const NO_UPLOADED_QUARANTINE: UploadedQuarantineCounts = { deadLetter: 0, heldPreviousPairing: 0 };
 
 /**
+ * The uploaded counts; an unreadable one leaves the counts uncorrected rather than
+ * losing the whole report (the till's own counts are still true, only overstated).
+ */
+function uploadedOf(
+  deps: Pick<SaleQueueReaderDeps, 'readUploadedQuarantine'>,
+  scope: Parameters<NonNullable<SaleQueueReaderDeps['readUploadedQuarantine']>>[0],
+): UploadedQuarantineCounts {
+  try {
+    return deps.readUploadedQuarantine?.(scope) ?? NO_UPLOADED_QUARANTINE;
+  } catch {
+    return NO_UPLOADED_QUARANTINE;
+  }
+}
+
+/**
  * The counts of the sale-sync status surface (RT-221: `pending` = this terminal's
  * unsent sales, `heldPreviousPairing` = an earlier pairing's, `deadLetter` = every
  * refused one) and the oldest unheld pending instant (RT-887). Counts only.
@@ -73,7 +88,7 @@ export function createSaleQueueReader(deps: SaleQueueReaderDeps): () => SaleQueu
         terminalId: deps.currentTerminalId(),
       };
       const counts = deps.stateRepo.readSyncStatus(scope);
-      const uploaded = deps.readUploadedQuarantine?.(scope) ?? NO_UPLOADED_QUARANTINE;
+      const uploaded = uploadedOf(deps, scope);
       return {
         pending: counts.pending,
         deadLetter: Math.max(0, counts.deadLetter - uploaded.deadLetter),
