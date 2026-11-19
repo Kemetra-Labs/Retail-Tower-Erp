@@ -64,6 +64,8 @@ export interface SaleSyncDeps {
   deviceTokenKey: SendableDeviceTokenReaderDeps['deviceTokenKey'];
   /** The 2×401 detector the device-path fetch is tagged for (RT-215 × RT-224). */
   deviceAuthDetector: Pick<DeviceAuthDetector, 'observe'>;
+  /** RT-1312 F17: holds a cashier's sales while their offline admission is being reconciled. */
+  isSaleHeldForReconcile: (operatorUserId: string) => boolean;
   /** The terminal status publisher; its sync axis reads the sale-sync queue (RT-603). */
   terminalStatusPublisher: Pick<TerminalStatusPublisher, 'setSyncReader'>;
   /** Owns the stop callback for the sale-sync interval, run before the DB handle closes. */
@@ -91,6 +93,7 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
     secretStore,
     deviceTokenKey,
     deviceAuthDetector,
+    isSaleHeldForReconcile,
     terminalStatusPublisher,
     workerRegistry,
     mainLogger,
@@ -200,6 +203,7 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
     resolveTerminalId: resolveSaleSyncTerminalId,
     getOperatorToken: createSaleSyncTokenReader(operatorSessionManager, operatorEnvelopeHolder),
     ...saleSyncDevicePath.engine,
+    isSaleHeldForReconcile,
     now: () => new Date().toISOString(),
     // Exponential backoff: 1s base, capped at 5 min.
     backoff: { ...SALE_SYNC_BACKOFF_POLICY },

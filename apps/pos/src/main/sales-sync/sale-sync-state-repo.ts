@@ -56,6 +56,9 @@
  * (RT-221 held rows stay held) and no other tenant/branch is touched; the sale
  * and the outbox are never written. `attempt_count` and `created_at` are kept
  * (history); the reason is cleared, and a new refusal records it again.
+ * RT-1312 Phase 3(c): a sale already uploaded to the Backend-Core quarantine
+ * (`sale_quarantine_upload.state = 'uploaded'`) is skipped: the Console owns its
+ * repair, and re-sending it from the till would race that repair.
  */
 
 import type { DatabaseHandle } from '../db/client.js';
@@ -504,6 +507,9 @@ export function createSaleSyncStateRepo(db: DatabaseHandle): SaleSyncStateRepo {
              updated_at = ?
        WHERE tenant_id = ? AND branch_id = ?
          AND sync_status = 'dead_letter' AND last_error_category = ?
+         AND sale_id NOT IN (
+           SELECT sale_id FROM sale_quarantine_upload WHERE state = 'uploaded'
+         )
          AND sale_id IN (
            SELECT sale_id FROM sale_sync_outbox
            WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ?

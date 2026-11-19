@@ -15,6 +15,7 @@ import {
   notifyGrantSeam,
   type CashierAdmissionDeps,
 } from './cashier-admission.js';
+import { OfflineReconciler } from './offline-reconcile.js';
 import type {
   AuthorityLatchCause,
   OperatorSessionRecord,
@@ -83,6 +84,11 @@ import type {
  * EVERY heartbeat `admitted` replaces it, even when the id is unchanged. A late
  * `end` is then a server-side no-op once the admission has been renewed after
  * it. An orphan release echoes the generation of the orphan response itself.
+ *
+ * RT-1312 F17 (RT-113 P4): a session admitted OFFLINE holds no admission. The
+ * {@link OfflineReconciler} asks Backend-Core to record one (`reconcile_offline`);
+ * on `admitted` the keeper arms the heartbeat for it, and a conflict or a 403
+ * latches the session through {@link CashierAdmissionKeeper.latchCurrentSession}.
  *
  * Logs carry the outcome kind only: no admission id, user id, key, name or
  * generation.
@@ -290,12 +296,30 @@ export class CashierAdmissionKeeper {
    */
   private latchOnly: Tracked | null = null;
   private stopped = false;
+  private readonly reconciler: OfflineReconciler;
 
   constructor(private readonly deps: CashierAdmissionKeeperDeps) {
+    this.reconciler = new OfflineReconciler({
+      sessionManager: deps.sessionManager,
+      admission: deps.admission,
+      logger: deps.logger,
+      onAdopted: (session_id) => {
+        const current = deps.sessionManager.getCurrent();
+        if (current?.id === session_id) this.onSessionStarted(current);
+      },
+      onConflict: (session_id, cause) => {
+        if (deps.sessionManager.getCurrent()?.id === session_id) this.latchCurrentSession(cause);
+      },
+      onLiveAdmissionRenewed: (admission_id) => {
+        if (this.armed?.admission_id === admission_id) this.reverifySoon(this.armed);
+      },
+    });
     deps.sessionManager.onStarted((record) => {
       this.onSessionStarted(record);
+      this.reconciler.onSessionStarted(record);
     });
     deps.sessionManager.onEnded((record) => {
+      this.reconciler.onSessionEnded(record);
       this.onSessionEnded(record);
     });
     deps.sessionManager.onLockStateChanged(() => {
@@ -306,9 +330,16 @@ export class CashierAdmissionKeeper {
   /** Shutdown latch: idempotent; clears every timer; nothing runs afterwards. */
   stop(): void {
     this.stopped = true;
+    this.reconciler.stop();
     this.disarm();
     this.releaseLatchOnly();
   }
+
+  /**
+   * RT-1312 F17: the sale drain asks whether `user_id`'s sales wait for the
+   * offline reconcile (`sale-sync-engine.ts`, `isSaleHeldForReconcile`).
+   */
+  isSaleHeldForReconcile = (user_id: string): boolean => this.reconciler.isSaleHeld(user_id);
 
   /**
    * A sale boundary happened (sale settled, voided or cancelled, or a new sale

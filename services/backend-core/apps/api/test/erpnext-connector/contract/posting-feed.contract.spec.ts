@@ -989,7 +989,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
   it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.15.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -1064,7 +1064,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
       | undefined;
 
   it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.15.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
     expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info()).toContain("RT-1098 decision 4A");
     expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
@@ -1096,7 +1096,7 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
   const base = { lineRef: "00000000-0000-7000-8000-0000000000a1", quantity: "1", lineAmount: "300.0000", taxAmount: null };
 
   it("bumps to 1.13.0-draft with the note, the owner decision and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
     expect(info()).toContain("OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]");
     expect(info()).toContain('owner decision 2026-11-12, "Hybrid"');
     expect(info()).toContain("`promotionClawbackAmount` and `promotionGiveBackAmount`");
@@ -1169,7 +1169,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
   });
 
   it("bumps to 1.14.0-draft with the note, the authorization, the feasibility result and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
     expect(info()).toContain("RT-1421 (1.14.0-draft; [GATED: OpenAPI] owner authorization 2026-11-16");
     expect(info()).toContain("the work-item kind `inventory_count` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_count`");
@@ -1458,7 +1458,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
   });
 
   it("bumps to 1.15.0-draft with the note, the authorization, the deploy order and the no-fake-document rule", () => {
-    expect(feedDoc.info?.version).toBe("1.15.0-draft");
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
     expect(info()).toContain("RT-1422 (1.15.0-draft; [GATED: contract pin] owner authorization 2026-11-16");
     expect(info()).toContain("`sale` is the ONLY field that becomes conditional");
     expect(info()).toContain("the ack never fakes a `documentRef`");
@@ -1537,5 +1537,126 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
     expect(v({ outcome: "posted", documentRef: doc })).toBe(true);
     expect(v({ outcome: "failed_transient" })).toBe(true);
     expect(v({ outcome: "permanently_rejected", reason: { category: "validation", message: "m" } })).toBe(true);
+  });
+});
+
+// ===========================================================================
+// RT-1512 (Inventory Gate 5, RT-291) — reserved transfer_dispatch and
+// transfer_receive kinds (1.16.0-draft)
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1512 reserved transfer_dispatch / transfer_receive schemas (1.16.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
+  const RESERVED = [
+    "TransferDispatchWorkItem",
+    "TransferDispatchPosting",
+    "TransferDispatchLine",
+    "TransferReceiveWorkItem",
+    "TransferReceivePosting",
+    "TransferReceiveLine",
+    "ErpnextStockEntryRef",
+  ];
+  const examples = JSON.parse(
+    readFileSync(resolve(openapiSubDir(".."), "fixtures", "transfer-posting-feed", "examples.json"), "utf8"),
+  ) as { dispatch: Record<string, any>; receive: Record<string, any> };
+  const validator = (name: string) => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    return ajv.compile({ $ref: `posting-feed#/components/schemas/${name}` });
+  };
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const dispatch = () => clone(examples.dispatch);
+  const receive = () => clone(examples.receive);
+
+  it("bumps to 1.16.0-draft with the note, the planning record, the owner rulings and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(info()).toContain("RT-1512 (1.16.0-draft; [GATED: OpenAPI]");
+    expect(info()).toContain("RT-291 comments 17800 and 17801");
+    expect(info()).toContain("Backend-Core MUST NOT emit `transfer_dispatch` or `transfer_receive`");
+    expect(info()).toContain("ROLLOUT ORDER (Connector first");
+  });
+
+  it("never offers the reserved kinds: the PostingWorkItem kind enum is unchanged", () => {
+    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
+    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
+  });
+
+  it("adds no operation, and no operation or other schema references a reserved transfer shape", () => {
+    expect(Object.keys(feedDoc.paths ?? {}).sort()).toEqual([PULL_PATH, ACK_PATH].sort());
+    const pathsText = JSON.stringify(feedDoc.paths);
+    for (const name of RESERVED) expect(pathsText).not.toContain(`"#/components/schemas/${name}"`);
+    const outside = JSON.stringify(feedDoc.components?.schemas);
+    for (const name of ["TransferDispatchWorkItem", "TransferReceiveWorkItem"]) {
+      expect(outside).not.toContain(`"#/components/schemas/${name}"`);
+    }
+  });
+
+  it("the reserved schemas are strict and carry no valuation or serial field", () => {
+    for (const name of RESERVED) expect(schema(name)?.additionalProperties).toBe(false);
+    for (const name of ["TransferDispatchLine", "TransferReceiveLine"]) {
+      const props = Object.keys(schema(name)?.properties ?? {});
+      expect(props.filter((p) => /valuation|rate|serial/i.test(p))).toEqual([]);
+      expect(schema(name)?.required).toContain("erpnextBatchRef");
+    }
+  });
+
+  it("the dispatch and receive examples validate", () => {
+    const d = validator("TransferDispatchWorkItem");
+    const r = validator("TransferReceiveWorkItem");
+    expect(d(dispatch())).toBe(true);
+    expect(r(receive())).toBe(true);
+  });
+
+  it("each kind is its own flat shape: wrong kind, a sale, or the other kind's body is refused", () => {
+    const d = validator("TransferDispatchWorkItem");
+    const r = validator("TransferReceiveWorkItem");
+    expect(d({ ...dispatch(), kind: "transfer_receive" })).toBe(false);
+    expect(d({ ...dispatch(), sale: {} })).toBe(false);
+    expect(d({ ...dispatch(), receipt: receive().receipt })).toBe(false);
+    expect(r({ ...receive(), kind: "transfer_dispatch" })).toBe(false);
+    expect(r({ ...receive(), transfer: dispatch().transfer })).toBe(false);
+  });
+
+  it("the provenance key is leg-level (888, 889): transfer_dispatch:<transferId> and transfer_receipt:<receiptId>", () => {
+    const d = validator("TransferDispatchWorkItem");
+    const r = validator("TransferReceiveWorkItem");
+    expect(d({ ...dispatch(), externalId: "transfer_receipt:00000000-0000-7000-8000-00000000d0e1" })).toBe(false);
+    expect(d({ ...dispatch(), externalId: "transfer_dispatch:not-a-uuid" })).toBe(false);
+    expect(r({ ...receive(), externalId: "transfer_dispatch:00000000-0000-7000-8000-00000000d2e1" })).toBe(false);
+  });
+
+  it("a receipt names its confirmed dispatch Stock Entry explicitly and links each line to a dispatch row (886)", () => {
+    const r = validator("TransferReceiveWorkItem");
+    const noRef = receive();
+    delete noRef.receipt.dispatchDocumentRef;
+    expect(r(noRef)).toBe(false);
+    const wrongDoctype = receive();
+    wrongDoctype.receipt.dispatchDocumentRef.doctype = "Sales Invoice";
+    expect(r(wrongDoctype)).toBe(false);
+    const noRow = receive();
+    delete noRow.receipt.lines[0].dispatchLineSeq;
+    expect(r(noRow)).toBe(false);
+  });
+
+  it("refuses missing warehouses, an empty or oversized chunk, and a zero or malformed quantity", () => {
+    const d = validator("TransferDispatchWorkItem");
+    for (const f of ["sourceWarehouseRef", "transitWarehouseRef", "postingDatetime", "lines"]) {
+      const item = dispatch();
+      delete item.transfer[f];
+      expect(d(item)).toBe(false);
+    }
+    const empty = dispatch();
+    empty.transfer.lines = [];
+    expect(d(empty)).toBe(false);
+    const big = dispatch();
+    big.transfer.lines = Array.from({ length: 101 }, (_, i) => ({ ...big.transfer.lines[0], lineSeq: i + 1 }));
+    expect(d(big)).toBe(false);
+    for (const q of ["0", "-1", "1.1234567", "abc"]) {
+      const item = dispatch();
+      item.transfer.lines[0].quantity = q;
+      expect(d(item)).toBe(false);
+    }
   });
 });

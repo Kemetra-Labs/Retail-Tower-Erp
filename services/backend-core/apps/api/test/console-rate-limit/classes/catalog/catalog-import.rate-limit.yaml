@@ -1,0 +1,17 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/catalog/catalog-import.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+# Contract-only until RT-1505 (spec 049 S4) and S5: these are the intended classes.
+# Parsing a file, validating up to 5,000 rows and the one-transaction publish are the heavy calls.
+
+consoleCancelCatalogImport: write
+consoleGetCatalogImport: cheapRead
+consoleGetCatalogImportErrorReport: expensiveRead
+consoleGetCatalogImportPreview: expensiveRead
+consoleGetCatalogImportTemplate: cheapRead
+consoleListCatalogImportRows: expensiveRead
+consolePublishCatalogImport: jobOrPreview
+consoleReplaceCatalogImportFile: jobOrPreview
+consoleResolveCatalogImportRow: write
+consoleSetCatalogImportMapping: write
+consoleUploadCatalogImport: jobOrPreview
+consoleValidateCatalogImport: jobOrPreview

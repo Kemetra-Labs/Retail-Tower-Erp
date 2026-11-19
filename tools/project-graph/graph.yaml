@@ -43,7 +43,6 @@ jobs:
   boundary-check: .github/workflows/project-graph.yml
   dependency-review: .github/workflows/project-graph.yml
   contracts/check: .github/workflows/contracts.yml
-  port/rt-control-room: .github/workflows/port-plugins.yml
 
 job_groups:
   pos-full: [pos/static, pos/test-shard-1, pos/test-shard-2, pos/test-shard-3, pos/test]
@@ -273,10 +272,12 @@ shared_classes:   # precedence: lower wins; two matches at the SAME precedence =
   # severity-levels.txt), so a checker change runs next to the Backend-Core gate. The oasdiff pin
   # itself lives in the policy-class workflows. Precedence 1 beats tooling's 2; no glob overlaps `policy`.
   contracts_tooling: { precedence: 1, globs: [tools/contracts-check/**], selects: [contracts/check, bc/oasdiff] }
-  # RT-1395 / RT-1467 (CI-10): the read-only Port widget. No product suite runs it; its own job
-  # (port-plugins.yml) runs its tests, rebuilds dist/index.html and fails on a stale committed build.
-  # Only this plugin: a sibling under tools/port-plugins/ still falls to `tooling` (all jobs).
-  port_plugin: { precedence: 1, globs: [tools/port-plugins/rt-control-room/**], selects: [port/rt-control-room] }
+  # RT-1467 (CI-10, owner decision 2026-11-18): Port work is paused, so the Port plugins are frozen
+  # code. No product build, test or workflow reads tools/port-plugins/**, so like docs it selects no
+  # job (before: `tooling`, every product suite, none of which ran the plugin). Precedence 1 beats
+  # tooling's 2; no glob overlaps `policy`. If Port work resumes, give the plugin its own job here
+  # (the RT-1395 design) instead of returning it to `tooling`.
+  port_plugins: { precedence: 1, globs: [tools/port-plugins/**], selects: [] }
   tooling: { precedence: 2, globs: [tools/**], selects: all }
   e2e:     { precedence: 3, globs: [tests/e2e/**], selects: [e2e] }
   docs:    { precedence: 3, globs: [docs/**], selects: [] }

@@ -59,6 +59,22 @@ export interface CashierAdmissionOnlineRequest {
   idempotency_key: string;
 }
 
+/**
+ * `PosCashierAdmissionReconcileRequest` (RT-1312 F17, RT-113 P4, D8): a terminal
+ * whose session runs on an offline grant asks the server to record it. Strict
+ * on the wire: there is no `takeover` here (the server's live admission always
+ * wins), and `offline_admitted_at` is provenance for audit, never authority.
+ */
+export interface CashierAdmissionReconcileRequest {
+  mode: 'reconcile_offline';
+  /** `users.id` (028 §16), the roster's `user_id`. */
+  user_id: string;
+  /** The terminal's local time (ISO-8601) of the offline admission. */
+  offline_admitted_at: string;
+  /** 16–128 printable ASCII, fresh per attempt. Never logged. */
+  idempotency_key: string;
+}
+
 /** `PosCashierAdmissionAdmitted`. */
 export interface CashierAdmissionAdmitted {
   kind: 'admitted';
@@ -137,6 +153,11 @@ export type CashierRosterResult =
 export interface CashierAdmissionClient {
   admit(req: CashierAdmissionOnlineRequest): Promise<CashierAdmissionResult>;
   /**
+   * RT-1312 F17: `mode: reconcile_offline`. Same answers as `admit`; the
+   * caller maps them (`offline-reconcile.ts`).
+   */
+  reconcile(req: CashierAdmissionReconcileRequest): Promise<CashierAdmissionResult>;
+  /**
    * Idempotent and non-disclosing server-side; callers treat it as best-effort.
    * RT-219: `admissionGeneration` is the `admission_generation` of the LATEST
    * `admitted` for `admissionId`. It is a no-op server-side once that admission
@@ -200,6 +221,18 @@ export function createCashierAdmissionClient(
         takeover: req.takeover,
         idempotency_key: req.idempotency_key,
       } satisfies CashierAdmissionOnlineRequest);
+      if (sent.kind !== 'response') return notSent(sent);
+      if (sent.response.status === 200) return interpretAdmission(await readJson(sent.response));
+      return { kind: statusOutcome(sent.response.status, ADMISSION_STATUS) };
+    },
+
+    async reconcile(req) {
+      const sent = await send(ADMISSIONS_PATH, 'POST', {
+        mode: 'reconcile_offline',
+        user_id: req.user_id,
+        offline_admitted_at: req.offline_admitted_at,
+        idempotency_key: req.idempotency_key,
+      } satisfies CashierAdmissionReconcileRequest);
       if (sent.kind !== 'response') return notSent(sent);
       if (sent.response.status === 200) return interpretAdmission(await readJson(sent.response));
       return { kind: statusOutcome(sent.response.status, ADMISSION_STATUS) };
