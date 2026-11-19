@@ -53,13 +53,32 @@ import { xid8 } from "../offers/offer-versions";
 import { stores } from "../stores";
 import { tenants } from "../tenants";
 
+/** `tenant_id`, NOT NULL, FK to tenants (RESTRICT). */
+const tenantIdColumn = () =>
+  uuid("tenant_id")
+    .notNull()
+    .references(() => tenants.id, { onDelete: "restrict" });
+
+/** Who wrote a row, when, and under which request (every pricing table). */
+const pricingAuthorshipColumns = () => ({
+  createdByUserId: uuid("created_by_user_id").notNull(),
+  createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
+  correlationId: uuid("correlation_id").notNull(),
+});
+
+/** The timeline row lifecycle shared by memberships and events. */
+const timelineColumns = () => ({
+  state: text("state").notNull().default("active"),
+  publishedInRevision: bigint("published_in_revision", { mode: "number" }).notNull(),
+  endedInRevision: bigint("ended_in_revision", { mode: "number" }),
+  carriedForward: boolean("carried_forward").notNull().default(false),
+});
+
 export const changeSets = pgTable(
   "change_sets",
   {
     id: uuid("id").primaryKey(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "restrict" }),
+    tenantId: tenantIdColumn(),
     domain: text("domain").notNull(),
     kind: text("kind").notNull(),
     title: text("title").notNull(),
@@ -76,9 +95,7 @@ export const changeSets = pgTable(
       .default(sql`'{}'`),
     revisionNo: bigint("revision_no", { mode: "number" }),
     rollsBackChangeSetId: uuid("rolls_back_change_set_id"),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...pricingAuthorshipColumns(),
     submittedByUserId: uuid("submitted_by_user_id"),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
     approvedByUserId: uuid("approved_by_user_id"),
@@ -105,9 +122,7 @@ export const priceBooks = pgTable(
   "price_books",
   {
     id: uuid("id").primaryKey(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "restrict" }),
+    tenantId: tenantIdColumn(),
     code: text("code").notNull(),
     name: text("name").notNull(),
     currencyCode: char("currency_code", { length: 3 }).notNull(),
@@ -115,9 +130,7 @@ export const priceBooks = pgTable(
     pricingContext: text("pricing_context").notNull().default("retail"),
     isDefault: boolean("is_default").notNull().default(true),
     retiredAt: timestamp("retired_at", { withTimezone: true }),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...pricingAuthorshipColumns(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
@@ -141,9 +154,7 @@ export const priceZones = pgTable(
     retiredAt: timestamp("retired_at", { withTimezone: true }),
     retiredByUserId: uuid("retired_by_user_id"),
     retireReason: text("retire_reason"),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...pricingAuthorshipColumns(),
     updatedAt: timestamp("updated_at", { withTimezone: true }).defaultNow().notNull(),
   },
   (t) => [
@@ -162,9 +173,7 @@ export const pricingRevisions = pgTable(
   "pricing_revisions",
   {
     id: uuid("id").primaryKey(),
-    tenantId: uuid("tenant_id")
-      .notNull()
-      .references(() => tenants.id, { onDelete: "restrict" }),
+    tenantId: tenantIdColumn(),
     revisionNo: bigint("revision_no", { mode: "number" }).notNull(),
     changeSetId: uuid("change_set_id").notNull(),
     kind: text("kind").notNull(),
@@ -199,9 +208,7 @@ export const pricingRevisionStores = pgTable(
     tenantId: uuid("tenant_id").notNull(),
     storeId: uuid("store_id").notNull(),
     revisionNo: bigint("revision_no", { mode: "number" }).notNull(),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...pricingAuthorshipColumns(),
   },
   (t) => [
     primaryKey({ name: "pricing_revision_stores_pk", columns: [t.tenantId, t.storeId, t.revisionNo] }),
@@ -229,13 +236,8 @@ export const priceZoneMemberships = pgTable(
     storeId: uuid("store_id").notNull(),
     effectiveFrom: timestamp("effective_from", { withTimezone: true }).notNull(),
     effectiveTo: timestamp("effective_to", { withTimezone: true }),
-    state: text("state").notNull().default("active"),
-    publishedInRevision: bigint("published_in_revision", { mode: "number" }).notNull(),
-    endedInRevision: bigint("ended_in_revision", { mode: "number" }),
-    carriedForward: boolean("carried_forward").notNull().default(false),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...timelineColumns(),
+    ...pricingAuthorshipColumns(),
   },
   (t) => [
     foreignKey({
@@ -271,16 +273,11 @@ export const priceEvents = pgTable(
     effectiveTo: timestamp("effective_to", { withTimezone: true }),
     effectiveFromLocal: timestamp("effective_from_local", { withTimezone: false }),
     effectiveToLocal: timestamp("effective_to_local", { withTimezone: false }),
-    state: text("state").notNull().default("active"),
-    publishedInRevision: bigint("published_in_revision", { mode: "number" }).notNull(),
-    endedInRevision: bigint("ended_in_revision", { mode: "number" }),
+    ...timelineColumns(),
     supersedesEventId: uuid("supersedes_event_id"),
     changeSetId: uuid("change_set_id").notNull(),
     source: text("source").notNull(),
-    carriedForward: boolean("carried_forward").notNull().default(false),
-    createdByUserId: uuid("created_by_user_id").notNull(),
-    createdAt: timestamp("created_at", { withTimezone: true }).defaultNow().notNull(),
-    correlationId: uuid("correlation_id").notNull(),
+    ...pricingAuthorshipColumns(),
   },
   (t) => [
     unique("price_events_tenant_id_uk").on(t.tenantId, t.id),
