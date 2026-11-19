@@ -143,6 +143,25 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
   `node scripts/check-index-size.mjs` and `node scripts/check-code-health.mjs` (the latter needs knip from
   `npm ci`; `npx knip` fetches a different version and is only a hint). Never lower a jscpd baseline from a
   Windows run (see `troubleshooting-windows-dev`).
+- **A new `export` that nothing imports fails the ratchet (RT-1331, 2026-11-19).** One exported type used only
+  inside its own file moved `knipUnusedTypes` from 345 to 346 and turned `pos/static` red. Keep a type local
+  until a second file needs it.
+- **Lint and typecheck the whole project, not the files you changed (RT-1331, 2026-11-19).** CI runs
+  `eslint .` and every tsconfig, tests included. Adding a variant to a shared response union broke three
+  test files that were never opened (`${r.reason}` after `kind !== 'ok'`): a type error and a
+  `restrict-template-expressions` error, red in `pos/static`. Before the push run `npm run lint`,
+  `npx tsc -p tsconfig.{renderer,main,preload,tests}.json --noEmit` and `npm run code-health`, not only
+  `eslint <changed files>`.
+- **`pos/test` can be red with every test passing: the per-file coverage gate (RT-1331, 2026-11-19).** The job
+  merges the shard reports with `--coverage` and enforces the per-file thresholds in `apps/pos/vitest.config.ts`
+  (80% globally, 90% branches for `src/renderer/ui/**`, 95% for the money modules). A local `vitest run`
+  enforces none of it. The log ends with `ERROR: Coverage for branches (85.71%) does not meet
+  "src/renderer/ui/**" threshold (90%) for <file>`. Before the push, run the new file's tests with
+  `npx vitest run --coverage --coverage.reporter=text <its tests>` and look for a `does not meet` line naming
+  your file (lines for other files are noise: the subset does not run their tests). Fix it by removing
+  unreachable branches, not by writing tests for dead code: under `noUncheckedIndexedAccess`,
+  `record[key] ?? null` leaves an unreachable branch, while `map.get(key) ?? null` is covered both ways (and a
+  `Map` cannot resolve inherited names such as `constructor`).
 - **The CircleCI MCP tools can read this project but cannot trigger it (verified 2026-11-16, RT-1425/RT-1423).**
   Retail-Tower-Erp is a CircleCI **GitHub App** project. Reads (`list_runs`, `get_run`, `list_job_tests` and the
   like) work with the slug `circleci/XUuruzngh1JYidtrRaWDLy/5VLFtkZC7SB3XYRpJiZZt4` or with the project UUID
