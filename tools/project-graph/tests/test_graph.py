@@ -145,7 +145,7 @@ class StaticRuleTests(unittest.TestCase):
         no_action = [{"uses": "actions/checkout@0000000000000000000000000000000000000000"}]
         extra = support.guarded_workflows(g)[path]["plan"]["steps"] + [{"run": "echo extra"}]
         ok = support.guarded_workflows(g)[path]["plan"]["steps"]
-        action = {"uses": "./.github/actions/pgraph-plan"}
+        action = {"uses": "$/.github/actions/pgraph-plan"}
         variants = (
             ("inline", inline), ("no_action", no_action), ("extra_run_step", extra), ("none", None),
             ("action_without_id_plan", [ok[0], dict(action)]),

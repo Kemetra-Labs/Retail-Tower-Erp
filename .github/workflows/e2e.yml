@@ -47,9 +47,10 @@ jobs:
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
-      # RT-1467 (CI-05): the plan logic is the shared composite action (.github/actions/pgraph-plan);
-      # this job only checks out the history and the action. pgraph rule 5b keeps it that way.
-      - name: Checkout (history, and the shared action only)
+      # RT-1467 (CI-05): the plan logic is the shared composite action (.github/actions/pgraph-plan),
+      # referenced with the self-repository syntax `$/` (the running commit, no checkout needed for the
+      # action). This job only checks out the history. pgraph rule 5b keeps it that way.
+      - name: Checkout (history only)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
@@ -57,7 +58,7 @@ jobs:
           sparse-checkout: .github/actions/pgraph-plan
 
       - id: plan
-        uses: ./.github/actions/pgraph-plan
+        uses: $/.github/actions/pgraph-plan
 
   e2e-smoke:
     name: e2e/smoke

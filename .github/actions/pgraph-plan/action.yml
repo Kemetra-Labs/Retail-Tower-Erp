@@ -11,9 +11,11 @@
 # Every run step sets `working-directory` to the workspace, so a calling workflow's `defaults.run.working-directory`
 # (backend-core, admin-console, pos, erpnext-connector set one) never decides where it runs.
 #
-# Caller contract: `actions/checkout` first, with `fetch-depth: 0` (the evaluator diffs commits with git
-# plumbing), `persist-credentials: false` and `sparse-checkout: .github/actions/pgraph-plan` (cone mode
-# also keeps the repo-root files, which is where `.python-version` is read from).
+# Caller contract: reference it as `uses: $/.github/actions/pgraph-plan` (self-repository syntax: this
+# repository at the commit that is running, so the action needs no checkout). Before it, run
+# `actions/checkout` with `fetch-depth: 0` (the evaluator diffs commits with git plumbing),
+# `persist-credentials: false` and a `sparse-checkout` (cone mode keeps the repo-root files, which is
+# where `.python-version` is read from).
 name: pgraph-plan
 description: Evaluate the trusted project graph for this event and output the selected graph job keys.
 

@@ -17,7 +17,7 @@ MAX_GRAPH_BYTES = 256 * 1024
 LOW_RISK_TIERS = ("low", "tooling")
 PLAN_JOB = "plan"          # workflow job id of the RT-867 plan job
 PLAN_OUTPUT = "jobs"       # its output: JSON list of selected graph job keys
-PLAN_ACTION = "./.github/actions/pgraph-plan"   # the composite action every plan job runs (RT-1467 CI-05)
+PLAN_ACTION = "$/.github/actions/pgraph-plan"   # the composite action every plan job runs (RT-1467 CI-05)
 
 Classification = namedtuple("Classification", "kind owner tiers")
 

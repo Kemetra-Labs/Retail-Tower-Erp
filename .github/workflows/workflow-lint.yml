@@ -34,6 +34,10 @@
 # Known false positive handled here: actionlint (1.7.12 and its main branch, 2026-11) does not know
 # the job-level `concurrency.queue` key that GitHub accepts (mirror-erpnext-connector.yml publish
 # job, `queue: max`). The `-ignore` regex below drops exactly that message and nothing else.
+# Second one (RT-1467): actionlint 1.7.12 does not know the self-repository syntax `uses: $/path`
+# (rhysd/actionlint#711), which GitHub supports and zizmor's `self-repository` audit asks for. The
+# regex drops only that message for the one action path `$/.github/actions/pgraph-plan`. Remove both
+# alternatives when a pinned actionlint release knows the syntax / the key.
 name: workflow-lint
 
 on:
@@ -62,8 +66,9 @@ jobs:
       ACTIONLINT_SHA256: "8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8"
       ZIZMOR_VERSION: "1.32.0"
       ZIZMOR_SHA256: "bb110cc765eca9cd7efb2e284a956be5974c60027b0970f16397d86208a9957b"
-      # actionlint does not know `concurrency.queue` (see the header); this drops exactly that message.
-      ACTIONLINT_IGNORE: 'unexpected key "queue" for "concurrency" section'
+      # actionlint does not know `concurrency.queue` or `uses: $/...` (see the header); this drops exactly
+      # those two messages (the second only for the pgraph-plan action path).
+      ACTIONLINT_IGNORE: 'unexpected key "queue" for "concurrency" section|specifying action "\$/\.github/actions/pgraph-plan" in invalid format because ref is missing'
     steps:
       - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:

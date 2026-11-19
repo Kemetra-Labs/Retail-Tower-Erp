@@ -97,7 +97,7 @@ def guarded_workflows(graph):
             "name": "plan",
             "outputs": {"jobs": "${{ steps.plan.outputs.jobs }}"},
             "steps": [{"uses": "actions/checkout@0000000000000000000000000000000000000000"},
-                      {"id": "plan", "uses": "./.github/actions/pgraph-plan"}]}})
+                      {"id": "plan", "uses": "$/.github/actions/pgraph-plan"}]}})
         if key in graph["always_jobs"]:
             jobs[key] = {"name": key}
         else:
