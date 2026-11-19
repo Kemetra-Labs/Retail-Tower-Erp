@@ -1,0 +1,911 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Retail Pricing structure (Price Books, Zones, memberships) API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1151 (RT-282 PR-04, authoring half). The structure the Retail
+    Pricing resolver works over: the tenant's retail Price Book, its Price
+    Zones, and which Store belongs to which Zone over time. Design of record:
+    spec 041 §3 and data-model §2.1–§2.3 (decisions 471–494), OD-1..6 and
+    Q-1..8 ratified for planning (RT-483 comment 12638); spec 042 for how
+    memberships change. Plan: `specs/041-pricing-domain/rt-1151-implementation-plan.md`.
+
+
+    **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
+    owner on RT-1151 (D1, comment 17783). Every operation is
+    `x-runtime-status: contract-only` until RT-1484 ships the runtime.
+    Inquiry is `pricing/price-inquiry.yaml`; prices and Zone moves change only
+    through `pricing/price-change-sets.yaml`.
+
+
+    **v1 shape (OD-1, data-model §2.1–§2.2).** A tenant has **at most one
+    non-retired retail Price Book**, in one currency, with a declared
+    `taxPriceBasis` fixed at creation (Q-5). Creating the Book also creates
+    its **default Zone**, which is immutable and can never be retired (Q-8).
+    In v1 the Book itself cannot be retired or replaced. Further Zones are
+    optional commercial groupings of Stores inside the Book; they are not
+    Organization/Store Groups (decision 492).
+
+
+    **What changes prices, and what does not.** Creating a Book or a Zone, and
+    retiring an unused Zone, changes no resolved price, so these are direct,
+    audited writes and create no Pricing Revision. A Store's Zone membership
+    *does* change prices, so it changes only through a Change Set
+    `move_store_zone` item with an Impact Preview (decision 488, spec 042
+    §4.2). This API only reads memberships.
+
+
+    **Who.** The human `cookieAuth` session only (Console). Writes: `owner` /
+    `tenant_admin`. Reads: also `store_manager`, whose membership reads are
+    limited to its own Stores. Store Managers have no price authoring rights
+    in V1 (Q-B2, owner-ratified). A resource of another tenant, out of scope
+    or absent, and a role outside an operation's list, are the same
+    non-disclosing `404` (§II, §XII). Every unsafe request is subject to the
+    RT-430 `Origin` check.
+
+
+    **Audit.** Each write records one `audit_events` row in the same
+    transaction: `pricing.price_book.created`, `pricing.price_zone.created`,
+    `pricing.price_zone.retired`, with the actor and the target. No PII.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: pricing-structure-console
+    description: Admin-Console Price Book, Zone and membership surfaces (RT-1151).
+
+paths:
+  /api/v1/pricing/books:
+    get:
+      summary: List the tenant's Price Books.
+      operationId: consoleListPriceBooks
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-08/PR-09), which removes the marker.
+      description: >
+        Every Book of the tenant, retired ones included, newest first. In v1
+        this is zero or one Book. Roles `owner`, `tenant_admin`,
+        `store_manager`.
+      responses:
+        "200":
+          description: The Books.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceBookList"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    post:
+      summary: Create the tenant's retail Price Book and its default Zone.
+      operationId: consoleCreatePriceBook
+      x-idempotency: required
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
+        PR-09), which removes the marker.
+      description: >
+        Creates the Book (pricing context `retail`) and, in the same
+        transaction, its default Zone. Roles `owner` / `tenant_admin`. A tenant
+        that already has a non-retired retail Book is `409 price_book_exists`
+        (v1, OD-1). The currency and `taxPriceBasis` cannot change later
+        (decision 472, Q-5).
+
+
+        Order of checks: (1) session, `Origin`, tenant and role; (2) the
+        `Idempotency-Key`; (3) the body (`400`); (4) under the tenant's pricing
+        lock, the single-Book rule and the code (`409`); (5) write the Book,
+        its default Zone and the audit row, and answer `201`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePriceBookRequest"
+      responses:
+        "201":
+          description: "Created. A same-key retry replays this `201` with `Idempotent-Replayed: true`."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceBook"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/CreateBookConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/books/{bookId}:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    get:
+      summary: Read a Price Book with its Zones.
+      operationId: consoleGetPriceBook
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
+        removes the marker.
+      description: >
+        The Book and all its Zones (retired ones included), the default Zone
+        first, then by `code`. Roles `owner`, `tenant_admin`, `store_manager`.
+      responses:
+        "200":
+          description: The Book.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceBookDetail"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/books/{bookId}/zones:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+    post:
+      summary: Create a Price Zone in a Book.
+      operationId: consoleCreatePriceZone
+      x-idempotency: required
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
+        removes the marker.
+      description: >
+        A new, empty, non-default Zone; it inherits the Book's currency
+        (decision 486). Stores join it only through a Change Set
+        `move_store_zone`. Roles `owner` / `tenant_admin`. A `code` already
+        used in the Book is `409 price_zone_code_taken`; a retired Book is
+        `409 price_book_retired`.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/CreatePriceZoneRequest"
+      responses:
+        "201":
+          description: "Created. A same-key retry replays this `201` with `Idempotent-Replayed: true`."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceZone"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/CreateZoneConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/books/{bookId}/zones/{zoneId}/retire:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+      - $ref: "#/components/parameters/ZoneId"
+    post:
+      summary: Retire an unused Price Zone.
+      operationId: consoleRetirePriceZone
+      x-idempotency: required
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
+        removes the marker.
+      description: >
+        Retires a Zone that no active membership and no active price event
+        references at any instant (data-model §2.2), so no resolved price
+        changes. Zones are retired, never deleted. Roles `owner` /
+        `tenant_admin`. The default Zone is `409 default_price_zone_immutable`
+        (Q-8); a Zone still in use is `409 price_zone_in_use` (an active
+        membership or price event, or a Change Set not yet published or
+        cancelled with a line targeting it); an already retired Zone is `409
+        price_zone_retired`. Retirement takes the tenant's pricing publish
+        lock (spec 042 §8) and runs its in-use check under it; validation
+        re-checks every line's Zone, and a line targeting a retired Zone is
+        `invalid`. The database refuses any membership or price event into a
+        retired Zone, so a set authored or validated before the retirement
+        can never publish into it.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RetirePriceZoneRequest"
+      responses:
+        "200":
+          description: "Retired. A same-key retry replays this `200` with `Idempotent-Replayed: true`."
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceZone"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RetireZoneConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/books/{bookId}/zones/{zoneId}/stores:
+    parameters:
+      - $ref: "#/components/parameters/BookId"
+      - $ref: "#/components/parameters/ZoneId"
+    get:
+      summary: The Stores that resolve to a Zone at an instant.
+      operationId: consoleListPriceZoneStores
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
+        removes the marker.
+      description: >
+        Stores whose Zone in this Book at `at` (default: now), as known at
+        `as_of_revision` (default: head), is this Zone: explicit members and,
+        for the default Zone, every Store with no explicit membership at that
+        instant (resolver step 4). Keyset paginated by Store id. The first
+        page fixes the evaluation: an omitted `at` resolves to the server's
+        current time and an omitted `as_of_revision` to the head (null when
+        the tenant has published none), and `nextCursor` carries both, so
+        every later page reads the same instant and revision. A continuation
+        that also passes `at` or `as_of_revision` must repeat the values the
+        cursor carries, else `400 validation_failed`. Roles `owner`,
+        `tenant_admin`, `store_manager` (own Stores only).
+      parameters:
+        - $ref: "#/components/parameters/At"
+        - $ref: "#/components/parameters/AsOfRevision"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of Stores.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PriceZoneStorePage"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RevisionUnknown"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/pricing/stores/{storeId}/zone-memberships:
+    parameters:
+      - $ref: "#/components/parameters/StoreId"
+    get:
+      summary: A Store's Zone membership timeline in the retail Book.
+      operationId: consoleListStorePriceZoneMemberships
+      tags: [pricing-structure-console]
+      security:
+        - cookieAuth: []
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1151 PR-04 contract-first. The runtime ships in RT-1484, which
+        removes the marker.
+      description: >
+        The Store's explicit membership rows visible at `as_of_revision`
+        (default: head; data-model §2.3 visibility), ordered by
+        `effectiveFrom`. Instants not covered by a row fall back to the Book's
+        default Zone. Roles `owner`, `tenant_admin`, `store_manager` (own
+        Stores only).
+      parameters:
+        - $ref: "#/components/parameters/AsOfRevision"
+      responses:
+        "200":
+          description: The membership timeline.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StorePriceZoneMemberships"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "422":
+          $ref: "#/components/responses/RevisionUnknown"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only credential accepted here: a
+        machine bearer (`dashboard_api` included), a POS `device` token or an
+        `operatorAuthorization` envelope is 401.
+
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay, which carries
+        the stored status. Absent on a first-time write.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: >
+        Seconds to wait before retrying a 425 with the same `Idempotency-Key`
+        and body. The shared `IdempotencyInterceptor` always sends it.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    BookId:
+      name: bookId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The Price Book id. Not a UUID is 400; another tenant's or absent is the non-disclosing 404.
+    ZoneId:
+      name: zoneId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: A Zone of `bookId`. Not a UUID is 400; a Zone of another Book or absent is the non-disclosing 404.
+    StoreId:
+      name: storeId
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The Store id. Not a UUID is 400; another tenant's or out of scope is the non-disclosing 404.
+    At:
+      name: at
+      in: query
+      required: false
+      schema:
+        type: string
+        format: date-time
+        pattern: "^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{2}:[0-9]{2}:[0-9]{2}(\\.[0-9]{1,6})?(Z|[+-][0-9]{2}:[0-9]{2})$"
+      description: The instant, RFC 3339 with an offset (`Z` or `+hh:mm`). Default the server's current time.
+    AsOfRevision:
+      name: as_of_revision
+      in: query
+      required: false
+      schema:
+        type: integer
+        format: int64
+        minimum: 1
+      description: >
+        Read as known at this tenant Pricing Revision. Default: head. A
+        revision the tenant has not published is 422 `pricing_revision_unknown`.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`; omit it for the
+        first page. A value the server did not issue is 400 `validation_error`.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 100
+      description: Maximum items per page. The server MAY return fewer.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on every write: 16 to 128 printable ASCII characters with no
+        whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on
+        the verified actor. An identical retry replays the stored response
+        with `Idempotent-Replayed: true`; key reuse with a different body is
+        409 `idempotency_key_conflict`; a key still being processed is 425
+        `idempotency_in_progress`. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`.
+
+  schemas:
+    Uuid:
+      type: string
+      format: uuid
+    Code:
+      type: string
+      pattern: "^[A-Z0-9][A-Z0-9_-]{0,31}$"
+      description: Upper-case code, 1 to 32 characters, unique in its scope.
+    Name:
+      type: string
+      minLength: 1
+      maxLength: 120
+      description: Display name. No PII.
+    CurrencyCode:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO-4217 alphabetic code; must have a minor-unit exponent known to Backend-Core.
+    TaxPriceBasis:
+      type: string
+      enum: [inclusive, exclusive]
+      description: Declared only; Fiscal derives tax (RT-294, G3). Fixed at creation (Q-5).
+    Actor:
+      type: object
+      additionalProperties: false
+      required: [userId, at]
+      properties:
+        userId:
+          $ref: "#/components/schemas/Uuid"
+        at:
+          type: string
+          format: date-time
+
+    CreatePriceBookRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name, currencyCode, taxPriceBasis]
+      properties:
+        code:
+          $ref: "#/components/schemas/Code"
+        name:
+          $ref: "#/components/schemas/Name"
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+        taxPriceBasis:
+          $ref: "#/components/schemas/TaxPriceBasis"
+        defaultZoneName:
+          $ref: "#/components/schemas/Name"
+          description: Name of the default Zone created with the Book. Default "Default". Its code is always `DEFAULT`.
+    CreatePriceZoneRequest:
+      type: object
+      additionalProperties: false
+      required: [code, name]
+      properties:
+        code:
+          $ref: "#/components/schemas/Code"
+        name:
+          $ref: "#/components/schemas/Name"
+    RetirePriceZoneRequest:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: Why the Zone is retired. Short free text, no PII.
+
+    PriceBook:
+      type: object
+      additionalProperties: false
+      required: [id, code, name, currencyCode, taxPriceBasis, pricingContext, isDefault, retiredAt, created, defaultZone]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          $ref: "#/components/schemas/Code"
+        name:
+          $ref: "#/components/schemas/Name"
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+        taxPriceBasis:
+          $ref: "#/components/schemas/TaxPriceBasis"
+        pricingContext:
+          type: string
+          enum: [retail]
+          description: v1 has only `retail` (decision 474).
+        isDefault:
+          type: boolean
+          description: True for the tenant's retail Book (v1 has exactly one non-retired Book).
+        retiredAt:
+          type: [string, "null"]
+          format: date-time
+          description: Always null in v1 (the Book cannot be retired).
+        created:
+          $ref: "#/components/schemas/Actor"
+        defaultZone:
+          $ref: "#/components/schemas/PriceZone"
+    PriceBookList:
+      type: object
+      additionalProperties: false
+      required: [items]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceBook"
+    PriceBookDetail:
+      type: object
+      additionalProperties: false
+      required: [book, zones]
+      properties:
+        book:
+          $ref: "#/components/schemas/PriceBook"
+        zones:
+          type: array
+          minItems: 1
+          description: Every Zone of the Book, the default Zone first, then by `code`.
+          items:
+            $ref: "#/components/schemas/PriceZone"
+    PriceZone:
+      type: object
+      additionalProperties: false
+      required: [id, priceBookId, code, name, isDefault, retiredAt, retireReason, created]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        priceBookId:
+          $ref: "#/components/schemas/Uuid"
+        code:
+          $ref: "#/components/schemas/Code"
+        name:
+          $ref: "#/components/schemas/Name"
+        isDefault:
+          type: boolean
+          description: The Book's default Zone. Immutable (Q-8).
+        retiredAt:
+          type: [string, "null"]
+          format: date-time
+        retireReason:
+          type: [string, "null"]
+          maxLength: 500
+        created:
+          $ref: "#/components/schemas/Actor"
+
+    PriceZoneStorePage:
+      type: object
+      additionalProperties: false
+      required: [zoneId, evaluatedAt, asOfRevision, items, nextCursor]
+      properties:
+        zoneId:
+          $ref: "#/components/schemas/Uuid"
+        evaluatedAt:
+          type: string
+          format: date-time
+        asOfRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/PriceZoneStore"
+        nextCursor:
+          description: The next page's `cursor`; null on the last page.
+          oneOf:
+            - type: "null"
+            - type: string
+              minLength: 1
+              maxLength: 512
+              pattern: "^[A-Za-z0-9_-]+$"
+    PriceZoneStore:
+      type: object
+      additionalProperties: false
+      required: [storeId, membership, membershipId]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        membership:
+          type: string
+          enum: [explicit, default]
+          description: "`default`: the Store has no explicit membership at the instant and falls back to the default Zone."
+        membershipId:
+          type: [string, "null"]
+          format: uuid
+          description: The membership row; null for `default`.
+
+    StorePriceZoneMemberships:
+      type: object
+      additionalProperties: false
+      required: [storeId, priceBookId, defaultZoneId, asOfRevision, items]
+      properties:
+        storeId:
+          $ref: "#/components/schemas/Uuid"
+        priceBookId:
+          type: [string, "null"]
+          format: uuid
+          description: The tenant's retail Book; null when the tenant has none.
+        defaultZoneId:
+          type: [string, "null"]
+          format: uuid
+        asOfRevision:
+          type: [integer, "null"]
+          format: int64
+          minimum: 1
+        items:
+          type: array
+          description: Ordered by `effectiveFrom`; non-overlapping.
+          items:
+            $ref: "#/components/schemas/PriceZoneMembership"
+    PriceZoneMembership:
+      type: object
+      additionalProperties: false
+      required: [id, priceZoneId, effectiveFrom, effectiveTo, publishedInRevision, carriedForward]
+      properties:
+        id:
+          $ref: "#/components/schemas/Uuid"
+        priceZoneId:
+          $ref: "#/components/schemas/Uuid"
+        effectiveFrom:
+          type: string
+          format: date-time
+          description: Absolute instant (memberships are structural, never store-local).
+        effectiveTo:
+          type: [string, "null"]
+          format: date-time
+          description: Exclusive; null when open-ended.
+        publishedInRevision:
+          type: integer
+          format: int64
+          minimum: 1
+        carriedForward:
+          type: boolean
+          description: A head or tail row that only preserves an unchanged segment after a move (data-model §2.3).
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path id or query parameter, or a
+        cursor the server did not issue. Checked before any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        400: `validation_error` (a malformed path id or body, an unknown key, a
+        currency with no known minor unit) or the `IdempotencyInterceptor`'s
+        `idempotency_key_required` / `idempotency_key_malformed`. Nothing is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`: no human dashboard session. A bearer-only request
+        (`dashboard_api` included) is refused. Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated write whose
+        `Origin` is missing or not allowed. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`, non-disclosing: identical for a resource of another
+        tenant, a Store outside the caller's scope, an absent id and a role
+        outside the operation's list.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CreateBookConflict:
+      description: >
+        409, `error.code` one of: `price_book_exists` (the tenant already has a
+        non-retired retail Book, OD-1); `price_book_code_taken`;
+        `idempotency_key_conflict`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    CreateZoneConflict:
+      description: >
+        409, `error.code` one of: `price_zone_code_taken`;
+        `price_book_retired`; `idempotency_key_conflict`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RetireZoneConflict:
+      description: >
+        409, `error.code` one of: `default_price_zone_immutable` (Q-8);
+        `price_zone_in_use` (an active membership or price event references
+        it, or an unpublished, uncancelled Change Set targets it); `price_zone_retired`; `idempotency_key_conflict`. Nothing is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RevisionUnknown:
+      description: >
+        422 `pricing_revision_unknown`: an explicit `as_of_revision` is above
+        the tenant's head revision, or the tenant has published none. An
+        omitted `as_of_revision` is never 422: before the first revision it
+        reads the no-revision view (`asOfRevision: null`), where every Store
+        resolves to the default Zone by fallback and has no explicit
+        membership.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this
+        `Idempotency-Key` is still being processed. Retry after `Retry-After`
+        seconds with the same key and body.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. Canonical error envelope with a
+        non-disclosing message; its `request_id` equals `X-Request-Id`. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: The request id, equal to `error.request_id` in the body.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error, recorded server-side
+        under `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

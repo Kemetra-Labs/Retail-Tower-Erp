@@ -1,0 +1,16 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/pricing/price-change-sets.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+# Contract-only until RT-1484 (RT-282 PR-10): these are the intended classes.
+
+consoleApprovePriceChangeSet: write
+consoleCancelPriceChangeSet: write
+consoleCreatePriceChangeSet: write
+consoleGetPriceChangeSet: cheapRead
+consoleGetPriceChangeSetPreview: expensiveRead
+consoleListPriceChangeSets: cheapRead
+consolePublishPriceChangeSet: write
+consoleRejectPriceChangeSet: write
+consoleRollbackPriceChangeSet: write
+consoleSubmitPriceChangeSet: write
+consoleUpdatePriceChangeSet: write
+consoleValidatePriceChangeSet: jobOrPreview
