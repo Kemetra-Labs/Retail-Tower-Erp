@@ -46,6 +46,7 @@ import { createBackendTransport } from '../../../src/main/http/transport.js';
 import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
 import { createHeartbeatClient } from '../../../src/main/device-health/heartbeat-client.js';
 import { createUnknownItemCaptureClient } from '../../../src/main/unknown-items/capture-client.js';
+import { createQuarantineUploadClient } from '../../../src/main/quarantine-upload/quarantine-upload-client.js';
 import {
   CAPTURE_TERMINAL_TAG,
   createTunnelRequestExecutor,
@@ -210,6 +211,11 @@ const unknownItemCaptureClient = (
 ): ReturnType<typeof createUnknownItemCaptureClient> =>
   createUnknownItemCaptureClient({ baseUrl: BASE_URL, fetch });
 const UNKNOWN_ITEM_CAPTURE_MODULE = 'src/main/unknown-items/capture-client.ts';
+const quarantineUploadClient = (
+  fetch: FetchLike,
+): ReturnType<typeof createQuarantineUploadClient> =>
+  createQuarantineUploadClient({ baseUrl: BASE_URL, fetch });
+const QUARANTINE_UPLOAD_MODULE = 'src/main/quarantine-upload/quarantine-upload-client.ts';
 /**
  * RT-1231: the audit upload. Device auth is the body `device_token_attestation`
  * (fed the device sentinel); the optional operator-JWT header is never sent, so
@@ -349,6 +355,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: HEARTBEAT_MODULE, fetchCallSites: 0, surface: heartbeatClient },
   // RT-1490: the unknown-item capture (operator envelope, on the shared transport).
   { module: UNKNOWN_ITEM_CAPTURE_MODULE, fetchCallSites: 0, surface: unknownItemCaptureClient },
+  // RT-1312 Phase 3(c): the sale-quarantine upload (device bearer, on the shared transport).
+  { module: QUARANTINE_UPLOAD_MODULE, fetchCallSites: 0, surface: quarantineUploadClient },
 ];
 
 /** Modules that call `fetch` but not Backend-Core. Each needs a reason. */
@@ -631,6 +639,24 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
         captureId: UUID,
         barcode: '6221000000099',
         envelope: SENTINEL['operator-envelope'],
+      }),
+  },
+  {
+    id: 'quarantineUploadClient.upload',
+    module: QUARANTINE_UPLOAD_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/quarantined-sales',
+    wiring:
+      'bootstrap/sale-quarantine-upload.ts: `readToken` = readSendableDeviceToken (paired only; never once revoked, RT-215), started by bootstrap/device-heartbeat.ts',
+    invoke: (fetch) =>
+      quarantineUploadClient(fetch).upload(SENTINEL.device, {
+        sourceSystem: 'pos-pulse',
+        externalId: 'pos-pulse:contract-conformance',
+        idempotencyKey: 'pos-pulse:contract-conformance',
+        reason: { kind: 'refused', httpStatus: null, errorCode: null },
+        tillRecordedAt: '2026-11-19T10:00:00.000Z',
+        previousTerminalId: null,
+        saleBody: { sourceSystem: 'pos-pulse', externalId: 'pos-pulse:contract-conformance' },
       }),
   },
   {

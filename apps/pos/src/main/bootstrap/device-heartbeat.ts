@@ -11,8 +11,10 @@ import { SALE_DISCOUNT_CAPTURE_SUPPORTED } from '../sales-sync/discount-hold.js'
 import { createSaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 import { resolveUpdateConfig } from '../update/update-config.js';
 import type { UpdateService } from '../update/update-service.js';
+import { bindQuarantineUploadStore } from '../quarantine-upload/quarantine-upload-store.js';
 import type { BrandingDeps } from './branding.js';
 import { resolveApiBaseUrl } from './env.js';
+import { startSaleQuarantineUpload } from './sale-quarantine-upload.js';
 
 /**
  * What `registerDeviceHeartbeat` closes over from the composition root: the read-down deps the
@@ -54,6 +56,9 @@ export function registerDeviceHeartbeat(deps: DeviceHeartbeatDeps): void {
   deps.pairedWorkersLatch.register('device heartbeat', (terminal) => {
     // Read once: migrations only run at start, before any worker.
     const schemaHead = readSchemaHead(db);
+    // RT-1312 Phase 3(c): what the till uploaded to the Backend-Core quarantine is no
+    // longer counted here (decision P4); the uploader below shares this store.
+    const quarantineStore = bindQuarantineUploadStore(db);
     const scheduler = createHeartbeatScheduler({
       readToken: deps.readSendableDeviceToken,
       readFacts: () => ({
@@ -69,6 +74,7 @@ export function registerDeviceHeartbeat(deps: DeviceHeartbeatDeps): void {
         branchId: terminal.branch_id,
         currentTerminalId: () => pairingStore.getCurrentTerminalId(),
         discountCaptureSupported: SALE_DISCOUNT_CAPTURE_SUPPORTED,
+        readUploadedQuarantine: (scope) => quarantineStore.countUploaded(scope),
       }),
       client: createHeartbeatClient({ baseUrl: resolveApiBaseUrl(), fetch: deps.backendFetch }),
       logger: mainLogger,
@@ -77,9 +83,24 @@ export function registerDeviceHeartbeat(deps: DeviceHeartbeatDeps): void {
     const unsubscribe = updateService.onStatusChange(() => {
       scheduler.requestBeat();
     });
+    // The uploader's gate is this scheduler's last reply: it stays inert until a reply
+    // carries `pos_contract_revision` >= `QUARANTINE_UPLOAD_MIN_REVISION`.
+    const stopQuarantineUpload = startSaleQuarantineUpload(
+      {
+        db,
+        store: quarantineStore,
+        backendFetch: deps.backendFetch,
+        readSendableDeviceToken: deps.readSendableDeviceToken,
+        pairingStore,
+        mainLogger,
+      },
+      terminal,
+      () => scheduler.lastAck()?.posContractRevision ?? null,
+    );
     deps.workerRegistry.register('device heartbeat', () => {
       unsubscribe();
       scheduler.stop();
+      stopQuarantineUpload();
     });
     mainLogger.info('device_heartbeat:started');
   });
