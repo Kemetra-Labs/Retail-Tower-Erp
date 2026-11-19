@@ -2,7 +2,7 @@
  * 0123_price_change_set_items_lines (RT-1151, RT-282 PR-05): the six Price
  * Change Set content tables (item lists, items, validations, lines, preview
  * lines, preview membership changes), their policies (6 SELECT + 6 INSERT + 1
- * UPDATE) and their twelve functions (two back triggers on change_sets).
+ * UPDATE) and their thirteen functions (three back triggers on change_sets).
  */
 import { countFunctions, countPolicies, countTables, type MigrationEntry } from "../migration-probes";
 
@@ -28,6 +28,7 @@ const FUNCTIONS = [
   "price_change_set_preview_before_insert",
   "change_sets_content_rules",
   "change_sets_publish_complete",
+  "change_sets_created_as_draft",
 ];
 
 export const MIGRATION: MigrationEntry = {
@@ -38,7 +39,7 @@ export const MIGRATION: MigrationEntry = {
       await countPolicies(db, TABLES),
       await countFunctions(db, FUNCTIONS),
     ],
-    applied: ["6", "13", "12"],
+    applied: ["6", "13", "13"],
     rolledBack: ["0", "0", "0"],
   },
 };

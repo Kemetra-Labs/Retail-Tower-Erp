@@ -5,7 +5,7 @@
 -- Drops the six Price Change Set content tables (item lists, items,
 -- validations, lines, preview lines, preview membership changes; with their
 -- indexes, triggers and policies), their functions, and change_sets'
--- content-rules and publish-complete triggers. A Change Set's authored items, its validations with
+-- created-as-draft, content-rules and publish-complete triggers. A Change Set's authored items, its validations with
 -- the stored Impact Preview, and its lines (a published set's per-line
 -- before/after record, spec 042 §10) would be lost, so the rollback REFUSES
 -- while any item list or validation exists (every other content row hangs off
@@ -17,7 +17,7 @@
 -- is not a superuser, so the guard reads under app.is_platform_admin and each
 -- tenant's app.current_tenant; a bare SELECT would see no rows and drop them.
 -- change_sets and every content table are locked before the count (content
--- ACCESS EXCLUSIVE, change_sets SHARE), so no row can be committed between the
+-- ACCESS EXCLUSIVE, change_sets too, as DROP TRIGGER needs), so no row can be committed between the
 -- guard and the DROPs.
 --
 -- Rerunnable: once the tables are gone there is nothing to guard
@@ -42,7 +42,7 @@ BEGIN
     RETURN;
   END IF;
   IF to_regclass('change_sets') IS NOT NULL THEN
-    LOCK TABLE change_sets IN SHARE MODE;
+    LOCK TABLE change_sets IN ACCESS EXCLUSIVE MODE;
   END IF;
   FOREACH tbl IN ARRAY ARRAY['price_change_set_preview_memberships', 'price_change_set_preview_lines',
                              'price_change_set_lines', 'price_change_set_validations',
@@ -71,6 +71,7 @@ $$;
 
 DROP TRIGGER IF EXISTS change_sets_content_rules ON change_sets;
 DROP TRIGGER IF EXISTS change_sets_publish_complete ON change_sets;
+DROP TRIGGER IF EXISTS change_sets_created_as_draft ON change_sets;
 DROP TABLE IF EXISTS price_change_set_preview_memberships;
 DROP TABLE IF EXISTS price_change_set_preview_lines;
 DROP TABLE IF EXISTS price_change_set_lines;
@@ -79,6 +80,7 @@ DROP TABLE IF EXISTS price_change_set_items;
 DROP TABLE IF EXISTS price_change_set_item_lists;
 
 DROP FUNCTION IF EXISTS change_sets_publish_complete();
+DROP FUNCTION IF EXISTS change_sets_created_as_draft();
 DROP FUNCTION IF EXISTS change_sets_content_rules();
 DROP FUNCTION IF EXISTS price_change_set_preview_before_insert();
 DROP FUNCTION IF EXISTS price_change_set_lines_guard();

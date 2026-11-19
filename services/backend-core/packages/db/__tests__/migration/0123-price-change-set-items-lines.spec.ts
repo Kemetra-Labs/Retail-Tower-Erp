@@ -101,6 +101,7 @@ const FUNCTIONS = [
   "price_change_set_preview_before_insert()",
   "change_sets_content_rules()",
   "change_sets_publish_complete()",
+  "change_sets_created_as_draft()",
 ];
 const SQL_DIR = resolve(__dirname, "..", "..", "..", "..", "docs", "operations", "sql");
 
@@ -181,10 +182,12 @@ interface Validation {
   revision?: number;
   hash?: string;
   tenant?: string;
+  /** summary.blocking: whether a line blocks submit. */
+  blocking?: boolean;
 }
 
 /** A complete `PreviewSummary`. */
-function summary(lines: number): Record<string, unknown> {
+function summary(lines: number, blocking = false): Record<string, unknown> {
   return {
     lines,
     stores: 1,
@@ -197,7 +200,7 @@ function summary(lines: number): Record<string, unknown> {
     maxDecreasePct: "-16.67",
     earliestEffectiveAt: "2026-11-30T22:00:00Z",
     findings: { replaces: 0, shadowed: 0, invalidates_dependent: 0, conflicts_pending: 0, past_dated: 0, invalid: 0 },
-    blocking: false,
+    blocking,
   };
 }
 
@@ -215,7 +218,7 @@ async function insertValidation(q: Q, v: Validation): Promise<void> {
       v.listVersion ?? 1,
       v.revision ?? 0,
       v.hash ?? HASH,
-      JSON.stringify(summary(v.lines ?? 0)),
+      JSON.stringify(summary(v.lines ?? 0, v.blocking ?? false)),
       JSON.stringify([{ storeId: STORE_A1, timezone: "Africa/Cairo" }]),
       v.lines ?? 0,
       v.preview ?? 0,
@@ -338,13 +341,50 @@ async function insertMembership(q: Q, membershipId: string, revisionNo: number, 
   );
 }
 
-/** A validation with its lines (line_no 1..n), as one `validate` writes it. */
+/**
+ * A validation as one `validate` writes it: its lines (line_no 1..n), one
+ * preview row per non-move line (at the line's Store, or the tenant's first
+ * Store) and one membership change per Zone move line.
+ */
 async function validate(q: Q, v: Validation, lines: ReadonlyArray<Partial<Line>>): Promise<void> {
-  await insertValidation(q, { ...v, lines: lines.length });
+  const tenant = v.tenant ?? TENANT_A;
+  const isMove = (l: Partial<Line>): boolean => l.op === "move_store_zone";
+  const moves = lines.filter(isMove).length;
+  await insertValidation(q, { ...v, lines: lines.length, preview: lines.length - moves, moves });
+  let rowNo = 0;
   for (const [i, l] of lines.entries()) {
-    await insertLine(q, { cs: v.cs, version: v.version, lineNo: i + 1, listVersion: v.listVersion ?? 1, tenant: v.tenant ?? TENANT_A, ...l });
+    const lineNo = i + 1;
+    await insertLine(q, { cs: v.cs, version: v.version, lineNo, listVersion: v.listVersion ?? 1, tenant, ...l });
+    if (isMove(l)) {
+      await insertPreviewMove(q, { cs: v.cs, version: v.version, lineNo, store: l.store ?? STORE_A2, toZone: l.zone ?? ZONE_A_NORTH });
+    } else {
+      const store = l.scope === "store" && l.store ? l.store : tenant === TENANT_B ? STORE_B1 : STORE_A1;
+      await insertPreviewLine(q, {
+        cs: v.cs,
+        version: v.version,
+        lineNo,
+        rowNo: ++rowNo,
+        store,
+        product: l.product ?? PROD_A2,
+        cls: l.cls ?? "new",
+        tenant,
+      });
+    }
   }
 }
+
+/** A Zone move line of `store` to the North Zone. */
+const moveLine = (store: string): Partial<Line> => ({
+  op: "move_store_zone",
+  scope: "store",
+  store,
+  zone: ZONE_A_NORTH,
+  product: null,
+  sellUnit: null,
+  price: null,
+  timeBasis: "absolute",
+  itemPosition: 2,
+});
 
 /** validate's last step: the set leaves draft carrying its validation's binding. */
 async function leaveDraft(q: Q, cs: string, revision = 0, hash = HASH): Promise<void> {
@@ -361,6 +401,10 @@ interface EventSpec {
   fromLocal?: string;
   /** An absolute-basis event from this instant instead of a store-local one. */
   absoluteFrom?: string;
+  /** The end of an absolute-basis event. */
+  absoluteTo?: string;
+  /** The event this one supersedes (a remainder of a split or end). */
+  supersedes?: string;
   tenant?: string;
   book?: string;
 }
@@ -369,8 +413,9 @@ async function insertEvent(q: Q, eventId: string, revisionNo: number, cs: string
   await q.query(
     `INSERT INTO price_events
        (id, tenant_id, price_book_id, scope, product_id, price, currency_code, time_basis, effective_from_local,
-        effective_from, published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
-     VALUES ($1, $2, $3, 'book', $4, $5, 'EGP', $6, $7, $8, $9, $10, 'change_set', $11, $12)`,
+        effective_from, published_in_revision, change_set_id, source, created_by_user_id, correlation_id, supersedes_event_id,
+        effective_to)
+     VALUES ($1, $2, $3, 'book', $4, $5, 'EGP', $6, $7, $8, $9, $10, 'change_set', $11, $12, $13, $14)`,
     [
       eventId,
       e.tenant ?? TENANT_A,
@@ -384,6 +429,8 @@ async function insertEvent(q: Q, eventId: string, revisionNo: number, cs: string
       cs,
       ACTOR,
       CORR,
+      e.supersedes ?? null,
+      e.absoluteTo ?? null,
     ],
   );
 }
@@ -469,9 +516,9 @@ async function asDomain<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
 
 /**
  * The committed baseline: Books and Zones for A and B. CS_PUB: list v1,
- * validated at v1 (line 1 priced, lines 2-3 ends, one preview row), published
- * at revision 1 with EVENT_PUB and MEMB_PUB, recorded on lines 1 and 2; line 3
- * stays unrecorded. CS_DRAFT, CS_RACE, CS_RACE_2: empty drafts. CS_B: tenant
+ * validated at v1 (line 1 priced, line 2 moves Store A1 to North, line 3 an
+ * end), published at revision 1 with EVENT_PUB and MEMB_PUB, recorded on lines
+ * 1 and 2; line 3 (an end with no remainder) records nothing. CS_DRAFT, CS_RACE, CS_RACE_2: empty drafts. CS_B: tenant
  * B's set published at its revision 1 with EVENT_B.
  */
 async function seedBaseline(): Promise<void> {
@@ -484,13 +531,12 @@ async function seedBaseline(): Promise<void> {
     );
     await createBook(c, BOOK_B, TENANT_B, ZONE_B_DEFAULT);
     await createChangeSet(c, CS_PUB, TENANT_A);
-    await writeList(c, CS_PUB, 1, [{}, { op: "end_price" }]);
-    await insertValidation(c, { cs: CS_PUB, version: 1, lines: 3, preview: 1 });
-    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 1, product: PROD_A1 });
-    const end = { itemPosition: 2, op: "end_price", product: PROD_A1, price: null };
-    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 2, ...end });
-    await insertLine(c, { cs: CS_PUB, version: 1, lineNo: 3, ...end, toLocal: "2027-01-01T00:00:00" });
-    await insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1, product: PROD_A1 });
+    await writeList(c, CS_PUB, 1, [{}, { op: "move_store_zone" }, { op: "end_price" }]);
+    await validate(c, { cs: CS_PUB, version: 1 }, [
+      { product: PROD_A1 },
+      moveLine(STORE_A1),
+      { itemPosition: 3, op: "end_price", product: PROD_A1, price: null, toLocal: "2027-01-01T00:00:00" },
+    ]);
     await leaveDraft(c, CS_PUB);
     await publish(c, CS_PUB, 1, EVENT_PUB, { product: PROD_A1 });
     await insertMembership(c, MEMB_PUB, 1, STORE_A1);
@@ -722,7 +768,7 @@ describe("0123_price_change_set_items_lines — validations", () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
       expect(await sp(c, () => insertLine(c, { cs: CS_PUB, version: 1, lineNo: 4, product: PROD_A1 }))).toMatch(/^23514: .*is sealed/);
-      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1, rowNo: 2, product: PROD_A1 }))).toMatch(
+      expect(await sp(c, () => insertPreviewLine(c, { cs: CS_PUB, version: 1, lineNo: 1, rowNo: 3, product: PROD_A1 }))).toMatch(
         /^23514: .*is sealed/,
       );
     });
@@ -923,6 +969,44 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
     });
   });
 
+  it("outside draft the version never changes, and a set is created only as a draft", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1 }, [{}]);
+      await leaveDraft(c, CS_DRAFT);
+      expect(await sp(c, () => c.query(`UPDATE change_sets SET version = 2 WHERE id = $1`, [CS_DRAFT]))).toMatch(
+        /outside draft its version never changes/,
+      );
+      expect(
+        await sp(c, () =>
+          c.query(
+            `INSERT INTO change_sets (id, tenant_id, domain, kind, title, state, version, validated_at_revision, preview_hash,
+               target_store_set_hash, sensitive, submitted_by_user_id, submitted_at, approved_by_user_id, approved_at,
+               created_by_user_id, correlation_id)
+             VALUES ($1, $2, 'pricing', 'standard', 'Forged', 'approved', 1, 0, $3, $3, false, $4, now(), $5, now(), $4, $6)`,
+            [id("0a208"), TENANT_A, HASH, ACTOR, APPROVER, CORR],
+          ),
+        ),
+      ).toMatch(/is created as a draft, not approved/);
+    });
+  });
+
+  it("checks at COMMIT that every non-move line has a preview row and summary.blocking matches the lines", async () => {
+    if (skip()) return;
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await insertValidation(c, { cs: CS_DRAFT, version: 1, lines: 1 });
+      await insertLine(c, { cs: CS_DRAFT, version: 1, lineNo: 1 });
+      expect(await checkCounts(c)).toMatch(/has a line with no preview row/);
+    });
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1);
+      await validate(c, { cs: CS_DRAFT, version: 1, blocking: false }, [{ cls: "invalid" }]);
+      expect(await checkCounts(c)).toMatch(/summary\.blocking does not match its lines/);
+    });
+  });
+
   it("cancelling a validated set keeps its binding as it was", async () => {
     if (skip()) return;
     await inRolledBackTx(guard().admin, async (c) => {
@@ -947,7 +1031,7 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
       sp(c, () => c.query(`UPDATE change_sets SET state = 'pending_approval', submitted_by_user_id = $2, submitted_at = now() WHERE id = $1`, [cs, ACTOR]));
     await inRolledBackTx(guard().admin, async (c) => {
       await writeList(c, CS_DRAFT, 1);
-      await validate(c, { cs: CS_DRAFT, version: 1 }, [{}, { op: "adjust_amount", price: null, cls: "invalid" }]);
+      await validate(c, { cs: CS_DRAFT, version: 1, blocking: true }, [{}, { op: "adjust_amount", price: null, cls: "invalid" }]);
       // Validation records the finding; the set is validated, and stops there.
       expect(await sp(c, () => leaveDraft(c, CS_DRAFT))).toBeNull();
       expect(await submit(c, CS_DRAFT)).toMatch(/has blocking lines; it cannot become pending_approval/);
@@ -961,7 +1045,8 @@ describe("0123_price_change_set_items_lines — change_sets content rules", () =
           [cs, TENANT_A, kind, kind === "standard" ? null : "why", ACTOR, CORR, kind === "rollback" ? CS_PUB : null],
         );
         await writeList(c, cs, 1);
-        await validate(c, { cs, version: 1 }, [{ cls: "past_dated" }]);
+        await validate(c, { cs, version: 1, blocking: blocked }, [{ cls: "past_dated" }]);
+        expect(await checkCounts(c)).toBeNull();
         await leaveDraft(c, cs);
         const r = await submit(c, cs);
         expect([kind, r === null ? "submitted" : r]).toEqual([kind, blocked ? expect.stringMatching(/has blocking lines/) : "submitted"]);
@@ -1027,7 +1112,8 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     // Absolute basis: matches EVENT_ABS (from 2026-12-05Z, open), or differs only in its end.
     ["abs", { timeBasis: "absolute", from: "2026-12-05T00:00:00Z" }],
     ["abs-to", { timeBasis: "absolute", from: "2026-12-05T00:00:00Z", to: "2026-12-31T00:00:00Z" }],
-    ["end", { op: "end_price", price: null, itemPosition: 2 }],
+    ["end", { op: "end_price", price: null, itemPosition: 2, product: PROD_A1, replaced: [EVENT_PUB] }],
+    ["move", moveLine(STORE_A2)],
   ];
   const EVENT_ABS = id("0a404");
   const lineNo = (name: string): number => LINES.findIndex(([n]) => n === name) + 1;
@@ -1103,14 +1189,35 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     await inRolledBackTx(guard().admin, async (c) => {
       await prepare(c);
       await publish(c, CS_DRAFT, 2, EVENT);
+      // A remainder of the event the end line replaces: same target, supersedes it, keeps its price.
       const remainder = id("0a403");
-      await insertEvent(c, remainder, 2, CS_DRAFT, { product: PROD_A3 });
-      expect(await setRecord(c, "end", { results: [EVENT_PUB] })).toMatch(/result_ids names an id this set's publish did not write/);
-      expect(await setRecord(c, "end", { results: [id("0afff")] })).toMatch(/result_ids names an id/);
+      await insertEvent(c, remainder, 2, CS_DRAFT, {
+        product: PROD_A1,
+        absoluteFrom: "2026-12-05T00:00:00Z",
+        absoluteTo: "2027-01-01T00:00:00Z",
+        supersedes: EVENT_PUB,
+      });
+      const repriced = id("0a408");
+      await insertEvent(c, repriced, 2, CS_DRAFT, {
+        product: PROD_A1,
+        absoluteFrom: "2027-02-01T00:00:00Z",
+        supersedes: EVENT_PUB,
+        price: "11.0000",
+      });
+      const otherProduct = id("0a409");
+      await insertEvent(c, otherProduct, 2, CS_DRAFT, { product: PROD_A3, absoluteFrom: "2026-12-05T00:00:00Z", supersedes: EVENT_PUB });
       const moved = id("0a502");
       await insertMembership(c, moved, 2, STORE_A2);
-      expect(await setRecord(c, "end", { results: [MEMB_PUB] })).toMatch(/result_ids names an id this set's publish did not write/);
-      expect(await setRecord(c, "end", { results: [remainder, moved] })).toBeNull();
+      const notWritten = /result_ids names an id that is not what this line's publish wrote/;
+      expect(await setRecord(c, "end", { results: [EVENT_PUB] })).toMatch(notWritten);
+      expect(await setRecord(c, "end", { results: [id("0afff")] })).toMatch(notWritten);
+      expect(await setRecord(c, "end", { results: [repriced] })).toMatch(notWritten);
+      expect(await setRecord(c, "end", { results: [otherProduct] })).toMatch(notWritten);
+      expect(await setRecord(c, "end", { results: [moved] })).toMatch(notWritten);
+      expect(await setRecord(c, "move", { results: [MEMB_PUB] })).toMatch(notWritten);
+      expect(await setRecord(c, "move", { results: [remainder] })).toMatch(notWritten);
+      expect(await setRecord(c, "end", { results: [remainder] })).toBeNull();
+      expect(await setRecord(c, "move", { results: [moved] })).toBeNull();
       expect(await setRecord(c, "end", { results: [remainder] })).toMatch(/only its publish record .* is set, once/);
       expect(
         await sp(c, () =>
@@ -1152,24 +1259,26 @@ describe("0123_price_change_set_items_lines — the publish record", () => {
     });
     await inRolledBackTx(guard().admin, async (c) => {
       await published(c);
-      // E2 recorded twice: as line 2's event and in line 1's results.
-      await record(c, 1, EVENT, [E2]);
+      await record(c, 1, EVENT);
       await record(c, 2, E2);
+      // A row the revision wrote that no line records.
+      await insertEvent(c, E3, 2, CS_DRAFT, { absoluteFrom: "2026-12-05T00:00:00Z" });
       expect(await checkCounts(c)).toMatch(/row\(s\) of revision 2 are not recorded on exactly one line/);
     });
     await inRolledBackTx(guard().admin, async (c) => {
       await published(c);
       await record(c, 1, EVENT);
       await record(c, 2, E2);
-      // A row the revision wrote that no line records.
-      await insertEvent(c, E3, 2, CS_DRAFT, { absoluteFrom: "2026-12-05T00:00:00Z" });
-      expect(await checkCounts(c)).toMatch(/not recorded on exactly one line/);
-    });
-    await inRolledBackTx(guard().admin, async (c) => {
-      await published(c);
-      await record(c, 1, EVENT);
-      await record(c, 2, E2);
       expect(await checkCounts(c)).toBeNull();
+    });
+    // A Zone move line must record its membership rows.
+    await inRolledBackTx(guard().admin, async (c) => {
+      await writeList(c, CS_DRAFT, 1, [{}, { op: "move_store_zone" }]);
+      await validate(c, { cs: CS_DRAFT, version: 1, revision: 1 }, [{}, moveLine(STORE_A2)]);
+      await leaveDraft(c, CS_DRAFT, 1);
+      await publish(c, CS_DRAFT, 2, EVENT);
+      await record(c, 1, EVENT);
+      expect(await checkCounts(c)).toMatch(/1 Zone move line\(s\) of the published validation recorded no membership/);
     });
   });
 
