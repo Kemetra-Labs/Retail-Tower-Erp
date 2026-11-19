@@ -1,12 +1,22 @@
 # Read-only selftest of tools/project-graph (RT-721 Substep A).
 # Runs PR code with a read-only token and no secrets. It is NOT the trust gate:
 # the gate is .github/workflows/gate.yml, which runs only base-branch code.
+#
+# RT-1467 (CI-06): it runs only when a path it tests changes (its own tool, the workflows, and the
+# .circleci/ and .depot/ files test_circleci_gate and test_depot_preflight read), and it repeats nothing
+# a gated job runs.
+# The layer-1 boundary check is `boundary-check` (project-graph.yml, always selected) and the release
+# tooling's offline specs are in `contracts/check` (contracts.yml, selected by .github/release/**).
+# A changed path no class owns is rejected by `evaluate` itself (UNKNOWN_PATH), so skipping the
+# tree-wide classify-tree on unrelated PRs leaves that guard in the gate.
 name: project-graph-selftest
 
 on:
   pull_request:
+    paths: ["tools/project-graph/**", ".github/**", ".circleci/**", ".depot/**"]
   push:
     branches: [main]
+    paths: ["tools/project-graph/**", ".github/**", ".circleci/**", ".depot/**"]
 
 permissions:
   contents: read
@@ -39,28 +49,3 @@ jobs:
       - name: Workflow privilege invariants (R5, T-A)
         working-directory: tools/project-graph
         run: python -m pgraph privileges --repo "$GITHUB_WORKSPACE"
-      - name: Layer-1 boundary check
-        working-directory: tools/project-graph
-        run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD
-
-  # RT-871: the release scripts the root release workflows run (.github/release/). The release
-  # workflows only run on a product tag or a dispatch from main, so their specs run here, on
-  # every PR. Read-only token, no secrets.
-  release-selftest:
-    name: release/selftest
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
-        with:
-          persist-credentials: false
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-      - uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
-        with:
-          node-version-file: .nvmrc
-      - name: Compat guard spec (MR-3, red or missing compat refuses)
-        run: node --test .github/release/compat-gate.test.cjs
-      - name: Release manifest spec
-        run: python -m unittest discover -s .github/release -p 'test_*.py' -v

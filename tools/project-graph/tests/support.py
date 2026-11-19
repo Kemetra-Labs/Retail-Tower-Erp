@@ -93,7 +93,11 @@ def guarded_workflows(graph):
     workflow, every graph job guarded on its own key, `always_jobs` unguarded. Job ids are the keys."""
     workflows = {}
     for key, path in graph["jobs"].items():
-        jobs = workflows.setdefault(path, {"plan": {"name": "plan", "outputs": {"jobs": "${{ steps.plan.outputs.jobs }}"}}})
+        jobs = workflows.setdefault(path, {"plan": {
+            "name": "plan",
+            "outputs": {"jobs": "${{ steps.plan.outputs.jobs }}"},
+            "steps": [{"uses": "actions/checkout@0000000000000000000000000000000000000000"},
+                      {"id": "plan", "uses": "$/.github/actions/pgraph-plan"}]}})
         if key in graph["always_jobs"]:
             jobs[key] = {"name": key}
         else:

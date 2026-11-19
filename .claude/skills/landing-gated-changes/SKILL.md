@@ -28,6 +28,22 @@ From `tools/project-graph/`: `python -m pgraph classify-tree --repo ../.. --rev 
   `graph.yaml` change, which is itself a policy change.
 - `plan.json` shows the selected jobs and whether policy approval applies. In `observe` mode the
   approval is printed in the `required` summary but does not block.
+- **A same-repository action is `uses: $/.github/actions/<name>`, not `./...` (RT-1467, #703).**
+  zizmor 1.32.0's `self-repository` audit flags `./` and the baseline may only shrink, so `./`
+  adds findings and fails `workflow-lint`. GitHub supports `$/` (changelog 2026-07-30: the running
+  commit, no checkout needed), but actionlint 1.7.12 rejects it (rhysd/actionlint#711), so
+  `ACTIONLINT_IGNORE` in `workflow-lint.yml` drops that one message for that one path. Check a
+  workflow change with the repo's own comparison, not only the tools: run zizmor with
+  `--format json` and `.github/scripts/workflow_lint_baseline.py check` (on Windows the per-line
+  NEW/STALE output is a path-separator artifact: compare the counts).
+- **Prove a workflow or pgraph change on a commit, with the right evaluator (RT-1467).**
+  `test_real_tree` and the `test_cli` round trip read `HEAD`, so uncommitted workflow edits are
+  invisible to them: copy the change into a scratch clone, commit it there, and run them there.
+  CI runs the plan with the BASE commit's evaluator (`git archive <base> tools/project-graph`), so
+  a new static rule must be evaluated that way too: running the new evaluator over the old
+  trusted workflows reports `GRAPH_INVALID` and means nothing. `git archive <base>
+  tools/project-graph`, then `pgraph evaluate --repo <clone> --base <base> --head HEAD`, shows the
+  real result (policy change, `needs_approval`).
 
 ## PR title tag
 

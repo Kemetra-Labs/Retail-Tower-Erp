@@ -124,6 +124,48 @@ class StaticRuleTests(unittest.TestCase):
         del wfs[".github/workflows/e2e.yml"]["plan"]
         self.assertIn("CI_PLAN_MISSING: .github/workflows/e2e.yml", validate_graph(g, workflows=wfs))
 
+    def test_api_jest_fast_class_is_validated(self):
+        """The class survives the RT-949 selector (read by .circleci/scripts/tia-risk-guard.cjs)."""
+        g = _real()
+        fast = g["products"]["backend-core"]["api_jest_fast"]
+        self.assertTrue(fast["globs"] and fast["exclude"])
+        self.assertEqual(validate_graph(g), [])
+        g["products"]["backend-core"]["api_jest_fast"] = None          # null means absent
+        self.assertEqual(validate_graph(g), [])
+        for bad in ({"globs": "apps/api/**"}, {"globs": ["../x/**"]}):
+            with self.subTest(bad=bad):
+                g["products"]["backend-core"]["api_jest_fast"] = bad
+                self.assertTrue(any("api_jest_fast" in e for e in validate_graph(g)))
+
+    def test_rule5b_plan_job_must_use_the_shared_action(self):
+        """RT-1467 CI-05: the plan logic lives once, in .github/actions/pgraph-plan."""
+        g = _real()
+        path = ".github/workflows/pos.yml"
+        inline = [{"run": "python -m pgraph evaluate"}]
+        no_action = [{"uses": "actions/checkout@0000000000000000000000000000000000000000"}]
+        extra = support.guarded_workflows(g)[path]["plan"]["steps"] + [{"run": "echo extra"}]
+        ok = support.guarded_workflows(g)[path]["plan"]["steps"]
+        action = {"uses": "$/.github/actions/pgraph-plan"}
+        variants = (
+            ("inline", inline), ("no_action", no_action), ("extra_run_step", extra), ("none", None),
+            ("action_without_id_plan", [ok[0], dict(action)]),
+            ("action_with_if", [ok[0], {**action, "id": "plan", "if": "false"}]),
+            ("action_continue_on_error", [ok[0], {**action, "id": "plan", "continue-on-error": True}]),
+            ("third_party_step", [ok[0], {"uses": "evil/action@v1"}, ok[1]]),
+        )
+        for label, steps in variants:
+            with self.subTest(case=label):
+                wfs = support.guarded_workflows(g)
+                if steps is None:
+                    del wfs[path]["plan"]["steps"]
+                else:
+                    wfs[path]["plan"]["steps"] = steps
+                self.assertIn(f"CI_PLAN_NOT_SHARED: {path}", validate_graph(g, workflows=wfs))
+
+    def test_rule5b_shared_plan_action_is_accepted(self):
+        g = _real()
+        self.assertEqual(validate_graph(g, workflows=support.guarded_workflows(g)), [])
+
     def test_rule5b_duplicate_key_definitions(self):
         g = _real()
         for where in (".github/workflows/pos.yml", ".github/workflows/project-graph.yml"):

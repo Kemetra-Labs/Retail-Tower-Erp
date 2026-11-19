@@ -78,7 +78,7 @@ python -m pgraph privileges --repo ../..                 # workflow privilege in
 python -m pgraph evaluate --repo ../.. --base <base> --head <head> --event pull_request --out plan.json
 ```
 
-`plan.json` lists the selected jobs (`needed_jobs`), whether policy approval is needed and the policy fingerprint. These are the commands `project-graph-selftest` and the `plan` jobs run.
+`plan.json` lists the selected jobs (`needed_jobs`), whether policy approval is needed and the policy fingerprint. `project-graph-selftest` runs the unit tests, `classify-tree` and `privileges`; `boundary-check` runs `boundary`; the `plan` jobs run `evaluate`.
 
 <!-- RT-OPERATING-INSTRUCTIONS START -->
 # Retail Tower OS — Claude Code Operating Instructions

@@ -71,80 +71,21 @@ jobs:
     name: plan
     runs-on: ubuntu-24.04
     timeout-minutes: 5
-    defaults:
-      run:
-        working-directory: .
     outputs:
       jobs: ${{ steps.plan.outputs.jobs }}
     steps:
-      # Full history: the evaluator diffs the base and head commits with git plumbing. Only
-      # tools/project-graph is materialised; nothing from the checked-out tree is executed.
+      # RT-1467 (CI-05): the plan logic is the shared composite action (.github/actions/pgraph-plan),
+      # referenced with the self-repository syntax `$/` (the running commit, no checkout needed for the
+      # action). This job only checks out the history. pgraph rule 5b keeps it that way.
       - name: Checkout (history only)
         uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
         with:
           fetch-depth: 0
           persist-credentials: false
-          sparse-checkout: tools/project-graph
+          sparse-checkout: .github/actions/pgraph-plan
 
-      - name: Resolve trusted, base and head commits
-        id: refs
-        env:
-          EVENT: ${{ github.event_name }}
-          PR_BASE: ${{ github.event.pull_request.base.sha }}
-          PR_HEAD: ${{ github.event.pull_request.head.sha }}
-          SHA: ${{ github.sha }}
-        run: |
-          set -euo pipefail
-          case "$EVENT" in
-            pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
-            push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
-            *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
-          esac
-          [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]]
-          git cat-file -e "$base^{commit}"
-          { echo "base=$base"; echo "head=$head"; } >> "$GITHUB_OUTPUT"
-
-      - name: Extract the trusted evaluator (git archive of the base commit)
-        env:
-          BASE_SHA: ${{ steps.refs.outputs.base }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$RUNNER_TEMP/pgraph-base"
-          git archive "$BASE_SHA" tools/project-graph | tar -x -C "$RUNNER_TEMP/pgraph-base"
-
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
-        with:
-          python-version-file: .python-version
-
-      - name: Install pinned dependencies (from the base commit)
-        run: |
-          python -m pip install --require-hashes --only-binary=:all: --no-deps \
-            -r "$RUNNER_TEMP/pgraph-base/tools/project-graph/requirements.txt"
-
-      - name: Evaluate the project graph
-        id: plan
-        env:
-          EVENT: ${{ github.event_name }}
-          BASE_SHA: ${{ steps.refs.outputs.base }}
-          HEAD_SHA: ${{ steps.refs.outputs.head }}
-        run: |
-          set -euo pipefail
-          cd "$RUNNER_TEMP/pgraph-base/tools/project-graph"
-          python -m pgraph evaluate --repo "$GITHUB_WORKSPACE" --base "$BASE_SHA" --head "$HEAD_SHA" \
-            --event "$EVENT" --out "$RUNNER_TEMP/plan.json"
-          plan="$RUNNER_TEMP/plan.json"
-          # An invalid trusted graph selects nothing; fail loudly instead of running nothing quietly.
-          if [ "$(jq '.products | length' "$plan")" = "0" ]; then
-            echo "::error::trusted graph invalid: $(jq -c .graph_validation "$plan")"; exit 1
-          fi
-          jobs="$(jq -c '.needed_jobs | if all(test("^[a-z0-9/-]+$")) then . else error("bad job key") end' "$plan")"
-          echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
-          {
-            echo "### project graph plan"
-            echo "graph validation: \`$(jq -r .graph_validation.status "$plan")\` $(jq -c .graph_validation.reasons "$plan"), select_all: \`$(jq -r .select_all "$plan")\`"
-            echo
-            echo "selected: \`$jobs\`"
-          } >> "$GITHUB_STEP_SUMMARY"
+      - id: plan
+        uses: $/.github/actions/pgraph-plan
 
   admin-build-test:
     name: admin/build-test

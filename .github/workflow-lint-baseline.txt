@@ -4,7 +4,7 @@
 # (a new line needs the policy approval of `.github/**`). Line numbers are not part of a line, so
 # moving a finding does not change it; an identical finding repeated in a file is listed repeatedly.
 # Regenerate after fixing (the tools are pinned in .github/workflows/workflow-lint.yml):
-#   actionlint -no-color -format '{{json .}}' -ignore 'unexpected key "queue" for "concurrency" section' > al.json
+#   actionlint -no-color -format '{{json .}}' -ignore "$ACTIONLINT_IGNORE" > al.json   # ACTIONLINT_IGNORE: the env value in workflow-lint.yml
 #   zizmor --offline --no-progress --color never --quiet --strict-collection --format json .github/workflows > zz.json
 #   python3 .github/scripts/workflow_lint_baseline.py generate --actionlint al.json --zizmor zz.json \
 #     > .github/workflow-lint-baseline.txt
