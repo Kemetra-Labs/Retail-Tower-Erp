@@ -77,7 +77,7 @@ fragment, and runs `reviewing-pull-requests` in a fresh subagent before opening.
 ```
 D1–D5 answered
   ├─ PR-A  (contract, inquiry + union) ──────────────┐
-  ├─ PR-B  (contract, structure + change sets)       ├─> RT-1484 can start (needs A, B, C1, C2)
+  ├─ PR-B  (contract, structure + change sets)       ├─> RT-1484 can start (needs A, B, C1; C2 only under D5(a))
   └─ PR-C1 (migration, core) ─> PR-C2 (migration) ───┘
 PR-A merged ─> PR-D (sale-line provenance) ─> RT-1486 PR-P2 later
 ```
