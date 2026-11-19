@@ -12,6 +12,7 @@ import type { WorkerRegistry } from '../app/bootstrap-workers.js';
 import type { PairedWorkers } from '../app/paired-workers.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { registerCatalogueHandlers } from '../ipc/catalogue.js';
+import type { JwtHolder } from '../operator/jwt-holder.js';
 import type { SessionManager } from '../operator/session-manager.js';
 import { withDeviceAuthObservation } from '../pairing/device-auth-detector.js';
 import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
@@ -19,6 +20,7 @@ import type { DeviceRevocationStore, PairingStore } from '../pairing/store.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 import { resolveApiBaseUrl } from './env.js';
 import { registerOffers } from './offers.js';
+import { registerUnknownItemCapture } from './unknown-item-capture.js';
 
 /** What `registerCatalogue` closes over from the composition root (RT-893 extraction 3). */
 export interface CatalogueDeps {
@@ -27,7 +29,8 @@ export interface CatalogueDeps {
   /** The open database handle the product repo, sync-state repo and read-down writer use. */
   db: DatabaseHandle;
   /** The pairing store: read once for the boot pairing state (device scope, not the operator). */
-  pairingStore: Pick<PairingStore, 'getStatus'> & Pick<DeviceRevocationStore, 'isDeviceRevoked'>;
+  pairingStore: Pick<PairingStore, 'getStatus' | 'getCurrentTerminalId'> &
+    Pick<DeviceRevocationStore, 'isDeviceRevoked'>;
   /** The once-latch for paired-only workers: notified at boot, and holds the read-down starter. */
   pairedWorkersLatch: PairedWorkers;
   /** The operator session holder the catalogue bridge's session gate reads. */
@@ -41,6 +44,8 @@ export interface CatalogueDeps {
   deviceAuthDetector: Pick<DeviceAuthDetector, 'observe'>;
   /** The one reader of the device token for sending (null unless paired and not revoked). */
   readSendableDeviceToken: () => Promise<string | null>;
+  /** RT-1490: the pos_operator envelope holder the unknown-item capture sends with. */
+  operatorEnvelopeHolder: Pick<JwtHolder, 'get'>;
 }
 
 /** What the rest of the boot sequence needs from the catalogue wiring. */
@@ -104,6 +109,10 @@ export async function registerCatalogue(deps: CatalogueDeps): Promise<CatalogueW
   // pairing and still refuses while there is no driver.
   let readDownDriver: ReturnType<typeof createReadDownDriver> | undefined;
 
+  // RT-1490 — a `not_found` barcode scan is queued for Backend-Core `posCaptureItem`
+  // (the Console review queue), sent by a paired-only background drain. Never blocks the scan.
+  const onBarcodeNotFound = registerUnknownItemCapture(deps);
+
   const catalogueBridge = createCatalogueBridge({
     // Adapt the operator session to the catalogue projection: the gate needs
     // `operator_session_id`, which the record carries as `id`.
@@ -133,6 +142,7 @@ export async function registerCatalogue(deps: CatalogueDeps): Promise<CatalogueW
     // cleanly. The bridge only ever calls `runTickOnce` (admit); start/stop are
     // owned here at the root.
     getReadDownDriver: () => readDownDriver,
+    onBarcodeNotFound,
   });
   registerCatalogueHandlers(guardedIpcMain, { bridge: catalogueBridge });
 

@@ -324,3 +324,23 @@ describe('RT-1312 — worker registry: the device heartbeat', () => {
     expect(order).toEqual(['audit-sync interval', 'device heartbeat', 'terminal status push']);
   });
 });
+
+describe('RT-1490 — worker registry: the unknown-item capture drain', () => {
+  it('stops the capture drain after the audit upload and before the heartbeat (it writes the DB)', () => {
+    const order: string[] = [];
+    const registry = createWorkerRegistry({ logger: createRecordingLogger() });
+    registry.register('device heartbeat', () => order.push('device heartbeat'));
+    registry.register('unknown-item capture interval', () =>
+      order.push('unknown-item capture interval'),
+    );
+    registry.register('audit-sync interval', () => order.push('audit-sync interval'));
+
+    registry.stopAll();
+
+    expect(order).toEqual([
+      'audit-sync interval',
+      'unknown-item capture interval',
+      'device heartbeat',
+    ]);
+  });
+});
