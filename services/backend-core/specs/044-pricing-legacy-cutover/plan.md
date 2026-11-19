@@ -508,7 +508,8 @@ are today, so the bump is safe to ship before any cutover.
 
 ### 7.4 Sales and other surfaces
 
-- PR-07 adds an optional sale-line `pricingCapture` and a sale-level `pricingContext` (spec 043 §9.1). They are request
+- PR-07 adds an optional sale-line `pricingProvenance` (the `PricingProvenance` union, RT-1151, owner decision D4).
+  The sale-line `pricingCapture` and sale-level `pricingContext` of spec 043 §9.1 move to RT-1486. They are request
   fields, so older builds keep working. The ongoing readiness gate (§7.3) means devices syncing a `pricing` catalogue run a build that sends them. They are not
   echoed in POS-facing responses until a re-pinned POS release accepts them.
 - Admin-Console and the Connector need no change for the cutover (§2.3).

@@ -40,6 +40,7 @@ export * from "./catalog/erpnext-reconciliation";
 export * from "./catalog/erpnext-product-reconciliation";
 export * from "./sales/sales";
 export * from "./sales/sale-lines";
+export * from "./sales/sale-line-pricing-provenance";
 export * from "./sales/sale-terminal-events";
 export * from "./sales/sale-returns";
 export * from "./sales/sale-tenders";
