@@ -38,7 +38,26 @@ export interface SaleQueueReaderDeps {
   readonly currentTerminalId: () => string | null;
   /** The engine's discount-capture switch, as the terminal-status aggregate passes it (RT-887). */
   readonly discountCaptureSupported: boolean;
+  /**
+   * RT-1312 Phase 3(c): how many of the counted dead-letters and held rows the till
+   * has uploaded to the Backend-Core quarantine. Backend-Core's queue is their source
+   * of truth from then on (decision P4), so the heartbeat stops counting them. Only
+   * the heartbeat figure changes: the local sync-status surfaces keep the till's own
+   * view. Not wired = nothing is subtracted.
+   */
+  readonly readUploadedQuarantine?: (scope: {
+    readonly tenantId: string;
+    readonly branchId: string;
+    readonly terminalId: string | null;
+  }) => UploadedQuarantineCounts;
 }
+
+export interface UploadedQuarantineCounts {
+  readonly deadLetter: number;
+  readonly heldPreviousPairing: number;
+}
+
+const NO_UPLOADED_QUARANTINE: UploadedQuarantineCounts = { deadLetter: 0, heldPreviousPairing: 0 };
 
 /**
  * The counts of the sale-sync status surface (RT-221: `pending` = this terminal's
@@ -54,10 +73,11 @@ export function createSaleQueueReader(deps: SaleQueueReaderDeps): () => SaleQueu
         terminalId: deps.currentTerminalId(),
       };
       const counts = deps.stateRepo.readSyncStatus(scope);
+      const uploaded = deps.readUploadedQuarantine?.(scope) ?? NO_UPLOADED_QUARANTINE;
       return {
         pending: counts.pending,
-        deadLetter: counts.deadLetter,
-        heldPreviousPairing: counts.heldPreviousPairing,
+        deadLetter: Math.max(0, counts.deadLetter - uploaded.deadLetter),
+        heldPreviousPairing: Math.max(0, counts.heldPreviousPairing - uploaded.heldPreviousPairing),
         oldestPendingAt: deps.stateRepo.readOldestUnheldPendingAt(
           scope,
           deps.discountCaptureSupported,

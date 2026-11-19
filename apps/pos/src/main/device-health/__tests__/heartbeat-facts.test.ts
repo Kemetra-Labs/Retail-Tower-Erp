@@ -83,6 +83,62 @@ describe('createSaleQueueReader', () => {
     });
     expect(read()).toBeNull();
   });
+
+  describe('RT-1312 Phase 3(c): a row uploaded to the Backend-Core quarantine is no longer counted', () => {
+    function readerWith(
+      uploaded: (() => { deadLetter: number; heldPreviousPairing: number }) | undefined,
+    ) {
+      return createSaleQueueReader({
+        stateRepo: {
+          readSyncStatus: () => COUNTS,
+          readOldestUnheldPendingAt: () => null,
+        },
+        tenantId: 't1',
+        branchId: 'b1',
+        currentTerminalId: () => 'term-2',
+        discountCaptureSupported: true,
+        ...(uploaded === undefined ? {} : { readUploadedQuarantine: uploaded }),
+      });
+    }
+
+    it('subtracts the uploaded dead-letters and held rows, and nothing else', () => {
+      const read = readerWith(() => ({ deadLetter: 1, heldPreviousPairing: 1 }));
+      expect(read()).toEqual({
+        pending: 3,
+        deadLetter: 0,
+        heldPreviousPairing: 1,
+        oldestPendingAt: null,
+      });
+    });
+
+    it('never goes below zero', () => {
+      const read = readerWith(() => ({ deadLetter: 9, heldPreviousPairing: 9 }));
+      expect(read()).toEqual({
+        pending: 3,
+        deadLetter: 0,
+        heldPreviousPairing: 0,
+        oldestPendingAt: null,
+      });
+    });
+
+    it('reports every count unchanged when nothing was uploaded, or no reader is wired', () => {
+      const unchanged = {
+        pending: 3,
+        deadLetter: 1,
+        heldPreviousPairing: 2,
+        oldestPendingAt: null,
+      };
+      expect(readerWith(() => ({ deadLetter: 0, heldPreviousPairing: 0 }))()).toEqual(unchanged);
+      expect(readerWith(undefined)()).toEqual(unchanged);
+    });
+
+    it('is unknown (null) when the uploaded count cannot be read', () => {
+      const read = readerWith(() => {
+        throw new Error('no such table: sale_quarantine_upload');
+      });
+      expect(read()).toBeNull();
+    });
+  });
 });
 
 describe('updaterFacts', () => {
