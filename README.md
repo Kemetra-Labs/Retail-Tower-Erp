@@ -102,7 +102,7 @@ Policy paths are the `shared_classes` of [`tools/project-graph/graph.yaml`](tool
 
 **Current gate mode.** `policy_approval` is `observe` (owner decision 2026-10-27, while the owner is the only maintainer). The approval is still evaluated and printed. A missing approval does not fail `required`. `required` is red for a real problem: a failed job, or an invalid graph or plan. The aggregator reads the mode from the trusted base graph, so a pull request cannot relax its own approval. Making `required` a required status check on `main` is RT-866 and is still open. Detail: [tools/project-graph/README.md](tools/project-graph/README.md).
 
-Workflows outside the graph: `project-graph-selftest.yml` (when `tools/project-graph/**`, `.github/**`, `.circleci/**` or `.depot/**` change), `pos-asar-parity.yml` (manual only), and the five release workflows, `release-<product>.yml` for each product plus `release-pos-pilot.yml` (a product tag, or a manual dry-run).
+Workflows outside the graph: `project-graph-selftest.yml` (when `tools/project-graph/**`, `.github/**`, `.circleci/**` or `.depot/**` change), and the five release workflows, `release-<product>.yml` for each product plus `release-pos-pilot.yml` (a product tag, or a manual dry-run).
 
 ## Run a product
 
