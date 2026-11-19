@@ -256,7 +256,10 @@ describe("row actions are completable (UX Addendum A3)", () => {
     ).toBeDefined();
     fireEvent.click(screen.getByRole("button", { name: "Open organization: Nile Pharma" }));
     await waitFor(() => expect(switchActiveTenant).toHaveBeenCalledWith(NILE));
-    await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/"));
+    // It lands on the tenant Console and stays there: with no membership, a render that still
+    // saw the old context used to bounce the admin back to /platform (the RT-1468 flake).
+    expect(await screen.findByRole("heading", { level: 1, name: "Tenant surface" })).toBeDefined();
+    expect(screen.getByTestId("where").textContent).toBe("/");
     expect(openSupportSession).not.toHaveBeenCalled();
   });
 
