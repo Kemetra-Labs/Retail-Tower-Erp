@@ -1104,7 +1104,19 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     await published({ items: [bookPrice(P.columnsNull, "20", "2189-01-01T00:00:00Z")] });
     const target = await published({ items: [bookPrice(P.columnsNull, "21", "2190-01-01T00:00:00Z")] });
     const rb = createdRollback(await rollback(target.set.header.id, { from: "2190-06-01T00:00:00Z", reason: "Undo" }));
-    await env!.admin.query(`UPDATE change_sets SET rollback_from = NULL, rollback_from_defaulted = NULL WHERE id = $1`, [rb.header.id]);
+    // The 0127 guard makes the pair immutable once set, so the fixture bypasses triggers (a set created before 0127).
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(`UPDATE change_sets SET rollback_from = NULL, rollback_from_defaulted = NULL WHERE id = $1`, [rb.header.id]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
     const res = await send(op(rb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 });
     refused(res, 409, "change_set_invalid_state");
     expect((res.body as { error: { message: string } }).error.message).toMatch(/start time is unavailable/);

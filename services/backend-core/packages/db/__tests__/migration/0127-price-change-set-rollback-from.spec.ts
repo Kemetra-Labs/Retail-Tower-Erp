@@ -62,6 +62,10 @@ const R_NO_KEY = id("0b203");
 const R_BAD_VALUE = id("0b204");
 const R_PRESET = id("0b205");
 const R_LATE = id("0a205");
+const R_PENDING = id("0b206");
+const R_APPROVED = id("0b207");
+const R_BAD_DATE = id("0b208");
+const R_BAD_OFFSET = id("0b209");
 
 const TABLES = ["tenants", "change_sets", "audit_events"];
 const FUNCTIONS = ["price_change_set_backfill_rollback_from()"];
@@ -112,16 +116,22 @@ async function seedSet(c: PoolClient, setId: string, tenant: string, kind: "stan
 }
 
 let revisionSeq = 0;
-/** Moves a seeded draft set to `published` or `superseded` (revision, approval, publication) with the triggers off. */
-async function makePublished(c: PoolClient, setId: string, state: "published" | "superseded"): Promise<void> {
+/** Moves a seeded draft set to `state` (preview, approval, publication as that state needs) with the triggers off. */
+async function moveTo(c: PoolClient, setId: string, state: "pending_approval" | "approved" | "published" | "superseded"): Promise<void> {
+  const published = state === "published" || state === "superseded";
+  const approved = published || state === "approved";
   revisionSeq += 1;
   await c.query(
     `UPDATE change_sets
         SET state = $2, validated_at_revision = 0, preview_hash = $3, target_store_set_hash = $3, sensitive = true,
-            sensitivity_reasons = ARRAY['rollback'], revision_no = $4, approved_at = now() - interval '2 minutes',
-            approved_by_user_id = $5, published_at = now() - interval '1 minute', published_by_user_id = $5
+            sensitivity_reasons = ARRAY['rollback'], submitted_at = now() - interval '3 minutes', submitted_by_user_id = $5,
+            approved_at = CASE WHEN $6::boolean THEN now() - interval '2 minutes' END,
+            approved_by_user_id = CASE WHEN $6::boolean THEN $5::uuid END,
+            revision_no = CASE WHEN $7::boolean THEN $4::bigint END,
+            published_at = CASE WHEN $7::boolean THEN now() - interval '1 minute' END,
+            published_by_user_id = CASE WHEN $7::boolean THEN $5::uuid END
       WHERE id = $1`,
-    [setId, state, HASH, 100 + revisionSeq, ACTOR],
+    [setId, state, HASH, 100 + revisionSeq, ACTOR, approved, published],
   );
 }
 
@@ -197,7 +207,9 @@ describe("RT-1532 seed shape and 0127 DDL", () => {
     // One distinct target per rollback (uq_change_sets_rolls_back: one live rollback per target).
     const targets = new Map<string, { tenant: string; target: string }>();
     for (const r of [R_EXPLICIT, R_DEFAULTED, R_NO_AUDIT, R_FIRST_ROW]) targets.set(r, { tenant: TENANT_A, target: "" });
-    for (const r of [R_PUBLISHED, R_SUPERSEDED, R_NO_KEY, R_BAD_VALUE, R_PRESET]) targets.set(r, { tenant: TENANT_B, target: "" });
+    for (const r of [R_PUBLISHED, R_SUPERSEDED, R_NO_KEY, R_BAD_VALUE, R_PRESET, R_PENDING, R_APPROVED, R_BAD_DATE, R_BAD_OFFSET]) {
+      targets.set(r, { tenant: TENANT_B, target: "" });
+    }
     let n = 0;
     await fixture(async (c) => {
       for (const [r, meta] of targets) {
@@ -206,8 +218,10 @@ describe("RT-1532 seed shape and 0127 DDL", () => {
         await seedSet(c, target, meta.tenant, "standard", null);
         await seedSet(c, r, meta.tenant, "rollback", target);
       }
-      await makePublished(c, R_PUBLISHED, "published");
-      await makePublished(c, R_SUPERSEDED, "superseded");
+      await moveTo(c, R_PUBLISHED, "published");
+      await moveTo(c, R_SUPERSEDED, "superseded");
+      await moveTo(c, R_PENDING, "pending_approval");
+      await moveTo(c, R_APPROVED, "approved");
       await c.query(`UPDATE change_sets SET state = 'cancelled', cancelled_at = now(), cancelled_by_user_id = $2 WHERE id = $1`, [R_DEFAULTED, ACTOR]);
       // Audit: the facts the code before RT-1532 read back.
       await seedAudit(c, TENANT_A, R_EXPLICIT, { kind: "rollback", rollback_from: "2031-06-01T00:00:00Z", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
@@ -221,6 +235,11 @@ describe("RT-1532 seed shape and 0127 DDL", () => {
       await seedAudit(c, TENANT_B, R_SUPERSEDED, { rollback_from: "2026-11-20T11:00:00Z", rollback_from_defaulted: true }, "2026-11-20T10:00:00Z");
       await seedAudit(c, TENANT_B, R_NO_KEY, { kind: "rollback", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
       await seedAudit(c, TENANT_B, R_BAD_VALUE, { rollback_from: "tomorrow", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
+      await seedAudit(c, TENANT_B, R_PENDING, { rollback_from: "2038-04-04T04:04:04Z", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
+      await seedAudit(c, TENANT_B, R_APPROVED, { rollback_from: "2026-11-21T09:00:00Z", rollback_from_defaulted: true }, "2026-11-20T10:00:00Z");
+      // Shaped like an ISO timestamp but not castable: an impossible day, an offset beyond PostgreSQL's range.
+      await seedAudit(c, TENANT_B, R_BAD_DATE, { rollback_from: "2026-02-30T00:00:00Z", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
+      await seedAudit(c, TENANT_B, R_BAD_OFFSET, { rollback_from: "2026-05-01T00:00:00+20:00", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
       await seedAudit(c, TENANT_B, R_PRESET, { rollback_from: "2035-01-01T00:00:00Z", rollback_from_defaulted: false }, "2026-11-20T10:00:00Z");
     });
     expect((await e.admin.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'change_sets' AND column_name LIKE 'rollback_from%'`)).rowCount).toBe(0);
@@ -288,6 +307,62 @@ describe("RT-1532 seed shape and 0127 DDL", () => {
   });
 });
 
+describe("RT-1532 0127 guard: the rollback start is set once, by itself", () => {
+  const update = (setId: string, set: string): Promise<unknown> => guard().admin.query(`UPDATE change_sets SET ${set} WHERE id = $1`, [setId]);
+  const fill = "rollback_from = '2040-01-01T00:00:00Z', rollback_from_defaulted = false";
+
+  it("refuses to fill the pair together with any other column, and a half fill", async () => {
+    if (skip()) return;
+    // R_NO_AUDIT is an unfilled draft; R_SUPERSEDED / R_PUBLISHED are unfilled terminal / published sets (until 0128).
+    expect(await constraintOf(() => update(R_NO_AUDIT, `${fill}, title = 'Edited'`))).toBe("23514");
+    expect(await constraintOf(() => update(R_PUBLISHED, `${fill}, title = 'Edited'`))).toBe("23514");
+    expect(await constraintOf(() => update(R_SUPERSEDED, `${fill}, state = 'superseded', title = 'Edited'`))).toBe("23514");
+    expect(await constraintOf(() => update(R_NO_AUDIT, `rollback_from = '2040-01-01T00:00:00Z'`))).toBe("change_sets_rollback_from_whole");
+    expect(await columnsOf(R_NO_AUDIT)).toEqual({ rollback_from: null, rollback_from_defaulted: null });
+  });
+
+  it("other changes to a published or superseded set are still refused", async () => {
+    if (skip()) return;
+    expect(await constraintOf(() => update(R_PUBLISHED, `title = 'Edited'`))).toBe("23514");
+    expect(await constraintOf(() => update(R_SUPERSEDED, `title = 'Edited'`))).toBe("23514");
+    // A draft's ordinary edit still passes the guard.
+    expect(await constraintOf(() => update(R_NO_AUDIT, `title = 'Edited by the draft author'`))).toBeNull();
+  });
+
+  it("allows the NULL -> value fill of exactly the pair, in any state (also a cancelled and a published set, by itself)", async () => {
+    if (skip()) return;
+    // R_NO_AUDIT is a draft; R_DEFAULTED is cancelled; R_PUBLISHED is published. Each is filled by that statement alone.
+    await fixture(async (c) => {
+      await c.query(`UPDATE change_sets SET title = 'Set' WHERE id = $1`, [R_NO_AUDIT]);
+    });
+    expect(await constraintOf(() => update(R_NO_AUDIT, fill))).toBeNull();
+    expect(await columnsOf(R_NO_AUDIT)).toEqual({ rollback_from: "2040-01-01T00:00:00.000000", rollback_from_defaulted: false });
+    // Undo (fixture, triggers off) so the backfill test below sees the shape it seeded.
+    await fixture(async (c) => {
+      await c.query(`UPDATE change_sets SET rollback_from = NULL, rollback_from_defaulted = NULL WHERE id = $1`, [R_NO_AUDIT]);
+    });
+  });
+
+  it("once set, neither column changes (not even to the same set of values by another value), in any state", async () => {
+    if (skip()) return;
+    await fixture(async (c) => {
+      await c.query(`UPDATE change_sets SET rollback_from = '2041-01-01T00:00:00Z', rollback_from_defaulted = false WHERE id = ANY($1)`, [[R_NO_AUDIT, R_PUBLISHED]]);
+    });
+    for (const setId of [R_NO_AUDIT, R_PUBLISHED]) {
+      expect(await constraintOf(() => update(setId, `rollback_from = '2042-01-01T00:00:00Z'`))).toBe("23514");
+      expect(await constraintOf(() => update(setId, `rollback_from_defaulted = true`))).toBe("23514");
+      expect(await constraintOf(() => update(setId, `rollback_from = NULL, rollback_from_defaulted = NULL`))).toBe("23514");
+      expect(await columnsOf(setId)).toEqual({ rollback_from: "2041-01-01T00:00:00.000000", rollback_from_defaulted: false });
+    }
+    // The ordinary update of a filled draft that leaves the pair alone passes.
+    expect(await constraintOf(() => update(R_NO_AUDIT, `title = 'Still editable'`))).toBeNull();
+    // Back to the seeded shape for the backfill tests.
+    await fixture(async (c) => {
+      await c.query(`UPDATE change_sets SET rollback_from = NULL, rollback_from_defaulted = NULL, title = 'Set' WHERE id = ANY($1)`, [[R_NO_AUDIT, R_PUBLISHED]]);
+    });
+  });
+});
+
 describe("RT-1532 0128 backfill as the NOSUPERUSER owner under FORCE RLS", () => {
   const triggerStates = async (): Promise<Record<string, string>> => {
     const r = await guard().admin.query<{ tgname: string; tgenabled: string }>(
@@ -296,10 +371,10 @@ describe("RT-1532 0128 backfill as the NOSUPERUSER owner under FORCE RLS", () =>
     return Object.fromEntries(r.rows.map((x) => [x.tgname, x.tgenabled]));
   };
   const snapshot = async (): Promise<Record<string, unknown>> => {
-    const r = await guard().admin.query<{ id: string; state: string; version: number; updated_at: Date }>(
-      `SELECT id, state, version, updated_at FROM change_sets WHERE kind = 'rollback' ORDER BY id`,
+    const r = await guard().admin.query<{ id: string; state: string; version: number }>(
+      `SELECT id, state, version FROM change_sets WHERE kind = 'rollback' ORDER BY id`,
     );
-    return Object.fromEntries(r.rows.map((x) => [x.id, `${x.state}:${x.version}:${x.updated_at.toISOString()}`]));
+    return Object.fromEntries(r.rows.map((x) => [x.id, `${x.state}:${x.version}`]));
   };
 
   it("fills both columns from each set's first created audit row; a set with no usable row stays NULL; a filled set is untouched", async () => {
@@ -321,24 +396,27 @@ describe("RT-1532 0128 backfill as the NOSUPERUSER owner under FORCE RLS", () =>
     expect(await columnsOf(R_EXPLICIT)).toEqual({ rollback_from: "2031-06-01T00:00:00.000000", rollback_from_defaulted: false });
     expect(await columnsOf(R_DEFAULTED)).toEqual({ rollback_from: "2026-11-20T10:00:00.123000", rollback_from_defaulted: true });
     expect(await columnsOf(R_FIRST_ROW)).toEqual({ rollback_from: "2032-01-01T10:30:00.000000", rollback_from_defaulted: false });
-    // Published and superseded sets are filled too (the guard would refuse any change to them).
+    // Pending, approved, published and superseded sets are filled too (the guard refuses any other change to them).
+    expect(await columnsOf(R_PENDING)).toEqual({ rollback_from: "2038-04-04T04:04:04.000000", rollback_from_defaulted: false });
+    expect(await columnsOf(R_APPROVED)).toEqual({ rollback_from: "2026-11-21T09:00:00.000000", rollback_from_defaulted: true });
     expect(await columnsOf(R_PUBLISHED)).toEqual({ rollback_from: "2031-07-01T00:00:00.000000", rollback_from_defaulted: false });
     expect(await columnsOf(R_SUPERSEDED)).toEqual({ rollback_from: "2026-11-20T11:00:00.000000", rollback_from_defaulted: true });
-    // No usable audit row: left NULL, never guessed (validate refuses such a set).
-    expect(await columnsOf(R_NO_AUDIT)).toEqual({ rollback_from: null, rollback_from_defaulted: null });
-    expect(await columnsOf(R_NO_KEY)).toEqual({ rollback_from: null, rollback_from_defaulted: null });
-    expect(await columnsOf(R_BAD_VALUE)).toEqual({ rollback_from: null, rollback_from_defaulted: null });
+    // No usable audit row: left NULL, never guessed (validate refuses such a set). A value that has the ISO shape but
+    // does not cast (an impossible day, an offset of +20:00) is left NULL too and does not fail the migration.
+    for (const unusable of [R_NO_AUDIT, R_NO_KEY, R_BAD_VALUE, R_BAD_DATE, R_BAD_OFFSET]) {
+      expect([unusable, await columnsOf(unusable)]).toEqual([unusable, { rollback_from: null, rollback_from_defaulted: null }]);
+    }
     // A filled set keeps its values.
     expect(await columnsOf(R_PRESET)).toEqual({ rollback_from: "2036-02-02T00:00:00.000000", rollback_from_defaulted: false });
     // A standard set never gets them.
     expect(await columnsOf(T_A)).toEqual({ rollback_from: null, rollback_from_defaulted: null });
-    // state, version and updated_at did not move (the updated_at trigger was off for the backfill).
+    // state and version did not move (updated_at does, once, through the untouched set_updated_at trigger).
     expect(await snapshot()).toEqual(before);
-    // The triggers are back on.
+    // No trigger was disabled or changed by the backfill.
     expect(await triggerStates()).toEqual(triggersBefore);
   });
 
-  it("the first call reports how many sets it filled; the guard still refuses a change to a published set", async () => {
+  it("the first call reports how many sets it filled; the guard still refuses another change to a published set", async () => {
     if (skip()) return;
     // The function ran in the previous test; undo its work for two sets to count a fresh run, then re-run it.
     await fixture(async (c) => {
@@ -347,7 +425,7 @@ describe("RT-1532 0128 backfill as the NOSUPERUSER owner under FORCE RLS", () =>
     const filled = await asOwner(async (c) => (await c.query<{ n: number }>(`SELECT price_change_set_backfill_rollback_from() AS n`)).rows[0]!.n);
     expect(filled).toBe(2);
     expect((await columnsOf(R_PUBLISHED)).rollback_from).toBe("2031-07-01T00:00:00.000000");
-    // The guard trigger is enabled again: a published set still refuses any change.
+    // The guard is untouched: a published set still refuses any other change.
     const refused = await constraintOf(() => guard().admin.query(`UPDATE change_sets SET title = 'Edited' WHERE id = $1`, [R_PUBLISHED]));
     expect(refused).toBe("23514");
   });
@@ -375,12 +453,17 @@ describe("RT-1532 down and re-up", () => {
     expect((await a.query(`SELECT 1 FROM pg_proc WHERE proname = 'price_change_set_backfill_rollback_from'`)).rowCount).toBe(0);
     await a.query(sql(DDL_DOWN));
     await a.query(sql(DDL_DOWN));
+    // The 0121 guard body is back (it no longer names the columns), and still refuses a change to a published set.
+    const body = async (): Promise<string> => (await a.query<{ src: string }>(`SELECT prosrc AS src FROM pg_proc WHERE proname = 'change_sets_guard'`)).rows[0]!.src;
+    expect(await body()).not.toContain("rollback_from");
+    expect(await constraintOf(() => a.query(`UPDATE change_sets SET title = 'Edited' WHERE id = $1`, [R_PUBLISHED]))).toBe("23514");
     expect((await a.query(`SELECT 1 FROM information_schema.columns WHERE table_name = 'change_sets' AND column_name LIKE 'rollback_from%'`)).rowCount).toBe(0);
     expect((await a.query(`SELECT 1 FROM pg_constraint WHERE conname LIKE 'change_sets_rollback_from%'`)).rowCount).toBe(0);
     // The rollback sets themselves survive (the audit rows still hold the facts).
     expect((await a.query(`SELECT 1 FROM change_sets WHERE kind = 'rollback'`)).rowCount).toBeGreaterThan(0);
     await a.query(sql(DDL_UP));
+    expect(await body()).toContain("rollback_from");
     await a.query(sql(BACKFILL_UP));
-    expect((await a.query(`SELECT 1 FROM change_sets WHERE kind = 'rollback' AND rollback_from IS NOT NULL`)).rowCount).toBeGreaterThanOrEqual(7);
+    expect((await a.query(`SELECT 1 FROM change_sets WHERE kind = 'rollback' AND rollback_from IS NOT NULL`)).rowCount).toBeGreaterThanOrEqual(9);
   });
 });

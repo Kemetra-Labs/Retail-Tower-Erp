@@ -132,12 +132,15 @@ op run --env-file=deploy/prod.env -- \
 # 4. Freeze any posting intent the previous release wrote during step 1
 #    (RT-330), and record `not_posted` for any inventory movement it wrote
 #    (RT-425), and move the ERP host of any provisioning request the previous
-#    release finished during step 1 into `provisioned_host_label` (RT-1389).
+#    release finished during step 1 into `provisioned_host_label` (RT-1389),
+#    and fill the rollback start of any Price Change Set rollback the previous
+#    release created during step 1 (RT-1532).
 #    Idempotent; each exits non-zero on failure.
 op run --env-file=deploy/grants.env -- sh -c \
   'psql -X -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
    psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql &&
-   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql'
+   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql &&
+   psql -X -f docs/operations/sql/price-change-set-rollback-from-catchup.sql'
 ```
 
 `op run` resolves private references in memory and does not write them back to
@@ -358,7 +361,7 @@ overwrite an existing release, tag or image). With `publish: false` (the
 default) it only builds and uploads a dry-run artifact whose digests are local
 image IDs, not registry digests. The release assets are
 `backend-core-release-<sha12>.tar.gz` (compose files, `Caddyfile`,
-`deploy/console-smoke.sh`, the seven grant scripts and two catch-up scripts
+`deploy/console-smoke.sh`, the seven grant scripts and four catch-up scripts
 plus the migrations 0038 and 0043 those catch-up scripts include, a
 `release.env` with the three image refs, and the manifest), `release-manifest.json`
 and `SHA256SUMS`. It holds no secrets and the workflow deploys nothing.
@@ -819,7 +822,8 @@ op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml u
 op run --env-file=deploy/grants.env -- sh -c \
   'psql -X -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
    psql -X -f docs/operations/sql/inventory-effect-integration-catchup.sql &&
-   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql'
+   psql -X -f docs/operations/sql/erp-provisioning-host-label-catchup.sql &&
+   psql -X -f docs/operations/sql/price-change-set-rollback-from-catchup.sql'
 # stop
 op run --env-file=deploy/prod.env -- docker compose -f docker-compose.prod.yml down   # keeps volumes (redis AOF, caddy certs)
 ```
