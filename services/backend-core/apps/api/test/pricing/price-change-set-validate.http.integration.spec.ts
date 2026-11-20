@@ -57,7 +57,17 @@ import { PriceChangeSetsModule } from "../../src/pricing/change-sets/price-chang
 import { seedConsoleMember } from "../_helpers/console-members";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 import { APP_ROLE_NAME, applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
-import { PRODUCT_A_ACTIVE, PRODUCT_A_RETIRED, STORE_A_X, STORE_A_Y, TENANT_A, TENANT_B } from "../catalog/__support__/isolation-harness";
+import {
+  CATEGORY_A,
+  PRODUCT_A_ACTIVE,
+  PRODUCT_A_RETIRED,
+  PRODUCT_B_ACTIVE,
+  STORE_A_X,
+  STORE_A_Y,
+  STORE_B_X,
+  TENANT_A,
+  TENANT_B,
+} from "../catalog/__support__/isolation-harness";
 import { bootScopedApp, SES_ADMIN_SPEC, SES_OWNER_ALL } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
 import { SES_MANAGER, seedConsoleSalesFixture } from "../console-sales/__support__/console-sales-fixture";
 
@@ -78,15 +88,27 @@ const ACTOR = a("14b4e2");
 const BOOK = a("14b4b0");
 const ZONE_DEFAULT = a("14b4d0");
 const ZONE_NORTH = a("14b4d1");
+const ZONE_SOUTH = a("14b4d2");
 const P1 = PRODUCT_A_ACTIVE;
 const P2 = PRODUCT_A_RETIRED;
 const P3 = a("14b4f3");
 const P4 = a("14b4f4");
+const P5 = a("14b4f5");
 const CS_LEGACY = a("14b4c1");
 const CS_REV2 = a("14b4c2");
 const CS_LEGACY_DRAFT = b("14b4c3");
-const E = { bookP1: a("14b4e101"), storeXP1: a("14b4e102"), storeXP3: a("14b4e103"), helperYP4: a("14b4e104") };
+const E = {
+  bookP1: a("14b4e101"),
+  storeXP1: a("14b4e102"),
+  storeXP3: a("14b4e103"),
+  helperYP4: a("14b4e104"),
+  northP5a: a("14b4e105"),
+  northP5b: a("14b4e106"),
+};
 const M_Y_NORTH = a("14b4a101");
+const M_X_SOUTH = a("14b4a102");
+const B_BOOK = b("14b4b0");
+const B_ZONE = b("14b4d0");
 
 const at = (instant: string) => ({ timeBasis: "absolute", effectiveFrom: instant });
 const items = (productIds: string[]) => ({ kind: "items", productIds });
@@ -193,14 +215,14 @@ async function asSeeder(fn: (c: PoolClient) => Promise<void>): Promise<void> {
 
 async function seedEvent(
   c: PoolClient,
-  e: { id: string; scope: string; store?: string; product: string; price: string; from: string; rev: number; cs: string },
+  e: { id: string; scope: string; zone?: string; store?: string; product: string; price: string; from: string; to?: string; rev: number; cs: string },
 ): Promise<void> {
   await c.query(
     `INSERT INTO price_events
        (id, tenant_id, price_book_id, scope, price_zone_id, store_id, product_id, price, currency_code, time_basis,
-        effective_from, state, published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
-     VALUES ($1, $2, $3, $4, NULL, $5, $6, $7, 'EGP', 'absolute', $8, 'active', $9, $10, 'change_set', $11, $1)`,
-    [e.id, TENANT_A, BOOK, e.scope, e.store ?? null, e.product, e.price, e.from, e.rev, e.cs, ACTOR],
+        effective_from, effective_to, state, published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, 'EGP', 'absolute', $9, $10, 'active', $11, $12, 'change_set', $13, $1)`,
+    [e.id, TENANT_A, BOOK, e.scope, e.zone ?? null, e.store ?? null, e.product, e.price, e.from, e.to ?? null, e.rev, e.cs, ACTOR],
   );
 }
 
@@ -210,8 +232,9 @@ async function seedPublishedPricing(): Promise<void> {
   await env!.admin.query(`UPDATE stores SET timezone = 'America/New_York' WHERE id = $1`, [STORE_A_Y]);
   await env!.admin.query(
     `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by)
-     VALUES ($1, $3, 'RT-1484 P3', 'standard', $4, $4), ($2, $3, 'RT-1484 P4', 'standard', $4, $4)`,
-    [P3, P4, TENANT_A, ACTOR],
+     VALUES ($1, $3, 'RT-1484 P3', 'standard', $4, $4), ($2, $3, 'RT-1484 P4', 'standard', $4, $4),
+            ($5, $3, 'RT-1484 P5', 'standard', $4, $4)`,
+    [P3, P4, TENANT_A, ACTOR, P5],
   );
   const hash = `sha256:${"a".repeat(64)}`;
   await asSeeder(async (c) => {
@@ -220,7 +243,7 @@ async function seedPublishedPricing(): Promise<void> {
        VALUES ($1, $2, 'RETAIL', 'Retail', 'EGP', 'inclusive', $3, $1)`,
       [BOOK, TENANT_A, ACTOR],
     );
-    for (const [zone, code, isDefault] of [[ZONE_DEFAULT, "DEFAULT", true], [ZONE_NORTH, "NORTH", false]] as const) {
+    for (const [zone, code, isDefault] of [[ZONE_DEFAULT, "DEFAULT", true], [ZONE_NORTH, "NORTH", false], [ZONE_SOUTH, "SOUTH", false]] as const) {
       await c.query(
         `INSERT INTO price_zones (id, tenant_id, price_book_id, code, name, is_default, created_by_user_id, correlation_id)
          VALUES ($1, $2, $3, $4, $4, $5, $6, $1)`,
@@ -246,12 +269,17 @@ async function seedPublishedPricing(): Promise<void> {
     await seedEvent(c, { id: E.storeXP1, scope: "store", store: STORE_A_X, product: P1, price: "90.0000", from: "2030-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
     await seedEvent(c, { id: E.storeXP3, scope: "store", store: STORE_A_X, product: P3, price: "40.0000", from: "2030-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
     await seedEvent(c, { id: E.helperYP4, scope: "store", store: STORE_A_Y, product: P4, price: "95.0000", from: "2032-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
-    await c.query(
-      `INSERT INTO price_zone_memberships (id, tenant_id, price_book_id, price_zone_id, store_id, effective_from, state,
-                                           published_in_revision, created_by_user_id, correlation_id)
-       VALUES ($1, $2, $3, $4, $5, '2031-06-01T00:00:00Z', 'active', 2, $6, $1)`,
-      [M_Y_NORTH, TENANT_A, BOOK, ZONE_NORTH, STORE_A_Y, ACTOR],
-    );
+    // Two NORTH helper events of P5: at 2035 X is in the default Zone, at 2041 X is in SOUTH (M3).
+    await seedEvent(c, { id: E.northP5a, scope: "zone", zone: ZONE_NORTH, product: P5, price: "30.0000", from: "2035-01-01T00:00:00Z", to: "2040-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
+    await seedEvent(c, { id: E.northP5b, scope: "zone", zone: ZONE_NORTH, product: P5, price: "31.0000", from: "2041-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
+    for (const [id, zone, store, from] of [[M_Y_NORTH, ZONE_NORTH, STORE_A_Y, "2031-06-01T00:00:00Z"], [M_X_SOUTH, ZONE_SOUTH, STORE_A_X, "2040-01-01T00:00:00Z"]] as const) {
+      await c.query(
+        `INSERT INTO price_zone_memberships (id, tenant_id, price_book_id, price_zone_id, store_id, effective_from, state,
+                                             published_in_revision, created_by_user_id, correlation_id)
+         VALUES ($1, $2, $3, $4, $5, $6, 'active', 2, $7, $1)`,
+        [id, TENANT_A, BOOK, zone, store, from, ACTOR],
+      );
+    }
     // Revision 2's record: the helper line that became E.helperYP4 (invalidates_dependent).
     const helperItem = { op: "adjust_amount", scope: { kind: "stores", storeIds: [STORE_A_Y] }, products: items([P4]), amount: "5", ...at("2032-01-01T00:00:00Z") };
     await c.query(
@@ -272,7 +300,7 @@ async function seedPublishedPricing(): Promise<void> {
       `INSERT INTO price_change_set_validations
          (tenant_id, change_set_id, change_set_version, item_list_version, validated_at_revision, preview_hash, target_store_set_hash,
           sensitive, summary, target_stores, line_count, preview_line_count, membership_change_count, created_by_user_id, correlation_id)
-       VALUES ($1, $2, 1, 1, 1, $3, $3, false, $4::jsonb, '[]'::jsonb, 1, 0, 0, $5, $2)`,
+       VALUES ($1, $2, 1, 1, 1, $3, $3, false, $4::jsonb, '[]'::jsonb, 3, 0, 0, $5, $2)`,
       [TENANT_A, CS_REV2, hash, JSON.stringify(summary), ACTOR],
     );
     await c.query(
@@ -281,6 +309,26 @@ async function seedPublishedPricing(): Promise<void> {
           store_id, product_id, sell_unit, time_basis, effective_from, new_price, class, new_event_id, created_by_user_id, correlation_id)
        VALUES ($1, $2, 1, 1, 1, 1, 'adjust_amount', 'store', $3, $4, $5, 'each', 'absolute', '2032-01-01T00:00:00Z', 95, 'new', $6, $7, $2)`,
       [TENANT_A, CS_REV2, BOOK, STORE_A_Y, P4, E.helperYP4, ACTOR],
+    );
+    for (const [lineNo, eventId, price, from] of [[2, E.northP5a, 30, "2035-01-01T00:00:00Z"], [3, E.northP5b, 31, "2041-01-01T00:00:00Z"]] as const) {
+      await c.query(
+        `INSERT INTO price_change_set_lines
+           (tenant_id, change_set_id, change_set_version, line_no, item_list_version, item_position, op, scope, price_book_id,
+            price_zone_id, product_id, sell_unit, time_basis, effective_from, new_price, class, new_event_id, created_by_user_id, correlation_id)
+         VALUES ($1, $2, 1, $3, 1, 1, 'adjust_percent', 'zone', $4, $5, $6, 'each', 'absolute', $7, $8, 'new', $9, $10, $2)`,
+        [TENANT_A, CS_REV2, lineNo, BOOK, ZONE_NORTH, P5, from, price, eventId, ACTOR],
+      );
+    }
+    // Tenant B's retail Book (its own validations exist for the direct-SQL RLS case, m4).
+    await c.query(
+      `INSERT INTO price_books (id, tenant_id, code, name, currency_code, tax_price_basis, created_by_user_id, correlation_id)
+       VALUES ($1, $2, 'RETAIL', 'Retail', 'EGP', 'inclusive', $3, $1)`,
+      [B_BOOK, TENANT_B, ACTOR],
+    );
+    await c.query(
+      `INSERT INTO price_zones (id, tenant_id, price_book_id, code, name, is_default, created_by_user_id, correlation_id)
+       VALUES ($1, $2, $3, 'DEFAULT', 'Default', true, $4, $1)`,
+      [B_ZONE, TENANT_B, B_BOOK, ACTOR],
     );
     // A draft legacy_import set of tenant B (the RT-1485 path writes it; one per tenant, A has its own).
     await c.query(
@@ -483,7 +531,7 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
       products: 4,
       unchanged: 1,
       blocking: true,
-      findings: { replaces: 1, conflicts_pending: 1, invalidates_dependent: 1, past_dated: 1, invalid: 1, shadowed: 0 },
+      findings: { replaces: 2, conflicts_pending: 1, invalidates_dependent: 1, past_dated: 1, invalid: 1, shadowed: 0 },
     });
 
     const lines = await env!.admin.query<{ line_no: number; item_position: number; class: string; messages: string[]; replaced_ids: string[] }>(
@@ -498,7 +546,8 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
       [4, 4, "past_dated"],
       [5, 5, "invalid"],
       [6, 6, "new"],
-      [7, 8, "new"],
+      // The move supersedes X's later SOUTH membership.
+      [7, 8, "replaces"],
     ]);
     expect(lines.rows[0]!.replaced_ids).toEqual([E.bookP1]);
     expect(lines.rows[4]!.messages).toEqual(["product_not_live"]);
@@ -539,7 +588,7 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     expect([...keys].sort()).toEqual(keys);
     expect(all.pages).toBeGreaterThan(1);
     expect(all.membershipChanges).toEqual([
-      { storeId: STORE_A_X, fromZoneId: null, toZoneId: ZONE_NORTH, effectiveFrom: "2033-01-01T00:00:00Z", effectiveTo: null, supersededMembershipIds: [] },
+      { storeId: STORE_A_X, fromZoneId: null, toZoneId: ZONE_NORTH, effectiveFrom: "2033-01-01T00:00:00Z", effectiveTo: null, supersededMembershipIds: [M_X_SOUTH] },
     ]);
     const row = (store: string, product: string, cls: string) => all.lines.find((l) => l.storeId === store && l.productId === product && l.class === cls)!;
     expect(row(STORE_A_Y, P1, "replaces")).toMatchObject({ oldPrice: "100.0000", oldSourceScope: "book", newPrice: "120.0000", deltaPct: "20.00" });
@@ -657,6 +706,110 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     ]);
     expect([x.status, y.status].sort()).toEqual([200, 409]);
     expect([x, y].find((r) => r.status === 409)!.body.error.code).toBe("version_conflict");
+  });
+
+  // Review round 1, M1: a set that contradicts itself. The contract keeps a set with blocking
+  // lines `validated` (validate "moves the set to validated, even when some lines are blocking");
+  // its blocking lines refuse submit (summary.blocking).
+  it("M1: overlapping lines of one set (a price and a category helper on one key) are both invalid", async () => {
+    if (skip()) return;
+    const draft = await createSet(SES_OWNER_ALL, {
+      items: [
+        { op: "set_price", scope: { kind: "book" }, products: items([P1]), price: "140", ...at("2034-01-01T00:00:00Z") },
+        { op: "adjust_percent", scope: { kind: "book" }, products: { kind: "category", categoryId: CATEGORY_A }, percent: "5", ...at("2034-06-01T00:00:00Z") },
+      ],
+    });
+    const body = await validated(SES_OWNER_ALL, draft);
+    expect(body.summary).toMatchObject({ blocking: true, findings: { invalid: 2 } });
+    const lines = await env!.admin.query<{ class: string; messages: string[] }>(
+      `SELECT class, messages FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY line_no`,
+      [draft.header.id],
+    );
+    expect(lines.rows.map((l) => [l.class, l.messages.includes("overlaps_line_in_set")])).toEqual([
+      ["invalid", true],
+      ["invalid", true],
+    ]);
+  });
+
+  it("M1: two overlapping moves of one Store are both invalid", async () => {
+    if (skip()) return;
+    const move = (from: string) => ({ op: "move_store_zone", storeId: STORE_A_Y, zoneId: ZONE_SOUTH, effectiveFrom: from });
+    const body = await validated(SES_OWNER_ALL, await createSet(SES_OWNER_ALL, { items: [move("2036-01-01T00:00:00Z"), move("2037-01-01T00:00:00Z")] }));
+    expect(body.summary).toMatchObject({ lines: 2, blocking: true, findings: { invalid: 2 } });
+  });
+
+  // Review round 1, M3: a NORTH helper does not flag a Store in SOUTH or in the default Zone.
+  it("M3: invalidates_dependent reaches only the Stores a Zone helper serves", async () => {
+    if (skip()) return;
+    const draft = await createSet(SES_OWNER_ALL, {
+      items: [{ op: "set_price", scope: { kind: "book" }, products: items([P5]), price: "25", ...at("2031-01-01T00:00:00Z") }],
+    });
+    const body = await validated(SES_OWNER_ALL, draft);
+    expect(body.summary).toMatchObject({ findings: { invalidates_dependent: 1 } });
+    const preview = await allPreview(SES_OWNER_ALL, draft.header.id);
+    const row = (store: string) => preview.lines.find((l) => l.storeId === store)!;
+    // Y is in NORTH from 2031-06: both helpers inherit the new Book price.
+    expect(row(STORE_A_Y).messages).toContain("invalidates_dependent");
+    // X is in the default Zone at 2035 and in SOUTH at 2041: neither helper serves it.
+    expect(row(STORE_A_X).messages).not.toContain("invalidates_dependent");
+  });
+
+  // Review round 1, m4: RLS at the SQL level, as the NOBYPASSRLS application role.
+  it("m4: under tenant A's GUC the app role reads none of tenant B's 0123 rows and cannot write them", async () => {
+    if (skip()) return;
+    const bSet = await createSet(SES_OWNER_B, {
+      items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_B_X] }, products: items([PRODUCT_B_ACTIVE]), price: "9", ...at("2034-01-01T00:00:00Z") }],
+    });
+    const bValidated = await validated(SES_OWNER_B, bSet);
+    expect(bValidated.header.state).toBe("validated");
+    const tables = ["price_change_set_validations", "price_change_set_lines", "price_change_set_preview_lines"];
+    for (const table of tables) expect(await count(table, bSet.header.id)).toBe(1);
+    const c = await env!.app.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query(`SELECT set_config('app.current_tenant', $1, true), set_config('app.is_platform_admin', 'false', true)`, [TENANT_A]);
+      for (const table of tables) {
+        const r = await c.query(`SELECT count(*)::int AS n FROM ${table} WHERE change_set_id = $1`, [bSet.header.id]);
+        expect({ table, n: r.rows[0].n }).toEqual({ table, n: 0 });
+      }
+      const upd = await c.query(`UPDATE price_change_set_lines SET result_ids = result_ids WHERE change_set_id = $1`, [bSet.header.id]);
+      expect(upd.rowCount).toBe(0);
+      await c.query("SAVEPOINT w");
+      await expect(
+        c.query(
+          `INSERT INTO price_change_set_item_lists (tenant_id, change_set_id, change_set_version, item_count, created_by_user_id, correlation_id)
+           VALUES ($1, $2, 9, 0, $3, $2)`,
+          [TENANT_B, bSet.header.id, ACTOR],
+        ),
+      ).rejects.toThrow();
+      await c.query("ROLLBACK TO SAVEPOINT w");
+      await c.query("ROLLBACK");
+    } finally {
+      c.release();
+    }
+    expect(await count("price_change_set_item_lists", bSet.header.id)).toBe(1);
+  });
+
+  // Review round 1, m5: the audit row names the set's one target Store (spec 042 §10).
+  it("m5: audit store_id is the one target Store of a single-Store set, null for a Book set", async () => {
+    if (skip()) return;
+    const one = await createSet(SES_OWNER_ALL, {
+      items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_A_Y] }, products: items([P3]), price: "33", ...at("2034-01-01T00:00:00Z") }],
+    });
+    await validated(SES_OWNER_ALL, one);
+    const rows = await env!.admin.query<{ action: string; store_id: string | null }>(
+      `SELECT action, store_id::text AS store_id FROM audit_events WHERE target_id = $1 ORDER BY id`,
+      [one.header.id],
+    );
+    expect(rows.rows).toEqual([
+      { action: "pricing.change_set.created", store_id: STORE_A_Y },
+      { action: "pricing.change_set.validated", store_id: STORE_A_Y },
+    ]);
+    const book = await env!.admin.query<{ store_id: string | null }>(
+      `SELECT store_id::text AS store_id FROM audit_events WHERE target_id = $1`,
+      [main.header.id],
+    );
+    expect(book.rows.every((r) => r.store_id === null)).toBe(true);
   });
 
   it("a legacy_import set is never edited or cancelled here (409, comment 17881 follow-up 3)", async () => {

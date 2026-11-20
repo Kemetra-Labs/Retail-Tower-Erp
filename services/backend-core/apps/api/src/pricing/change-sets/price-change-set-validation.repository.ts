@@ -89,14 +89,15 @@ interface PendingRow {
 }
 
 /**
- * Everything the pure validator reads, as visible at `revision` (spec 042 §6: the head timeline).
- * `ids` are the lower-case product, category and Store ids the items name.
+ * What reach and the size budget need (review round 1, M2: loaded before any event): the Book's
+ * Zones, the live and named Stores, the products the items name or their categories hold, and the
+ * Book's memberships visible at `revision`. The event-side fields are empty until
+ * `loadPricingContext` fills them. `ids` are the lower-case ids the items name.
  */
-export async function loadValidationContext(
+export async function loadReachContext(
   client: Queryable,
   input: {
     readonly tenantId: string;
-    readonly changeSetId: string;
     readonly kind: ChangeSetKindForValidation;
     readonly nowMs: number;
     readonly revision: number;
@@ -114,6 +115,32 @@ export async function loadValidationContext(
   const allProducts = [...new Set([...input.ids.productIds, ...[...categoryProducts.values()].flat()])];
   const products = await tenantProductLiveness(client, tenantId, allProducts);
   const memberships = await loadMemberships(client, { tenantId, bookId: book.id, storeId: null, revision });
+  return {
+    tenantId,
+    kind: input.kind,
+    nowMs: input.nowMs,
+    headRevision: revision,
+    book,
+    zones: new Map(zones.rows.map((z) => [z.id, { live: z.live }])),
+    stores: new Map(stores.map((s) => [s.id, s])),
+    products: new Map([...products].map(([id, live]) => [id, { live }])),
+    categoryProducts,
+    memberships,
+    events: [],
+    pendingLines: [],
+    helperEventIds: new Set(),
+    devices: new Map(),
+  };
+}
+
+/**
+ * The rest of what the pure validator reads, as visible at the head (spec 042 §6): the products'
+ * `regular` events, the lines of the tenant's other validated, pending and approved sets, the
+ * events a helper line published, and the target Stores' active devices.
+ */
+export async function loadPricingContext(client: Queryable, reach: ValidationContext, changeSetId: string): Promise<ValidationContext> {
+  const { tenantId, book, headRevision: revision } = reach;
+  const allProducts = [...reach.products.keys()];
   const { events } = await loadEvents(client, {
     tenantId,
     bookId: book.id,
@@ -134,7 +161,7 @@ export async function loadValidationContext(
         AND c.state IN ('validated', 'pending_approval', 'approved')
         AND l.class <> 'invalid'
         AND (l.product_id = ANY($3::uuid[]) OR l.op = 'move_store_zone')`,
-    [tenantId, input.changeSetId, allProducts],
+    [tenantId, changeSetId, allProducts],
   );
   const helpers = await client.query<{ id: string }>(
     `SELECT l.new_event_id::text AS id
@@ -144,22 +171,9 @@ export async function loadValidationContext(
         AND l.product_id = ANY($3::uuid[]) AND ${VISIBLE_AT("e", "$4")}`,
     [tenantId, HELPER_OPS, allProducts, revision],
   );
-  const devices = await activeDeviceCountsByStore(
-    client,
-    tenantId,
-    stores.map((s) => s.id),
-  );
+  const devices = await activeDeviceCountsByStore(client, tenantId, [...reach.stores.keys()]);
   return {
-    tenantId,
-    kind: input.kind,
-    nowMs: input.nowMs,
-    headRevision: revision,
-    book,
-    zones: new Map(zones.rows.map((z) => [z.id, { live: z.live }])),
-    stores: new Map(stores.map((s) => [s.id, s])),
-    products: new Map([...products].map(([id, live]) => [id, { live }])),
-    categoryProducts,
-    memberships,
+    ...reach,
     events,
     pendingLines: pending.rows.map(
       (p): PendingLine => ({

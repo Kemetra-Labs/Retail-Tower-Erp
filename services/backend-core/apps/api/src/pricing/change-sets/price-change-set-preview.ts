@@ -109,8 +109,15 @@ export interface PriceChangeSetPreviewBody {
   readonly nextCursor: string | null;
 }
 
-/** The Store's time zone recorded at validation (every preview Store is a target Store). */
-const zoneOf = (zones: ReadonlyMap<string, string>, storeId: string): string => zones.get(storeId) ?? "UTC";
+/**
+ * The Store's time zone recorded at validation. Every preview Store is a target Store, so a
+ * missing one is a stored-data defect: fail (500) rather than write an instant in a wrong zone.
+ */
+function zoneOf(zones: ReadonlyMap<string, string>, storeId: string): string {
+  const zone = zones.get(storeId);
+  if (zone === undefined) throw new Error(`preview Store ${storeId} is not among the validation's target Stores`);
+  return zone;
+}
 
 /** One page of the preview stored at `version` with `previewHash`. */
 export async function readPreviewPage(

@@ -196,6 +196,13 @@ export interface ValidationRefusal {
 /** Q-B6: at most 50 000 materialized lines per set. */
 export const MAX_LINES = 50_000;
 
+/**
+ * Review round 1, M2 (lead decision): at most 200 000 preview rows (the sum over lines of the
+ * Stores each reaches), checked before the events are loaded; over it is `422
+ * change_set_too_large`. It bounds one validate's work while it holds the set's row lock.
+ */
+export const MAX_PREVIEW_ROWS = 200_000;
+
 /** Thrown inside the engine and returned as a `ValidationRefusal` (a 422; nothing is stored). */
 export class RefusalError extends Error {
   constructor(
@@ -224,6 +231,9 @@ export const INVALID_MESSAGES: ReadonlySet<string> = new Set([
   "zone_not_live",
   // A store_local line whose bounds fall in one DST gap: an empty interval at that Store.
   "empty_interval",
+  // Review round 1 (lead decisions M1, m2): a set that contradicts itself, an end that ends nothing.
+  "overlaps_line_in_set",
+  "nothing_to_end",
 ]);
 
 /** A line that blocks submit: `invalid`, or `past_dated` outside the emergency path (0123 also exempts rollback). */

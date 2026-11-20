@@ -15,3 +15,6 @@
   Impact Preview in keyset pages with a `class` filter. A line that reaches no live Store (or an
   id the tenant does not have) refuses the set with the new `422 change_set_no_target_store`,
   added to the contract's `ValidateUnprocessable` description, naming the item's position.
+  Lines of one set that overlap on one key are `invalid` (`overlaps_line_in_set`); a set over
+  50 000 lines or 200 000 preview rows is `422 change_set_too_large` before any event is read
+  (the description now names the preview-row budget); helpers resolve their base per Store.

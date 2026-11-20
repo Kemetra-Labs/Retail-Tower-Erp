@@ -21,6 +21,7 @@ import {
   type LineClass,
   type MaterializedLine,
   type MembershipChange,
+  type PendingLine,
   type ValidationContext,
 } from "./price-change-set-validation.types";
 
@@ -34,24 +35,25 @@ function moveMessages(ctx: ValidationContext, storeId: string, zoneId: string, a
   return messages;
 }
 
-function pendingMove(ctx: ValidationContext, storeId: string, interval: Interval): boolean {
-  return ctx.pendingLines.some(
-    (p) =>
-      p.op === "move_store_zone" &&
-      p.storeId === storeId &&
-      p.effectiveFrom !== null &&
-      overlaps({ from: p.effectiveFrom.getTime(), to: p.effectiveTo?.getTime() ?? null }, interval),
+function pendingMove(pending: readonly PendingLine[], interval: Interval): boolean {
+  return pending.some(
+    (p) => p.effectiveFrom !== null && overlaps({ from: p.effectiveFrom.getTime(), to: p.effectiveTo?.getTime() ?? null }, interval),
   );
 }
 
-/** The move's line and membership change; `memberships` are the Store's, visible at the head. */
+/**
+ * The move's line and membership change. `memberships` are the Store's, visible at the head;
+ * `pending` the moves of the same Store in other validated, pending or approved sets; `inSet` the
+ * findings of overlaps with other lines of this set (review round 1, M1).
+ */
 export function materializeMove(
   ctx: ValidationContext,
-  memberships: readonly ResolutionZoneMembership[],
+  scope: { readonly memberships: readonly ResolutionZoneMembership[]; readonly pending: readonly PendingLine[]; readonly inSet: readonly string[] },
   lineNo: number,
   position: number,
   item: MoveItem,
 ): { line: MaterializedLine; change: MembershipChange } {
+  const { memberships } = scope;
   const storeId = item.storeId.toLowerCase();
   const zoneId = item.zoneId.toLowerCase();
   if (!ctx.stores.has(storeId)) throw noTarget(position, "moves a Store that is not the tenant's, so it reaches no live Store");
@@ -61,11 +63,12 @@ export function materializeMove(
   const superseded = memberships.filter((m) => overlaps(membershipInterval(m), interval));
   const atStart = memberships.filter((m) => overlaps(membershipInterval(m), { from, to: from + 1 }));
   const messages = moveMessages(ctx, storeId, zoneId, atStart.length);
+  for (const m of scope.inSet) messages.add(m);
   const flags = new Set<LineClass>();
   if ([...messages].some((m) => INVALID_MESSAGES.has(m))) flags.add("invalid");
   if (from < ctx.nowMs) flags.add("past_dated");
   if (superseded.length > 0) flags.add("replaces");
-  if (pendingMove(ctx, storeId, interval)) flags.add("conflicts_pending");
+  if (pendingMove(scope.pending, interval)) flags.add("conflicts_pending");
   const ids = superseded.map((m) => m.id).sort(compareCodeUnits);
   const effectiveTo = item.effectiveTo ?? null;
   return {

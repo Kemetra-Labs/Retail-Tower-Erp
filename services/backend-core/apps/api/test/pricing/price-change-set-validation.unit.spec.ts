@@ -15,11 +15,12 @@ import {
   helperPrice,
   normalizePrice,
 } from "../../src/pricing/change-sets/price-change-set-money";
-import { referencedIds, validateChangeSet } from "../../src/pricing/change-sets/price-change-set-validation";
+import { checkBudget, referencedIds, validateChangeSet } from "../../src/pricing/change-sets/price-change-set-validation";
 import {
   CLASS_SEVERITY,
   isBlocking,
   MAX_LINES,
+  MAX_PREVIEW_ROWS,
   type PendingLine,
   type PositionedItem,
   type ValidationContext,
@@ -208,7 +209,12 @@ describe("validate engine — classes (spec 042 §5, comment 17882)", () => {
 
   it("unchanged: the same price, scope and basis already covering the line is dropped and counted", () => {
     const old = event({ id: id("f1"), scope: "book", productId: P1, price: "100.0000" });
-    const r = ok(validateChangeSet(context({ events: [old] }), items(bookPrice("100"), bookPrice("101"))));
+    const r = ok(
+      validateChangeSet(
+        context({ events: [old] }),
+        items(bookPrice("100", "2031-01-01T00:00:00Z", { effectiveTo: "2031-06-01T00:00:00Z" } as Partial<PriceChangeItem>), bookPrice("101", "2031-06-01T00:00:00Z")),
+      ),
+    );
     expect(r.lines.map((l) => [l.lineNo, l.itemPosition, l.newPrice])).toEqual([[1, 2, "101.0000"]]);
     expect(r.summary.unchanged).toBe(1);
     // An interval the event does not cover is not unchanged.
@@ -411,6 +417,83 @@ describe("validate engine — Store reach (comment 17882, decisions 2 and 3)", (
       ({ ...bookPrice("1"), products: { kind: "items", productIds: many } }) as PriceChangeItem,
     );
     expect(validateChangeSet(context({ products }), items(...list))).toMatchObject({ ok: false, code: "change_set_too_large" });
+  });
+});
+
+describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", () => {
+  it("M1: two lines of one set on the same key that overlap are both invalid (overlaps_line_in_set)", () => {
+    const cat = id("cc");
+    const r = ok(
+      validateChangeSet(
+        context({ categoryProducts: new Map([[cat, [P1]]]), events: [event({ id: id("f1"), scope: "book", productId: P1, price: "10.0000" })] }),
+        items(
+          bookPrice("12", "2034-01-01T00:00:00Z"),
+          { op: "adjust_percent", scope: { kind: "book" }, products: { kind: "category", categoryId: cat }, percent: "5", timeBasis: "absolute", effectiveFrom: "2034-06-01T00:00:00Z" },
+          bookPrice("13", "2031-01-01T00:00:00Z", { effectiveTo: "2032-01-01T00:00:00Z" } as Partial<PriceChangeItem>),
+        ),
+      ),
+    );
+    expect(r.lines.map((l) => [l.itemPosition, l.class, l.messages.includes("overlaps_line_in_set")])).toEqual([
+      [1, "invalid", true],
+      [2, "invalid", true],
+      [3, "replaces", false],
+    ]);
+    expect(r.summary.blocking).toBe(true);
+  });
+
+  it("M1: an in-set overlap across time bases is also mixed_time_basis; two overlapping moves of one Store are invalid", () => {
+    const r = ok(
+      validateChangeSet(context(), items(bookPrice("12", "2034-01-01T00:00:00Z"), { ...bookPrice("13"), timeBasis: "store_local", effectiveFrom: "2035-01-01T00:00" } as PriceChangeItem)),
+    );
+    expect(r.lines.map((l) => l.messages)).toEqual([
+      ["mixed_time_basis", "overlaps_line_in_set"],
+      ["mixed_time_basis", "overlaps_line_in_set"],
+    ]);
+    const move = (from: string): PriceChangeItem => ({ op: "move_store_zone", storeId: S_UTC, zoneId: ZONE_NORTH, effectiveFrom: from });
+    const moves = ok(validateChangeSet(context(), items(move("2033-01-01T00:00:00Z"), move("2034-01-01T00:00:00Z"))));
+    expect(moves.lines.map((l) => [l.class, l.messages])).toEqual([
+      ["invalid", ["overlaps_line_in_set"]],
+      ["invalid", ["overlaps_line_in_set"]],
+    ]);
+    const apart = ok(validateChangeSet(context(), items({ ...move("2033-01-01T00:00:00Z"), effectiveTo: "2034-01-01T00:00:00Z" } as PriceChangeItem, move("2034-01-01T00:00:00Z"))));
+    expect(apart.lines.map((l) => l.class)).toEqual(["new", "new"]);
+  });
+
+  it("M2: the preview-row budget refuses before any event is read; the line budget before expansion", () => {
+    const stores = new Map(
+      Array.from({ length: 5 }, (_, i) => {
+        const sid = id(`5${i}`);
+        return [sid, { id: sid, timezone: "UTC", live: true }] as const;
+      }),
+    );
+    const many = Array.from({ length: 5000 }, (_, i) => `0192f000-0000-7000-8000-${(0x200000 + i).toString(16).padStart(12, "0")}`);
+    const products = new Map(many.map((p) => [p, { live: true }]));
+    const list = Array.from({ length: 10 }, () => ({ ...bookPrice("1"), products: { kind: "items", productIds: many } }) as PriceChangeItem);
+    const refusal = checkBudget(context({ stores, products }), items(...list));
+    expect(refusal).toEqual({ ok: false, code: "change_set_too_large", message: `The Change Set materializes more than ${MAX_PREVIEW_ROWS} preview rows (Stores × lines); split it.` });
+    expect(checkBudget(context({ stores, products }), items(...list.slice(0, 8)))).toBeNull();
+    expect(checkBudget(context({ products }), items(...list, list[0]!))).toMatchObject({ code: "change_set_too_large" });
+  });
+
+  it("m2: an end that ends nothing is invalid", () => {
+    const end: PriceChangeItem = { op: "end_price", scope: { kind: "book" }, products: { kind: "items", productIds: [P1] }, timeBasis: "absolute", effectiveFrom: "2031-01-01T00:00:00Z" };
+    expect(ok(validateChangeSet(context(), items(end))).lines[0]).toMatchObject({ class: "invalid", messages: ["nothing_to_end"] });
+  });
+
+  it("m3: a helper resolves its base per Store, at the line start in that Store's zone", () => {
+    // The Book price changes at 02:00Z: midnight is 00:00Z in UTC and 05:00Z in New York.
+    const early = event({ id: id("f8"), scope: "book", productId: P1, price: "10.0000", effectiveTo: new Date("2031-01-01T02:00:00Z") });
+    const late = event({ id: id("f9"), scope: "book", productId: P1, price: "20.0000", effectiveFrom: new Date("2031-01-01T02:00:00Z") });
+    const helper: PriceChangeItem = {
+      op: "adjust_percent", scope: { kind: "zone", zoneId: ZONE_DEFAULT }, products: { kind: "items", productIds: [P1] }, percent: "10",
+      timeBasis: "store_local", effectiveFrom: "2031-01-01T00:00",
+    };
+    const r = ok(validateChangeSet(context({ events: [early, late] }), items(helper)));
+    expect(r.lines[0]).toMatchObject({ class: "new", newPrice: "11.0000" });
+    expect(r.previewRows.map((p) => [p.storeId, p.oldPrice, p.newPrice])).toEqual([
+      [S_UTC, "10.0000", "11.0000"],
+      [S_NY, "20.0000", "22.0000"],
+    ]);
   });
 });
 

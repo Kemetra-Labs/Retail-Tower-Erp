@@ -45,6 +45,7 @@ import type { Pool, PoolClient } from "pg";
 import { insertAuditRowInTransaction } from "../../audit";
 import type { TenantContextRequest } from "../../context";
 import { PG_POOL } from "../../database";
+import { liveAndNamedStores } from "../../stores";
 import type {
   CreatePriceChangeSetBody,
   ListChangeSetsQuery,
@@ -55,12 +56,13 @@ import type {
 } from "./price-change-sets.dto";
 import { DEFAULT_MIN_LEAD_TIME_MS, violatesLeadTime } from "./price-change-set-lead-time";
 import { decodePreviewCursor, readPreviewPage, type PriceChangeSetPreviewBody } from "./price-change-set-preview";
-import { referencedIds, validateChangeSet } from "./price-change-set-validation";
+import { checkBudget, referencedIds, validateChangeSet } from "./price-change-set-validation";
 import {
   headRevision,
   loadCurrentItems,
   loadRetailBook,
-  loadValidationContext,
+  loadPricingContext,
+  loadReachContext,
   writeValidation,
 } from "./price-change-set-validation.repository";
 import {
@@ -118,6 +120,23 @@ function uuidRequestId(input: ChangeSetWriteInput): string | null {
 /** `correlation_id` is NOT NULL uuid: the request id when it is one, else a fresh id. */
 function correlationOf(input: ChangeSetWriteInput): string {
   return uuidRequestId(input) ?? newId();
+}
+
+/**
+ * The one Store a set's current items target, or null (spec 042 §10 `store_id`): every item is a
+ * `stores` item or a Zone move, all naming the same single Store, and that Store is the tenant's.
+ * A Book or Zone item reaches every Store in its scope, so such a set has none.
+ */
+async function singleStoreOf(client: PoolClient, tenantId: string, id: string): Promise<string | null> {
+  const v = await client.query<{ version: number }>(`SELECT version FROM change_sets WHERE tenant_id = $1::uuid AND id = $2::uuid`, [tenantId, id]);
+  const version = v.rows[0]?.version;
+  if (version === undefined) return null;
+  const { items } = await loadCurrentItems(client, tenantId, id, version);
+  if (items.length === 0 || items.some(({ item }) => item.op !== "move_store_zone" && item.scope.kind !== "stores")) return null;
+  const stores = referencedIds(items).storeIds;
+  if (stores.length !== 1) return null;
+  const known = await liveAndNamedStores(client, tenantId, stores);
+  return known.some((s) => s.id === stores[0]) ? stores[0]! : null;
 }
 
 /** The set row as an edit or a cancel sees it, under its row lock. */
@@ -290,16 +309,11 @@ export class PriceChangeSetsService {
       if (book === null) throw new PriceChangeSetConflictError("price_book_missing");
       const nowMs = this.clock();
       const revision = await headRevision(client, input.tenantId);
-      const ctx = await loadValidationContext(client, {
-        tenantId: input.tenantId,
-        changeSetId: id,
-        kind: set.kind,
-        nowMs,
-        revision,
-        book,
-        ids: referencedIds(items),
-      });
-      const result = validateChangeSet(ctx, items);
+      const reach = await loadReachContext(client, { tenantId: input.tenantId, kind: set.kind, nowMs, revision, book, ids: referencedIds(items) });
+      // Review round 1, M2: refuse an oversized set before any event is loaded or row written.
+      const overBudget = checkBudget(reach, items);
+      if (overBudget !== null) throw new PriceChangeSetUnprocessableError(overBudget.code, overBudget.message);
+      const result = validateChangeSet(await loadPricingContext(client, reach, id), items);
       if (!result.ok) throw new PriceChangeSetUnprocessableError(result.code, result.message);
       if (violatesLeadTime({ kind: set.kind, nowMs, minLeadTimeMs: DEFAULT_MIN_LEAD_TIME_MS, effectiveMs: result.effectiveMs })) {
         throw new PriceChangeSetUnprocessableError(
@@ -335,7 +349,7 @@ export class PriceChangeSetsService {
         earliest_effective_at: result.summary.earliestEffectiveAt,
         line_count: result.lines.length,
         blocking: result.summary.blocking,
-      });
+      }, result.targetStores.length === 1 ? result.targetStores[0]!.storeId : null);
       return this.bodyOf(client, input.tenantId, id);
     });
   }
@@ -454,17 +468,24 @@ export class PriceChangeSetsService {
     return { header: toHeaderBody(row), items: items.rows.map((i) => i.item), summary };
   }
 
-  private audit(
+  /**
+   * One `pricing.change_set.<transition>` row. `store_id` is the set's one target Store when it has
+   * exactly one (spec 042 §10; review round 1, m5): `validate` passes its reached Stores; the
+   * authoring transitions derive it from the current items (`singleStoreOf`).
+   */
+  private async audit(
     client: PoolClient,
     input: ChangeSetWriteInput,
     transition: "created" | "updated" | "cancelled" | "validated",
     id: string,
     metadata: Record<string, unknown>,
+    targetStoreId?: string | null,
   ): Promise<void> {
+    const storeId = targetStoreId === undefined ? await singleStoreOf(client, input.tenantId, id) : targetStoreId;
     return insertAuditRowInTransaction(client, {
       tenantId: input.tenantId,
       actorUserId: input.actorUserId,
-      storeId: null,
+      storeId,
       action: `pricing.change_set.${transition}`,
       targetType: "price_change_set",
       targetId: id,
