@@ -11,7 +11,11 @@
 #             bc/fast, bc/db-integration, bc/db-package and bc/contracts-compat on the SHA must be
 #             `success`, the release commit's contracts-compat fleet baseline must be fresh, and
 #             replay NOT_PROVEN is recorded, not blocking, until every supported snapshot has a
-#             recorded fixture. Red or missing refuses. It runs in dry-runs too, so a dry-run
+#             recorded fixture. Red or missing refuses. Each run must also report the release SHA
+#             as its head_sha (RT-1471 Phase 2). The guard is read-only and dispatches nothing: a
+#             refusal for a missing or running check names the one exact-SHA proof, the main-pinned
+#             workflow_dispatch of backend-core.yml (RT-1471 Phase 1); an older SHA is proven by a
+#             nightly or manual full run, or not at all. It runs in dry-runs too, so a dry-run
 #             shows whether the SHA is releasable. bc/contracts-compat is the root job in
 #             backend-core.yml (RT-863); it runs on every push to main, like the other three.
 #   build     api, worker and migrate images (services/backend-core/Dockerfile targets), built
@@ -142,7 +146,7 @@ jobs:
         run: |
           set -euo pipefail
           gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at, head_sha}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
           jq -r '.[] | "\(.name): \(.conclusion) (\(.slug))"' "$RUNNER_TEMP/check-runs.json"
 
       - name: Compat guard
@@ -152,11 +156,12 @@ jobs:
           # job (MR-3). bc/oasdiff and bc/schemathesis also run on a push to main today, but
           # they gate at merge time through `required`, so this guard does not list them.
           REQUIRED_CHECKS: '["bc/fast","bc/db-integration","bc/db-package","bc/contracts-compat"]'
+          SHA: ${{ needs.resolve.outputs.sha }}
         run: |
           set -euo pipefail
           out="$RUNNER_TEMP/compat-gate.txt"
           status=0
-          node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" \
+          node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" --sha "$SHA" \
             --source services/backend-core --lib services/backend-core/contracts-compat/lib > "$out" || status=$?
           cat "$out"
           {
@@ -396,8 +401,8 @@ jobs:
         run: |
           set -euo pipefail
           gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100" \
-            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
-          env -u GH_TOKEN node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" \
+            --jq '.check_runs[] | {name, conclusion, slug: .app.slug, started_at, head_sha}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          env -u GH_TOKEN node .github/release/compat-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --required "$REQUIRED_CHECKS" --sha "$SHA" \
             --source services/backend-core --lib services/backend-core/contracts-compat/lib
 
       - name: Download the images
