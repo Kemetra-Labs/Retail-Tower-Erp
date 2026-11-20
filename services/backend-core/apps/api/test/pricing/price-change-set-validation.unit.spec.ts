@@ -358,10 +358,14 @@ describe("validate engine — Store reach (comment 17882, decisions 2 and 3)", (
     expect(fallback.previewRows.every((p) => p.class === "invalid")).toBe(true);
   });
 
-  it("a retired Zone makes a price line invalid (zone_not_live)", () => {
-    const m = membership({ id: id("9a"), storeId: S_UTC, priceZoneId: ZONE_NORTH, effectiveFrom: new Date("2030-01-01T00:00:00Z") });
-    const r = ok(validateChangeSet(context({ memberships: [m], zones: new Map([[ZONE_DEFAULT, { live: true }], [ZONE_NORTH, { live: false }]]) }), items(zoneLine(ZONE_NORTH))));
-    expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["zone_not_live"] });
+  // Round 3, minor 1: a retired Zone (which has no live membership) is refused before reach.
+  it("a retired Zone refuses the set: 422 change_set_no_target_store naming zone_not_live", () => {
+    const r = validateChangeSet(context({ zones: new Map([[ZONE_DEFAULT, { live: true }], [ZONE_NORTH, { live: false }]]) }), items(bookPrice("1"), zoneLine(ZONE_NORTH)));
+    expect(r).toEqual({
+      ok: false,
+      code: "change_set_no_target_store",
+      message: "Item 2 names a retired Zone (zone_not_live), so it reaches no live Store.",
+    });
   });
 
   it("a store_local interval inside one DST gap is empty at that Store: invalid there only", () => {
@@ -501,7 +505,8 @@ describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", (
     expect(ok(validateChangeSet(context(), items(end))).lines[0]).toMatchObject({ class: "invalid", messages: ["nothing_to_end"] });
   });
 
-  it("m3: a helper resolves its base per Store, at the line start in that Store's zone", () => {
+  // Round 3, MAJOR-2 reverses round 1's m3: one line, one published price.
+  it("a helper whose base differs between its Stores is invalid (helper_base_varies_by_store)", () => {
     // The Book price changes at 02:00Z: midnight is 00:00Z in UTC and 05:00Z in New York.
     const early = event({ id: id("f8"), scope: "book", productId: P1, price: "10.0000", effectiveTo: new Date("2031-01-01T02:00:00Z") });
     const late = event({ id: id("f9"), scope: "book", productId: P1, price: "20.0000", effectiveFrom: new Date("2031-01-01T02:00:00Z") });
@@ -510,11 +515,48 @@ describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", (
       timeBasis: "store_local", effectiveFrom: "2031-01-01T00:00",
     };
     const r = ok(validateChangeSet(context({ events: [early, late] }), items(helper)));
-    expect(r.lines[0]).toMatchObject({ class: "new", newPrice: "11.0000" });
-    expect(r.previewRows.map((p) => [p.storeId, p.oldPrice, p.newPrice])).toEqual([
-      [S_UTC, "10.0000", "11.0000"],
-      [S_NY, "20.0000", "22.0000"],
+    expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["helper_base_varies_by_store"] });
+    expect(r.previewRows.map((p) => [p.storeId, p.oldPrice, p.class])).toEqual([
+      [S_UTC, "10.0000", "invalid"],
+      [S_NY, "20.0000", "invalid"],
     ]);
+    // The same helper over one base is one price, shown on every row.
+    const flat = ok(validateChangeSet(context({ events: [event({ ...early, effectiveTo: null })] }), items(helper)));
+    expect(flat.lines[0]).toMatchObject({ class: "new", newPrice: "11.0000" });
+    expect(flat.previewRows.map((p) => p.newPrice)).toEqual(["11.0000", "11.0000"]);
+  });
+
+  // Round 3, MAJOR-1: an end or reset is the instant it takes effect.
+  it("an end then a later (or same-instant) price on one key is valid; two ends at one instant overlap", () => {
+    const old = event({ id: id("f1"), scope: "book", productId: P1, price: "10.0000" });
+    const end = (from: string): PriceChangeItem => ({ op: "end_price", scope: { kind: "book" }, products: { kind: "items", productIds: [P1] }, timeBasis: "absolute", effectiveFrom: from });
+    const later = ok(validateChangeSet(context({ events: [old] }), items(end("2035-01-01T00:00:00Z"), bookPrice("12", "2035-02-01T00:00:00Z"))));
+    expect(later.lines.map((l) => l.messages.includes("overlaps_line_in_set"))).toEqual([false, false]);
+    const same = ok(validateChangeSet(context({ events: [old] }), items(end("2035-01-01T00:00:00Z"), bookPrice("12", "2035-01-01T00:00:00Z"))));
+    expect(same.lines.map((l) => l.class)).toEqual(["replaces", "replaces"]);
+    const twice = ok(validateChangeSet(context({ events: [old] }), items(end("2035-01-01T00:00:00Z"), end("2035-01-01T00:00:00Z"))));
+    expect(twice.lines.map((l) => [l.class, l.messages.includes("overlaps_line_in_set")])).toEqual([["invalid", true], ["invalid", true]]);
+    // An end inside a price of the same set that is still in effect conflicts with it.
+    const inside = ok(validateChangeSet(context({ events: [old] }), items(bookPrice("12", "2034-01-01T00:00:00Z"), end("2035-01-01T00:00:00Z"))));
+    expect(inside.lines.map((l) => l.class)).toEqual(["invalid", "invalid"]);
+  });
+
+  // Round 3, minor 2: an in-set overlap is judged in the zones of the Stores the lines reach.
+  it("in-set overlaps use the reached Stores' zones only (NORTH holds only a New York Store)", () => {
+    const north = membership({ id: id("9f"), storeId: S_NY, priceZoneId: ZONE_NORTH, effectiveFrom: new Date("2030-01-01T00:00:00Z") });
+    const zone = (extra: Record<string, unknown>): PriceChangeItem =>
+      ({ op: "set_price", scope: { kind: "zone", zoneId: ZONE_NORTH }, products: { kind: "items", productIds: [P1] }, price: "5", ...extra }) as PriceChangeItem;
+    const r = ok(
+      validateChangeSet(
+        context({ memberships: [north] }),
+        items(
+          zone({ timeBasis: "absolute", effectiveFrom: "2034-01-01T00:00:00Z", effectiveTo: "2034-01-01T03:00:00Z" }),
+          // 01:00 local is 06:00Z in New York (no overlap); it would overlap in UTC.
+          zone({ timeBasis: "store_local", effectiveFrom: "2034-01-01T01:00" }),
+        ),
+      ),
+    );
+    expect(r.lines.map((l) => l.messages)).toEqual([[], []]);
   });
 });
 

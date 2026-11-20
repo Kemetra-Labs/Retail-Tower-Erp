@@ -1726,8 +1726,9 @@ components:
         effective instant is inside the tenant's `pricing.min_lead_time`, spec
         042 §7; emergency sets are exempt); `change_set_no_target_store` (an
         item reaches no live Store, for example a Zone line whose Zone no live
-        Store is in at the head revision, or names a Store, Zone or product the
-        tenant does not have; the message names the item's position; RT-1484).
+        Store is in at the head revision, names a retired Zone (`zone_not_live`),
+        or names a Store, Zone or product the tenant does not have; the message
+        names the item's position and the reason; RT-1484).
         Nothing is stored.
       content:
         application/json:

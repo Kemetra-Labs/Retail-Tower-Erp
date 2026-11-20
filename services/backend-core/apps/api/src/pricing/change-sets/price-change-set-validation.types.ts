@@ -234,6 +234,8 @@ export const INVALID_MESSAGES: ReadonlySet<string> = new Set([
   // Review round 1 (lead decisions M1, m2): a set that contradicts itself, an end that ends nothing.
   "overlaps_line_in_set",
   "nothing_to_end",
+  // Round 3, MAJOR-2: one line, one published price; its Stores' helper bases must agree.
+  "helper_base_varies_by_store",
 ]);
 
 /** A line that blocks submit: `invalid`, or `past_dated` outside the emergency path (0123 also exempts rollback). */

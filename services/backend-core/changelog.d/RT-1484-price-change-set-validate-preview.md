@@ -17,4 +17,6 @@
   added to the contract's `ValidateUnprocessable` description, naming the item's position.
   Lines of one set that overlap on one key are `invalid` (`overlaps_line_in_set`); a set over
   50 000 lines or 200 000 preview rows is `422 change_set_too_large` before any event is read
-  (the description now names the preview-row budget); helpers resolve their base per Store.
+  (the description now names the preview-row budget); a helper whose base differs between its
+  Stores is `invalid` (`helper_base_varies_by_store`: one line publishes one price); a line on a
+  retired Zone is `422 change_set_no_target_store` (`zone_not_live`).

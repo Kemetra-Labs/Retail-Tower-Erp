@@ -349,7 +349,7 @@ export class PriceChangeSetsService {
         earliest_effective_at: result.summary.earliestEffectiveAt,
         line_count: result.lines.length,
         blocking: result.summary.blocking,
-      }, result.targetStores.length === 1 ? result.targetStores[0]!.storeId : null);
+      });
       return this.bodyOf(client, input.tenantId, id);
     });
   }
@@ -470,8 +470,8 @@ export class PriceChangeSetsService {
 
   /**
    * One `pricing.change_set.<transition>` row. `store_id` is the set's one target Store when it has
-   * exactly one (spec 042 §10; review round 1, m5): `validate` passes its reached Stores; the
-   * authoring transitions derive it from the current items (`singleStoreOf`).
+   * exactly one (spec 042 §10). One rule for every transition (review round 3, minor 5): the set's
+   * ITEMS name exactly one Store (`singleStoreOf`), never the Stores validation happened to reach.
    */
   private async audit(
     client: PoolClient,
@@ -479,9 +479,8 @@ export class PriceChangeSetsService {
     transition: "created" | "updated" | "cancelled" | "validated",
     id: string,
     metadata: Record<string, unknown>,
-    targetStoreId?: string | null,
   ): Promise<void> {
-    const storeId = targetStoreId === undefined ? await singleStoreOf(client, input.tenantId, id) : targetStoreId;
+    const storeId = await singleStoreOf(client, input.tenantId, id);
     return insertAuditRowInTransaction(client, {
       tenantId: input.tenantId,
       actorUserId: input.actorUserId,

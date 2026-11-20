@@ -54,6 +54,8 @@ import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../src/idempot
 import { INFLIGHT_REDIS, InProgressMarker } from "../../src/idempotency/in-progress-marker";
 import { PRICING_AUTHORING_CONFIG, type PricingAuthoringConfig } from "../../src/pricing/change-sets/price-authoring.config";
 import { PriceChangeSetsModule } from "../../src/pricing/change-sets/price-change-sets.module";
+import { PriceStructureService } from "../../src/pricing/structure/price-structure.service";
+import type { MembershipRepository } from "../../src/context";
 import { seedConsoleMember } from "../_helpers/console-members";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 import { APP_ROLE_NAME, applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
@@ -65,6 +67,7 @@ import {
   STORE_A_X,
   STORE_A_Y,
   STORE_B_X,
+  STORE_B_Y,
   TENANT_A,
   TENANT_B,
 } from "../catalog/__support__/isolation-harness";
@@ -94,6 +97,7 @@ const P2 = PRODUCT_A_RETIRED;
 const P3 = a("14b4f3");
 const P4 = a("14b4f4");
 const P5 = a("14b4f5");
+const P6 = a("14b4f6");
 const CS_LEGACY = a("14b4c1");
 const CS_REV2 = a("14b4c2");
 const CS_LEGACY_DRAFT = b("14b4c3");
@@ -104,6 +108,8 @@ const E = {
   helperYP4: a("14b4e104"),
   northP5a: a("14b4e105"),
   northP5b: a("14b4e106"),
+  bookP6early: a("14b4e107"),
+  bookP6late: a("14b4e108"),
 };
 const M_Y_NORTH = a("14b4a101");
 const M_X_SOUTH = a("14b4a102");
@@ -233,8 +239,8 @@ async function seedPublishedPricing(): Promise<void> {
   await env!.admin.query(
     `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by)
      VALUES ($1, $3, 'RT-1484 P3', 'standard', $4, $4), ($2, $3, 'RT-1484 P4', 'standard', $4, $4),
-            ($5, $3, 'RT-1484 P5', 'standard', $4, $4)`,
-    [P3, P4, TENANT_A, ACTOR, P5],
+            ($5, $3, 'RT-1484 P5', 'standard', $4, $4), ($6, $3, 'RT-1484 P6', 'standard', $4, $4)`,
+    [P3, P4, TENANT_A, ACTOR, P5, P6],
   );
   const hash = `sha256:${"a".repeat(64)}`;
   await asSeeder(async (c) => {
@@ -272,6 +278,9 @@ async function seedPublishedPricing(): Promise<void> {
     // Two NORTH helper events of P5: at 2035 X is in the default Zone, at 2041 X is in SOUTH (M3).
     await seedEvent(c, { id: E.northP5a, scope: "zone", zone: ZONE_NORTH, product: P5, price: "30.0000", from: "2035-01-01T00:00:00Z", to: "2040-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
     await seedEvent(c, { id: E.northP5b, scope: "zone", zone: ZONE_NORTH, product: P5, price: "31.0000", from: "2041-01-01T00:00:00Z", rev: 2, cs: CS_REV2 });
+    // P6's Book price changes at 02:00Z: midnight is 00:00Z at X (UTC) and 05:00Z at Y (New York).
+    await seedEvent(c, { id: E.bookP6early, scope: "book", product: P6, price: "10.0000", from: "2030-01-01T00:00:00Z", to: "2031-03-01T02:00:00Z", rev: 2, cs: CS_REV2 });
+    await seedEvent(c, { id: E.bookP6late, scope: "book", product: P6, price: "20.0000", from: "2031-03-01T02:00:00Z", rev: 2, cs: CS_REV2 });
     for (const [id, zone, store, from] of [[M_Y_NORTH, ZONE_NORTH, STORE_A_Y, "2031-06-01T00:00:00Z"], [M_X_SOUTH, ZONE_SOUTH, STORE_A_X, "2040-01-01T00:00:00Z"]] as const) {
       await c.query(
         `INSERT INTO price_zone_memberships (id, tenant_id, price_book_id, price_zone_id, store_id, effective_from, state,
@@ -774,15 +783,41 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
       }
       const upd = await c.query(`UPDATE price_change_set_lines SET result_ids = result_ids WHERE change_set_id = $1`, [bSet.header.id]);
       expect(upd.rowCount).toBe(0);
-      await c.query("SAVEPOINT w");
-      await expect(
-        c.query(
-          `INSERT INTO price_change_set_item_lists (tenant_id, change_set_id, change_set_version, item_count, created_by_user_id, correlation_id)
-           VALUES ($1, $2, 9, 0, $3, $2)`,
-          [TENANT_B, bSet.header.id, ACTOR],
-        ),
-      ).rejects.toThrow();
-      await c.query("ROLLBACK TO SAVEPOINT w");
+      // Round 3, minor 4: a write of tenant B's row under A's GUC is refused by RLS (42501).
+      const sqlstate = async (sql: string, params: unknown[]): Promise<{ code: string; message: string }> => {
+        await c.query("SAVEPOINT w");
+        try {
+          await c.query(sql, params);
+          return { code: "none", message: "" };
+        } catch (err) {
+          return { code: (err as { code: string }).code, message: (err as Error).message };
+        } finally {
+          await c.query("ROLLBACK TO SAVEPOINT w");
+        }
+      };
+      const header = await sqlstate(
+        `INSERT INTO change_sets (id, tenant_id, domain, kind, title, created_by_user_id, correlation_id)
+         VALUES (gen_random_uuid(), $1, 'pricing', 'standard', 'cross-tenant', $2, gen_random_uuid())`,
+        [TENANT_B, ACTOR],
+      );
+      expect(header.code).toBe("42501");
+      expect(header.message).toMatch(/violates row-level security policy/);
+      // The 0123 tables refuse too. Their BEFORE INSERT triggers run before the RLS WITH CHECK and,
+      // reading through RLS, cannot see B's set or validation, so the trigger's own refusal (23514)
+      // comes first; either way nothing of tenant B is written under tenant A.
+      const validationRow = await sqlstate(
+        `INSERT INTO price_change_set_validations (tenant_id, change_set_id, change_set_version, item_list_version,
+            validated_at_revision, preview_hash, target_store_set_hash, sensitive, summary, target_stores, line_count, preview_line_count,
+            membership_change_count, created_by_user_id, correlation_id)
+          VALUES ($1, $2, 9, 1, 0, $3, $3, true, '{}'::jsonb, '[]'::jsonb, 0, 0, 0, $4, $2)`,
+        [TENANT_B, bSet.header.id, `sha256:${"c".repeat(64)}`, ACTOR],
+      );
+      const listRow = await sqlstate(
+        `INSERT INTO price_change_set_item_lists (tenant_id, change_set_id, change_set_version, item_count, created_by_user_id, correlation_id)
+         VALUES ($1, $2, 9, 0, $3, $2)`,
+        [TENANT_B, bSet.header.id, ACTOR],
+      );
+      for (const refusal of [validationRow, listRow]) expect(["42501", "23514"]).toContain(refusal.code);
       await c.query("ROLLBACK");
     } finally {
       c.release();
@@ -810,6 +845,108 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
       [main.header.id],
     );
     expect(book.rows.every((r) => r.store_id === null)).toBe(true);
+  });
+
+  // Review round 3, MAJOR-1: an end or reset is the instant it takes effect.
+  it("round 3: end then a later or same-instant price is valid; two ends at one instant overlap", async () => {
+    if (skip()) return;
+    const end = (from: string) => ({ op: "end_price", scope: { kind: "book" }, products: items([P1]), ...at(from) });
+    const price = (from: string) => ({ op: "set_price", scope: { kind: "book" }, products: items([P1]), price: "150", ...at(from) });
+    const classes = async (body: Record<string, unknown>): Promise<{ class: string; messages: string[] }[]> => {
+      const set = await validated(SES_OWNER_ALL, await createSet(SES_OWNER_ALL, body));
+      const r = await env!.admin.query<{ class: string; messages: string[] }>(
+        `SELECT class, messages FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY line_no`,
+        [set.header.id],
+      );
+      return r.rows;
+    };
+    for (const pair of [[end("2035-01-01T00:00:00Z"), price("2035-02-01T00:00:00Z")], [end("2035-01-01T00:00:00Z"), price("2035-01-01T00:00:00Z")]]) {
+      const rows = await classes({ items: pair });
+      expect(rows.map((r) => r.messages.includes("overlaps_line_in_set") || r.class === "invalid")).toEqual([false, false]);
+    }
+    const twice = await classes({ items: [end("2035-01-01T00:00:00Z"), end("2035-01-01T00:00:00Z")] });
+    expect(twice.map((r) => [r.class, r.messages.includes("overlaps_line_in_set")])).toEqual([["invalid", true], ["invalid", true]]);
+  });
+
+  // Review round 3, MAJOR-2: one line, one published price.
+  it("round 3: a helper whose base differs between its Stores is invalid (helper_base_varies_by_store)", async () => {
+    if (skip()) return;
+    const draft = await createSet(SES_OWNER_ALL, {
+      items: [
+        {
+          op: "adjust_percent", scope: { kind: "zone", zoneId: ZONE_DEFAULT }, products: items([P6]), percent: "10",
+          timeBasis: "store_local", effectiveFrom: "2031-03-01T00:00", effectiveTo: "2031-05-01T00:00",
+        },
+      ],
+    });
+    const body = await validated(SES_OWNER_ALL, draft);
+    expect(body.summary).toMatchObject({ lines: 1, stores: 2, blocking: true, findings: { invalid: 1 } });
+    const preview = await allPreview(SES_OWNER_ALL, draft.header.id);
+    expect(preview.lines.map((l) => [l.storeId, l.oldPrice, l.class])).toEqual([
+      [STORE_A_X, "10.0000", "invalid"],
+      [STORE_A_Y, "20.0000", "invalid"],
+    ]);
+    for (const l of preview.lines) expect(l.messages).toContain("helper_base_varies_by_store");
+  });
+
+  // Review round 3, minor 1: a retired Zone (retired through the structure service) is a 422.
+  it("round 3: a line on a retired Zone is 422 change_set_no_target_store naming zone_not_live", async () => {
+    if (skip()) return;
+    const structure = new PriceStructureService(env!.app, {} as MembershipRepository);
+    const writer = { tenantId: TENANT_A, context: { tenantId: TENANT_A } as never, actorUserId: ACTOR, requestId: null };
+    const east = await structure.createZone(writer, BOOK, { code: "EAST", name: "East" } as never);
+    await structure.retireZone(writer, { bookId: BOOK, zoneId: east.id }, { reason: "Closed" });
+    const draft = await createSet(SES_OWNER_ALL, {
+      items: [
+        { op: "set_price", scope: { kind: "book" }, products: items([P3]), price: "1", ...at("2036-01-01T00:00:00Z") },
+        { op: "set_price", scope: { kind: "zone", zoneId: east.id }, products: items([P3]), price: "1", ...at("2036-01-01T00:00:00Z") },
+      ],
+    });
+    const res = await validate(SES_OWNER_ALL, draft);
+    refused(res, 422, "change_set_no_target_store");
+    expect((res.body as { error: { message: string } }).error.message).toBe("Item 2 names a retired Zone (zone_not_live), so it reaches no live Store.");
+    expect(await count("price_change_set_validations", draft.header.id)).toBe(0);
+  });
+
+  // Review round 3, minor 3: mixed time bases inside one set.
+  it("round 3: two lines of one key on different time bases are invalid with mixed_time_basis and overlaps_line_in_set", async () => {
+    if (skip()) return;
+    const set = await validated(
+      SES_OWNER_ALL,
+      await createSet(SES_OWNER_ALL, {
+        items: [
+          { op: "set_price", scope: { kind: "book" }, products: items([P3]), price: "61", ...at("2036-01-01T00:00:00Z") },
+          { op: "set_price", scope: { kind: "book" }, products: items([P3]), price: "62", timeBasis: "store_local", effectiveFrom: "2036-06-01T00:00" },
+        ],
+      }),
+    );
+    const r = await env!.admin.query<{ class: string; messages: string[] }>(
+      `SELECT class, messages FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY line_no`,
+      [set.header.id],
+    );
+    expect(r.rows).toEqual([
+      { class: "invalid", messages: ["mixed_time_basis", "overlaps_line_in_set"] },
+      { class: "invalid", messages: ["mixed_time_basis", "overlaps_line_in_set"] },
+    ]);
+  });
+
+  // Review round 3, minor 5: one audit rule, from the items: a Book set is null even with one Store.
+  it("round 3: a Book set in a one-Store tenant audits store_id null", async () => {
+    if (skip()) return;
+    await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [STORE_B_Y]);
+    const set = await createSet(SES_OWNER_B, {
+      items: [{ op: "set_price", scope: { kind: "book" }, products: items([PRODUCT_B_ACTIVE]), price: "8", ...at("2034-01-01T00:00:00Z") }],
+    });
+    const body = await validated(SES_OWNER_B, set);
+    expect(body.summary).toMatchObject({ stores: 1 });
+    const rows = await env!.admin.query<{ action: string; store_id: string | null }>(
+      `SELECT action, store_id::text AS store_id FROM audit_events WHERE target_id = $1 ORDER BY id`,
+      [set.header.id],
+    );
+    expect(rows.rows).toEqual([
+      { action: "pricing.change_set.created", store_id: null },
+      { action: "pricing.change_set.validated", store_id: null },
+    ]);
   });
 
   it("a legacy_import set is never edited or cancelled here (409, comment 17881 follow-up 3)", async () => {
