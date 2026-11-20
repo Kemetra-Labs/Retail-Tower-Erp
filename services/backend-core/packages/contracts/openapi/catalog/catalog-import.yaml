@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.2-draft"
+  version: "1.0.3-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,9 +11,10 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.2-draft`, `[GATED]` contract-first. Every operation
-    carries `x-runtime-status: contract-only`: the batch tables ship in RT-1503
-    (S2) and the routes in RT-1505 (S4, upload / map / validate) and the S5
+    **Posture.** `1.0.3-draft`, `[GATED]` contract-first. An operation
+    without a runtime carries `x-runtime-status: contract-only`: the batch
+    tables ship in RT-1503 (S2) and the routes in RT-1505 (S4: the upload and
+    the batch read are served since part A; map / validate follow) and the S5
     slice (review / preview / publish), which remove the markers. The Admin
     Console repins to this file in RT-1506 (S6).
 
@@ -37,6 +38,19 @@ info:
     hold); the row-list cursor binds to the `status` query filter;
     `mappingProfileId` after a re-upload is stated; and the OD-14 re-check
     outcome is recorded below.
+
+
+    **1.0.3-draft (RT-1505 part A: upload and batch read served).** No new
+    operation and no schema shape change. `consoleUploadCatalogImport` and
+    `consoleGetCatalogImport` lose their `contract-only` markers. The 422
+    `file_too_many_rows` code is added (a source file with more than
+    1,048,576 physical rows, CSV as well as XLSX, so the parser agrees with
+    the 0124 `row_number` bound, RT-1503 comment 17873). The `FileRejected`
+    text states which code each guard uses (the zip guard, the formula
+    pre-scan and the UTF-8 check of RT-1505 comment 17947), and the blank-row
+    rule (spec 049 §12.1). Until the mapping slice (RT-1505 part B) a new
+    batch returns an empty `suggestedMapping` and a `null`
+    `mappingProfileId`, which the schema allows.
 
 
     **Change Set: interim batch (spec 049 §9, OD-14 A).** The OD-14
@@ -99,7 +113,9 @@ info:
     raw file bytes under any `Content-Type` (declared `*/*`, read as bytes);
     no multipart parser. The route keeps the JSON body parsers off, passes the
     guards on headers alone before reading the body, bounds concurrent
-    uploads, and refuses a body over 5 MiB with `413 file_too_large` while
+    uploads (one more than the server reads at once is answered
+    `429 rate_limited` with `Retry-After` before its body is read), and
+    refuses a body over 5 MiB with `413 file_too_large` while
     reading it (RT-1284 / RT-1295). The type is decided from content only,
     never from `Content-Type` or the file name: a ZIP signature
     (`PK\x03\x04`) whose `[Content_Types].xml` declares the
@@ -115,7 +131,12 @@ info:
 
     **Limits (OD-7 A).** File 5 MiB; 5,000 data rows; 50 columns; a header
     row is required; a cell is at most 2,000 characters (and each field's own
-    rule, below). XLSX: `.xlsx` only, one sheet read (the first, or the one
+    rule, below). A row is a source row (the header is row 1; a CSV record
+    counts once however many lines it spans): a data row with no value in any
+    cell is blank, is skipped (the row numbers keep their gap) and is not
+    counted in `dataRowCount`, while every row with a value is kept; a source
+    file with more than 1,048,576 physical rows, CSV as well as XLSX, is
+    `422 file_too_many_rows`. XLSX: `.xlsx` only, one sheet read (the first, or the one
     named by `sheet`), at most 200 ZIP entries and 50 MiB uncompressed, both
     checked before inflating. CSV: delimiter `,`, `;` or tab, detected unless
     `delimiter` is given, and shown on the batch for confirmation; RFC 4180
@@ -253,11 +274,6 @@ paths:
         - cookieAuth: []
       x-idempotency: required
       x-audit-action: catalog.import.upload
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The raw-body route ships in
-        RT-1505 (S4) on the batch tables of RT-1503 (S2), which removes the
-        marker.
       description: >
         Parses the file (type from content), and creates a `draft` batch at
         version 1 with its columns, a suggested mapping (header synonyms and
@@ -322,10 +338,6 @@ paths:
       tags: [catalog-import-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         The batch in any state, with its file facts, columns, mapping, counts
         and `previewHash` when validated. Not audited per request.
@@ -2007,14 +2019,20 @@ components:
       description: >
         422, the file cannot be imported; `error.code` one of:
         `file_type_unsupported` (`.xls`, `.xlsm`, `.xlsb`, a macro-enabled or
-        binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP);
+        binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP; also a
+        ZIP the import cannot read as a plain workbook: an encrypted entry,
+        zip64, a multi-disk archive, a method other than stored or deflate);
         `encoding_not_utf8` (a CSV that is not UTF-8, or has a NUL byte:
         save as "CSV UTF-8", or upload XLSX, OD-8 A); `file_unreadable` (a
-        corrupt workbook or a CSV quoting error); `xlsx_limits_exceeded`
-        (over 200 ZIP entries or 50 MiB uncompressed); `sheet_not_found`;
-        `header_missing` (no header row); `no_data_rows`; `too_many_rows`
-        (over 5,000 data rows); `too_many_columns` (over 50); `cell_too_long`
-        (a cell over 2,000 characters). Nothing is written.
+        corrupt workbook, including a ZIP whose headers disagree with its
+        content or with each other, a cell that cannot be stored, or a CSV
+        quoting error); `xlsx_limits_exceeded` (over 200 ZIP entries or
+        50 MiB uncompressed, or a sheet whose cells reach so far down and
+        across that reading it would exceed the import's memory bound);
+        `sheet_not_found`; `header_missing` (no header row); `no_data_rows`;
+        `too_many_rows` (over 5,000 data rows); `file_too_many_rows` (over
+        1,048,576 physical rows, CSV or XLSX); `too_many_columns` (over 50);
+        `cell_too_long` (a cell over 2,000 characters). Nothing is written.
       content:
         application/json:
           schema:

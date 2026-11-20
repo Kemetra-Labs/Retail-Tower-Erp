@@ -57,7 +57,14 @@ function statusToCode(status: number): string {
 function extractEnvelopeFields(
   exception: HttpException,
   fallback: string,
-): { code: string | undefined; message: string; details?: unknown; conflicts?: unknown[]; blockingRevisionNos?: unknown[] } {
+): {
+  code: string | undefined;
+  message: string;
+  details?: unknown;
+  conflicts?: unknown[];
+  blockingRevisionNos?: unknown[];
+  openBatchId?: string;
+} {
   const response = exception.getResponse();
   if (typeof response === "string") {
     return { code: undefined, message: response };
@@ -76,8 +83,11 @@ function extractEnvelopeFields(
     // that carries it as an array gets it at the envelope's top level, so no other payload may use
     // the name for something else.
     const blocking = Array.isArray(r["blockingRevisionNos"]) ? { blockingRevisionNos: r["blockingRevisionNos"] as unknown[] } : {};
+    // RT-1505: `import_batch_open` names the open batch inside `error` (`catalog-import.yaml` `UploadConflictError`:
+    // `error.openBatchId`). Like `conflicts`, a SHARED passthrough key: no other payload may use the name.
+    const openBatch = typeof r["openBatchId"] === "string" ? { openBatchId: r["openBatchId"] } : {};
     if (typeof msg === "string") {
-      return { code, message: msg, details: r["details"], ...conflicts, ...blocking };
+      return { code, message: msg, details: r["details"], ...conflicts, ...blocking, ...openBatch };
     }
     if (Array.isArray(msg)) {
       return {
@@ -145,6 +155,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         details,
         conflicts,
         blockingRevisionNos,
+        openBatchId,
       } = extractEnvelopeFields(exception, statusDefaultMessage(status));
       // Honor user-supplied fine-grained code (e.g., "alias_conflict") when
       // present; fall back to the canonical status-derived code otherwise.
@@ -165,6 +176,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ...(details !== undefined ? { details } : {}),
       });
       if (conflicts !== undefined) (envelope.error as unknown as Record<string, unknown>)["conflicts"] = conflicts;
+      if (openBatchId !== undefined) (envelope.error as unknown as Record<string, unknown>)["openBatchId"] = openBatchId;
       response.status(status).json(blockingRevisionNos === undefined ? envelope : { ...envelope, blockingRevisionNos });
       return;
     }

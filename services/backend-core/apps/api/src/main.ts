@@ -25,6 +25,7 @@ import { DeviceRepository } from "./pos-operators/device.repository";
 import { SessionRepository } from "./auth/session.repository";
 import { assertDeploymentEnvironmentConfigured } from "./common/deployment-environment";
 import { loadOpenApiContracts } from "./openapi/loader";
+import { importUploadPassthrough } from "./catalog/catalog-import/import-upload-intake.guard";
 import { logoUploadPassthrough } from "./tenant-branding/logo-body";
 
 async function bootstrap(): Promise<void> {
@@ -92,6 +93,8 @@ async function bootstrap(): Promise<void> {
   // this must run before every body parser: the JSON parsers registered on
   // the next line and Nest's urlencoded parser (registered at init).
   app.use(logoUploadPassthrough);
+  // RT-1505: the product import upload takes raw bytes the same way (5 MiB, read after the route guards).
+  app.use(importUploadPassthrough);
   // RT-1284: a 32 MiB JSON limit for binViewReportSnapshot only; every other
   // route keeps the 100 kB default (sizing in common/json-body-limits.ts).
   // Keep this AFTER logoUploadPassthrough, or a logo upload sent as
