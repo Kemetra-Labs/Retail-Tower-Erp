@@ -382,8 +382,9 @@ class AdminWiringTests(unittest.TestCase):
         for n in ("Regenerate API client", "Check API client is up to date", "Build",
                   "Parity manifest (unstamped dist, RT-711)", "Lint", "Code-health ratchet (RT-1200)"):
             self.assertNotIn("if", steps[names.index(n)], n)
-        sonar = steps[names.index("Upload lcov for the Sonar scan (main pushes only)")]
-        self.assertEqual(sonar["if"], "github.event_name == 'push' && !cancelled()")
+        # RT-1471: every non-PR run (push, nightly, manual) hands its lcov over; a PR run still uploads nothing
+        sonar = steps[names.index("Upload lcov for the Sonar scan (main runs only)")]
+        self.assertEqual(sonar["if"], "github.event_name != 'pull_request' && !cancelled()")
         cfg = (REPO_ROOT / ".circleci/config.yml").read_text(encoding="utf-8")
         self.assertIn('git diff --name-only --no-renames "$mb" HEAD > /tmp/gate/changed.txt', cfg)
 
