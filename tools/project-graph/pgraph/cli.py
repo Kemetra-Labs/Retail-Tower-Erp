@@ -41,6 +41,12 @@ def changes_for(repo, event, base, head):
     main for main's newer commits. Graph, workflows and trees are still read at the trusted base.
     No merge-base raises gitio.DiffUnavailable, which the caller turns into select-all."""
     diff_base = gitio.merge_base(repo, base, head) if event in ev.PR_EVENTS else base
+    # RT-1471 Phase 3: a push is classified on parent..sha, so a base other than head's first parent
+    # (or head itself, the plan action's "cannot prove" signal) is never trusted as the diff base.
+    if event in ev.PUSH_EVENTS and base != head:
+        parent = gitio.first_parent(repo, head)
+        if parent is None or parent != gitio.resolve(repo, base):
+            raise gitio.DiffUnavailable(f"push base {base} is not the first parent of {head}")
     return diff_base, tuple(gitio.read_changes(repo, diff_base, head))
 
 

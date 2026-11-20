@@ -13,7 +13,11 @@ from .globs import GlobError, compile_glob, normalize_path
 from .graph import Graph, GraphError, load_graph, validate_graph
 
 PR_EVENTS = ("pull_request", "pull_request_target", "workflow_run")
-FULL_EVENTS = ("push", "schedule", "workflow_dispatch")
+# RT-1471 Phase 3: the nightly schedule and an owner-pinned manual dispatch run everything. A push to main
+# is classified by its first-parent diff (parent..sha) like a pull request, and selects everything on any
+# uncertainty (see `_push_fallback`).
+FULL_EVENTS = ("schedule", "workflow_dispatch")
+PUSH_EVENTS = ("push",)
 APPROVAL_REASONS = ("UNKNOWN_IN_TRUSTED_ONLY", "POLICY_CHANGE")
 SYMLINK_MODE = "120000"
 SUBMODULE_MODE = "160000"
@@ -239,6 +243,22 @@ def _finish(acc, inp, trusted, trusted_sha, proposed_sha):
     }
 
 
+def _push_fallback(acc, inp):
+    """RT-1471 Phase 3: a push is judged on its first-parent diff, failing closed to FULL. The caller
+    (the plan action and `cli.changes_for`) proves base is head's first parent and the push added one
+    commit; when it cannot, it passes base == head. A push with no change to classify is also uncertain.
+    Every other fail-closed rule (unknown path, invalid graph, policy change, unreadable diff) still
+    selects everything exactly as for a pull request."""
+    if inp.base_sha == inp.head_sha:
+        acc.notes.add("PUSH_NO_PARENT")
+        acc.select_all.append("PUSH_NO_PARENT")
+    elif not inp.changes:
+        acc.notes.add("PUSH_EMPTY_DIFF")
+        acc.select_all.append("PUSH_EMPTY_DIFF")
+    else:
+        acc.notes.add("PUSH_FIRST_PARENT_DIFF")
+
+
 def evaluate(inp):
     acc = _Acc()
     trusted_sha = _sha256(inp.trusted_text)
@@ -260,7 +280,7 @@ def evaluate(inp):
             acc.need_approval("POLICY_CHANGE", "graph differs from trusted")
             proposed = Graph(proposed_data)
 
-    if inp.event not in PR_EVENTS + FULL_EVENTS:
+    if inp.event not in PR_EVENTS + FULL_EVENTS + PUSH_EVENTS:
         acc.fail("UNKNOWN_EVENT", inp.event)
     if inp.diff_error:
         acc.fail("DIFF_UNAVAILABLE", "base/head unresolvable or diff failed")
@@ -268,6 +288,8 @@ def evaluate(inp):
     if inp.event in FULL_EVENTS:
         acc.notes.add("FULL_RUN_EVENT")
         acc.select_all.append("FULL_RUN_EVENT")
+    if inp.event in PUSH_EVENTS:
+        _push_fallback(acc, inp)
     if not inp.changes:
         acc.notes.add("EMPTY_DIFF")
     _classify_changes(acc, trusted, proposed if proposed is not trusted else None, inp.changes)

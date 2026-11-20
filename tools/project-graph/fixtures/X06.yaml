@@ -20,7 +20,16 @@ cases:
   - name: bc-docs-sql-is-not-low
     changes: [{status: M, path: services/backend-core/docs/operations/sql/a.sql}]
     expect_plan: {select: [backend-core], graph_validation: pass, reasons: [], path_tiers: {services/backend-core/docs/operations/sql/a.sql: [tenant-auth]}}
-  - name: push-to-main-selects-everything
+  # RT-1471 Phase 3: a push to main is classified by its first-parent diff, like a pull request.
+  - name: push-to-main-selects-by-its-first-parent-diff
     event: push
+    changes: [{status: M, path: apps/pos/docs/a.md}]
+    expect_plan: {select: [pos], graph_validation: pass, reasons: [], notes: [PUSH_FIRST_PARENT_DIFF]}
+  - name: push-to-main-with-nothing-to-classify-selects-everything
+    event: push
+    changes: []
+    expect_plan: {select: all, graph_validation: pass, reasons: [], notes: [EMPTY_DIFF, PUSH_EMPTY_DIFF]}
+  - name: schedule-still-selects-everything
+    event: schedule
     changes: [{status: M, path: apps/pos/docs/a.md}]
     expect_plan: {select: all, graph_validation: pass, reasons: [], notes: [FULL_RUN_EVENT]}

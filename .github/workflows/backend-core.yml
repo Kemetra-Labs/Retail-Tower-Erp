@@ -93,9 +93,9 @@ defaults:
 jobs:
   # RT-867 (MR-4): the project graph decides which jobs of this workflow EXECUTE, with the same
   # selection the `required` gate enforces. The evaluator and graph.yaml come from the trusted
-  # commit (the PR base; the pushed main commit on push), extracted with `git archive` and never
-  # from the PR head, whose tree is read as git data only. On push to main the evaluator selects
-  # everything (FULL_RUN_EVENT). `jobs` is the JSON list of selected graph job keys. If this job
+  # commit (the PR base; on push the pushed commit's first parent), extracted with `git archive` and
+  # never from the PR head, whose tree is read as git data only. On push to main the evaluator selects
+  # by the first-parent diff and falls back to everything on any doubt (RT-1471 Phase 3). `jobs` is the JSON list of selected graph job keys. If this job
   # fails, every guarded job is skipped and the gate fails (UNEXPECTED_SKIP / ABSENT_JOB).
   plan:
     name: plan
