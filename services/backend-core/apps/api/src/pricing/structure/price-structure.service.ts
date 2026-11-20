@@ -35,6 +35,7 @@ import { callerStoreScope, MembershipRepository, scopeStoreIds, type TenantConte
 import { PG_POOL } from "../../database";
 import { isLiveStore, liveStoreIdsAfter } from "../../stores";
 import { lockPricingPublish } from "../pricing-publish-lock";
+import { pricingRevisionAt } from "../pricing-revision";
 import type {
   CreatePriceBookBody,
   CreatePriceZoneBody,
@@ -495,15 +496,8 @@ export class PriceStructureService {
   }
 
   /** The revision to read at: the explicit one (422 above the head), else the head (null: none yet). */
-  private async revisionOf(client: PoolClient, tenantId: string, requested: number | undefined): Promise<number | null> {
-    const r = await client.query<{ head: string | null }>(
-      `SELECT max(revision_no)::text AS head FROM pricing_revisions WHERE tenant_id = $1::uuid`,
-      [tenantId],
-    );
-    const head = r.rows[0]?.head ?? null;
-    if (requested === undefined) return head === null ? null : Number(head);
-    if (head === null || BigInt(requested) > BigInt(head)) throw new PricingRevisionUnknownError();
-    return requested;
+  private revisionOf(client: PoolClient, tenantId: string, requested: number | undefined): Promise<number | null> {
+    return pricingRevisionAt(client, tenantId, requested);
   }
 
   /** Each listed Store's explicit membership in the Book visible at `revision`, covering `at`. */

@@ -1,6 +1,6 @@
 # Console rate-limit class of each cookieAuth operation in
 # packages/contracts/openapi/pricing/price-inquiry.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
-# Contract-only until RT-1484 (RT-282 PR-08): these are the intended classes.
+# RT-1484 (RT-282 PR-08b) ships every operation's runtime; each route declares its class.
 
 consoleExplainStoreProductPrice: cheapRead
 consoleGetStoreProductPrice: cheapRead
