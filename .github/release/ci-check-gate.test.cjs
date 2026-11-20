@@ -465,7 +465,7 @@ for (const [key, p] of Object.entries(PRODUCTS)) {
       for (const [label, checks] of Object.entries(cases)) {
         const r = productJudge(p, { ...base, checks });
         assert.ok(r.problems.length > 0, `${key} ${target} ${label} must refuse`);
-        assert.match(problemText(r), new RegExp(target.replace(/[/-]/g, "\\$&")));
+        assert.ok(problemText(r).includes(`'${target}'`), `${key} ${target} ${label} must name the check`);
       }
     }
   });
@@ -490,7 +490,7 @@ for (const [key, p] of Object.entries(PRODUCTS)) {
     const r = gate.evaluateGuard({ ...input, jobs: [], sha: SHA, repo: REPO });
     const hints = r.notes.filter((n) => n.startsWith("To prove"));
     assert.equal(hints.length, 1);
-    assert.match(hints[0], new RegExp(`gh workflow run ${p.proof.replace(".", "\\.")} --ref main -f expected_sha=${SHA}`));
+    assert.ok(hints[0].includes(`gh workflow run ${p.proof} --ref main -f expected_sha=${SHA}`), hints[0]);
     assert.equal((hints[0].match(/gh workflow run /g) ?? []).length, 1, "one command, for this product only");
   });
 }
