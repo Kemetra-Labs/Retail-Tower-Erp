@@ -1,5 +1,5 @@
 /**
- * RT-1513 (0124): the shipment Transfer domain. The Transfer header, its lines and the shared reservations change
+ * RT-1513 (0125): the shipment Transfer domain. The Transfer header, its lines and the shared reservations change
  * state, so they hold SELECT, INSERT and UPDATE; receipts, receipt lines, discrepancies and the frozen transfer leg
  * bodies are append-only (SELECT and INSERT). Never DELETE or TRUNCATE. The settings columns ride on
  * `tenant_inventory_settings` and the transit warehouse on `erpnext_warehouse_map`, whose grants are the baseline's.

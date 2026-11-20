@@ -1,8 +1,8 @@
 /**
- * RT-1513: `0124_shipment_transfers` + `0125_transfer_leg_unique_idx` migration test (RT-291 Inventory Gate 5, slice
+ * RT-1513: `0125_shipment_transfers` + `0126_transfer_leg_unique_idx` migration test (RT-291 Inventory Gate 5, slice
  * S2; [GATED: migration]).
  *
- * Validates `packages/db/drizzle/0124_shipment_transfers.sql` (+ `.down.sql`) and the CONCURRENTLY leg key (0125):
+ * Validates `packages/db/drizzle/0125_shipment_transfers.sql` (+ `.down.sql`) and the CONCURRENTLY leg key (0126):
  *   - `erpnext_posting_status` accepts a transfer leg (no sale, no count columns) and refuses every half shape;
  *   - the unique leg key (tenant, external_id) is the backstop of replay-safe emission (888, 889);
  *   - `erpnext_warehouse_map` holds ONE active transit warehouse per tenant, with no store (O2);
@@ -23,11 +23,11 @@ import { applyMigrationsBefore, asApp } from "../_helpers/migration-spec";
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP_NAME = "0124_shipment_transfers.sql";
+const UP_NAME = "0125_shipment_transfers.sql";
 const UP_PATH = resolve(DRIZZLE_DIR, UP_NAME);
-const DOWN_PATH = resolve(DRIZZLE_DIR, "0124_shipment_transfers.down.sql");
-const IDX_UP_PATH = resolve(DRIZZLE_DIR, "0125_transfer_leg_unique_idx.sql");
-const IDX_DOWN_PATH = resolve(DRIZZLE_DIR, "0125_transfer_leg_unique_idx.down.sql");
+const DOWN_PATH = resolve(DRIZZLE_DIR, "0125_shipment_transfers.down.sql");
+const IDX_UP_PATH = resolve(DRIZZLE_DIR, "0126_transfer_leg_unique_idx.sql");
+const IDX_DOWN_PATH = resolve(DRIZZLE_DIR, "0126_transfer_leg_unique_idx.down.sql");
 
 const id = (n: string): string => `12400000-0000-7000-8000-0000000${n}`;
 const TENANT_A = id("0a001");
@@ -75,7 +75,7 @@ beforeAll(async () => {
     dockerSkipReason = err instanceof Error ? err.message : String(err);
     if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
       // eslint-disable-next-line no-console
-      console.warn(`\n[0124-shipment-transfers.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
+      console.warn(`\n[0125-shipment-transfers.spec] Docker NOT AVAILABLE, skipping. Reason: ${dockerSkipReason}\n`);
       return;
     }
     throw new Error(`Container start failed: ${dockerSkipReason}`);
@@ -163,15 +163,15 @@ const LINE_INSERT = (over: Record<string, unknown> = {}): [string, unknown[]] =>
   ];
 };
 
-describe("0124: files exist", () => {
-  it("up + down migration files are present for 0124 and 0125", () => {
+describe("0125: files exist", () => {
+  it("up + down migration files are present for 0125 and 0126", () => {
     expect(existsSync(UP_PATH)).toBe(true);
     expect(existsSync(DOWN_PATH)).toBe(true);
     expect(existsSync(IDX_UP_PATH)).toBe(true);
     expect(existsSync(IDX_DOWN_PATH)).toBe(true);
   });
 
-  it("0125 is exactly one CONCURRENTLY statement with no IF NOT EXISTS", () => {
+  it("0126 is exactly one CONCURRENTLY statement with no IF NOT EXISTS", () => {
     const statements = idxUpSql
       .split("\n")
       .filter((l) => !l.trim().startsWith("--") && l.trim() !== "")
@@ -184,7 +184,7 @@ describe("0124: files exist", () => {
   });
 });
 
-describe("0124: the leg shape on erpnext_posting_status", () => {
+describe("0125: the leg shape on erpnext_posting_status", () => {
   it("stores a dispatch and a receipt leg with no sale and no count columns", async () => {
     if (skip()) return;
     expect(await tryRun([LEG_INSERT()])).toBeNull();
@@ -212,7 +212,7 @@ describe("0124: the leg shape on erpnext_posting_status", () => {
   });
 });
 
-describe("0124: the tenant transit warehouse (O2)", () => {
+describe("0125: the tenant transit warehouse (O2)", () => {
   const MAP = (over: Record<string, unknown> = {}): [string, unknown[]] => {
     const v = { purpose: "transit", store: null, ref: "Goods In Transit - RT", retired: null, tenant: TENANT_A, ...over };
     return [
@@ -240,7 +240,7 @@ describe("0124: the tenant transit warehouse (O2)", () => {
   });
 });
 
-describe("0124: the Transfer document", () => {
+describe("0125: the Transfer document", () => {
   it("stores a draft and refuses source = destination (23514) or a store of another tenant (23503)", async () => {
     if (skip()) return;
     expect(await tryRun([TRANSFER_INSERT()])).toBeNull();
@@ -300,7 +300,7 @@ describe("0124: the Transfer document", () => {
   });
 });
 
-describe("0124: inventory_reservations (O1)", () => {
+describe("0125: inventory_reservations (O1)", () => {
   const RESERVATION = (over: Record<string, unknown> = {}): [string, unknown[]] => {
     const v = { id: id("0a0c1"), qty: "5.0000", state: "active", changed: null, source: "transfer", line: LINE, ...over };
     return [
@@ -331,7 +331,7 @@ describe("0124: inventory_reservations (O1)", () => {
   });
 });
 
-describe("0124: row level security on every new table", () => {
+describe("0125: row level security on every new table", () => {
   it.each([...NEW_TABLES])("%s has FORCE ROW LEVEL SECURITY and exactly three policies (read, insert, update)", async (table) => {
     if (skip()) return;
     const rls = await guard().admin.query<{ relrowsecurity: boolean; relforcerowsecurity: boolean }>(
@@ -373,7 +373,7 @@ describe("0124: row level security on every new table", () => {
   });
 });
 
-describe("0124: store_business_date (one definition of a store's business date)", () => {
+describe("0125: store_business_date (one definition of a store's business date)", () => {
   it("returns the calendar date in the store's own time zone, and NULL for a store another tenant owns (RLS)", async () => {
     if (skip()) return;
     const e = guard();
@@ -394,7 +394,7 @@ describe("0124: store_business_date (one definition of a store's business date)"
   });
 });
 
-describe("0124: the settings columns", () => {
+describe("0125: the settings columns", () => {
   const SET = (cols: string, vals: string): [string, unknown[]] => [
     `INSERT INTO tenant_inventory_settings (tenant_id, updated_by${cols}) VALUES ($1, $2${vals})`,
     [TENANT_A, ACTOR],
@@ -425,7 +425,7 @@ describe("0124: the settings columns", () => {
   });
 });
 
-describe("0124: the file is safe to run again", () => {
+describe("0125: the file is safe to run again", () => {
   it("re-running the whole up file on an applied schema changes nothing and does not fail", async () => {
     if (skip()) return;
     const a = guard().admin;
@@ -456,12 +456,12 @@ describe("0124: the file is safe to run again", () => {
   });
 });
 
-describe("0124: down refuses while a Transfer exists, and round-trips once none does", () => {
+describe("0125: down refuses while a Transfer exists, and round-trips once none does", () => {
   it("refuses with a Transfer, then UP -> DOWN -> UP leaves the schema applied", async () => {
     if (skip()) return;
     const a = guard().admin;
     await a.query(...TRANSFER_INSERT());
-    await expect(a.query(downSql)).rejects.toThrow(/0124 down refused/);
+    await expect(a.query(downSql)).rejects.toThrow(/0125 down refused/);
     await a.query(`DELETE FROM shipment_transfers WHERE id = $1`, [TRANSFER]);
     await a.query(idxDownSql);
     await a.query(downSql);

@@ -5,7 +5,7 @@
  *   1. resolve and FREEZE every reference (item, batch, source / destination / transit warehouse) into
  *      `transfer_postings` + `transfer_posting_lines`, so a later re-map can neither retarget nor omit a posted leg;
  *   2. insert one `erpnext_posting_status` row per leg (`transfer_dispatch` or `transfer_receive`) whose `externalId`
- *      is the leg-level provenance key (888, 889), `ON CONFLICT DO NOTHING` on the unique leg key (migration 0125);
+ *      is the leg-level provenance key (888, 889), `ON CONFLICT DO NOTHING` on the unique leg key (migration 0126);
  *   3. link the leg's effects `not_posted -> pending`.
  *
  * The dispatch leg is written in the same transaction as its `transfer_out` effects (DC-2). A receipt leg is written
@@ -135,7 +135,7 @@ async function insertPostingLines(
   }
 }
 
-/** The leg's business date in its store's time zone (one SQL definition, `store_business_date`, migration 0124). */
+/** The leg's business date in its store's time zone (one SQL definition, `store_business_date`, migration 0125). */
 async function businessDate(client: PoolClient, storeId: string, at: Date): Promise<string> {
   const r = await client.query<{ d: string | null }>(`SELECT store_business_date($1::uuid, $2::timestamptz)::text AS d`, [storeId, at]);
   const d = r.rows[0]?.d;

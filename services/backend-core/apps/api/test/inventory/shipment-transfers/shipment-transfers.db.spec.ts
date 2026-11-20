@@ -411,7 +411,7 @@ describe('dispatch (no double deduction, replay-safe leg)', () => {
     expect(await codeOf(svc.dispatch(owner(), t.id, null))).toBe('shipment_transfer_not_in_state');
     expect(await legs(t.id)).toHaveLength(1);
     expect(await onHand(STORE_A_X)).toBe('90.0000');
-    // The database backstop: the same leg key cannot be inserted twice (migration 0125).
+    // The database backstop: the same leg key cannot be inserted twice (migration 0126).
     await expect(
       admin.query(
         `INSERT INTO erpnext_posting_status (id, tenant_id, store_id, sale_id, kind, source_ref_id, source_system, external_id, payload_hash, status)

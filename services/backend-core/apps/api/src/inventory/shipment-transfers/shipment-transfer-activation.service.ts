@@ -1,7 +1,7 @@
 /**
  * The tenant's shipment-Transfer activation switch — Jira RT-1513 (RT-291 Gate 5). The runtime of the switch only:
  * the contract (RT-1512) has no settings operation, so no HTTP surface is added here; RT-1517 (per-tenant enable and
- * switch-over) exposes it. Stored as `tenant_inventory_settings.shipment_transfers_enabled` (0124, DEFAULT false) with
+ * switch-over) exposes it. Stored as `tenant_inventory_settings.shipment_transfers_enabled` (0125, DEFAULT false) with
  * `shipment_transfers_changed_at` / `_by`. No settings row reads OFF. The change history is the audit trail
  * (`inventory.shipment_transfers.update`), written in the change's transaction.
  *

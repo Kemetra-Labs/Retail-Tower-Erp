@@ -77,7 +77,7 @@ export async function trackingModesOfProducts(client: PoolClient, productIds: re
 /**
  * Insert one transfer leg work item (`transfer_dispatch` or `transfer_receive`) as a `pending` posting row whose
  * `externalId` is the leg-level provenance key (888, 889). `ON CONFLICT DO NOTHING` on the unique leg key (migration
- * 0125): a replay returns the existing row with `fresh = false` and writes nothing.
+ * 0126): a replay returns the existing row with `fresh = false` and writes nothing.
  */
 export async function insertTransferLeg(
   client: PoolClient,

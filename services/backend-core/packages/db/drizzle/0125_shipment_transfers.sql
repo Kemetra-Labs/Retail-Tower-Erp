@@ -1,4 +1,4 @@
--- 0124_shipment_transfers — Jira RT-1513 (RT-291 Inventory Gate 5, slice S2; [GATED: migration]; contract RT-1512,
+-- 0125_shipment_transfers — Jira RT-1513 (RT-291 Inventory Gate 5, slice S2; [GATED: migration]; contract RT-1512,
 -- inventory.yaml 1.21.0-draft; posting-feed.yaml 1.17.0-draft, RT-1514; owner rulings O1..O5 in RT-291 comment 17801).
 --
 -- The shipment Transfer domain: Draft -> Approved/Reserved -> In Transit -> Partially Received -> Received -> Closed.
@@ -18,12 +18,12 @@
 --      count_posting_lines is for a count chunk): the feed reads only these rows, never the live maps.
 --   6. erpnext_posting_status: `kind` gains 'transfer_dispatch' and 'transfer_receive'; the shape CHECK becomes
 --      three-way (sale/reversal carry a sale, a count chunk carries the count columns, a transfer leg carries
---      neither). The unique leg key is migration 0125 (built CONCURRENTLY).
+--      neither). The unique leg key is migration 0126 (built CONCURRENTLY).
 --
 -- Locking: a first transaction holds ACCESS EXCLUSIVE only for metadata changes and the constraint swap (the new CHECKs
 -- are NOT VALID). A SECOND transaction validates them (SHARE UPDATE EXCLUSIVE). Every existing row is a sale,
 -- reversal or count row, so validation always passes.
--- Rollback: 0124_shipment_transfers.down.sql (refuses while any transfer, reservation or transfer leg exists).
+-- Rollback: 0125_shipment_transfers.down.sql (refuses while any transfer, reservation or transfer leg exists).
 
 BEGIN;
 

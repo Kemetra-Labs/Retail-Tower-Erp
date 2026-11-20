@@ -1,5 +1,5 @@
 /**
- * 0124_shipment_transfers (RT-1513, RT-291 Gate 5): the eight shipment Transfer tables (the shared reservations, the
+ * 0125_shipment_transfers (RT-1513, RT-291 Gate 5): the eight shipment Transfer tables (the shared reservations, the
  * Transfer document with its lines, receipts, receipt lines and discrepancies, and the frozen transfer leg bodies), their 24
  * policies (3 each: SELECT, INSERT, UPDATE) and `store_business_date()`.
  */
@@ -17,7 +17,7 @@ const TABLES = [
 ];
 
 export const MIGRATION: MigrationEntry = {
-  id: "0124_shipment_transfers",
+  id: "0125_shipment_transfers",
   probe: {
     measure: async (db) => [
       await countTables(db, TABLES),

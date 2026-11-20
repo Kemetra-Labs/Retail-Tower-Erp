@@ -1,4 +1,4 @@
--- Rollback of 0124_shipment_transfers (RT-1513). REFUSES while any shipment Transfer, reservation or transfer leg
+-- Rollback of 0125_shipment_transfers (RT-1513). REFUSES while any shipment Transfer, reservation or transfer leg
 -- exists: they are the audit of stock that left a store and the only link between a dispatch or receipt and its ERP
 -- document. Back them up and delete them explicitly first. A tenant that switched shipment transfers on is NOT refused
 -- by the switch alone: it is a dark-by-default flag that only gates the rows this guard already protects.
@@ -35,7 +35,7 @@ BEGIN
     rows_found := rows_found + n;
   END LOOP;
   IF rows_found > 0 THEN
-    RAISE EXCEPTION '0124 down refused: % shipment transfer, reservation, transfer leg or transit map row(s) exist; back up and delete them explicitly first', rows_found;
+    RAISE EXCEPTION '0125 down refused: % shipment transfer, reservation, transfer leg or transit map row(s) exist; back up and delete them explicitly first', rows_found;
   END IF;
 END
 $$;

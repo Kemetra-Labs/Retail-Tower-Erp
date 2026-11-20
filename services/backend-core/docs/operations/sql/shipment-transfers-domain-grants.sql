@@ -1,7 +1,7 @@
--- Domain-role grants for the shipment Transfer tables (RT-1513, migration 0124).
+-- Domain-role grants for the shipment Transfer tables (RT-1513, migration 0125).
 -- See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0124 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0125 and BEFORE the
 -- API image that needs it is rolled, as the migration owner (or any role
 -- allowed to grant on these tables). This file holds NO credential. Give psql
 -- the connection through libpq environment variables
