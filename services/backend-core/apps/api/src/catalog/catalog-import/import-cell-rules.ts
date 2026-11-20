@@ -10,8 +10,15 @@ import { IDENTIFIER_VALUE } from "../console-catalog/console-catalog.write-bodie
 /** An identifier value is 1 to 200 characters (`product_aliases_value_length`). */
 const IDENTIFIER_MAX_CHARS = 200;
 
-/** A bidi mark or NBSP left INSIDE an identifier passes the contract pattern but can never match a scan (OD-10). */
-const INVISIBLE = new Set([0x00a0, 0x200e, 0x200f, 0x061c]);
+/** NBSP: a space no scanner types, left INSIDE an identifier it passes the contract pattern but can never match a scan (OD-10). */
+const NBSP = 0x00a0;
+/**
+ * Every Unicode format character (General_Category Cf) is invisible too: the bidi marks (U+200E, U+200F, U+061C), the
+ * embedding and isolate controls (U+202A to U+202E, U+2066 to U+2069), ZWSP / ZWNJ / ZWJ, the BOM (U+FEFF), the soft
+ * hyphen. Lead decision 2026-11-20, pending owner acknowledgement. The trim removes only White_Space and the three
+ * bidi marks (OD-10), so such a character at the edge of a cell is still here and is refused, never kept silently.
+ */
+const FORMAT_CHAR = /^\p{Cf}$/u;
 /** Arabic-Indic digits U+0660..U+0669 and the Extended (Persian) ones U+06F0..U+06F9 (OD-15). */
 const isArabicIndicDigit = (cp: number): boolean => (cp >= 0x0660 && cp <= 0x0669) || (cp >= 0x06f0 && cp <= 0x06f9);
 
@@ -22,7 +29,7 @@ export function identifierProblems(text: string, field: "sku" | "barcode" | "plu
   for (const ch of text) {
     const cp = ch.codePointAt(0) as number;
     chars += 1;
-    if (INVISIBLE.has(cp)) problems.add("identifier_invisible_char");
+    if (cp === NBSP || FORMAT_CHAR.test(ch)) problems.add("identifier_invisible_char");
     if (field !== "sku" && isArabicIndicDigit(cp)) problems.add("identifier_non_ascii_digits");
   }
   // The contract pattern (no control character, no outer whitespace) is the console writes' own; the length is

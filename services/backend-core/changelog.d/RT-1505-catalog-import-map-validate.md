@@ -18,3 +18,8 @@
   row number with a cursor bound to the validation generation and the `status` filter, and never answers an empty page for
   a batch whose rows were purged. `console-catalog.write-bodies.ts` exports the identifier pattern the import reuses. No
   migration, no new dependency, no package or lockfile change.
+- RT-1505 part B review fixes: set mapping and validate answer `409 import_batch_closed` for a batch past its `expires_at`
+  that the expiry job has not closed yet; a store-scoped identifier of a deleted store is absent from the store-scoped
+  review (the console writes' `LIVE_STORE_SQL` is exported for it); every Unicode format character (Cf) inside an
+  identifier is `identifier_invisible_char`; the matched product's `updated_at` is read as a UTC ISO instant, so the
+  `previewHash` no longer depends on the session TimeZone or DateStyle.

@@ -300,8 +300,18 @@ info:
     `ambiguous`, `sku_mismatch`, `store_scoped_conflict`, `no_identifier`,
     `possible_duplicate`; the others are still listed as issues. A
     store-scoped identifier is checked only for a value the row would add,
-    and it counts whatever the state of its store (a deleted store's leftover
-    too: a review is the safe answer). `possible_duplicate` lists at most five products of that name. The
+    and only a store that is not deleted counts (as on the console writes).
+    `possible_duplicate` lists at most five products of that name. In mode
+    `create` an `ambiguous` row is still a review, and the review slice
+    (RT-1507) offers only `exclude` for it: `update_product` is refused in a
+    `create` batch. For `update_product` the decision must capture the chosen
+    product's `updatedAt` for the stale re-check, and a retired candidate is
+    refused. An identifier is also `identifier_invisible_char` when it holds
+    any Unicode format character (category Cf), such as an embedding control,
+    a zero-width character or the BOM, which the trim does not remove. The
+    batch operations `consoleSetCatalogImportMapping` and
+    `consoleValidateCatalogImport` answer `409 import_batch_closed` for a
+    batch past its `expiresAt` that the expiry job has not closed yet. The
     `previewHash` covers the mode and, per row in order, the status, review
     reason, matched product and its `updatedAt`, candidates, field changes,
     identifier adds and brand to create. Validate clears review decisions
@@ -1284,7 +1294,9 @@ components:
         identifier stored as a number: format the column as Text),
         `identifier_formula_cell`, `identifier_non_ascii_digits` (Arabic-Indic
         digits in a `barcode` or `plu`, OD-15 A), `identifier_invisible_char`
-        (a bidi mark or NBSP inside an identifier), `formula_without_value`
+        (NBSP or any Unicode format character, category Cf, in an identifier:
+        a bidi mark, an embedding or isolate control, a zero-width character,
+        the BOM), `formula_without_value`
         (a formula with no cached value), `duplicate_in_file` (two rows share
         an identifier; both rows), `category_not_found` (OD-3 A),
         `product_retired`, `already_exists` (mode `create`, matched),
@@ -1572,7 +1584,9 @@ components:
           maximum: 50
         message:
           type: string
-          description: Human-readable explanation with the fix, in the session's language.
+          description: >
+            Human-readable explanation with the fix. English, fixed per `code`
+            and never repeating a cell value; clients localise by `code`.
         relatedProduct:
           description: >
             The product the issue names (`already_exists`, `product_retired`,
@@ -1626,7 +1640,10 @@ components:
             $ref: "#/components/schemas/ImportIdentifier"
         identifiersNotAdded:
           type: array
-          description: Identifiers left out by a review decision (`sku_mismatch`, `store_scoped_conflict`).
+          description: >
+            Identifiers left out by a review decision (`sku_mismatch`,
+            `store_scoped_conflict`). Always empty after validate; the review
+            decision (RT-1507) fills it.
           items:
             $ref: "#/components/schemas/ImportIdentifier"
         brandToCreate:

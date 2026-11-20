@@ -581,6 +581,8 @@ the owner's acknowledgement. Contract 1.0.4-draft states each in its description
   `409 version_conflict`, then the 422 rules. Set mapping and validate both bump `version` and move the expiry;
   validate also bumps the validation generation, stores the counts and the `previewHash`, and clears review decisions
   (none can exist before S5, which refines this to keep a decision whose candidate set and reason are unchanged).
+- **Messages.** The issue messages are fixed English text per code and never repeat a cell value; clients localise by
+  `code`.
 - **Trim.** Every cell is trimmed, mapped or not, and each cell the trim changes is one `whitespace_trimmed` notice on its
   row (the batch has no count field: the per-issue totals are in the audit row). The row list shows the cells after the
   trim.
@@ -594,17 +596,29 @@ the owner's acknowledgement. Contract 1.0.4-draft states each in its description
   `is_active`. `price`, `currency` and ignored columns are never interpreted, so a formula there is not an error.
 - **Matching.** The products the row's active tenant-wide identifiers resolve to are united: none is `no_match`, one is
   `match`, two or more `ambiguous` (a review in every mode). A retired matched product is `product_retired` in every
-  mode. A store-scoped identifier counts whatever the state of its store (a deleted store's leftover too, since the stores
-  module cannot be asked from the catalogue without an import cycle: a review is the safe answer) and is checked only
-  for a value the row would add.
+  mode. A store-scoped identifier counts only while its store is not deleted (a deleted store's leftover is absent, as
+  the console writes treat a deleted store: the same `LIVE_STORE_SQL`) and is checked only for a value the row would add.
+- **Ambiguous in Create mode** stays a review (author decision, confirmed by the lead 2026-11-20). For S5 (RT-1507): in a
+  Create batch the only decision offered for an ambiguous row is `exclude` (`update_product` is refused there); an
+  `update_product` decision in any batch must capture the chosen product's `updated_at` for the stale re-check (8.2), and a
+  retired candidate is refused.
+- **Expiry.** Set mapping and validate answer `409 import_batch_closed` for a batch past its `expires_at` that the expiry
+  job has not closed yet (the database `now()`, the one the job uses), so a lapsed batch's expiry is never moved forward
+  (8.1).
+- **Hidden characters in identifiers (lead decision 2026-11-20, pending owner acknowledgement).** Besides NBSP and the
+  bidi marks, every Unicode format character (General_Category Cf: U+202A to U+202E, U+2066 to U+2069, ZWSP, ZWNJ, ZWJ,
+  the BOM U+FEFF, the soft hyphen) inside an identifier is `identifier_invisible_char`. The trim (OD-10) still removes
+  only White_Space and U+200E, U+200F, U+061C, so such a character at the edge of a cell is not kept silently: it is
+  refused.
 - **Statuses and reasons.** A row with any error is `error`, drops its review issues and writes nothing (no field change,
   identifier add or brand to create). Otherwise the review reason is the first that applies of `ambiguous`,
   `sku_mismatch`, `store_scoped_conflict`, `no_identifier`, `possible_duplicate`; the others are still listed as issues.
   `possible_duplicate` is checked against non-retired products and lists at most five. `required_field_missing` applies
   only when the row would create. `deactivates_product` is a warning only when an active product goes inactive.
 - **`previewHash`.** `sha256:` over the canonical JSON of the mode and, per row in order, the status, review reason,
-  matched product and its `updated_at` (microseconds kept), candidates, field changes, identifier adds, brand to create
-  and a review-decision slot that is `null` until S5.
+  matched product and its `updated_at` (microseconds kept, read as an ISO instant in UTC, so the session TimeZone and
+  DateStyle never change it), candidates, field changes, identifier adds, brand to create and a review-decision slot that
+  is `null` until S5. `outcome.identifiersNotAdded` is `[]` after validate: S5's review decision fills it.
 - **Row list.** Keyset by row number; the cursor is unsigned and bound to the tenant, the batch, the validation
   generation and the `status` query parameter. A `draft`, `cancelled` or `expired` batch, and a batch whose rows were
   purged (`rows_purged_at`), is `409 import_batch_not_validated` (the interim answer to the open item of 12.1: never an

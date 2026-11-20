@@ -90,6 +90,37 @@ describe("identifier cells", () => {
     expect(run("create", SNT, [["Ab 1", "Tea", "standard"]])[0]?.outcome.identifierAdds).toEqual([{ type: "sku", value: "Ab 1" }]);
   });
 
+  it("every Unicode format character (Cf) inside an identifier is identifier_invisible_char (lead decision 2026-11-20)", () => {
+    const formats = [0x202a, 0x202b, 0x202c, 0x202d, 0x202e, 0x2066, 0x2067, 0x2068, 0x2069, 0x200b, 0x200c, 0x200d, 0x2060, 0xfeff, 0x00ad];
+    for (const cp of formats) {
+      const hidden = String.fromCodePoint(cp);
+      for (const field of ["sku", "barcode", "plu"] as const) {
+        const [r] = run("create", mapOf(field, "name", "tax_category"), [[`A${hidden}1`, "Tea", "standard"]]);
+        expect(codes(r!)).toContain("identifier_invisible_char");
+        expect(r?.status).toBe("error");
+      }
+    }
+  });
+
+  it("a format character at the EDGE of a cell is refused, not kept: the trim removes only White_Space and the three bidi marks", () => {
+    for (const cp of [0x200b, 0xfeff, 0x202e, 0x2066]) {
+      const hidden = String.fromCodePoint(cp);
+      expect(codes(run("create", SNT, [[`${hidden}A1`, "Tea", "standard"]])[0]!)).toContain("identifier_invisible_char");
+      expect(codes(run("create", SNT, [[`A1${hidden}`, "Tea", "standard"]])[0]!)).toContain("identifier_invisible_char");
+    }
+    // The trim rules are unchanged: NBSP and the bidi marks at the edge are trimmed and counted.
+    for (const edge of [NBSP, RLM, LRM, ALM]) {
+      const [r] = run("create", SNT, [[`${edge}A1${edge}`, "Tea", "standard"]]);
+      expect([r?.status, codes(r!)]).toEqual(["ready_create", ["whitespace_trimmed"]]);
+      expect(r?.outcome.identifierAdds).toEqual([{ type: "sku", value: "A1" }]);
+    }
+  });
+
+  it("format characters are only refused in identifiers: a name keeps them (unchanged rule)", () => {
+    const [r] = run("create", SNT, [["A1", `Te\u{200B}a`, "standard"]]);
+    expect(r?.status).toBe("ready_create");
+  });
+
   it("leading zeros are kept: a text barcode is never converted", () => {
     const [r] = run("create", mapOf("barcode", "name", "tax_category"), [["0012345678905", "Tea", "standard"]]);
     expect(r?.outcome.identifierAdds).toEqual([{ type: "barcode", value: "0012345678905" }]);

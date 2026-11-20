@@ -28,6 +28,11 @@ import { SES_MANAGER, SES_STAFF } from "../../console-sales/__support__/console-
 import { TENANT_A, TENANT_B } from "../__support__/isolation-harness";
 import { SES_ADMIN_SPEC, SES_OWNER_ALL } from "../erpnext-reconciliation/__support__/read-store-scope";
 import { P_JUICE, P_WATER } from "../console-catalog/__support__/console-catalog-fixture";
+import { collectLookupKeys } from "../../../src/catalog/catalog-import/import-lookups";
+import { previewHashOf } from "../../../src/catalog/catalog-import/import-preview-hash";
+import { evaluateRows } from "../../../src/catalog/catalog-import/import-row-evaluate";
+import { parseRows } from "../../../src/catalog/catalog-import/import-row-parse";
+import { loadCatalogLookups } from "../../../src/catalog/catalog-import/catalog-import.validate-repository";
 import { SES_OWNER_B, seedPublishedBatch } from "./__support__/catalog-import-fixture";
 import { idempotencyProviders } from "./__support__/idempotency-fakes";
 import { batchAudits, batchState, P_ALPHA, P_GAMMA, profilesOf, seedMapValidateFixture, validatedRows } from "./__support__/map-validate-fixture";
@@ -425,7 +430,7 @@ const SCENARIO = [
   "NEW-4,,,Odd tax,,,exotic,,", // 12 ready_create + tax_category_unused
   "  NEW-6  ,,,  Spaces  ,,,standard,,", // 13 ready_create, two trims
   "NEW-7,,4242,Plu thing,,,standard,,", // 14 needs_review: store_scoped_conflict (Water's PLU at store Y)
-  "NEW-8,555000,,Deleted store barcode,,,standard,,", // 15 needs_review: store_scoped_conflict (a leftover at a deleted store still counts)
+  "NEW-8,555000,,Deleted store barcode,,,standard,,", // 15 ready_create: a deleted store's identifier is absent
   "NEW-9,\u{0660}\u{0661}\u{0662}\u{0663}\u{0664}\u{0665}\u{0666}\u{0667},,Arabic digits,,,standard,,", // 16 error: identifier_non_ascii_digits
   "NEW-10,,,Old cat,RT730 Old,,standard,,", // 17 error: category_not_found (a retired category)
   "NEW-11,6223001360018,,Gamma again,,,standard,,", // 18 needs_review: sku_mismatch (Gamma has G-1)
@@ -450,13 +455,13 @@ describe("validate against a real catalogue (mode upsert)", () => {
     expect(batch.suggestedMapping).toHaveLength(9);
     expect(body).toMatchObject({ state: "validated", version: 3, publishable: false });
     expect(body.previewHash).toMatch(/^sha256:[0-9a-f]{64}$/);
-    expect(body.counts).toEqual({ ready_create: 4, ready_update: 3, unchanged: 1, needs_review: 6, error: 4, excluded: 0 });
+    expect(body.counts).toEqual({ ready_create: 5, ready_update: 3, unchanged: 1, needs_review: 5, error: 4, excluded: 0 });
     expect(Object.values(body.counts!).reduce((a, b) => a + b, 0)).toBe(18);
     expect(rows).toHaveLength(18);
     expect(rows.map((r) => r.rowNumber)).toEqual(Array.from({ length: 18 }, (_v, i) => i + 2));
     expect(rows.map((r) => r.status)).toEqual([
       "unchanged", "ready_update", "ready_create", "ready_update", "error", "ready_update", "needs_review", "error", "needs_review",
-      "needs_review", "ready_create", "ready_create", "needs_review", "needs_review", "error", "error", "needs_review", "ready_create",
+      "needs_review", "ready_create", "ready_create", "needs_review", "ready_create", "error", "error", "needs_review", "ready_create",
     ]);
     const state = await batchState(h.env().admin, batch.batchId);
     expect(state).toMatchObject({ state: "validated", version: 3, validation_generation: 1, preview_hash: body.previewHash });
@@ -508,7 +513,7 @@ describe("validate against a real catalogue (mode upsert)", () => {
     expect(byNumber(rows, 13).cells.slice(0, 4)).toEqual(["NEW-6", null, null, "Spaces"]);
     expect(byNumber(rows, 13).outcome.identifierAdds).toEqual([{ type: "sku", value: "NEW-6" }]);
     expect(byNumber(rows, 14)).toMatchObject({ reviewReason: "store_scoped_conflict", issues: [{ code: "store_scoped_conflict", field: "plu", relatedProduct: { productId: P_WATER } }] });
-    expect(byNumber(rows, 15)).toMatchObject({ reviewReason: "store_scoped_conflict", issues: [{ code: "store_scoped_conflict", field: "barcode", relatedProduct: { productId: P_WATER } }] });
+    expect(byNumber(rows, 15)).toMatchObject({ status: "ready_create", issues: [] });
     expect(byNumber(rows, 16).issues.map((i) => [i.code, i.field])).toEqual([["identifier_non_ascii_digits", "barcode"]]);
     expect(byNumber(rows, 17).issues.map((i) => i.code)).toEqual(["category_not_found"]);
     expect(byNumber(rows, 18)).toMatchObject({ reviewReason: "sku_mismatch", issues: [{ code: "sku_mismatch", field: "sku", relatedProduct: { productId: P_GAMMA, name: "RT1505 Gamma" } }] });
@@ -549,6 +554,56 @@ describe("validate against a real catalogue (mode upsert)", () => {
     if (skip()) return;
     const clean = await validated("SKU,Name,Tax Category\nZ-1,Zed,standard\nZ-2,Zee,standard\n", "create");
     expect(clean.body).toMatchObject({ state: "validated", publishable: true, counts: { ready_create: 2, ready_update: 0, unchanged: 0, needs_review: 0, error: 0, excluded: 0 } });
+  });
+});
+
+describe("expiry (spec 049 section 8.1)", () => {
+  it("a batch past its expires_at that the job has not closed yet is 409 import_batch_closed for map and validate, and its expiry is not moved", async () => {
+    if (skip()) return;
+    const batch = await open(SIMPLE, "create");
+    await setMapping(SES_OWNER_ALL, batch.batchId, { expectedVersion: 1, columns: suggested(batch) }).expect(200);
+    const { admin } = h.env();
+    await admin.query(`UPDATE catalog_import_batches SET expires_at = now() - interval '1 minute' WHERE id = $1`, [batch.batchId]);
+    expectError(await setMapping(SES_OWNER_ALL, batch.batchId, { expectedVersion: 2, columns: suggested(batch) }), 409, "import_batch_closed");
+    expectError(await validate(SES_OWNER_ALL, batch.batchId, 2), 409, "import_batch_closed");
+    const lapsed = await admin.query<{ still_past: boolean }>(`SELECT expires_at < now() AS still_past FROM catalog_import_batches WHERE id = $1`, [batch.batchId]);
+    expect(lapsed.rows[0]!.still_past).toBe(true);
+    expect(await batchState(admin, batch.batchId)).toMatchObject({ state: "draft", version: 2 });
+    expect(await audits("catalog.import.validate")).toHaveLength(0);
+    // The closed check comes before the version check, as for a closed batch.
+    expectError(await validate(SES_OWNER_ALL, batch.batchId, 1), 409, "import_batch_closed");
+    // A batch that has not lapsed still moves its expiry forward.
+    await admin.query(`UPDATE catalog_import_batches SET expires_at = now() + interval '1 minute' WHERE id = $1`, [batch.batchId]);
+    await validate(SES_OWNER_ALL, batch.batchId, 2).expect(200);
+    const moved = await admin.query<{ days: string }>(`SELECT (extract(epoch FROM expires_at - now()) / 86400)::text AS days FROM catalog_import_batches WHERE id = $1`, [batch.batchId]);
+    expect(Number(moved.rows[0]!.days)).toBeGreaterThan(6.99);
+  });
+});
+
+describe("the preview hash does not depend on the session settings", () => {
+  it("reads a matched product's updated_at as the same ISO instant in UTC whatever the session TimeZone and DateStyle, so the hash is the same", async () => {
+    if (skip()) return;
+    const mapping = [{ columnNumber: 1, target: "sku" as const }, { columnNumber: 2, target: "name" as const }];
+    const parsed = parseRows(mapping, [{ rowNumber: 2, cells: ["A-1", "RT1505 Alpha Renamed"] }, { rowNumber: 3, cells: ["B-1", "RT1505 Beta"] }]);
+    const hashUnder = async (settings: string[]): Promise<{ hash: string; updated: Array<string | null> }> => {
+      const client = await h.env().admin.connect();
+      try {
+        for (const setting of settings) await client.query(setting);
+        const lookups = await loadCatalogLookups(client, TENANT_A, collectLookupKeys(parsed), false);
+        const results = evaluateRows("update", mapping, parsed, lookups);
+        return { hash: previewHashOf("update", results), updated: results.map((r) => r.matchedUpdatedAt) };
+      } finally {
+        await client.query("RESET TimeZone");
+        await client.query("RESET DateStyle");
+        client.release();
+      }
+    };
+    const utc = await hashUnder(["SET TimeZone = 'UTC'", "SET DateStyle = 'ISO, YMD'"]);
+    const tokyo = await hashUnder(["SET TimeZone = 'Asia/Tokyo'", "SET DateStyle = 'German, DMY'"]);
+    const newYork = await hashUnder(["SET TimeZone = 'America/New_York'", "SET DateStyle = 'SQL, MDY'"]);
+    expect(utc.updated.every((u) => u !== null && /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/.test(u))).toBe(true);
+    expect(tokyo).toEqual(utc);
+    expect(newYork).toEqual(utc);
   });
 });
 
@@ -654,7 +709,7 @@ describe("the row list", () => {
     if (skip()) return;
     const id = await validatedScenario();
     const reviews = await allRows(id, SES_OWNER_ALL, "needs_review");
-    expect(reviews.map((r) => r.rowNumber)).toEqual([8, 10, 11, 14, 15, 18]);
+    expect(reviews.map((r) => r.rowNumber)).toEqual([8, 10, 11, 14, 18]);
     expect(reviews.every((r) => r.status === "needs_review")).toBe(true);
     const first = await h.get(rowsPath(id), SES_OWNER_ALL, { status: "error", limit: 2 }).expect(200);
     expect(first.body.items.map((r: RowBody) => r.rowNumber)).toEqual([6, 9]);

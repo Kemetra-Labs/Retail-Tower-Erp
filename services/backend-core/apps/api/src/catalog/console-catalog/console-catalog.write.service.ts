@@ -218,7 +218,8 @@ const LOCK_BRAND_SQL = `
    WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL
      FOR NO KEY UPDATE`;
 
-const LIVE_STORE_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
+/** Exported for the import's validate (RT-1505 part B), so a deleted store is treated as it is here. */
+export const LIVE_STORE_SQL = `SELECT 1 FROM stores WHERE id = $1::uuid AND tenant_id = $2::uuid AND deleted_at IS NULL`;
 
 const LOCK_OVERRIDE_SQL = `
   SELECT id::text AS id, is_active, tax_category, price IS NOT NULL AS has_price,${UPDATED_MS_SQL}

@@ -6,6 +6,7 @@
  */
 import type { PoolClient } from "pg";
 
+import { LIVE_STORE_SQL } from "../console-catalog/console-catalog.write.service";
 import { BATCH_TTL_DAYS } from "./catalog-import.limits";
 import { BATCH_COLUMNS, type BatchRow, type ColumnMappingBody } from "./catalog-import.projections";
 import { MAX_NAME_MATCHES, type CatalogLookups, type LookupKeys, type ProductFacts } from "./import-lookups";
@@ -16,12 +17,21 @@ import type { SuggestionProfile } from "./import-synonyms";
 import type { RowIssue } from "./import-issues";
 import type { StagedCell } from "./staged-cell";
 
-/** The batch, locked for the rest of the transaction (map and validate serialize on it), or null. */
-export async function lockBatch(client: PoolClient, tenantId: string, batchId: string): Promise<BatchRow | null> {
-  const r = await client.query<BatchRow>(`SELECT ${BATCH_COLUMNS} FROM catalog_import_batches WHERE tenant_id = $1 AND id = $2 FOR UPDATE`, [
-    tenantId,
-    batchId,
-  ]);
+/** A locked batch and whether the database clock is past its `expires_at` (the expiry job has not closed it yet). */
+export interface LockedBatch extends BatchRow {
+  readonly past_expiry: boolean;
+}
+
+/**
+ * The batch, locked for the rest of the transaction (map and validate serialize on it), or null. `past_expiry` is read
+ * with the lock, by the same `now()` the expiry job and the 7-day expiry arithmetic use (spec 049 section 8.1).
+ */
+export async function lockBatch(client: PoolClient, tenantId: string, batchId: string): Promise<LockedBatch | null> {
+  const r = await client.query<LockedBatch>(
+    `SELECT ${BATCH_COLUMNS}, (expires_at IS NOT NULL AND expires_at <= now()) AS past_expiry
+       FROM catalog_import_batches WHERE tenant_id = $1 AND id = $2 FOR UPDATE`,
+    [tenantId, batchId],
+  );
   return r.rows[0] ?? null;
 }
 
@@ -92,7 +102,8 @@ async function loadProducts(client: PoolClient, tenantId: string, ids: readonly 
   if (ids.length === 0) return products;
   const facts = await client.query<FactsRow>(
     `SELECT p.id, p.name, p.description, p.tax_category, p.is_active, (p.retired_at IS NOT NULL) AS retired,
-            p.updated_at::text AS updated_at_text, c.name AS category_name, b.name AS brand_name
+            to_char(p.updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS updated_at_text,
+            c.name AS category_name, b.name AS brand_name
        FROM tenant_products p
        LEFT JOIN tenant_product_categories c ON c.tenant_id = p.tenant_id AND c.id = p.category_id
        LEFT JOIN tenant_product_brands b ON b.tenant_id = p.tenant_id AND b.id = p.brand_id
@@ -136,24 +147,35 @@ async function existingNames(client: PoolClient, table: "tenant_product_categori
   return new Set(r.rows.map((row) => row.name));
 }
 
+/** The ids among `storeIds` (nulls ignored) that are live stores of the tenant: one lookup per distinct store, never per row. */
+async function liveStoreIds(client: PoolClient, tenantId: string, storeIds: ReadonlyArray<string | null>): Promise<Set<string>> {
+  const live = new Set<string>();
+  for (const id of new Set(storeIds)) {
+    if (id === null) continue;
+    if (((await client.query(LIVE_STORE_SQL, [id, tenantId])).rowCount ?? 0) > 0) live.add(id);
+  }
+  return live;
+}
+
 /** Everything validate matches the file against, read in a handful of set-based queries (never one per row). */
 export async function loadCatalogLookups(client: PoolClient, tenantId: string, keys: LookupKeys, needNames: boolean): Promise<CatalogLookups> {
   const tenantWide = new Map<string, string>();
   const storeScoped = new Map<string, string[]>();
   if (keys.identifierTypes.length > 0) {
-    const hits = await client.query<{ identifier_type: string; value: string; product_id: string; scoped: boolean }>(
-      `SELECT a.identifier_type, a.value, a.product_id, (a.store_id IS NOT NULL) AS scoped
+    const hits = await client.query<{ identifier_type: string; value: string; product_id: string; store_id: string | null }>(
+      `SELECT a.identifier_type, a.value, a.product_id, a.store_id
          FROM product_aliases a
         WHERE a.tenant_id = $1 AND a.retired_at IS NULL AND a.identifier_type IN ('sku', 'barcode', 'plu')
           AND (a.identifier_type, a.value) IN (SELECT t, v FROM unnest($2::text[], $3::text[]) AS x(t, v))`,
       [tenantId, keys.identifierTypes, keys.identifierValues],
     );
-    // A store-scoped identifier counts whatever the state of its store (a deleted store's too): the stores module
-    // cannot be asked from here without an import cycle, and a review is the safe answer to a leftover.
+    // A store-scoped identifier of a deleted store can no longer make a scan ambiguous: it is absent, as the console
+    // writes treat a deleted store (the same LIVE_STORE_SQL).
+    const liveStores = await liveStoreIds(client, tenantId, hits.rows.map((h) => h.store_id));
     for (const h of hits.rows) {
       const key = `${h.identifier_type}\u{0}${h.value}`;
-      if (!h.scoped) tenantWide.set(key, h.product_id);
-      else storeScoped.set(key, [...(storeScoped.get(key) ?? []), h.product_id]);
+      if (h.store_id === null) tenantWide.set(key, h.product_id);
+      else if (liveStores.has(h.store_id)) storeScoped.set(key, [...(storeScoped.get(key) ?? []), h.product_id]);
     }
   }
   const productsByName = new Map<string, string[]>();

@@ -236,12 +236,14 @@ export class CatalogImportService {
 
 /**
  * The batch, locked, when it is open and at `expectedVersion`: 404 when absent (or another tenant's), `import_batch_closed`
- * when it is not `draft` or `validated`, `version_conflict` when the version moved. The contract's order of checks.
+ * when it is not `draft` or `validated`, or is past its expiry (the expiry job has not closed it yet: a change must not
+ * move a lapsed batch's expiry forward, spec 049 section 8.1), `version_conflict` when the version moved. The contract's
+ * order of checks.
  */
 async function openCurrentBatch(client: PoolClient, tenantId: string, batchId: string, expectedVersion: number): Promise<BatchRow> {
   const batch = await lockBatch(client, tenantId, batchId);
   if (batch === null) throw new ImportBatchNotFoundError();
-  if (batch.state !== "draft" && batch.state !== "validated") throw new ImportBatchRefusedError("import_batch_closed");
+  if ((batch.state !== "draft" && batch.state !== "validated") || batch.past_expiry) throw new ImportBatchRefusedError("import_batch_closed");
   if (batch.version !== expectedVersion) throw new ImportBatchRefusedError("version_conflict");
   return batch;
 }
