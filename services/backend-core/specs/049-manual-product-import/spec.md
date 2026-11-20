@@ -242,11 +242,19 @@ The states are the spec 042 §3 names, so the batch can become a `catalog`-domai
   confirmed mapping and re-applies the mapping completeness rules (defence in depth), so no column is silently carried
   or skipped (419).
 - The review row list is keyset-paginated by row number, and its cursor is bound to the **validation generation** (a
-  new one only when validation runs), not to `version`, so recording a review decision does not invalidate the paging.
+  new one only when validation runs) and the `status` query filter, not to `version`, so recording a review decision
+  does not invalidate the paging, and a cursor is never reused under another filter (contract 1.0.2-draft).
 - One **open** batch per tenant at a time (a second upload while one is open is `409 import_batch_open`, with the open
-  batch's id), which keeps the preview honest and the publish lock simple. Cancel is explicit.
+  batch's id), which keeps the preview honest and the publish lock simple. Cancel is explicit: like expiry and
+  publish it closes the batch (`closed_at` set, `expires_at` cleared), and a cancelled batch keeps no
+  `preview_hash` (`preview_hash = NULL`; the counts of its last validation stay).
 - Every call that changes the batch sends `expectedVersion`; a mismatch is `409 version_conflict` (spec 042 code).
-- An open batch expires after 7 days (`expired`), keeping its rows for audit (30 days, OD-6).
+- An open batch expires after 7 days (`expired`), keeping its rows for audit (30 days, OD-6). `expires_at` is the
+  last change + 7 days, moved on every change. The expiry is a conditional
+  `UPDATE … SET state = 'expired', … WHERE state IN ('draft','validated') AND version = $v AND expires_at <= now()`
+  with the version the worker read, so a batch changed after that read is never expired; expiring closes the batch
+  (`closed_at` set, `expires_at` cleared, `preview_hash = NULL` for a `validated` batch, as the contract returns a
+  preview hash only when validated or published) and bumps `version`.
 
 ### 8.2 Validation is bound to catalogue state (402, 403)
 
@@ -363,9 +371,12 @@ domain-neutral `change_sets` stays a header move. S4 and S5 follow this choice.
 
 ## 10. Conceptual data model (for the S2 migration; not DDL)
 
-Interim tables (§9.1). Every table carries `tenant_id`, is under ENABLE + FORCE RLS with tenant policies for select,
-insert, update and delete (the retention purge deletes), and references its parent through a composite
-`(tenant_id, id)` foreign key. Column names are the S2 migration's; the wire names are the contract's
+Interim tables (§9.1), created by migration `0124_catalog_import` (RT-1503). Every table carries `tenant_id`, is under
+ENABLE + FORCE RLS with tenant policies for select, insert and update, and references its parent through a composite
+`(tenant_id, id)` foreign key. **Only `catalog_import_rows` has a delete policy** (and the domain role's `DELETE`
+grant): a re-upload replaces the old file's rows and the retention purge removes them. The batches have no delete
+policy and a trigger refuses `DELETE` and `TRUNCATE` for every role (the header is the lasting summary); the mapping
+profiles have no delete policy. Column names are the S2 migration's; the wire names are the contract's
 (`catalog/catalog-import.yaml`).
 
 - `catalog_import_batches`:
@@ -378,32 +389,46 @@ insert, update and delete (the retention purge deletes), and references its pare
     (`null` for XLSX), **`data_row_count`**, **`column_count`**, `parser_version`;
   - **`columns`** (the header text and up to three sample values per column, as the contract's `columns` returns them;
     the bytes are not stored, so the samples cannot be recomputed);
-  - `mapping` (canonical field → column, `null` until confirmed and again after a re-upload),
+  - `mapping`: the contract's `ColumnMapping[]` (column number → target, a canonical field or `ignore`), `null` until
+    confirmed and again after a re-upload,
     **`suggested_mapping`** (**stored**, not recomputed on read: it depends on the previous mapping at re-upload time and
-    on the profiles as they were then, so a read must return what the merchant was shown), `mapping_profile_id`;
+    on the profiles as they were then, so a read must return what the merchant was shown), also a `ColumnMapping[]`;
+    `mapping_profile_id`, a composite `(tenant_id, mapping_profile_id)` foreign key to the profiles;
+  - **`warnings`** (**stored**, the contract's `BatchWarning[]`): computed at upload and at re-upload, never naming the
+    batch itself (a trigger refuses that), and returned as stored;
   - `preview_hash`, `counts`;
   - **`publish_summary`** (**stored** at publish, `null` before): a publish replay returns it, and the replay must
     outlive the idempotency-key TTL (§8.4);
-  - `created_by`, `created_at`, `updated_at`, `published_at`, `expires_at`.
+  - `created_by`, `created_at`, `updated_at`, `published_at`, `expires_at` (open `draft` / `validated` only);
+  - **`closed_at`**: set when the batch is published, cancelled or expired; closing also clears `expires_at`. A closed
+    batch is frozen except for `rows_purged_at`;
+  - **`rows_purged_at`**: set once, by the retention purge, when it deletes the batch's rows.
 - `catalog_import_rows`: `batch_id`, `tenant_id`, `row_number`, `cells` (parsed text per source column), `status`,
   `outcome` (match result, candidate product ids, field diff, identifier adds), `issues` (`code`, `field`, `severity`
   error | review | warning | notice), **`review_reason`** (one of the §7.3 reasons, `null` unless validation sent the
   row to review; kept when a decision changes the status, so `clear` and re-validation can compare it), `resolution`
-  (+ actor, time), `matched_updated_at`, `product_id` (after publish). Primary key `(tenant_id, batch_id, row_number)`,
+  (+ actor, time), `matched_updated_at`, `product_id` (after publish). `row_number` is the **source** row number
+  (row 1 is the header; 2..1,048,576, the XLSX sheet maximum): a skipped blank row leaves a gap, so it is not bounded
+  by the 5,000-row limit, which applies to `data_row_count` only. Primary key `(tenant_id, batch_id, row_number)`,
   which is also the keyset order of the review list; the rows reference their batch by `(tenant_id, batch_id)`.
 - `catalog_import_mapping_profiles`: `id`, `tenant_id`, `name` (1–100 characters, unique per tenant: saving under an
-  existing name replaces it, contract `saveProfileName`), `entries` (header text → canonical field or `ignore`, keyed by
-  the exact trimmed header text, as the re-upload carry is), `created_by`, `created_at`, `updated_by`, `updated_at`.
+  existing name is an upsert that replaces the entries and **keeps the `id`**, so a batch's `mapping_profile_id` stays
+  valid; contract `saveProfileName`), `entries` (header text → canonical field or `ignore`, keyed by the exact trimmed
+  header text, as the re-upload carry is; an **empty or repeated header is never saved** in a profile, since it cannot
+  identify its column), `created_by`, `created_at`, `updated_by`, `updated_at`. No delete policy.
 - Indexes the rules need:
   - **one open batch per tenant**: a partial unique index on `catalog_import_batches (tenant_id)` where `state` is one of
     `draft`, `validated`, `pending_approval`, `approved` (the reserved approval states count as open, so OD-12 can be
     added without a schema change); the upload's `409 import_batch_open` is this index's refusal;
   - **previous-publish lookup**: an index on `(tenant_id, file_sha256, published_at)` for the 30-day
-    `file_previously_published` warning (§8.4).
+    `file_previously_published` warning (§8.4);
+  - **expiry sweep**: a partial index on `(expires_at)` where `state` is `draft` or `validated` (§8.1).
 - Retention and expiry (OD-6, §8.1, §8.7). **S2 (RT-1503) owns the worker job**; no other slice does:
   - an open `draft` or `validated` batch not changed for 7 days becomes `expired`, measured from its last change
-    (`expires_at = updated_at + 7 days`, moved on every change), with one `catalog.import.expire` audit row per batch;
-  - rows of a `cancelled` or `expired` batch are deleted 30 days after that transition;
+    (`expires_at = updated_at + 7 days`, moved on every change), through the conditional `UPDATE` of §8.1, with one
+    `catalog.import.expire` audit row per batch;
+  - rows of a `cancelled` or `expired` batch are deleted 30 days after that transition (`closed_at`), and the batch's
+    `rows_purged_at` is set;
   - rows of a `published` batch are deleted 13 months after `published_at`; the batch header with its `counts` and
     `publish_summary` stays as the summary.
   - File bytes are never stored, so there is nothing else to purge.
@@ -462,6 +487,26 @@ created**: OD-3 chose A for categories (RT-1489 comment 17790).
 | S8 (RT-1510) | **Verification**: 5,000-row Arabic XLSX and CSV, leading-zero and numeric-cell barcodes, `.xlsm` / bomb refusal, RLS isolation between two tenants, publish atomicity under injected failure, stale validation, idempotent replay, POS delta picks up published products and omits unpriced ones, latency budget | Verification | lab or CircleCI `api` / `admin-e2e` | none | S5, S7 |
 | S9 (RT-1508) | **Prices through Pricing** (Planning amendment, then Implementation): price columns produce one draft Price Change Set per batch | Planning → Implementation | spec 049 amendment; Pricing module | `[GATED: contract]` likely | RT-1484, RT-1485 Done |
 | S10 (not created) | **Category create** (only if OD-3 chooses B): a governed category write and its use from import | Planning → Implementation | console-catalog contract | `[GATED: contract]` | OD-3 |
+
+### 12.1 Open items for S4 (RT-1505) and S5 (RT-1507), recorded at S2
+
+Raised in the S2 (RT-1503) review. They do not change the 0124 schema; each must be settled in the named slice's
+Definition of Ready, with a contract revision where the wire changes:
+
+- **Upload fingerprint serialisation (S4).** The §8.4 fingerprint (key + file SHA-256 + canonical query) is serialised
+  as a JSON array of the canonical query values in a fixed parameter order (`mode`, `sheet`, `delimiter`,
+  `file_name`), with `null` for an absent parameter, so an absent parameter can never serialise like any value.
+- **Profile selection rule (S4).** When a tenant has several mapping profiles, the rule that picks the one
+  `suggestedMapping` draws on (and so `mappingProfileId`) is not yet defined; S4 defines it and its tie-break.
+- **Reads after the row purge (S4 / S5).** Once the retention purge has deleted a batch's rows (`rows_purged_at` set),
+  the row list, preview and error report have nothing to return. The contract has no refusal for that yet; a later
+  contract revision adds one, and the runtime must not answer with an empty list as if the batch had no rows.
+- **Blank rows and `row_number` (S4).** A row's number is its source row number (row 1 is the header), so the row
+  numbers of a batch can have gaps where the file has fully blank rows. S4 decides whether a blank row is skipped (a
+  gap, and not counted in `data_row_count`) or staged as an `error` row, and states it with the no-silent-skip rule
+  (decision 419). 0124 (lead decision, RT-1503 review round 3): `row_number` is the source row number, bounded only
+  by the XLSX sheet maximum (2..1,048,576), so gaps never push a valid file out of range; the 5,000 limit applies
+  to `data_row_count` alone.
 
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 

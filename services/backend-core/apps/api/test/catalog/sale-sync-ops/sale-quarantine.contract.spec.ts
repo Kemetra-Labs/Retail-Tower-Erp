@@ -333,8 +333,26 @@ describe("sale quarantine — the Console operations", () => {
     expect(ops.components?.responses?.["QuarantineRepairConflict"]?.description).toEqual(
       expect.stringContaining("repair_conflict"),
     );
-    expect(repair.responses?.["403"]).toEqual({ $ref: "#/components/responses/ForbiddenOrOriginRejected" });
+    expect(repair.responses?.["403"]).toEqual({ $ref: "#/components/responses/QuarantineForbiddenOrOriginRejected" });
     expect(repair.description).toEqual(expect.stringContaining("NOT the sale's capture key"));
+  });
+
+  // Owner decision (RT-1312 comment 17812): a wrong role is 404, like the rest of the sale-sync-ops family.
+  it.each(CONSOLE_OPS)("%s: a wrong role is 404 and the 403 entry says it never is (RT-1312 c17812)", (_id, path, method) => {
+    const o = op(ops, path, method);
+    expect(o.responses?.["404"]).toEqual({ $ref: "#/components/responses/QuarantineNotFound" });
+    const forbidden = o.responses?.["403"] as { $ref: string };
+    expect(forbidden.$ref).toMatch(/^#\/components\/responses\/QuarantineForbidden(OrOriginRejected)?$/);
+    const defs = ops.components?.responses as Record<string, { description?: string }>;
+    const text = (name: string): string => String(defs[name]?.description).replace(/\s+/g, " ");
+    expect(text(forbidden.$ref.split("/").pop()!)).toEqual(expect.stringContaining("NEVER the answer to a wrong role"));
+    expect(text("QuarantineNotFound")).toEqual(expect.stringContaining("role is not `owner` or `tenant_admin`"));
+  });
+
+  it("the family-wide status mapping and the info note say a wrong role is 404 on the quarantine operations", () => {
+    const text = String(ops.info?.description).replace(/\s+/g, " ");
+    expect(text).toEqual(expect.stringContaining("A wrong role is 404"));
+    expect(text).toEqual(expect.stringContaining("not on the four quarantine operations"));
   });
 
   it("states the one-sale-per-provenance guarantee and that the till key is not replayed (D1 wording)", () => {

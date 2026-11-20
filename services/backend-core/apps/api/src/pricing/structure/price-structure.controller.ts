@@ -43,10 +43,10 @@ import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ConsoleRateLimit } from "../../console-rate-limit";
 import { TenantContextGuard, type TenantContextRequest } from "../../context";
 import { Idempotent } from "../../idempotency";
+import { parsePathId, sessionReader } from "../pricing-query";
 import {
   CreatePriceBookBodySchema,
   CreatePriceZoneBodySchema,
-  PathIdSchema,
   RetirePriceZoneBodySchema,
   StoreMembershipsQuerySchema,
   ZoneStoresQuerySchema,
@@ -191,19 +191,11 @@ export class PriceStructureController {
   }
 }
 
-/** A request-shape error, checked before any read: it discloses nothing. */
-function parseId(value: string, name: string): string {
-  if (!PathIdSchema.safeParse(value).success) {
-    throw new BadRequestException({ code: "validation_error", message: `${name} must be a valid UUID` });
-  }
-  return value.toLowerCase();
-}
+/** A request-shape error, checked before any read: it discloses nothing (shared with price inquiry). */
+const parseId = parsePathId;
 
-function reader(request: TenantContextRequest): StructureReadInput {
-  const ctx = request.context;
-  if (ctx === undefined || ctx.tenantId === null) throw new UnauthorizedException("Unauthorized");
-  return { tenantId: ctx.tenantId, context: ctx };
-}
+/** The session's tenant and context, or 401 (shared with price inquiry). */
+const reader: (request: TenantContextRequest) => StructureReadInput = sessionReader;
 
 function writer(request: TenantContextRequest): StructureWriteInput {
   const read = reader(request);

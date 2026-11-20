@@ -4364,6 +4364,219 @@ export namespace PosSalesSaleHistory {
     }
 }
 
+/** Generated from contracts/backend-core/openapi/pos-sales/sale-quarantine.yaml. */
+export namespace PosSalesSaleQuarantine {
+    export interface paths {
+        "/api/pos/v1/quarantined-sales": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Upload a refused or held sale for Console repair.
+             * @description Store one refused or held sale in Backend-Core's quarantine list. The tenant, store and device come from the device token. Naturally idempotent on `(tenant, sourceSystem, externalId)` within the store: 201 for the first upload, 200 for a repeat with the same sale facts (RT-1206), 409 `quarantine_conflict` for different facts or another store's item. The body is stored verbatim and is not validated as a capture request. See the info description for the till's handling of each answer.
+             */
+            post: operations["posQuarantineSale"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Canonical error envelope, identical to the shared shape in `pos-sales/sales.yaml` (no extra fields, no `details`). */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the actual cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description The `error.code` of the `captureSale` answer (for example `sale_tender_mismatch`, `validation_error`), or `null` when unknown or not sent. A machine label only, never the message. */
+            ErrorCodeLabel: string | null;
+            /** @description The till's claim of why the sale is stuck. `httpStatus` and `errorCode` are the `captureSale` answer the till recorded, or `null` when unknown. For `held_previous_pairing` both are `null` (the sale was not sent under this pairing). A known `httpStatus` is 409 for `payload_divergence` and 403 for `cashier_claim_refused`. */
+            QuarantineReason: {
+                errorCode: components["schemas"]["ErrorCodeLabel"];
+                /** @description The non-retryable 4xx status `captureSale` answered, or `null` when unknown or not sent. Never 401, 425 or 429 (those are retried, not refused). A 404 is a refusal (the till dead-letters it). */
+                httpStatus: number | null;
+                /**
+                 * @description `refused`: any other non-retryable 4xx (a till `permanent` row that a capture answer refused). `payload_divergence`: a capture 409 (RT-190). `cashier_claim_refused`: a device-path 403 `refused` (RT-224). `held_previous_pairing`: queued under an earlier pairing (RT-221).
+                 * @enum {string}
+                 */
+                kind: "refused" | "payload_divergence" | "cashier_claim_refused" | "held_previous_pairing";
+            } & (unknown & unknown & unknown);
+            /** @description What the till learns from an upload: the item's reference, its state now and when Backend-Core first received it. No sale facts, no money. */
+            QuarantineReceipt: {
+                /**
+                 * Format: uuid
+                 * @description Stable server-issued reference of the quarantine item (UUIDv7), the same value as `QuarantinedSale.quarantineRef` on the Console.
+                 */
+                quarantineRef: string;
+                /**
+                 * Format: date-time
+                 * @description Backend-Core server clock at the first upload.
+                 */
+                receivedAt: string;
+                state: components["schemas"]["QuarantineState"];
+            };
+            /** @description One refused or held sale. Closed: an unknown key, or any identity or server-owned key (tenant, store, device, received time), is 400 `validation_error` and nothing is stored. A held sale must carry a non-null `previousTerminalId`. */
+            QuarantineSaleUpload: {
+                /** @description The sale's POS-side identifier, as in `CaptureSaleRequest.externalId`. */
+                externalId: string;
+                /** @description The `Idempotency-Key` the till sent (refused) or would send (held) with this sale's `captureSale`, under the capture rule (RT-181). The POS sends the sale's `externalId` as its key today. Recorded with the item for audit only (not projected to the Console and not replayed; see the repair notes in `sale-sync-ops.yaml` 1.3.0-draft). */
+                idempotencyKey: string;
+                /**
+                 * Format: uuid
+                 * @description The `devices.id` (pairing `terminal_id`) of the earlier pairing the sale was queued or dead-lettered under. Required and non-null when `reason.kind` is `held_previous_pairing`. For a refused kind: non-null when the till recorded the dead-letter under an earlier pairing, null or absent when under the current one. Must be a device of the uploading device's tenant and store (else 400).
+                 */
+                previousTerminalId?: string | null;
+                reason: components["schemas"]["QuarantineReason"];
+                /** @description The capture request body as the till builds it for `captureSale` (`pos-sales/sales.yaml` `CaptureSaleRequest`). Stored verbatim and NOT validated against `CaptureSaleRequest` here (a 400-refused body is not a valid one). When it carries `sourceSystem` or `externalId` as strings, they must equal the upload's (else 400). */
+                saleBody: Record<string, never>;
+                /** @description The sale's provenance source, as in `CaptureSaleRequest.sourceSystem`. With `externalId`, the natural key of the quarantine item. */
+                sourceSystem: string;
+                /**
+                 * Format: date-time
+                 * @description When the till dead-lettered or held the sale, by the till's own clock. Provenance only: never used for ordering, liveness or any check.
+                 */
+                tillRecordedAt: string;
+            } & unknown;
+            /**
+             * @description The quarantine item's state, set by Backend-Core only. `open`: waiting for a Console repair. `captured`: a Console repair captured the stored body as a new sale. `already-captured`: a Console repair found the sale already captured with the same facts (resolved, not an error). `written-off`: closed by a Console write-off, without a sale. The full Console projection is `QuarantinedSale` in `sale-sync-ops/sale-sync-ops.yaml`. May gain a value (see "Evolution"); treat an unknown value as unknown.
+             * @enum {string}
+             */
+            QuarantineState: "open" | "captured" | "already-captured" | "written-off";
+        };
+        responses: {
+            /** @description 413 `payload_too_large`: the request body is over this route's JSON body limit (256 kB, decision P5, RT-1284 pattern), refused before validation. Nothing is stored. Terminal for the till; the row stays visible in the heartbeat count and goes to support. */
+            PayloadTooLarge: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 `quarantine_conflict`: this provenance is already quarantined by this store with different sale facts (a conflict is counted on the item), or by another store (nothing is counted or disclosed). One body for both. Nothing else is stored or changed. Terminal for the till. */
+            QuarantineConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 500 `system_failure`: an unexpected server error, cause recorded server-side by `request_id`. Transient for the till. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429: the device's write budget for this upload is spent (ADR 0009, keyed per device). Its own bucket, separate from `captureSale`'s (decision P6), so an upload backlog never slows live capture. Transient: the till retries after `Retry-After`, never treats it as a refusal. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfter"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Generic 401: missing, invalid or revoked device token, or an inactive tenant. Non-disclosing. Transient for the till (it may re-pair). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400 `validation_error`: a malformed or unknown body key, a field out of bounds, a `reason` that breaks its rules, a held sale without `previousTerminalId`, a `previousTerminalId` that is not a device of this tenant and store, a `saleBody` that is not a JSON object or whose `sourceSystem` / `externalId` differ from the upload's, or a NUL (U+0000) character anywhere in the upload (in `sourceSystem`, `externalId` or any string or key of `saleBody`): the store cannot hold it, so the body can never be quarantined and the sale stays on the till (it keeps counting as dead-letter, as today). Deterministic; nothing is stored. One body for every cause (non-disclosing). Terminal for the till. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: never;
+        requestBodies: never;
+        headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days` (the same instant as `rotate_after` in the `posRotateTerminalToken` response). The terminal rotates at or after it. Absent while more than 15 days remain. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). The server keeps no per-device state, so it sends the stage on every response while it holds. */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+            /** @description Seconds the caller should wait before retrying, on a 429 (ADR 0009). Clamped to [1, 300], as on `pos-sales/sales.yaml`. */
+            RetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posQuarantineSale: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["QuarantineSaleUpload"];
+                };
+            };
+            responses: {
+                /** @description The same provenance was already quarantined by this store with the same sale facts. Returns the stored item's receipt; nothing new is stored. */
+                200: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantineReceipt"];
+                    };
+                };
+                /** @description The sale was quarantined for the first time. */
+                201: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["QuarantineReceipt"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                409: components["responses"]["QuarantineConflict"];
+                413: components["responses"]["PayloadTooLarge"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 /** Generated from contracts/backend-core/openapi/pos-sales/sales.yaml. */
 export namespace PosSalesSales {
     export interface paths {
@@ -4738,12 +4951,14 @@ export namespace PosSalesSales {
              *     Manual discount (RT-740): when `discount` is present, `lineAmount` is the line's NET and the price condition becomes `lineAmount = unitPrice × quantity − discount.amount` exactly; the minor-unit and whole-quantity conditions are unchanged, and `discount.amount` must fit the minor unit too. Without `discount` the condition is `lineAmount = unitPrice × quantity`, exactly as before.
              *     Tracking (RT-450): a line of a batch-tracked product also carries `tracking` (`CaptureSaleLineTracking`). It does not change the price invariant or any other rule of the line; how it is classified is stated on `captureSale`.
              *     Automatic offer (RT-1335, spec 048; from the RT-1337 runtime): a line that took part in an offer carries `promotion` (`CaptureSaleLinePromotion`). `lineAmount` is then the line's NET and the price condition becomes `lineAmount = unitPrice × quantity − promotion.discountAmount` exactly; the minor-unit and whole-quantity conditions are unchanged. `promotion` and `discount` on the same line are 400 `validation_error` (OD-5: offers are exclusive).
+             *     Pricing provenance (RT-1151, RT-282 PR-07): a line may carry `pricingProvenance` (`PricingProvenance`), what priced it on the till. It is stored verbatim and does not change the price invariant or any other rule of the line; a malformed object (an unknown key, a mixed variant, a bad id or revision) is 400 `validation_error`.
              */
             CaptureSaleLine: {
                 currencyCode: components["schemas"]["CurrencyCode"];
                 discount?: components["schemas"]["CaptureSaleLineDiscount"];
                 lineAmount: components["schemas"]["NonNegativeDecimalAmount"];
                 lineName: string;
+                pricingProvenance?: components["schemas"]["PricingProvenance"];
                 promotion?: components["schemas"]["CaptureSaleLinePromotion"];
                 /** @description Line quantity as reported (exact-decimal string, no float). Bound is numeric(19,6): at most 13 integer digits and 6 fractional digits. */
                 quantity: string;
@@ -5037,6 +5252,46 @@ export namespace PosSalesSales {
             NonNegativeDecimalAmount: string;
             /** @description Strictly positive exact-decimal amount as a string (`numeric(19,4)`): at most 15 integer and 4 fractional digits, no sign, zero rejected (RT-417). Paired with the sale's `currency_code`. */
             PositiveDecimalAmount: string;
+            /** @description What produced a selling price. Shared verbatim with `pricing/price-inquiry.yaml` and the POS read-down projection (`catalog/read-down.yaml`; its copy lands with RT-282 PR-06). `pricing`: a Backend-Core Pricing resolution; on a sale line `pricingRevision` is the Store revision the till had applied (spec 043 G4-11). `legacy`: the pre-cutover legacy catalogue path, which has no event or price kind; `catalogCursor` is the read-down cursor the price was served under. */
+            PricingProvenance: components["schemas"]["PricingProvenancePricing"] | components["schemas"]["PricingProvenanceLegacy"];
+            PricingProvenanceLegacy: {
+                /** @description The opaque read-down catalogue cursor the price was served under. */
+                catalogCursor: string;
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                origin: "legacy";
+                /**
+                 * @description `legacy_tenant`: `tenant_products.default_price`. `legacy_store`: `store_product_overrides.price`.
+                 * @enum {string}
+                 */
+                sourceScope: "legacy_tenant" | "legacy_store";
+            };
+            PricingProvenancePricing: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                origin: "pricing";
+                /** Format: uuid */
+                priceEventId: string;
+                /**
+                 * @description v1 has only `regular` (OD-1). `clearance`, `open` and `manual_override` are reserved for later items and are additive.
+                 * @enum {string}
+                 */
+                priceKind: "regular";
+                /**
+                 * Format: int64
+                 * @description A tenant Pricing Revision number (monotonic per tenant, OD-3).
+                 */
+                pricingRevision: number;
+                /**
+                 * @description The scope of a price event; also the precedence layer (Store > Zone > Book).
+                 * @enum {string}
+                 */
+                sourceScope: "book" | "zone" | "store";
+            };
             /** @description RT-1335: one offer's clawback on a return, `max(0, D_held − D_remaining − disc_ret)` (see `recordReturn`), computed with the frozen offer version and prices of the sale and net of the clawbacks of earlier returns. */
             PromotionClawback: {
                 amount: components["schemas"]["PositiveDecimalAmount"];

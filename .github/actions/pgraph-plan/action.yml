@@ -3,7 +3,8 @@
 # `run:` steps, so a fix to the planner is made here once.
 #
 # Trust model, unchanged from the six inline copies it replaces (RT-867, MR-4): the evaluator and
-# graph.yaml are the TRUSTED commit (the PR base; the pushed main commit on push), extracted with
+# graph.yaml are the TRUSTED commit (the PR base; the pushed main commit on push; the main commit a
+# nightly `schedule` or a manual `workflow_dispatch` full run started on, RT-1471), extracted with
 # `git archive`; the PR head is read as git data only, never executed. This action file itself is read
 # from the same ref as the calling workflow (a pull_request run uses the merge ref, as it does for the
 # workflow file); the enforcing gate (gate.yml) re-evaluates with base code only.
@@ -36,11 +37,32 @@ runs:
         PR_BASE: ${{ github.event.pull_request.base.sha }}
         PR_HEAD: ${{ github.event.pull_request.head.sha }}
         SHA: ${{ github.sha }}
+        REF: ${{ github.ref }}
+        # RT-1471: only a workflow_dispatch run has an input. It reaches the script through env, never inline.
+        EXPECTED_SHA: ${{ github.event.inputs.expected_sha }}
       run: |
         set -euo pipefail
         case "$EVENT" in
           pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
           push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
+          # RT-1471 (nightly full CI): the schedule and a manual dispatch are full runs of the main tip, trusted
+          # exactly like a push (the evaluator comes from the commit being run, which is main's own). Fail
+          # closed on anything else: a dispatch from another ref would run that ref's code as the trusted
+          # evaluator, and a dispatch must name the SHA it is meant to prove, so a moved main fails here, in
+          # the plan job, before any product job starts.
+          schedule|workflow_dispatch)
+            if [ "$REF" != "refs/heads/main" ]; then
+              echo "::error::$EVENT runs only on refs/heads/main (got '$REF')"; exit 1
+            fi
+            if [ "$EVENT" = workflow_dispatch ]; then
+              if [[ ! "$EXPECTED_SHA" =~ ^[0-9a-f]{40}$ ]]; then
+                echo "::error::workflow_dispatch needs expected_sha: the full 40-character lowercase SHA of the main commit to prove"; exit 1
+              fi
+              if [ "$EXPECTED_SHA" != "$SHA" ]; then
+                echo "::error::expected_sha $EXPECTED_SHA is not the commit this run started on ($SHA); main has moved or the SHA is wrong"; exit 1
+              fi
+            fi
+            base="$SHA"; head="$SHA" ;;
           *) echo "::error::unsupported event '$EVENT'"; exit 1 ;;
         esac
         [[ "$base" =~ ^[0-9a-f]{40}$ && "$head" =~ ^[0-9a-f]{40}$ ]]
@@ -86,10 +108,19 @@ runs:
         if [ "$(jq '.products | length' "$plan")" = "0" ]; then
           echo "::error::trusted graph invalid: $(jq -c .graph_validation "$plan")"; exit 1
         fi
+        # RT-1471: a nightly or manual full run exists to run everything. If the plan did not select all, or
+        # the graph did not validate, fail loudly instead of running (and reporting green on) a subset.
+        case "$EVENT" in
+          schedule|workflow_dispatch)
+            jq -e '.select_all == true and .graph_validation.status == "pass"' "$plan" > /dev/null \
+              || { echo "::error::$EVENT plan is not a valid full selection: $(jq -c '{select_all, graph_validation}' "$plan")"; exit 1; }
+            ;;
+        esac
         jobs="$(jq -c '.needed_jobs | if all(test("^[a-z0-9/-]+$")) then . else error("bad job key") end' "$plan")"
         echo "jobs=$jobs" >> "$GITHUB_OUTPUT"
         {
           echo "### project graph plan"
+          echo "event: \`$EVENT\`, sha: \`$HEAD_SHA\`, jobs selected: \`$(jq 'length' <<< "$jobs")\`"
           echo "graph validation: \`$(jq -r .graph_validation.status "$plan")\` $(jq -c .graph_validation.reasons "$plan"), select_all: \`$(jq -r .select_all "$plan")\`"
           echo
           echo "selected: \`$jobs\`"

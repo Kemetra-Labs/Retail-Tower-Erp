@@ -744,3 +744,28 @@ export function isRt1487ExemptFile(branch: string, file: string): boolean {
     (RT_1487_CATALOG_DELTAS_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `claude/eager-turing-0o0mhg-pos-repin` is the Jira RT-1312 POS repin: `npm run contracts:repin --
+ * --add pos-sales/sale-quarantine.yaml` vendors the quarantine upload contract the till uploader
+ * (#724) already calls, and regenerates `src/shared/api-types.ts` (the same `[GATED: generated
+ * client pin]` step as the RT-1312 heartbeat and RT-1253 pins above).
+ *
+ * Authority: the RT-1312 Phase 3 remaining-work brief (the POS repin and its known-violation
+ * deletion are listed there) and the owner's approval in chat on 2026-11-20 ("Recommended
+ * approved"), following the RT-1253 pattern: exactly ONE file on exactly ONE branch (exact name,
+ * no `startsWith`); the codegen tool stays refused. Narrowness is asserted by
+ * `source-scope-guard-rt1312-repin.test.ts`.
+ */
+export const RT_1312_QUARANTINE_REPIN_BRANCH = 'claude/eager-turing-0o0mhg-pos-repin' as const;
+export const RT_1312_QUARANTINE_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1312 quarantine repin exemption allows on `branch`. */
+export function isRt1312QuarantineRepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1312_QUARANTINE_REPIN_BRANCH &&
+    (RT_1312_QUARANTINE_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
