@@ -597,9 +597,24 @@ describe("StoresService.update", () => {
     mockPricingCalls.length = 0;
     await service.update(makeCtx(), STORE_ID, { is_active: false });
     expect(mockPricingCalls).toEqual(["lock", "update"]);
+    expect(storesRepo.findById).not.toHaveBeenCalled();
     mockPricingCalls.length = 0;
+    storesRepo.findById.mockResolvedValue(makeStoreRecord({ isActive: false }));
     await service.update(makeCtx(), STORE_ID, { is_active: true });
     expect(mockPricingCalls).toEqual(["lock", "update", "bootstrap"]);
+  });
+
+  // Review round 1 (m5): an `is_active: true` PATCH on an active Store is no activation.
+  it("UP3b: is_active true on an already active Store locks but writes no bootstrap row", async () => {
+    const { service, storesRepo } = buildService();
+    storesRepo.findById.mockResolvedValue(makeStoreRecord({ isActive: true }));
+    storesRepo.update.mockImplementation(async () => {
+      mockPricingCalls.push("update");
+      return makeStoreRecord();
+    });
+    mockPricingCalls.length = 0;
+    await service.update(makeCtx(), STORE_ID, { is_active: true });
+    expect(mockPricingCalls).toEqual(["lock", "update"]);
   });
 
   it("UP4: a rename alone is no lifecycle write: no pricing lock", async () => {

@@ -212,6 +212,11 @@ async function recordLines(client: Queryable, w: PublishWrite, records: Readonly
   );
 }
 
+async function liveStoreIds(client: Queryable, tenantId: string): Promise<Set<string>> {
+  const all = await liveAndNamedStores(client, tenantId, []);
+  return new Set(all.filter((s) => s.live).map((s) => s.id));
+}
+
 /** Step 6: the Stores revision `revisionNo` can change. */
 async function fanOut(client: Queryable, w: PublishWrite, revisionNo: number): Promise<number> {
   const touched = await client.query<{ scope: string | null; zone: string | null; store: string | null }>(
@@ -230,8 +235,8 @@ async function fanOut(client: Queryable, w: PublishWrite, revisionNo: number): P
     if (t.scope === "book" || t.zone === w.defaultZoneId) everyStore = true;
     else if (t.zone !== null) zones.add(t.zone);
   }
-  const live = await liveAndNamedStores(client, w.tenantId, []);
-  const liveIds = new Set(live.filter((s) => s.live).map((s) => s.id));
+  // Review round 1, m6: the tenant's Stores are loaded only when a Book or Zone row needs them.
+  const liveIds = everyStore || zones.size > 0 ? await liveStoreIds(client, w.tenantId) : new Set<string>();
   if (everyStore) for (const id of liveIds) stores.add(id);
   if (zones.size > 0) {
     const members = await client.query<{ store: string }>(
@@ -250,16 +255,25 @@ async function fanOut(client: Queryable, w: PublishWrite, revisionNo: number): P
   return stores.size;
 }
 
-/** Step 7: the published sets this revision completed superseding (their ids). */
-async function supersedeCompleted(client: Queryable, w: PublishWrite, revisionNo: number): Promise<{ id: string; kind: string; version: number }[]> {
-  const r = await client.query<{ id: string; kind: string; version: number }>(
+/** A published set this revision completed superseding, as its audit row names it. */
+interface SupersededSet {
+  readonly id: string;
+  readonly kind: string;
+  readonly version: number;
+  readonly previewHash: string | null;
+  readonly reasonPresent: boolean;
+}
+
+/** Step 7: the published sets this revision completed superseding. */
+async function supersedeCompleted(client: Queryable, w: PublishWrite, revisionNo: number): Promise<SupersededSet[]> {
+  const r = await client.query<SupersededSet>(
     `UPDATE change_sets c SET state = 'superseded'
       WHERE c.tenant_id = $1::uuid AND c.id <> $2::uuid AND c.state = 'published'
         AND c.revision_no IN (SELECT e.published_in_revision FROM price_events e WHERE e.tenant_id = $1::uuid AND e.ended_in_revision = $3
                               UNION SELECT m.published_in_revision FROM price_zone_memberships m WHERE m.tenant_id = $1::uuid AND m.ended_in_revision = $3)
         AND NOT EXISTS (SELECT 1 FROM price_events e WHERE e.tenant_id = $1::uuid AND e.published_in_revision = c.revision_no AND e.state = 'active')
         AND NOT EXISTS (SELECT 1 FROM price_zone_memberships m WHERE m.tenant_id = $1::uuid AND m.published_in_revision = c.revision_no AND m.state = 'active')
-      RETURNING c.id::text AS id, c.kind, c.version`,
+      RETURNING c.id::text AS id, c.kind, c.version, c.preview_hash AS "previewHash", c.reason IS NOT NULL AS "reasonPresent"`,
     [w.tenantId, w.changeSetId, revisionNo],
   );
   return r.rows;
@@ -269,7 +283,7 @@ async function supersedeCompleted(client: Queryable, w: PublishWrite, revisionNo
 export interface PublishResult {
   readonly revisionNo: number;
   readonly fanOutStores: number;
-  readonly superseded: readonly { readonly id: string; readonly kind: string; readonly version: number }[];
+  readonly superseded: readonly SupersededSet[];
 }
 
 /** Every replaced event and membership is still active (else a later write ended it: stale). */

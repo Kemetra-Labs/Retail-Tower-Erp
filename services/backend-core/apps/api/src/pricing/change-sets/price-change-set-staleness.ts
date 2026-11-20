@@ -18,6 +18,11 @@
  *         without a membership falls back to).
  *     Fail closed: (a) pairs every product of the set with every target Store and (c) ignores the
  *     line's interval, so the check may stale a set a finer rule would keep, never the reverse.
+ *   3. (Review round 1, M1; CodeRabbit 4641764676) a `standard` set's earliest exact per-Store
+ *      activation instant (its stored preview rows and membership changes, `EARLIEST_ACTIVATION`)
+ *      is at or before now plus the minimum lead time (0 in v1): a set approved in time but published late would otherwise
+ *      publish a past-dated price. Re-validation then classes the line `past_dated` (blocking).
+ *      Emergency and rollback sets are exempt (their own governed path, spec 042 §7).
  * Not stale with a moved head: the caller advances `validatedAtRevision` to the head.
  */
 import type { PoolClient } from "pg";
@@ -26,6 +31,7 @@ import type { ResolutionPriceBook } from "../resolution/types";
 import { LOCAL_TEXT, wallClock } from "../inquiry/price-inquiry.repository";
 import { targetStoreSetHash } from "./price-change-set-hashes";
 import { currentTargetStores, type StoredLineReach } from "./price-change-set-validation";
+import { DEFAULT_MIN_LEAD_TIME_MS } from "./price-change-set-lead-time";
 import { headRevision, loadReachContext } from "./price-change-set-validation.repository";
 import type { ChangeSetKindForValidation } from "./price-change-set-validation.types";
 
@@ -80,9 +86,27 @@ export async function loadStoredLines(client: Queryable, tenantId: string, chang
   }));
 }
 
+/**
+ * The earliest exact per-Store activation instant of a set's stored preview at a version: its
+ * preview rows' and membership changes' `effective_from` (null: none). `t`, `id` and `v` are SQL
+ * expressions for the tenant, the set and the version. `publicationStatus` (read time) and rule 3
+ * use it. v1 deviation (review round 1, m4): the instants are the ones stored at validation, so a
+ * Store time-zone change after publish is not reflected (a follow-up computes them from the live
+ * Store zones).
+ */
+export const EARLIEST_ACTIVATION = (t: string, id: string, v: string): string =>
+  `(SELECT min(q.at) FROM (
+      SELECT min(p.effective_from) AS at FROM price_change_set_preview_lines p
+       WHERE p.tenant_id = ${t} AND p.change_set_id = ${id} AND p.change_set_version = ${v}
+      UNION ALL
+      SELECT min(m.effective_from) FROM price_change_set_preview_memberships m
+       WHERE m.tenant_id = ${t} AND m.change_set_id = ${id} AND m.change_set_version = ${v}) q)`;
+
 /** What the check needs of the set and its validation. */
 export interface StalenessInput {
   readonly tenantId: string;
+  readonly changeSetId: string;
+  readonly version: number;
   readonly kind: ChangeSetKindForValidation;
   readonly nowMs: number;
   readonly book: ResolutionPriceBook;
@@ -134,9 +158,23 @@ async function laterRevisionIntersects(client: Queryable, input: StalenessInput,
   return r.rows[0]?.hit ?? true;
 }
 
+/** Rule 3: a standard set's earliest activation is no longer at least the lead time ahead. */
+async function startsTooSoon(client: Queryable, input: StalenessInput): Promise<boolean> {
+  if (input.kind !== "standard") return false;
+  const r = await client.query<{ at: Date | null }>(`SELECT ${EARLIEST_ACTIVATION("$1::uuid", "$2::uuid", "$3")} AS at`, [
+    input.tenantId,
+    input.changeSetId,
+    input.version,
+  ]);
+  const at = r.rows[0]?.at ?? null;
+  // At or before (CodeRabbit 4641764676): an activation at publish time is already in the past.
+  return at !== null && at.getTime() <= input.nowMs + DEFAULT_MIN_LEAD_TIME_MS;
+}
+
 /** Whether the set is stale at the head, and the head it was checked at. */
 export async function checkStaleness(client: Queryable, input: StalenessInput): Promise<{ readonly stale: boolean; readonly head: number }> {
   const head = await headRevision(client, input.tenantId);
+  if (await startsTooSoon(client, input)) return { stale: true, head };
   if (!(await targetStoresHold(client, input, head))) return { stale: true, head };
   if (head > input.validatedAtRevision && (await laterRevisionIntersects(client, input, head))) return { stale: true, head };
   return { stale: false, head };

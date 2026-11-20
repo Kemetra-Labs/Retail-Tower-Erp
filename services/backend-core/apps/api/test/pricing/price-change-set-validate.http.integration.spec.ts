@@ -894,24 +894,44 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     // RT-1484 PR-5 (carry-over from the #748 review): deterministic. An admin transaction holds
     // tenant A's 'pricing-validate' lock; both validations start and block on it (seen in
     // pg_locks); releasing it lets them run one after the other.
+    // Review round 1 (t1, CodeRabbit 4641764687): the waiters are matched on the exact key
+    // (`hashtextextended`, split by pg_locks into classid = high and objid = low 32 bits,
+    // objsubid = 1) in this database, not held by the holder's backend.
+    const lockKey = `pricing-validate:${TENANT_A}`;
     const holder = await env!.admin.connect();
     let both: Promise<[ChangeSet, ChangeSet]> | undefined;
     try {
       await holder.query("BEGIN");
-      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2::text, 0))`, ["pricing-validate", TENANT_A]);
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockKey]);
+      const holderPid = (await holder.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
       both = Promise.all([validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)]);
       const deadline = Date.now() + 20_000;
       for (;;) {
-        const w = await env!.admin.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`);
+        const w = await env!.admin.query<{ n: number }>(
+          `WITH k AS (SELECT hashtextextended($1, 0) AS v)
+           SELECT count(*)::int AS n
+             FROM pg_locks l, k
+            WHERE l.locktype = 'advisory' AND NOT l.granted AND l.pid <> $2
+              AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+              AND l.objsubid = 1
+              AND l.classid::bigint = (k.v >> 32) & 4294967295
+              AND l.objid::bigint = k.v & 4294967295`,
+          [lockKey, holderPid],
+        );
         if (w.rows[0]!.n >= 2) break;
         if (Date.now() > deadline) throw new Error("the two validations never blocked on the validate lock");
         await new Promise((r) => setTimeout(r, 50));
       }
-    } finally {
+    } catch (err) {
+      // Never leave the two requests unobserved when the wait fails.
       await holder.query("COMMIT");
       holder.release();
+      await both?.catch(() => undefined);
+      throw err;
     }
-    const [vx, vy] = await both!;
+    await holder.query("COMMIT");
+    holder.release();
+    const [vx, vy] = await both;
     const pending = [vx, vy].map((v) => (v.summary as { findings: { conflicts_pending: number } }).findings.conflicts_pending).sort();
     expect(pending).toEqual([0, 1]);
   });
