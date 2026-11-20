@@ -995,7 +995,7 @@ export class PriceChangeSetsService {
    * the `published` rows only; every other state reads null.
    */
   private async withPublicationStatus(client: PoolClient, tenantId: string, rows: readonly ChangeSetRow[]): Promise<ChangeSetRow[]> {
-    const published = rows.filter((r) => r.state === "published").map((r) => ({ id: r.id, version: r.version }));
+    const published = rows.flatMap((r) => (r.state === "published" && r.revision_no !== null ? [{ id: r.id, version: r.version, revisionNo: Number(r.revision_no) }] : []));
     const statuses = await publicationStatuses(client, tenantId, this.clock(), published);
     return rows.map((r) => ({ ...r, publication_status: statuses.get(r.id) ?? null }));
   }
@@ -1008,8 +1008,7 @@ export class PriceChangeSetsService {
     );
     const found = r.rows[0];
     if (!found) throw new PriceChangeSetNotFoundError();
-    const [row] = await this.withPublicationStatus(client, tenantId, [found]);
-    if (row === undefined) throw new PriceChangeSetNotFoundError();
+    const [row = found] = await this.withPublicationStatus(client, tenantId, [found]);
     const items = await client.query<{ item: PriceChangeItem }>(
       `SELECT i.item FROM price_change_set_items i
         WHERE i.tenant_id = $1::uuid AND i.change_set_id = $2::uuid
