@@ -13,6 +13,7 @@
  *   POST  /api/v1/pricing/change-sets/{changeSetId}/approve  consoleApprovePriceChangeSet (PR-10b)
  *   POST  /api/v1/pricing/change-sets/{changeSetId}/reject   consoleRejectPriceChangeSet (PR-10b)
  *   POST  /api/v1/pricing/change-sets/{changeSetId}/publish  consolePublishPriceChangeSet (PR-10b)
+ *   POST  /api/v1/pricing/change-sets/{changeSetId}/rollback consoleRollbackPriceChangeSet (PR-10c, PR-6)
  *
  * Auth: `SessionOnlyAdminGuard` (the human cookie session only; every bearer is 401; a write
  * without a trusted `Origin` is 403 `origin_rejected`, RT-430), then `TenantContextGuard`, then
@@ -54,6 +55,7 @@ import {
   ApprovePriceChangeSetBodySchema,
   CreatePriceChangeSetBodySchema,
   RejectPriceChangeSetBodySchema,
+  RollbackPriceChangeSetBodySchema,
   SubmitPriceChangeSetBodySchema,
   ListChangeSetsQuerySchema,
   PreviewQuerySchema,
@@ -62,6 +64,7 @@ import {
   type ApprovePriceChangeSetBody,
   type CreatePriceChangeSetBody,
   type RejectPriceChangeSetBody,
+  type RollbackPriceChangeSetBody,
   type SubmitPriceChangeSetBody,
   type ListChangeSetsQuery,
   type PreviewQuery,
@@ -73,6 +76,7 @@ import {
   PriceChangeSetConflictError,
   PriceChangeSetForbiddenError,
   PriceChangeSetNotFoundError,
+  PriceChangeSetRollbackBlockedError,
   PriceChangeSetUnprocessableError,
   type PriceChangeSetBody,
   type PriceChangeSetConflictCode,
@@ -97,6 +101,8 @@ const CONFLICT_MESSAGES: Readonly<Record<PriceChangeSetConflictCode, string>> = 
   stale_validation: "A later revision or Store change affects the Change Set; it is a draft again: validate it again.",
   preview_changed: "The Change Set's preview is not the one approved; reload it.",
 };
+
+const ROLLBACK_BLOCKED_MESSAGE = "Later revisions changed what this rollback would restore; roll back newest first or author a corrective Change Set.";
 
 const FORBIDDEN_MESSAGE = "A sensitive Change Set needs an approver other than its author and submitter.";
 
@@ -244,6 +250,20 @@ export class PriceChangeSetsController {
     return mapErrors(() => this.service.publish(writer(request), id, body));
   }
 
+  @Post(`${CHANGE_SET}/rollback`)
+  @HttpCode(201)
+  @Idempotent("required")
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("write")
+  rollback(
+    @Req() request: TenantContextRequest,
+    @Param("changeSetId") changeSetId: string,
+    @Body(new ZodValidationPipe(RollbackPriceChangeSetBodySchema)) body: RollbackPriceChangeSetBody,
+  ): Promise<PriceChangeSetBody> {
+    const id = parsePathId(changeSetId, "changeSetId");
+    return mapErrors(() => this.service.rollback(writer(request), id, body));
+  }
+
   /** A transition that takes only `expectedVersion` (cancel, validate). Not a route. */
   private transition(
     action: "cancel" | "validate",
@@ -266,7 +286,11 @@ function mapErrors<T>(work: () => Promise<T>): Promise<T> {
 function httpErrorOf(err: unknown): unknown {
   if (err instanceof PriceChangeSetNotFoundError) return new NotFoundException(NOT_FOUND);
   if (err instanceof PriceChangeSetConflictError) {
-    return new HttpException({ code: err.code, message: CONFLICT_MESSAGES[err.code] }, 409);
+    return new HttpException({ code: err.code, message: err.detail ?? CONFLICT_MESSAGES[err.code] }, 409);
+  }
+  // RT-1484 PR-6: `RollbackBlocked` carries the blocking revisions beside the error envelope.
+  if (err instanceof PriceChangeSetRollbackBlockedError) {
+    return new HttpException({ code: "rollback_blocked", message: ROLLBACK_BLOCKED_MESSAGE, blockingRevisionNos: [...err.blockingRevisionNos] }, 409);
   }
   if (err instanceof PriceChangeSetForbiddenError) return new HttpException({ code: err.code, message: FORBIDDEN_MESSAGE }, 403);
   if (err instanceof PriceChangeSetUnprocessableError) {

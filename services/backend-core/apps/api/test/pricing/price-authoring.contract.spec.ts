@@ -6,13 +6,13 @@
  * 1.0.0-draft. `[GATED]` contract-first. RT-1484 (RT-282 PR-09a) ships the
  * runtime of every `price-structure` operation, which loses its markers; RT-1484 PR-4a
  * (RT-282 PR-09b) routes list, create, get, update and cancel of `price-change-sets`; the
- * other `price-change-sets` operations stay `x-runtime-status: contract-only` until their
- * RT-1484 slices.
+ * later slices route the rest, the last being rollback (RT-1484 PR-6, RT-282 PR-10c): no Pricing
+ * operation is `x-runtime-status: contract-only` any more.
  *
  * Structural / load-only plus AJV 2020-12 fixtures; no app boot, no HTTP.
  * Pins:
- *   1. Every operation at its path and method, runtime (price-structure) or
- *      contract-only with a note (price-change-sets),
+ *   1. Every operation at its path and method, every one implemented (no
+ *      contract-only marker in any Pricing contract),
  *      cookieAuth only, no operationId collision with any other contract.
  *   2. Every write: `x-idempotency: required` with the `Idempotency-Key`
  *      header, 403 (Origin) and 425 documented.
@@ -90,6 +90,8 @@ const CHANGE_SET_RUNTIME = new Set([
   "consoleApprovePriceChangeSet",
   "consoleRejectPriceChangeSet",
   "consolePublishPriceChangeSet",
+  // RT-1484 PR-6 (RT-282 PR-10c): rollback, the last one.
+  "consoleRollbackPriceChangeSet",
 ]);
 
 /** The request body schema of every write (spec 042 §12: every transition carries expectedVersion). */
@@ -184,14 +186,28 @@ describe("pricing authoring contracts — operations (RT-1151 PR-04)", () => {
     expect(others[op.contract].has(op.id)).toBe(false);
   });
 
-  it.each(OPERATIONS.filter((op) => op.contract === "price-change-sets" && !CHANGE_SET_RUNTIME.has(op.id)))(
-    "$id is contract-only with an RT-1484 note",
-    (op) => {
-      const o = operation(op);
-      expect(o["x-runtime-status"]).toBe("contract-only");
-      expect(String(o["x-runtime-note"] ?? "")).toMatch(/RT-1484/);
-    },
-  );
+  it("RT-1484 PR-6: every Change Set operation is routed, and no Pricing contract keeps a contract-only operation", () => {
+    expect(OPERATIONS.filter((op) => op.contract === "price-change-sets" && !CHANGE_SET_RUNTIME.has(op.id))).toEqual([]);
+    const contracts = allContracts();
+    const HTTP_METHODS = new Set(["get", "put", "post", "delete", "options", "head", "patch", "trace"]);
+    const markers: string[] = [];
+    for (const id of ["price-structure", "price-change-sets", "price-inquiry"]) {
+      for (const [path, item] of Object.entries(contractDocument(contracts, id).paths ?? {})) {
+        for (const [method, o] of Object.entries(item as Record<string, OperationObject>)) {
+          if (HTTP_METHODS.has(method) && (o["x-runtime-status"] !== undefined || o["x-runtime-note"] !== undefined)) markers.push(`${id} ${method} ${path}`);
+        }
+      }
+    }
+    expect(markers).toEqual([]);
+  });
+
+  it("RT-1484 PR-6: rollback answers 201 with the new set and documents its 422 refusals", () => {
+    const o = operation(OPERATIONS.find((op) => op.id === "consoleRollbackPriceChangeSet")!);
+    expect(Object.keys(o.responses ?? {})).toEqual(expect.arrayContaining(["201", "409", "422"]));
+    const desc = String((docs["price-change-sets"].components?.responses?.["RollbackUnprocessable"] as { description?: string })?.description ?? "");
+    expect(desc).toMatch(/change_set_empty/);
+    expect(desc).toMatch(/change_set_too_large/);
+  });
 
   it.each(OPERATIONS.filter((op) => op.contract === "price-structure" || CHANGE_SET_RUNTIME.has(op.id)))(
     "$id is implemented (RT-1484 PR-09a, PR-09b): no contract-only marker, no note",

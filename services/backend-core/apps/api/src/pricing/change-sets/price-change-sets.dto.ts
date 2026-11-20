@@ -192,6 +192,12 @@ export type ApprovePriceChangeSetBody = z.infer<typeof ApprovePriceChangeSetBody
 export const RejectPriceChangeSetBodySchema = z.object({ expectedVersion: Version, reason: Reason }).strict();
 export type RejectPriceChangeSetBody = z.infer<typeof RejectPriceChangeSetBodySchema>;
 
+// RT-1484 PR-6: `RollbackPriceChangeSetRequest` (`from` a strict RFC 3339 instant, default now).
+export const RollbackPriceChangeSetBodySchema = z
+  .object({ from: z.string().refine(isRfc3339Instant, "must be an RFC 3339 date-time with an offset").optional(), reason: Reason })
+  .strict();
+export type RollbackPriceChangeSetBody = z.infer<typeof RollbackPriceChangeSetBodySchema>;
+
 const PageSize = z
   .string()
   .regex(/^\d{1,3}$/, "must be an integer from 1 to 200")

@@ -5,8 +5,8 @@
  * `price_change_set_validations` for a stored summary), plus validate and preview (PR-4b, RT-282
  * PR-10a) over the 0123 validation, line and preview tables (`price-change-set-validation*.ts`,
  * `price-change-set-preview.ts`), and submit, approve, reject and publish (RT-282 PR-10b:
- * `price-change-set-approval.ts`, `price-change-set-staleness.ts`, `price-change-set-publish.ts`).
- * Rollback is a later slice (PR-6).
+ * `price-change-set-approval.ts`, `price-change-set-staleness.ts`, `price-change-set-publish.ts`),
+ * and rollback (RT-282 PR-10c, PR-6: `price-change-set-rollback.ts`).
  *
  * DATA ACCESS — raw parameterized SQL under `runWithTenantContext` (tenant RLS, FORCE,
  * `isPlatformAdmin: false`) plus an explicit `tenant_id` predicate on every statement; the
@@ -39,12 +39,12 @@
  * `tenant_admin` (owner decision 3, comment 17829), the only roles `RolesGuard` lets through, so
  * `403 pricing_emergency_not_permitted` cannot arise in v1. The required reason is a request rule.
  */
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { insertAuditRowInTransaction } from "../../audit";
+import { insertAuditRowInTransaction, readFirstAuditMetadata } from "../../audit";
 import type { TenantContextRequest } from "../../context";
 import { PG_POOL } from "../../database";
 import { liveAndNamedStores } from "../../stores";
@@ -56,6 +56,7 @@ import type {
   ListChangeSetsQuery,
   PreviewQuery,
   PriceChangeItem,
+  RollbackPriceChangeSetBody,
   UpdatePriceChangeSetBody,
   VersionedBody,
 } from "./price-change-sets.dto";
@@ -63,8 +64,16 @@ import { DEFAULT_MIN_LEAD_TIME_MS, violatesLeadTime } from "./price-change-set-l
 import { bindPreviewCursor, parsePreviewCursor, readPreviewPage, type PriceChangeSetPreviewBody } from "./price-change-set-preview";
 import { lockPricingPublish, lockPricingValidate } from "../pricing-publish-lock";
 import { isSelfApproval, missingAcknowledgements, requiredAcknowledgements, type FindingPresence } from "./price-change-set-approval";
-import { replacedStillActive, writePublication } from "./price-change-set-publish";
+import { replacedStillActive, writePublication, type PublishResult } from "./price-change-set-publish";
 import { checkStaleness, EARLIEST_ACTIVATION, loadStoredLines, type StalenessInput } from "./price-change-set-staleness";
+import {
+  publishableRollbackTarget,
+  requireRollbackable,
+  ROLLBACK_FROM_SKEW_MS,
+  rollbackItems,
+  sameItems,
+  type RollbackTarget,
+} from "./price-change-set-rollback";
 import { checkBudget, referencedIds, validateChangeSet } from "./price-change-set-validation";
 import {
   headRevision,
@@ -100,6 +109,7 @@ type AuditTransition =
   | "rejected"
   | "published"
   | "superseded"
+  | "rolled_back"
   | "stale";
 
 /** The session tenant and context of a read. */
@@ -210,6 +220,8 @@ interface LockedSet {
   readonly approvedBy: string | null;
   /** The stored preview's `summary.earliestEffectiveAt` at the set's version (null: none). */
   readonly earliestEffectiveAt: string | null;
+  /** For a rollback set: the set it rolls back (else null). */
+  readonly rollsBackChangeSetId: string | null;
 }
 
 /** A transition refused as `409 stale_validation` after the set's return to `draft` committed. */
@@ -224,6 +236,7 @@ interface ApprovalFacts extends FindingPresence {
 export class PriceChangeSetsService {
   /** "Now" for `past_dated` and the lead time (ms since the epoch). */
   clock: () => number = Date.now;
+  private readonly logger = new Logger(PriceChangeSetsService.name);
 
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
@@ -371,8 +384,11 @@ export class PriceChangeSetsService {
    */
   validate(input: ChangeSetWriteInput, id: string, body: VersionedBody): Promise<PriceChangeSetBody> {
     return this.inTenant(input, async (client) => {
-      const set = await this.lockSet(client, input.tenantId, id, body.expectedVersion);
-      if (set.state !== "draft" || set.kind === "legacy_import") throw new PriceChangeSetConflictError("change_set_invalid_state");
+      const locked = await this.lockSet(client, input.tenantId, id, body.expectedVersion);
+      if (locked.state !== "draft" || locked.kind === "legacy_import") throw new PriceChangeSetConflictError("change_set_invalid_state");
+      // RT-1484 PR-6: a rollback validates only while its target is still published and no later
+      // revision touched what it restores; its items are regenerated from max(from, now).
+      const set = locked.rollsBackChangeSetId === null ? locked : await this.regenerateRollback(client, input, id, locked, locked.rollsBackChangeSetId);
       // Review round 4: validations of one tenant serialize (lock order: this set's row, then the
       // tenant validate lock), so this one reads every earlier validation's lines as pending.
       await lockPricingValidate(client, input.tenantId);
@@ -384,6 +400,9 @@ export class PriceChangeSetsService {
       if (book === null) throw new PriceChangeSetConflictError("price_book_missing");
       const nowMs = this.clock();
       const revision = await headRevision(client, input.tenantId);
+      // CodeRabbit 4642366454: validate holds no publish lock, so re-check the rollback's target
+      // after reading the head the validation binds to.
+      if (set.rollsBackChangeSetId !== null) await requireRollbackable(client, input.tenantId, set.rollsBackChangeSetId);
       const reach = await loadReachContext(client, { tenantId: input.tenantId, kind: set.kind, nowMs, revision, book, ids: referencedIds(items) });
       // Review round 1, M2: refuse an oversized set before any event is loaded or row written.
       const overBudget = checkBudget(reach, items);
@@ -549,9 +568,12 @@ export class PriceChangeSetsService {
   /**
    * consolePublishPriceChangeSet — `approved` → `published` as ONE immutable Pricing Revision,
    * all-or-nothing, under the tenant's pricing publish lock (taken first). Refusals, in order:
-   * `409 version_conflict`, `409 change_set_invalid_state` (not `approved`; a `rollback` set is
-   * RT-1484 PR-6's), `403 self_approval_forbidden` (an approval by the set's author or submitter:
-   * the emergency path too, Q-B3), then `409 stale_validation` (the return to `draft` commits).
+   * `409 version_conflict`, `409 change_set_invalid_state` (not `approved`, or the system legacy
+   * import), `403 self_approval_forbidden` (an approval by the set's author or submitter: the
+   * emergency and rollback paths too, Q-B3), then `409 stale_validation` (the return to `draft`
+   * is kept). A rollback set (RT-1484 PR-6) is also stale when its target is no longer published
+   * or a revision after the target's touched what it restores; its revision names the target's
+   * (`rolls_back_revision_no`) and the target becomes `rolled_back` in the same transaction.
    */
   async publish(input: ChangeSetWriteInput, id: string, body: VersionedBody): Promise<PublishPriceChangeSetBody> {
     let revisionNo = 0;
@@ -561,14 +583,19 @@ export class PriceChangeSetsService {
       // any later writer that takes both (Store lifecycle writes take the publish lock first).
       await lockPricingPublish(client, input.tenantId);
       const set = await this.lockSet(client, input.tenantId, id, body.expectedVersion);
-      if (set.state !== "approved" || set.kind === "rollback" || set.kind === "legacy_import") {
+      if (set.state !== "approved" || set.kind === "legacy_import") {
         throw new PriceChangeSetConflictError("change_set_invalid_state");
       }
       if (set.approvedBy === null || isSelfApproval(set, set.approvedBy)) throw new PriceChangeSetForbiddenError("self_approval_forbidden");
       const stored = await this.storedValidation(client, input, id, set);
-      const check = await checkStaleness(client, stored.staleness);
-      if (check.stale || !(await replacedStillActive(client, input.tenantId, stored.staleness.lines))) {
+      const check = await checkStaleness(client, stored);
+      if (check.stale || !(await replacedStillActive(client, input.tenantId, stored.lines))) {
         await this.markStale(client, input, id, set, check.head);
+        return STALE;
+      }
+      const rollsBack = await this.publishableTarget(client, input.tenantId, id, set);
+      if (rollsBack !== null && "stale" in rollsBack) {
+        await this.markStale(client, input, id, set, check.head, { reason: rollsBack.stale });
         return STALE;
       }
       // Review round 1, m1: an exclusion violation (23P01) the staleness check did not foresee is a
@@ -582,39 +609,188 @@ export class PriceChangeSetsService {
         head: check.head,
         actorUserId: input.actorUserId,
         correlationId: correlationOf(input),
-        lines: stored.staleness.lines,
-        targetStoreIds: stored.staleness.targetStoreIds,
-        defaultZoneId: stored.staleness.book.defaultZoneId,
-      }).catch(async (err: unknown): Promise<typeof STALE> => {
-        if ((err as { code?: string }).code !== "23P01") throw err;
-        await client.query("ROLLBACK TO SAVEPOINT publish_write");
-        return STALE;
-      });
+        lines: stored.lines,
+        targetStoreIds: stored.targetStoreIds,
+        defaultZoneId: stored.book.defaultZoneId,
+        rollsBack: rollsBack === null ? null : { changeSetId: rollsBack.id, revisionNo: rollsBack.revisionNo },
+      }).catch((err: unknown) => this.exclusionAsStale(client, input.tenantId, id, err));
       if (result === STALE) {
-        await this.markStale(client, input, id, set, check.head);
+        await this.markStale(client, input, id, set, check.head, { reason: "exclusion_conflict" });
         return STALE;
       }
       revisionNo = result.revisionNo;
-      await this.audit(client, input, "published", id, {
-        ...this.auditBase(set),
-        revision_no: result.revisionNo,
-        emergency: set.kind === "emergency",
-        approved_by_user_id: set.approvedBy,
-        fan_out_store_count: result.fanOutStores,
-        superseded_change_set_ids: result.superseded.map((s) => s.id),
-      });
-      for (const s of result.superseded) {
-        await this.audit(client, input, "superseded", s.id, {
-          kind: s.kind,
-          version: s.version,
-          preview_hash: s.previewHash,
-          reason_present: s.reasonPresent,
-          superseded_in_revision: result.revisionNo,
-        });
-      }
+      await this.auditPublication(client, input, id, set, result, rollsBack);
       return this.bodyOf(client, input.tenantId, id);
     });
     return { revisionNo, changeSet };
+  }
+
+  /**
+   * RT-1484 PR-6: a rollback set's target, re-read under the publish lock (lock order: the publish
+   * lock, this set's row, then the target's row, which the publish UPDATEs to `rolled_back`).
+   * Null for any other set; else the target, or the stale reason (`rollback_blocked`: no longer
+   * published or blocked; `rollback_from_past`: its restore would start more than the skew window
+   * before now, owner decision on m2).
+   */
+  private async publishableTarget(
+    client: PoolClient,
+    tenantId: string,
+    id: string,
+    set: LockedSet,
+  ): Promise<RollbackTarget | null | { readonly stale: string }> {
+    if (set.rollsBackChangeSetId === null) return null;
+    const r = await publishableRollbackTarget(client, { tenantId, changeSetId: id, version: set.version, targetId: set.rollsBackChangeSetId, nowMs: this.clock() });
+    return "target" in r ? r.target : r;
+  }
+
+  /**
+   * RT-1484 PR-6 (owner decision on m2: a rollback takes effect from publish time). Before a rollback
+   * set validates, its items are regenerated from max(its `from`, now); `from` is the instant its
+   * `created` audit row recorded. When they differ from the current list, the draft moves to
+   * version + 1 with the new list (0123: a list is written only at a new draft version), audited as
+   * `updated`, and validation continues at that version.
+   */
+  private async regenerateRollback(client: PoolClient, input: ChangeSetWriteInput, id: string, set: LockedSet, targetId: string): Promise<LockedSet> {
+    const target = await requireRollbackable(client, input.tenantId, targetId);
+    const created = await readFirstAuditMetadata(client, { tenantId: input.tenantId, action: "pricing.change_set.created", targetType: "price_change_set", targetId: id });
+    const recorded = typeof created?.["rollback_from"] === "string" ? Date.parse(created["rollback_from"]) : Number.NaN;
+    const from = new Date(Number.isNaN(recorded) ? this.clock() : Math.max(recorded, this.clock())).toISOString();
+    const book = await loadRetailBook(client, input.tenantId);
+    if (book === null) throw new PriceChangeSetConflictError("price_book_missing");
+    const items = await rollbackItems(client, { tenantId: input.tenantId, revision: target.revisionNo, from, defaultZoneId: book.defaultZoneId });
+    const current = await loadCurrentItems(client, input.tenantId, id, set.version);
+    if (sameItems(current.items.map((i) => i.item), items)) return set;
+    const version = set.version + 1;
+    await client.query(`UPDATE change_sets SET version = $3 WHERE tenant_id = $1::uuid AND id = $2::uuid`, [input.tenantId, id, version]);
+    await this.writeItemList(client, input, id, version, items, correlationOf(input));
+    await this.audit(client, input, "updated", id, {
+      kind: set.kind,
+      version,
+      previous_version: set.version,
+      previous_state: set.state,
+      items_replaced: true,
+      items_regenerated: true,
+      item_count: items.length,
+      rollback_from: from,
+      reason_present: set.reasonPresent,
+    });
+    return { ...set, version };
+  }
+
+  /**
+   * Review round 1, m1: an exclusion violation (23P01) the staleness check did not foresee is a stale
+   * set, never a 500. Review of #750 (MINOR-2): it is logged (ids and the constraint name only)
+   * before the writes roll back to the savepoint. Anything else propagates.
+   */
+  private async exclusionAsStale(client: PoolClient, tenantId: string, id: string, err: unknown): Promise<typeof STALE> {
+    const pgError = err as { code?: string; constraint?: string };
+    if (pgError.code !== "23P01") throw err;
+    this.logger.warn(
+      `publish: exclusion conflict, the set returns to draft (tenantId=${tenantId} changeSetId=${id} constraint=${pgError.constraint ?? "unknown"})`,
+    );
+    await client.query("ROLLBACK TO SAVEPOINT publish_write");
+    return STALE;
+  }
+
+  /** The publish's audit rows: `published`, the rollback target's `rolled_back`, each `superseded` set's. */
+  private async auditPublication(
+    client: PoolClient,
+    input: ChangeSetWriteInput,
+    id: string,
+    set: LockedSet,
+    result: PublishResult,
+    rollsBack: RollbackTarget | null,
+  ): Promise<void> {
+    await this.audit(client, input, "published", id, {
+      ...this.auditBase(set),
+      revision_no: result.revisionNo,
+      emergency: set.kind === "emergency",
+      approved_by_user_id: set.approvedBy,
+      fan_out_store_count: result.fanOutStores,
+      superseded_change_set_ids: result.superseded.map((s) => s.id),
+      rolls_back_change_set_id: rollsBack?.id ?? null,
+      rolls_back_revision_no: rollsBack?.revisionNo ?? null,
+    });
+    if (rollsBack !== null) {
+      await this.audit(client, input, "rolled_back", rollsBack.id, {
+        kind: rollsBack.kind,
+        version: rollsBack.version,
+        preview_hash: rollsBack.previewHash,
+        reason_present: rollsBack.reasonPresent,
+        revision_no: rollsBack.revisionNo,
+        rolled_back_by_change_set_id: id,
+        rolled_back_in_revision: result.revisionNo,
+      });
+    }
+    for (const s of result.superseded) {
+      await this.audit(client, input, "superseded", s.id, {
+        kind: s.kind,
+        version: s.version,
+        preview_hash: s.previewHash,
+        reason_present: s.reasonPresent,
+        superseded_in_revision: result.revisionNo,
+      });
+    }
+  }
+
+  /**
+   * consoleRollbackPriceChangeSet (RT-1484 PR-6, spec 042 §8) — a new `kind: rollback` set in
+   * `draft` at version 1 whose items restore, from `from` (default now) forward, the timeline the
+   * target's revision superseded (`price-change-set-rollback.ts`). It then runs the ordinary
+   * machine: validate, submit, approve by a second person (always sensitive: four eyes), publish.
+   * The generation reads the published timeline under the tenant's publish lock (taken first, so a
+   * concurrent publish cannot land between the blocked check and the reads); it writes no revision.
+   * Refusals, in order: 404 (absent, another tenant's), `409 rollback_blocked` (with the blocking
+   * revisions; a `superseded` target always is), `409 change_set_invalid_state` (the target is not
+   * `published` (rolled back, a draft …), is the system legacy import, or already has a rollback
+   * set that is not cancelled),
+   * `422 rollback_from_past` (an explicit `from` more than 15 minutes ago), `change_set_empty`
+   * (nothing differs from `from` on), `change_set_too_large` (more than 500 items) or
+   * `rollback_unsupported`.
+   */
+  rollback(input: ChangeSetWriteInput, targetId: string, body: RollbackPriceChangeSetBody): Promise<PriceChangeSetBody> {
+    return this.inTenant(input, async (client) => {
+      await lockPricingPublish(client, input.tenantId);
+      const exists = await client.query(`SELECT 1 FROM change_sets WHERE tenant_id = $1::uuid AND id = $2::uuid AND domain = 'pricing'`, [
+        input.tenantId,
+        targetId,
+      ]);
+      if ((exists.rowCount ?? 0) === 0) throw new PriceChangeSetNotFoundError();
+      const target = await requireRollbackable(client, input.tenantId, targetId);
+      // 0121 `uq_change_sets_rolls_back`: one live rollback per target (a cancelled one frees it).
+      const live = await client.query(
+        `SELECT 1 FROM change_sets WHERE tenant_id = $1::uuid AND rolls_back_change_set_id = $2::uuid AND state <> 'cancelled'`,
+        [input.tenantId, targetId],
+      );
+      if ((live.rowCount ?? 0) > 0) throw new PriceChangeSetConflictError("change_set_invalid_state");
+      const book = await loadRetailBook(client, input.tenantId);
+      if (book === null) throw new PriceChangeSetConflictError("price_book_missing");
+      // Owner decision (m2): a rollback takes effect from publish time; an explicit `from` is near-now or future.
+      if (body.from !== undefined && Date.parse(body.from) < this.clock() - ROLLBACK_FROM_SKEW_MS) {
+        throw new PriceChangeSetUnprocessableError("rollback_from_past", "A rollback takes effect from publish time: `from` may not be more than 15 minutes in the past.");
+      }
+      const from = body.from ?? new Date(this.clock()).toISOString();
+      const items = await rollbackItems(client, { tenantId: input.tenantId, revision: target.revisionNo, from, defaultZoneId: book.defaultZoneId });
+      const id = newId();
+      const correlationId = correlationOf(input);
+      await client.query(
+        `INSERT INTO change_sets (id, tenant_id, domain, kind, title, reason, rolls_back_change_set_id, created_by_user_id, correlation_id)
+         VALUES ($1, $2, 'pricing', 'rollback', $3, $4, $5, $6, $7)`,
+        [id, input.tenantId, `Rollback of revision ${target.revisionNo}`, body.reason, targetId, input.actorUserId, correlationId],
+      );
+      await this.writeItemList(client, input, id, 1, items, correlationId);
+      await this.audit(client, input, "created", id, {
+        kind: "rollback",
+        version: 1,
+        reason_present: true,
+        item_count: items.length,
+        rolls_back_change_set_id: targetId,
+        rolls_back_revision_no: target.revisionNo,
+        rollback_from: from,
+        rollback_from_defaulted: body.from === undefined,
+      });
+      return this.bodyOf(client, input.tenantId, id);
+    });
   }
 
   /**
@@ -658,8 +834,8 @@ export class PriceChangeSetsService {
    */
   private async freshness(client: PoolClient, input: ChangeSetWriteInput, id: string, set: LockedSet): Promise<number | typeof STALE> {
     const stored = await this.storedValidation(client, input, id, set);
-    const check = await checkStaleness(client, stored.staleness);
-    if (!check.stale) return Math.max(check.head, stored.staleness.validatedAtRevision);
+    const check = await checkStaleness(client, stored);
+    if (!check.stale) return Math.max(check.head, stored.validatedAtRevision);
     await this.markStale(client, input, id, set, check.head);
     return STALE;
   }
@@ -670,9 +846,9 @@ export class PriceChangeSetsService {
     input: ChangeSetWriteInput,
     id: string,
     set: LockedSet,
-  ): Promise<{ staleness: StalenessInput; earliestEffectiveAt: string | null }> {
-    const v = await client.query<{ target_store_set_hash: string; target_stores: { storeId: string }[]; earliest: string | null }>(
-      `SELECT target_store_set_hash, target_stores, summary ->> 'earliestEffectiveAt' AS earliest FROM price_change_set_validations
+  ): Promise<StalenessInput> {
+    const v = await client.query<{ target_store_set_hash: string; target_stores: { storeId: string }[] }>(
+      `SELECT target_store_set_hash, target_stores FROM price_change_set_validations
         WHERE tenant_id = $1::uuid AND change_set_id = $2::uuid AND change_set_version = $3`,
       [input.tenantId, id, set.version],
     );
@@ -680,26 +856,40 @@ export class PriceChangeSetsService {
     const row = v.rows[0];
     if (row === undefined || book === null || set.validatedAtRevision === null) throw new PriceChangeSetConflictError("change_set_not_validated");
     return {
-      earliestEffectiveAt: row.earliest,
-      staleness: {
-        tenantId: input.tenantId,
-        changeSetId: id,
-        version: set.version,
-        kind: set.kind,
-        nowMs: this.clock(),
-        book,
-        validatedAtRevision: set.validatedAtRevision,
-        targetStoreSetHash: row.target_store_set_hash,
-        targetStoreIds: row.target_stores.map((t) => t.storeId),
-        lines: await loadStoredLines(client, input.tenantId, id, set.version),
-      },
+      tenantId: input.tenantId,
+      changeSetId: id,
+      version: set.version,
+      kind: set.kind,
+      nowMs: this.clock(),
+      book,
+      validatedAtRevision: set.validatedAtRevision,
+      targetStoreSetHash: row.target_store_set_hash,
+      targetStoreIds: row.target_stores.map((t) => t.storeId),
+      lines: await loadStoredLines(client, input.tenantId, id, set.version),
     };
   }
 
-  /** A stale set returns to `draft` at version + 1 (spec 042 §3) with one `stale` audit row. */
-  private async markStale(client: PoolClient, input: ChangeSetWriteInput, id: string, set: LockedSet, head: number): Promise<void> {
+  /**
+   * A stale set returns to `draft` at version + 1 (spec 042 §3) with one `stale` audit row; `extra`
+   * names a cause beyond the staleness check (`reason: "exclusion_conflict"` or `"rollback_blocked"`).
+   */
+  private async markStale(
+    client: PoolClient,
+    input: ChangeSetWriteInput,
+    id: string,
+    set: LockedSet,
+    head: number,
+    extra: Record<string, unknown> = {},
+  ): Promise<void> {
     const version = await this.returnToDraft(client, input.tenantId, id, set);
-    await this.audit(client, input, "stale", id, { ...this.auditBase(set), version, previous_version: set.version, previous_state: set.state, head_revision: head });
+    await this.audit(client, input, "stale", id, {
+      ...this.auditBase(set),
+      version,
+      previous_version: set.version,
+      previous_state: set.state,
+      head_revision: head,
+      ...extra,
+    });
   }
 
   /** Back to `draft` at version + 1 with no validation binding, submission or approval (0123: a new version). */
@@ -755,8 +945,10 @@ export class PriceChangeSetsService {
       submitted_by: string | null;
       approved_by: string | null;
       earliest: string | null;
+      rolls_back: string | null;
     }>(
       `SELECT kind, state, version, preview_hash, reason IS NOT NULL AS reason_present, sensitive,
+              rolls_back_change_set_id::text AS rolls_back,
               validated_at_revision::text AS validated_at_revision, created_by_user_id::text AS created_by,
               submitted_by_user_id::text AS submitted_by, approved_by_user_id::text AS approved_by,
               (SELECT v.summary ->> 'earliestEffectiveAt' FROM price_change_set_validations v
@@ -782,6 +974,7 @@ export class PriceChangeSetsService {
       submittedBy: row.submitted_by,
       approvedBy: row.approved_by,
       earliestEffectiveAt: row.earliest,
+      rollsBackChangeSetId: row.rolls_back,
     };
   }
 

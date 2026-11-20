@@ -20,9 +20,13 @@
  *     line's interval, so the check may stale a set a finer rule would keep, never the reverse.
  *   3. (Review round 1, M1; CodeRabbit 4641764676) a `standard` set's earliest exact per-Store
  *      activation instant (its stored preview rows and membership changes, `EARLIEST_ACTIVATION`)
- *      is at or before now plus the minimum lead time (0 in v1): a set approved in time but published late would otherwise
- *      publish a past-dated price. Re-validation then classes the line `past_dated` (blocking).
- *      Emergency and rollback sets are exempt (their own governed path, spec 042 §7).
+ *      is at or before now plus the minimum lead time: a set approved in time but published late
+ *      would otherwise publish a past-dated price. In v1 the lead time is 0, so this is "at or
+ *      before now", and re-validation classes the line `past_dated` (blocking). With a lead time
+ *      above 0 an instant still in the future but inside the lead time is stale here too, and
+ *      re-validation refuses it as `422 lead_time_violation` rather than classing it
+ *      `past_dated`. Emergency and rollback sets are exempt (their own governed path, spec 042
+ *      §5, §7).
  * Not stale with a moved head: the caller advances `validatedAtRevision` to the head.
  */
 import type { PoolClient } from "pg";
