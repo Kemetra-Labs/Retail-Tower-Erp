@@ -379,16 +379,22 @@ export async function releaseReceiptLegs(client: PoolClient, tenantId: string, d
   );
   const released: string[] = [];
   for (const r of waiting.rows) {
+    // A savepoint per receipt: a refusal can come after the leg's first writes (`linkEffects` runs last), and a
+    // half-built leg must never commit.
+    await client.query('SAVEPOINT release_receipt_leg');
     try {
       const id = await emitReceiptLegIfReleasable(client, tenantId, transferId, r.id);
       if (id) released.push(id);
+      await client.query('RELEASE SAVEPOINT release_receipt_leg');
     } catch (err) {
-      // A mapping that went missing since the receipt must not fail the dispatch's ack (the Connector would retry
-      // it forever and the confirmation would never commit). The receipt stays `not_posted`, visibly stuck for the
-      // delayed-transfer alert (RT-1516), and is released by the next receipt of the Transfer (which calls this
-      // again once the mapping is repaired). Only the typed rule refusals are swallowed: they are raised before
-      // any write, so the transaction is still healthy.
+      // A mapping that went missing since the receipt, or an effect that is no longer postable, must not fail the
+      // dispatch's ack (the Connector would retry it forever and the confirmation would never commit). Everything
+      // that receipt wrote is rolled back to the savepoint: it stays `not_posted`, visibly stuck for the
+      // delayed-transfer alert (RT-1516), and is released by the next receipt of the Transfer once repaired. Only
+      // the typed rule refusals are swallowed; anything else (a SQL error) fails the ack as before.
       if (!(err instanceof TransferRuleError)) throw err;
+      await client.query('ROLLBACK TO SAVEPOINT release_receipt_leg');
+      await client.query('RELEASE SAVEPOINT release_receipt_leg');
     }
   }
   return released;

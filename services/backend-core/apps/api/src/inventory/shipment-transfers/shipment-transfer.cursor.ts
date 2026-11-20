@@ -19,7 +19,7 @@ export interface TransferCursorBinding {
 }
 
 export interface TransferCursorPosition {
-  /** UTC ISO text of the first sort key (`created_at`, or `received_at` for receipts). */
+  /** UTC text, six fractional digits, of the first sort key (`created_at`, or `received_at` for receipts). */
   readonly a: string;
   /** The row id. */
   readonly b: string;
@@ -31,7 +31,9 @@ const PayloadSchema = z
     t: z.string().uuid(),
     n: z.string().uuid().nullable(),
     f: z.string().max(200).nullable(),
-    a: z.string().min(1).max(40),
+    // The key is UTC text with six fractional digits (`to_char` ... `US`): a JS Date keeps only milliseconds and would
+    // repeat or skip rows that share a millisecond.
+    a: z.string().regex(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/),
     b: z.string().uuid(),
   })
   .strict();

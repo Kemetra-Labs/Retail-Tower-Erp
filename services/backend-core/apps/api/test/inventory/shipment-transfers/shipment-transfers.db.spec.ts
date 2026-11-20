@@ -711,3 +711,94 @@ describe('the activation switch (fails closed)', () => {
     expect(await codeOf(activation.getState(admin_))).toBe('forbidden');
   });
 });
+
+describe('review findings (regressions)', () => {
+  it('pages receipts one at a time with no repeat and no gap: the cursor keeps microseconds', async () => {
+    if (skipped()) return;
+    const t = await dispatched('10');
+    const ids: string[] = [];
+    for (const q of ['1', '2', '3']) ids.push((await svc.receive(owner(), t.id, recv(t, q))).receipt.id);
+    // A millisecond-truncated cursor would hand the same row back forever at limit 1.
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 5; i += 1) {
+      const page = await svc.listReceipts(owner(), t.id, cursor, 1);
+      seen.push(...page.items.map((r) => r.id));
+      cursor = page.nextCursor;
+      if (cursor === null) break;
+    }
+    expect(seen).toEqual(ids);
+    expect(cursor).toBeNull();
+  });
+
+  it('pages the Transfer list without losing rows created in the same millisecond', async () => {
+    if (skipped()) return;
+    const made: string[] = [];
+    for (let i = 0; i < 4; i += 1) made.push((await svc.create(owner(), draft())).id);
+    // Collapse every created_at onto one millisecond, with distinct microseconds: only a microsecond key orders them.
+    await admin.query(
+      `UPDATE shipment_transfers t SET created_at = timestamptz '2026-11-20 10:00:00.123000+00' + (r.n * interval '100 microseconds')
+         FROM (SELECT id, row_number() OVER (ORDER BY id) AS n FROM shipment_transfers) r WHERE r.id = t.id`,
+    );
+    const seen: string[] = [];
+    let cursor: string | null = null;
+    for (let i = 0; i < 6; i += 1) {
+      const page = await svc.list(owner(), { storeId: null, direction: 'any', state: null }, cursor, 1);
+      seen.push(...page.items.map((r) => r.id));
+      cursor = page.nextCursor;
+      if (cursor === null) break;
+    }
+    expect(new Set(seen).size).toBe(4);
+    expect(seen).toHaveLength(4);
+    expect([...seen].sort()).toEqual([...made].sort());
+  });
+
+  it('a reader outside the Transfer scope neither sees it nor triggers its expiry', async () => {
+    if (skipped()) return;
+    role = 'store_manager';
+    await seedStock(STORE_A_X, '100');
+    const t = await svc.create(owner(), draft());
+    await svc.approve(owner(), t.id, FAR_FUTURE);
+    await admin.query(`UPDATE shipment_transfers SET reservation_expires_at = now() - interval '1 minute' WHERE id = $1`, [t.id]);
+    const outsider = managerOf(MANAGER_Y, STORE_B_X);
+    expect(await codeOf(svc.get(outsider, t.id))).toBe('NotFoundException');
+    expect((await svc.list(outsider, { storeId: null, direction: 'any', state: null }, null, 10)).items).toHaveLength(0);
+    const row = (await admin.query(`SELECT state FROM shipment_transfers WHERE id = $1`, [t.id])).rows[0];
+    expect(row.state).toBe('approved');
+    expect((await admin.query(`SELECT state FROM inventory_reservations`)).rows.map((r) => r.state)).toEqual(['active']);
+    // Someone who can see it expires it, and the audit names the trigger, not a self-action.
+    await svc.get(owner(), t.id);
+    const meta = (await admin.query(`SELECT metadata FROM audit_events WHERE target_id = $1 AND action LIKE '%reservation_expired'`, [t.id])).rows[0].metadata;
+    expect(meta).toMatchObject({ trigger: 'lazy_expiry', triggeredBy: OWNER, selfActioned: null });
+  });
+
+  it('a reservation that lapses after the sweep is still refused at dispatch, under the row lock (798)', async () => {
+    if (skipped()) return;
+    await seedStock(STORE_A_X, '100');
+    const t = await svc.create(owner(), draft());
+    await svc.approve(owner(), t.id, FAR_FUTURE);
+    await admin.query(`UPDATE shipment_transfers SET reservation_expires_at = now() - interval '1 second' WHERE id = $1`, [t.id]);
+    const sweep = jest.spyOn(svc, 'expireDue').mockResolvedValue(0);
+    try {
+      expect(await codeOf(svc.dispatch(owner(), t.id, null))).toBe('shipment_transfer_not_in_state');
+    } finally {
+      sweep.mockRestore();
+    }
+    expect(await onHand(STORE_A_X)).toBe('100.0000');
+    expect((await admin.query(`SELECT state FROM shipment_transfers WHERE id = $1`, [t.id])).rows[0].state).toBe('approved');
+    expect((await legs(t.id))).toHaveLength(0);
+  });
+
+  it('a receipt leg that cannot be linked is rolled back whole: the dispatch is still confirmed and nothing half-built commits', async () => {
+    if (skipped()) return;
+    const t = await dispatched('10');
+    const r = await svc.receive(owner(), t.id, recv(t, '4'));
+    // An effect that is no longer a fresh not_posted one: linking the receipt's leg will refuse AFTER the leg's first writes.
+    await admin.query(`UPDATE inventory_effect_integration SET state = 'erp_neutral' WHERE effect_id = $1`, [r.receipt.lines[0]!.movementId]);
+    const dispatchId = await confirmDispatch(t.id);
+    expect((await admin.query(`SELECT status FROM erpnext_posting_status WHERE id = $1`, [dispatchId])).rows[0].status).toBe('posted');
+    expect((await legs(t.id)).map((l) => l.kind)).toEqual(['transfer_dispatch']);
+    expect((await admin.query(`SELECT count(*)::int AS n FROM transfer_posting_lines tl JOIN transfer_postings tp ON tp.intent_id = tl.intent_id WHERE tp.receipt_id IS NOT NULL`)).rows[0].n).toBe(0);
+    expect((await admin.query(`SELECT count(*)::int AS n FROM erpnext_posting_status WHERE kind = 'transfer_receive'`)).rows[0].n).toBe(0);
+  });
+});

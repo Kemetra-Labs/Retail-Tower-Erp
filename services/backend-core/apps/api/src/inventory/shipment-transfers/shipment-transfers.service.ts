@@ -96,6 +96,8 @@ import {
 } from './shipment-transfer.store';
 
 const AUDIT_TARGET = 'shipment_transfer';
+/** A sort key as UTC text with six fractional digits: the pg driver's `Date` keeps only milliseconds and would repeat or skip rows. */
+const CURSOR_KEY_SQL = (column: string): string => `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
 const TENANT_WIDE_ROLES: ReadonlySet<string> = new Set(['owner', 'tenant_admin']);
 const DISPOSITIONS: ReadonlySet<string> = new Set(['sellable', 'damaged']);
 
@@ -252,7 +254,26 @@ export class ShipmentTransfersService {
     const t = this.visibleOr404(await this.lockedTransfer(client, transferId), a);
     this.requireStore(a, t.source_store_id, t.destination_store_id);
     applyCommand(t.state, command);
+    if (command === 'dispatch') await this.assertReservationLive(client, t.id);
     return t;
+  }
+
+  /**
+   * 798: a reservation past its explicit expiry never dispatches. `expireDue` ran in its own committed transaction before this
+   * command, so a reservation that lapsed in the meantime is caught here, under the Transfer's row lock and on the database
+   * clock. The refusal rolls this transaction back; the next call expires it (audited) and returns the Transfer to draft.
+   */
+  private async assertReservationLive(client: PoolClient, transferId: string): Promise<void> {
+    const r = await client.query<{ lapsed: boolean }>(
+      `SELECT (reservation_expires_at IS NULL OR reservation_expires_at <= now()) AS lapsed FROM shipment_transfers WHERE id = $1`,
+      [transferId],
+    );
+    if (r.rows[0]?.lapsed !== false) {
+      throw new TransferRuleError(
+        'shipment_transfer_not_in_state',
+        'The reservation of this Transfer has expired: it returns to draft and must be approved again.',
+      );
+    }
   }
 
   private async lockedLines(client: PoolClient, id: string): Promise<LineRow[]> {
@@ -273,12 +294,16 @@ export class ShipmentTransfersService {
    * state, so a command that then refuses does not roll the expiry back. `transferId` narrows it to one Transfer.
    */
   async expireDue(caller: TransferCaller, transferId: string | null): Promise<number> {
-    return await this.tx(caller, async (client) => {
+    return await this.tx(caller, async (client, a) => {
+      // Only Transfers the caller can see: a reader never takes row locks on, nor triggers the expiry of, a Transfer of a
+      // store outside its scope (that Transfer stays a non-disclosing 404 to it, and is expired by someone who sees it).
+      const scoped = a.scope.kind === 'tenant' ? null : a.scope.storeIds;
       const due = await client.query<{ id: string }>(
         `SELECT id FROM shipment_transfers
           WHERE state = 'approved' AND reservation_expires_at <= now() AND ($1::uuid IS NULL OR id = $1::uuid)
+            AND ($2::uuid[] IS NULL OR source_store_id = ANY($2::uuid[]) OR destination_store_id = ANY($2::uuid[]))
           ORDER BY reservation_expires_at, id LIMIT 100 FOR UPDATE`,
-        [transferId],
+        [transferId, scoped],
       );
       for (const d of due.rows) {
         const row = await this.lockedTransfer(client, d.id);
@@ -296,10 +321,14 @@ export class ShipmentTransfersService {
             WHERE id = $1`,
           [row.id],
         );
+        // The expiry is a consequence of the clock, not of this caller: the audit actor is the person whose request
+        // triggered the sweep (`triggeredBy`), and `selfActioned` is not applicable to it.
         await this.audit(client, caller, 'reservation_expired', row, {
           reservationsReleased: released.rowCount ?? 0,
           expiredAt: row.reservation_expires_at?.toISOString() ?? null,
           trigger: 'lazy_expiry',
+          triggeredBy: caller.userId,
+          selfActioned: null,
         });
       }
       return due.rows.length;
@@ -783,8 +812,8 @@ export class ShipmentTransfersService {
     return await this.tx(caller, async (client, a) => {
       const pos = cursor ? decodeTransferCursor(cursor, binding) : null;
       const scoped = a.scope.kind === 'tenant' ? null : a.scope.storeIds;
-      const r = await client.query<TransferRow>(
-        `SELECT ${TRANSFER_COLUMNS} FROM shipment_transfers
+      const r = await client.query<TransferRow & { cursor_key: string }>(
+        `SELECT ${TRANSFER_COLUMNS}, ${CURSOR_KEY_SQL('created_at')} AS cursor_key FROM shipment_transfers
           WHERE ($1::uuid[] IS NULL OR source_store_id = ANY($1::uuid[]) OR destination_store_id = ANY($1::uuid[]))
             AND ($2::uuid IS NULL
                  OR (($3 IN ('outbound', 'any')) AND source_store_id = $2::uuid)
@@ -800,7 +829,7 @@ export class ShipmentTransfersService {
       const last = rows[rows.length - 1];
       return {
         items,
-        nextCursor: r.rows.length > limit && last ? encodeTransferCursor(binding, { a: last.created_at.toISOString(), b: last.id }) : null,
+        nextCursor: r.rows.length > limit && last ? encodeTransferCursor(binding, { a: last.cursor_key, b: last.id }) : null,
       };
     });
   }
@@ -810,8 +839,8 @@ export class ShipmentTransfersService {
     return await this.tx(caller, async (client, a) => {
       this.visibleOr404(await loadTransferRow(client, transferId, false), a);
       const pos = cursor ? decodeTransferCursor(cursor, binding) : null;
-      const r = await client.query<{ id: string; transfer_id: string; received_by: string; received_at: Date; note: string | null }>(
-        `SELECT id, transfer_id, received_by, received_at, note FROM shipment_transfer_receipts
+      const r = await client.query<{ id: string; transfer_id: string; received_by: string; received_at: Date; note: string | null; cursor_key: string }>(
+        `SELECT id, transfer_id, received_by, received_at, note, ${CURSOR_KEY_SQL('received_at')} AS cursor_key FROM shipment_transfer_receipts
           WHERE transfer_id = $1 AND ($2::timestamptz IS NULL OR (received_at, id) > ($2::timestamptz, $3::uuid))
           ORDER BY received_at ASC, id ASC LIMIT $4`,
         [transferId, pos?.a ?? null, pos?.b ?? null, limit + 1],
@@ -820,7 +849,7 @@ export class ShipmentTransfersService {
       const last = rows[rows.length - 1];
       return {
         items: await receiptBodies(client, rows),
-        nextCursor: r.rows.length > limit && last ? encodeTransferCursor(binding, { a: last.received_at.toISOString(), b: last.id }) : null,
+        nextCursor: r.rows.length > limit && last ? encodeTransferCursor(binding, { a: last.cursor_key, b: last.id }) : null,
       };
     });
   }
