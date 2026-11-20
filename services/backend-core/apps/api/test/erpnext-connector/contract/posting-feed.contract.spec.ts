@@ -312,10 +312,12 @@ describe("erpnext-connector/posting-feed.yaml — work-item payload (O-1/O-4)", 
     expect(item?.required).not.toContain("sale");
   });
 
-  it("kind enumerates sale_post | reversal (O-4 reversal as a work-item) | inventory_count (RT-1422)", () => {
+  it("kind enumerates sale_post | reversal (O-4 reversal as a work-item) | inventory_count (RT-1422) | transfer_dispatch | transfer_receive (RT-1514)", () => {
     const kind = (feedDoc.components?.schemas?.["PostingWorkItem"]?.properties ??
       {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.sort()).toEqual(["inventory_count", "reversal", "sale_post"].sort());
+    expect(kind?.enum?.sort()).toEqual(
+      ["inventory_count", "reversal", "sale_post", "transfer_dispatch", "transfer_receive"].sort(),
+    );
   });
 
   it("mirrors the 008 Sale projection with decimal money (no float)", () => {
@@ -683,7 +685,9 @@ describe("erpnext-connector/posting-feed.yaml — RT-76 settlement", () => {
 
   it("the ack is unchanged — one documentRef per work item (D4)", () => {
     const kind = prop<{ enum?: string[] }>("PostingWorkItem", "kind");
-    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
+    expect(kind?.enum?.slice().sort()).toEqual(
+      ["inventory_count", "reversal", "sale_post", "transfer_dispatch", "transfer_receive"],
+    );
     // RT-332 adds only the optional resolutionVersion echo; RT-1422 the optional count `lines`; still one documentRef.
     expect(Object.keys(schema("OutcomeAckRequest")?.properties ?? {}).sort()).toEqual(
       ["documentRef", "etaStatus", "lines", "outcome", "reason", "resolutionVersion"],
@@ -989,7 +993,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1286 reserved inventory_dis
   const RESERVED = ["InventoryDispositionWorkItem", "InventoryDisposition", "InventoryDispositionLine"];
 
   it("bumps to 1.11.0-draft with the note, the owner decision and the Connector-first order (version moved on in 1.15.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("RT-1286 (1.11.0-draft; [GATED: OpenAPI] owner go-ahead 2026-11-11");
     expect(info()).toContain("the work-item kind `inventory_disposition` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_disposition`");
@@ -1064,7 +1068,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1114 voucher tender (1.12.0
       | undefined;
 
   it("bumps to 1.12.0-draft with the note, the authorization and the Connector-first order (version moved on in 1.15.0-draft)", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("RT-1114 (1.12.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info()).toContain("RT-1098 decision 4A");
     expect(info()).toContain("ROLLOUT ORDER (Connector first, RT-10 comments 10409 and 10413)");
@@ -1096,7 +1100,7 @@ describe("erpnext-connector/posting-feed.yaml — OD-11 return clawback and give
   const base = { lineRef: "00000000-0000-7000-8000-0000000000a1", quantity: "1", lineAmount: "300.0000", taxAmount: null };
 
   it("bumps to 1.13.0-draft with the note, the owner decision and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("OD-11 return clawback and give-back (1.13.0-draft; [GATED: contract]");
     expect(info()).toContain('owner decision 2026-11-12, "Hybrid"');
     expect(info()).toContain("`promotionClawbackAmount` and `promotionGiveBackAmount`");
@@ -1169,7 +1173,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1421 reserved inventory_cou
   });
 
   it("bumps to 1.14.0-draft with the note, the authorization, the feasibility result and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("RT-1421 (1.14.0-draft; [GATED: OpenAPI] owner authorization 2026-11-16");
     expect(info()).toContain("the work-item kind `inventory_count` is RESERVED, with no wire change");
     expect(info()).toContain("Backend-Core MUST NOT emit `inventory_count`");
@@ -1458,16 +1462,16 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
   });
 
   it("bumps to 1.15.0-draft with the note, the authorization, the deploy order and the no-fake-document rule", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("RT-1422 (1.15.0-draft; [GATED: contract pin] owner authorization 2026-11-16");
     expect(info()).toContain("`sale` is the ONLY field that becomes conditional");
     expect(info()).toContain("the ack never fakes a `documentRef`");
     expect(info()).toContain("DEPLOY ORDER");
   });
 
-  it("widens the kind enum by exactly inventory_count and makes sale conditional, never payloadHash or businessDate", () => {
+  it("widened the kind enum by inventory_count (RT-1422; RT-1514 adds the two transfer kinds) and makes sale conditional, never payloadHash or businessDate", () => {
     const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
+    expect(kind?.enum).toEqual(expect.arrayContaining(["inventory_count", "reversal", "sale_post"]));
     const required = schema("PostingWorkItem")?.required ?? [];
     expect(required).not.toContain("sale");
     for (const f of ["workItemRef", "kind", "sourceSystem", "externalId", "payloadHash", "businessDate", "itemCursor"]) {
@@ -1544,7 +1548,7 @@ describe("erpnext-connector/posting-feed.yaml — RT-1422 adopts the inventory_c
 // RT-1512 (Inventory Gate 5, RT-291) — reserved transfer_dispatch and
 // transfer_receive kinds (1.16.0-draft)
 // ===========================================================================
-describe("erpnext-connector/posting-feed.yaml — RT-1512 reserved transfer_dispatch / transfer_receive schemas (1.16.0-draft)", () => {
+describe("erpnext-connector/posting-feed.yaml — RT-1512 transfer_dispatch / transfer_receive schemas (reserved in 1.16.0-draft, adopted in 1.17.0-draft)", () => {
   const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
   const info = (): string => flat(feedDoc.info?.description);
   const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
@@ -1570,20 +1574,15 @@ describe("erpnext-connector/posting-feed.yaml — RT-1512 reserved transfer_disp
   const dispatch = () => clone(examples.dispatch);
   const receive = () => clone(examples.receive);
 
-  it("bumps to 1.16.0-draft with the note, the planning record, the owner rulings and the Connector-first order", () => {
-    expect(feedDoc.info?.version).toBe("1.16.0-draft");
+  it("keeps the 1.16.0 note (version moved on in 1.17.0-draft): the planning record, the owner rulings and the Connector-first order", () => {
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
     expect(info()).toContain("RT-1512 (1.16.0-draft; [GATED: OpenAPI]");
     expect(info()).toContain("RT-291 comments 17800 and 17801");
     expect(info()).toContain("Backend-Core MUST NOT emit `transfer_dispatch` or `transfer_receive`");
     expect(info()).toContain("ROLLOUT ORDER (Connector first");
   });
 
-  it("never offers the reserved kinds: the PostingWorkItem kind enum is unchanged", () => {
-    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
-    expect(kind?.enum?.slice().sort()).toEqual(["inventory_count", "reversal", "sale_post"]);
-  });
-
-  it("adds no operation, and no operation or other schema references a reserved transfer shape", () => {
+  it("adds no operation, no operation references a transfer shape directly, and the standalone work-item shapes stay unreferenced", () => {
     expect(Object.keys(feedDoc.paths ?? {}).sort()).toEqual([PULL_PATH, ACK_PATH].sort());
     const pathsText = JSON.stringify(feedDoc.paths);
     for (const name of RESERVED) expect(pathsText).not.toContain(`"#/components/schemas/${name}"`);
@@ -1658,5 +1657,103 @@ describe("erpnext-connector/posting-feed.yaml — RT-1512 reserved transfer_disp
       item.transfer.lines[0].quantity = q;
       expect(d(item)).toBe(false);
     }
+  });
+});
+
+// ===========================================================================
+// RT-1514 (Inventory Gate 5, RT-291) — the feed adopts transfer_dispatch and
+// transfer_receive on PostingWorkItem (1.17.0-draft)
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1514 adopts the transfer kinds (1.17.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const info = (): string => flat(feedDoc.info?.description);
+  const schema = (name: string): SchemaObject | undefined => feedDoc.components?.schemas?.[name];
+  const examples = JSON.parse(
+    readFileSync(resolve(openapiSubDir(".."), "fixtures", "transfer-posting-feed", "examples.json"), "utf8"),
+  ) as { dispatch: Record<string, any>; receive: Record<string, any> };
+  const countExamples = JSON.parse(
+    readFileSync(resolve(openapiSubDir(".."), "fixtures", "count-posting-feed", "examples.json"), "utf8"),
+  ) as { workItem: { normal: Record<string, any> } };
+  const validator = (name: string) => {
+    const ajv = new Ajv2020({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema({ ...(feedDoc as object), $id: "posting-feed" });
+    return ajv.compile({ $ref: `posting-feed#/components/schemas/${name}` });
+  };
+  const clone = <T,>(v: T): T => JSON.parse(JSON.stringify(v)) as T;
+  const dispatch = () => clone(examples.dispatch);
+  const receive = () => clone(examples.receive);
+
+  it("bumps to 1.17.0-draft with a note citing the authorization, the Connector adoption and the heartbeat caveat", () => {
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
+    expect(info()).toContain("RT-1514 (1.17.0-draft; [GATED: contract]");
+    expect(info()).toContain("the feed adopts `transfer_dispatch` and `transfer_receive`");
+    expect(info()).toContain("Backend-Core MUST NOT emit");
+    expect(info()).toContain("`acceptedWorkItemKinds`");
+  });
+
+  it("widens the kind enum by exactly the two transfer kinds and adds the optional transfer and receipt bodies", () => {
+    const kind = (schema("PostingWorkItem")?.properties ?? {})["kind"] as { enum?: string[] } | undefined;
+    expect(kind?.enum?.slice().sort()).toEqual(
+      ["inventory_count", "reversal", "sale_post", "transfer_dispatch", "transfer_receive"],
+    );
+    const props = schema("PostingWorkItem")?.properties ?? {};
+    expect(JSON.stringify(props["transfer"])).toContain("#/components/schemas/TransferDispatchPosting");
+    expect(JSON.stringify(props["receipt"])).toContain("#/components/schemas/TransferReceivePosting");
+    const required = schema("PostingWorkItem")?.required ?? [];
+    expect(required).not.toContain("transfer");
+    expect(required).not.toContain("receipt");
+  });
+
+  it("the dispatch and receive examples validate as a PostingWorkItem (the adopted shape)", () => {
+    const v = validator("PostingWorkItem");
+    expect(v(dispatch())).toBe(true);
+    expect(v(receive())).toBe(true);
+  });
+
+  it("each transfer kind carries exactly its own body and no sale, reversalOf, count or the other body", () => {
+    const v = validator("PostingWorkItem");
+    const noTransfer = dispatch();
+    delete noTransfer.transfer;
+    expect(v(noTransfer)).toBe(false);
+    expect(v({ ...dispatch(), receipt: receive().receipt })).toBe(false);
+    expect(v({ ...dispatch(), sale: {} })).toBe(false);
+    expect(v({ ...dispatch(), reversalOf: null })).toBe(false);
+    expect(v({ ...dispatch(), count: countExamples.workItem.normal.count })).toBe(false);
+    const noReceipt = receive();
+    delete noReceipt.receipt;
+    expect(v(noReceipt)).toBe(false);
+    expect(v({ ...receive(), transfer: dispatch().transfer })).toBe(false);
+  });
+
+  it("a sale, reversal or count item may not carry a transfer or receipt body", () => {
+    const v = validator("PostingWorkItem");
+    const count = clone(countExamples.workItem.normal);
+    expect(v(count)).toBe(true);
+    expect(v({ ...count, transfer: dispatch().transfer })).toBe(false);
+    expect(v({ ...count, receipt: receive().receipt })).toBe(false);
+    // the sale body shape is validated elsewhere; here only the kind conditional matters
+    const saleWithTransfer: Record<string, any> = {
+      ...dispatch(),
+      kind: "sale_post",
+      sale: { __placeholder: true },
+    };
+    expect(saleWithTransfer["transfer"]).toBeDefined();
+    expect(v(saleWithTransfer)).toBe(false);
+  });
+
+  it("the externalId of a transfer item is its leg-level provenance key (888, 889) for its own kind", () => {
+    const v = validator("PostingWorkItem");
+    expect(v({ ...dispatch(), externalId: "transfer_receipt:00000000-0000-7000-8000-00000000d0e1" })).toBe(false);
+    expect(v({ ...dispatch(), externalId: "transfer_dispatch:not-a-uuid" })).toBe(false);
+    expect(v({ ...receive(), externalId: "transfer_dispatch:00000000-0000-7000-8000-00000000d2e1" })).toBe(false);
+  });
+
+  it("an ack for a transfer leg is a plain posted outcome with a Stock Entry documentRef (no ack change)", () => {
+    const v = validator("OutcomeAckRequest");
+    expect(v({ outcome: "posted", documentRef: { doctype: "Stock Entry", name: "MAT-STE-2026-00042" } })).toBe(true);
+    expect(Object.keys(schema("OutcomeAckRequest")?.properties ?? {}).sort()).toEqual(
+      ["documentRef", "etaStatus", "lines", "outcome", "reason", "resolutionVersion"],
+    );
   });
 });
