@@ -330,6 +330,20 @@ describe("price-inquiry contract — AJV fixtures", () => {
     expect(v({ ...base, layers: [{ ...store, changeSetId: CHANGE_SET }, zone, book] })).toBe(false);
   });
 
+  // RT-1484 comment 17874, follow-up 2: with no retail Price Book the Zone layer is null / default.
+  it("a no_price_book result: the Zone layer's null priceZoneId is valid and documented", () => {
+    const v = validator("PriceExplanation");
+    const base = explanationFixture();
+    const none = (scope: string) => ({ scope, outcome: "none" });
+    const zone = { scope: "zone", outcome: "none", priceZoneId: null, zoneMembership: "default" };
+    expect(
+      v({ ...base, asOfRevision: null, result: { status: "unpriced", reason: "no_price_book" }, layers: [none("store"), zone, none("book")], next: null }),
+    ).toBe(true);
+    const schema = (doc as { components: { schemas: Record<string, { properties: Record<string, { description?: string }> }> } })
+      .components.schemas.ZoneLayerTrace!;
+    expect(schema.properties.priceZoneId!.description).toMatch(/no_price_book/);
+  });
+
   it("an error result reports the conflicting layer and stops", () => {
     const v = validator("PriceExplanation");
     const base = explanationFixture();
