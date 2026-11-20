@@ -243,10 +243,36 @@ describe("scanSheet and the tokenizer are linear on hostile input (security revi
     }
   });
 
-  it("scans 5,001 normal rows of 50 cells (a sanity bound, not a benchmark: CI runs under coverage)", () => {
-    const row = (r: number): string => `<row r="${r}">${Array.from({ length: 50 }, (_v, c) => `<c r="${c < 26 ? String.fromCharCode(65 + c) : `A${String.fromCharCode(65 + c - 26)}`}${r}" t="inlineStr"><is><t>v${r}</t></is></c>`).join("")}</row>`;
-    const xml = sheet(Array.from({ length: 5001 }, (_v, i) => row(i + 1)).join(""));
-    expect(timed(() => scanSheet(xml))).toBeLessThan(30000);
+  /** The best of three runs, in milliseconds (the minimum shrugs off a garbage-collection pause). */
+  const best = (fn: () => unknown): number => Math.min(timed(fn), timed(fn), timed(fn));
+  const col = (c: number): string => (c < 26 ? String.fromCharCode(65 + c) : `A${String.fromCharCode(65 + c - 26)}`);
+
+  it("scales linearly with the rows, however slow the machine (a ratio, so it holds under CI coverage): twice the rows is nowhere near four times the time", () => {
+    const rows = (n: number): string =>
+      sheet(Array.from({ length: n }, (_v, i) => `<row r="${i + 1}">${Array.from({ length: 50 }, (_w, c) => `<c r="${col(c)}${i + 1}" t="inlineStr"><is><t>v${i}</t></is></c>`).join("")}</row>`).join(""));
+    const small = rows(1500);
+    const large = rows(3000);
+    scanSheet(small);
+    const ratio = best(() => scanSheet(large)) / best(() => scanSheet(small));
+    // Linear is 2; a quadratic scan is 4 or more.
+    expect(ratio).toBeLessThan(3.2);
+  });
+
+  it("scales linearly with the attributes of a tag: 7 times the attributes is nowhere near 49 times the time", () => {
+    const cells = (attrs: number): string =>
+      sheet(Array.from({ length: 1500 }, (_v, i) => `<row r="${i + 1}"><c r="A${i + 1}" ${Array.from({ length: attrs }, (_w, j) => `a${j}="1"`).join(" ")}><v>1</v></c></row>`).join(""));
+    const few = cells(8);
+    const many = cells(56);
+    scanSheet(few);
+    const ratio = best(() => scanSheet(many)) / best(() => scanSheet(few));
+    // Linear in the attribute count would be 7 at worst (the tag text is mostly attributes); a quadratic check is 49.
+    expect(ratio).toBeLessThan(14);
+  });
+
+  it("scans 5,001 normal rows of 50 cells well inside a bound a regression to the 17 s quadratic would break", () => {
+    const xml = sheet(Array.from({ length: 5001 }, (_v, i) => `<row r="${i + 1}">${Array.from({ length: 50 }, (_w, c) => `<c r="${col(c)}${i + 1}" t="inlineStr"><is><t>v${i}</t></is></c>`).join("")}</row>`).join(""));
+    // 2 s locally, 3.8 s on CircleCI under coverage.
+    expect(timed(() => scanSheet(xml))).toBeLessThan(9000);
   });
 });
 

@@ -42,6 +42,14 @@ export const MAX_SHARED_STRINGS = 250_000;
 export const MAX_SHARED_STRING_CHARS = 32_767;
 export const MAX_FORMAT_CODE_CHARS = 255;
 
+/**
+ * Custom number formats: Excel keeps about 250, so 1,000 is generous; and 64 KiB of format-code text in total. The
+ * library runs a quadratic date check over each code and caches it per format id, so many long codes multiply:
+ * 64,000 codes of 250 `[` characters with a 5,000 x 50 sheet blocked for 7.8 s from a 1.5 MB upload (review round 4).
+ */
+export const MAX_NUM_FMTS = 1000;
+export const MAX_FORMAT_CODE_TOTAL_CHARS = 64 * 1024;
+
 /** Samples kept per column for the mapping step. */
 export const MAX_SAMPLES = 3;
 

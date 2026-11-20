@@ -397,6 +397,37 @@ describe("round 3: no uploaded part reaches the library byte for byte", () => {
     await expectRefusedFast(bytes, "xlsx_limits_exceeded");
   });
 
+  const col = (c: number): string => (c < 26 ? String.fromCharCode(65 + c) : `A${String.fromCharCode(65 + c - 26)}`);
+  /** `rows` data rows of `cols` numeric cells, the cell of row r column c using style (r * cols + c) % styleCount. */
+  const styledSheet = (rowsCount: number, cols: number, styleCount: number): string => {
+    const header = Array.from({ length: cols }, (_v, c) => `<c r="${col(c)}1" t="inlineStr"><is><t>h${c}</t></is></c>`).join("");
+    const body = Array.from(
+      { length: rowsCount },
+      (_v, r) => `<row r="${r + 2}">${Array.from({ length: cols }, (_w, c) => `<c r="${col(c)}${r + 2}" s="${(r * cols + c) % styleCount}"><v>45000</v></c>`).join("")}</row>`,
+    ).join("");
+    return `<?xml version="1.0"?><worksheet ${NS}><sheetData><row r="1">${header}</row>${body}</sheetData></worksheet>`;
+  };
+
+  it("format-count amplification: 64,000 number formats of 250 '[' with a sheet using distinct styles is refused before the library runs (7.8 s from a 1.5 MB upload)", async () => {
+    const fmts = Array.from({ length: 64_000 }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="${"[".repeat(250)}"/>`).join("");
+    const xfs = Array.from({ length: 64_000 }, (_v, i) => `<xf numFmtId="${i + 164}"/>`).join("");
+    const styles = stylesXml(`<numFmts>${fmts}</numFmts><cellXfs>${xfs}</cellXfs>`);
+    await expectRefusedFast(bookWith({ sheet: styledSheet(200, 50, 64_000), styles }), "file_unreadable", 4000);
+  });
+
+  it("a workbook at the format caps (1,000 formats of 64 characters, 1,000 styles, 1,000 x 50 styled cells) reads within a sane bound", async () => {
+    const fmts = Array.from({ length: 1000 }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="${i % 2 === 0 ? "[Red]" : ""}${"[".repeat(59)}"/>`).join("");
+    const xfs = Array.from({ length: 1000 }, (_v, i) => `<xf numFmtId="${i + 164}"/>`).join("");
+    const styles = stylesXml(`<numFmts>${fmts}</numFmts><cellXfs>${xfs}</cellXfs>`);
+    const bytes = bookWith({ sheet: styledSheet(1000, 50, 1000), styles });
+    const started = Date.now();
+    const parsed = await outcome(bytes);
+    expect(typeof parsed).toBe("object");
+    expect((parsed as ParsedImportFile).grid.rows).toHaveLength(1000);
+    // Sane, not a benchmark: the 7.8 s case above is the regression this bounds (CI runs under coverage).
+    expect(Date.now() - started).toBeLessThan(25_000);
+  });
+
   it("a normal file still imports: shared strings, a date style, an inline string, a formula with a cached value, a leading-zero text", async () => {
     const strings = sstXml('<si><t>sku</t></si><si><t>name</t></si><si><t>day</t></si><si><t>0012345678905</t></si><si><r><t>Tea </t></r><r><rPr><b/></rPr><t>Bag</t></r></si>');
     const styles = stylesXml(

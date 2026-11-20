@@ -81,10 +81,22 @@ describe("canonicalStyles keeps exactly what the library reads", () => {
     expect(code(() => canonicalStyles(styles(`<cellStyleXfs>${"<xf/>".repeat(64_001)}</cellStyleXfs>`)))).toBe("file_unreadable");
   });
 
-  it("refuses a <numFmt/> flood past 64,000", () => {
-    const fmt = (n: number): string => Array.from({ length: n }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="0"/>`).join("");
-    expect(code(() => canonicalStyles(styles(fmt(64_000))))).toBe("none");
-    const r = timedCode(() => canonicalStyles(styles(fmt(64_001))));
+  it("accepts 1,000 custom number formats (Excel keeps about 250) and refuses 1,001, and a flood of 64,000 quickly", () => {
+    const fmt = (n: number, codeText = "0"): string => Array.from({ length: n }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="${codeText}"/>`).join("");
+    expect(code(() => canonicalStyles(styles(fmt(1000))))).toBe("none");
+    expect(code(() => canonicalStyles(styles(fmt(1001))))).toBe("file_unreadable");
+    const r = timedCode(() => canonicalStyles(styles(fmt(64_000))));
+    expect(r.code).toBe("file_unreadable");
+    expect(r.ms).toBeLessThan(2500);
+  });
+
+  it("caps the format-code text in all at 64 KiB: 258 codes of 255 characters is over, 257 is under (review round 4)", () => {
+    const fmt = (n: number, size: number): string => Array.from({ length: n }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="${"[".repeat(size)}"/>`).join("");
+    expect(code(() => canonicalStyles(styles(fmt(258, 255))))).toBe("file_unreadable");
+    expect(code(() => canonicalStyles(styles(fmt(257, 255))))).toBe("none");
+    // 64,000 codes of 250 '[' (16,000,000 characters): refused after the first 263 of them, fast.
+    // (With the old caps this was 64,000 date checks over 250 characters each: 7.8 s on a 5,000 x 50 sheet, 1.5 MB.)
+    const r = timedCode(() => canonicalStyles(styles(fmt(64_000, 250))));
     expect(r.code).toBe("file_unreadable");
     expect(r.ms).toBeLessThan(2500);
   });

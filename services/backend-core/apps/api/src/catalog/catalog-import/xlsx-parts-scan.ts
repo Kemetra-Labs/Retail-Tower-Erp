@@ -12,7 +12,8 @@
  * and every count and length is capped.
  *
  * Styles (`parseStyles.js`): `<numFmt numFmtId formatCode>` (the code at most
- * 255 characters, Excel's limit), `<cellStyleXfs>` and `<cellXfs>` with their
+ * 255 characters, Excel's limit; at most 1,000 formats and 64 KiB of format-code
+ * text in all), `<cellStyleXfs>` and `<cellXfs>` with their
  * `<xf numFmtId xfId>` (at most 64,000 each, Excel's limit; `xfId` only in
  * `cellXfs`, the only place the library reads it). Order is kept, because the
  * library looks a number format up when it reaches an `<xf>`.
@@ -25,6 +26,8 @@
  */
 import {
   MAX_FORMAT_CODE_CHARS,
+  MAX_FORMAT_CODE_TOTAL_CHARS,
+  MAX_NUM_FMTS,
   MAX_SHARED_STRING_CHARS,
   MAX_SHARED_STRINGS,
   MAX_STYLE_ENTRIES,
@@ -50,6 +53,7 @@ class StylesScanner {
   private readonly out: string[] = [];
   private list: StyleList | null = null;
   private numFmts = 0;
+  private formatChars = 0;
   private readonly xfs: Record<StyleList, number> = { cellStyleXfs: 0, cellXfs: 0 };
 
   scan(xml: string): string {
@@ -72,8 +76,10 @@ class StylesScanner {
     // The library keys its table by `Number(numFmtId)`: an id that is not a plain number is refused.
     if (id === undefined || !ID.test(id)) throw unreadable();
     if (code !== undefined && charCount(code) > MAX_FORMAT_CODE_CHARS) throw unreadable();
+    // Few formats, little format-code text in all: the library's date check is quadratic in each code.
     this.numFmts += 1;
-    if (this.numFmts > MAX_STYLE_ENTRIES) throw unreadable();
+    this.formatChars += code?.length ?? 0;
+    if (this.numFmts > MAX_NUM_FMTS || this.formatChars > MAX_FORMAT_CODE_TOTAL_CHARS) throw unreadable();
     this.out.push(`<numFmt numFmtId="${id}"${code === undefined ? "" : ` formatCode="${escapeXmlAttribute(code)}"`}/>`);
   }
 
@@ -166,7 +172,8 @@ class SharedStringsScanner {
 
   private markup(token: XmlToken): void {
     if (token.kind !== "markup" || token.construct === "pi") return;
-    // CDATA is text; a comment inside a string is ambiguous.
+    // CDATA is text, a separate text event to the library as to this scan (so CDATA in the middle of a rich string's
+    // text appends exactly as the library does: left as it is, review round 4); a comment inside a string is ambiguous.
     if (token.construct === "cdata") this.addText(token.body);
     else throw unreadable();
   }

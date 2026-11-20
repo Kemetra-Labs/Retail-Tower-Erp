@@ -543,11 +543,13 @@ Definition of Ready, with a contract revision where the wire changes:
 - **No uploaded XML reaches the library byte for byte** (security review of PR #761, rounds 1 to 3). The workbook, the
   relationships and the content types are synthesized; the sheet, the styles and the shared strings are re-serialized
   from the strict tokenizer's own tokens (`xlsx-sheet-scan.ts`, `xlsx-parts-scan.ts`), keeping only what the library
-  reads, with caps: 64,000 `<xf>` per list and 64,000 `<numFmt>` (a format code at most 255 characters), 250,000 shared
+  reads, with caps: 64,000 `<xf>` per list, 1,000 `<numFmt>` and 64 KiB of format-code text in all (a format code at most
+  255 characters), 250,000 shared
   strings of at most 32,767 characters, 64 attributes and 8 KiB per tag. The library's own date-format check is
   quadratic in the format code and it builds an object per `<xf/>`, so they are bounded before it runs.
-- **Staged text cap.** At most 8,000,000 characters of cell text per batch in total (header and data, CSV and XLSX),
-  refused as `xlsx_limits_exceeded`, enforced as the sheet is scanned (a shared string counts once per cell that
+- **Staged text cap (lead decision 2026-11-20, pending owner acknowledgement).** At most 8,000,000 characters of cell
+  text per batch in total (header and data), refused as `xlsx_limits_exceeded`. It applies to XLSX in practice: a CSV is
+  bounded by its 5 MiB size, and the cap is applied to both uniformly. It is enforced as the sheet is scanned (a shared string counts once per cell that
   points at it, before the library runs) and again as rows are built. A shared string used by every cell of 5,000 rows
   of 50 columns would otherwise stage about 500 million characters from a 500 KB upload. Staged rows are inserted 500
   to a statement in the same transaction.
