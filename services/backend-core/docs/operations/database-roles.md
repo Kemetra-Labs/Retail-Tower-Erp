@@ -939,6 +939,32 @@ A script without the marker, such as the owner-gated
   migration refuses while any item list or validation is stored. No runtime
   reads or writes the tables until RT-1484.
 
+- **Migration `0124_catalog_import` (RT-1503, spec 049 S2).** Run
+  [`sql/catalog-import-domain-grants.sql`](sql/catalog-import-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on the three manual-import tables (`catalog_import_mapping_profiles`,
+  `catalog_import_batches`, `catalog_import_rows`), plus `DELETE` on
+  `catalog_import_rows` only: a re-upload replaces the old file's rows and the
+  retention purge removes them (OD-6). The batches are the lasting import
+  summary: there is no `DELETE` policy and a 0124 trigger refuses `DELETE` and
+  `TRUNCATE` for every role; the mapping profiles have no `DELETE` policy.
+  Never grant `TRUNCATE` on any of them, nor `DELETE` on the batches or the
+  profiles (the script revokes both and fails if either is held). Without the
+  grants the API refuses to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup
+  role must hold no privilege on them (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0124
+  creates three new, empty tables (no backfill, no change to any existing
+  table) and needs no maintenance window. Its foreign keys take `SHARE ROW
+  EXCLUSIVE` on `tenants` and `tenant_products` until its single transaction
+  commits, so writes to those tables wait briefly; with `lock_timeout` 2s,
+  0124 fails (and changes nothing) if a conflicting writer holds a lock longer,
+  and `migrate up` is then simply re-run. Pass `-v lookup_role=<role>` to the
+  grants script to also check that the auth lookup role holds no table or
+  column privilege on the three tables. Its down migration refuses while any
+  batch or mapping profile is stored. No runtime reads or writes the tables
+  until RT-1505 / RT-1507.
+
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

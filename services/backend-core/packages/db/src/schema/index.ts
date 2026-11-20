@@ -38,6 +38,7 @@ export * from "./catalog/erpnext-posting-status";
 export * from "./catalog/erpnext-posting-resolution";
 export * from "./catalog/erpnext-reconciliation";
 export * from "./catalog/erpnext-product-reconciliation";
+export * from "./catalog/catalog-import";
 export * from "./sales/sales";
 export * from "./sales/sale-lines";
 export * from "./sales/sale-line-pricing-provenance";
