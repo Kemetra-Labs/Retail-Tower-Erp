@@ -26,7 +26,12 @@ export async function liveStoreTimezone(client: Queryable, tenantId: string, sto
   return r.rows[0]?.timezone ?? null;
 }
 
-/** A store as Pricing validation sees it: its IANA time zone and whether it is live. */
+/**
+ * A store as Pricing validation sees it: its IANA time zone and whether it is live for Pricing.
+ * RT-1531: live for Pricing means not deleted AND active (`deleted_at IS NULL AND is_active`), as
+ * spec 042 §3 (Q-B8: deactivating a Store stales a set) and 041 data-model §2.6 (reactivation
+ * bootstraps the Store at the head) require. The other lookups in this file stay "not deleted".
+ */
 interface StoreForPricing {
   readonly id: string;
   readonly timezone: string;
@@ -34,8 +39,9 @@ interface StoreForPricing {
 }
 
 /**
- * Every live store of `tenantId`, plus the stores in `named` that are the tenant's but deleted
- * (`live: false`), each with its time zone. A named id the tenant does not have is absent.
+ * Every Pricing-live store of `tenantId` (not deleted and active), plus the stores in `named` that
+ * are the tenant's but deleted or deactivated (`live: false`), each with its time zone. A named id
+ * the tenant does not have is absent.
  */
 export async function liveAndNamedStores(
   client: Queryable,
@@ -43,9 +49,9 @@ export async function liveAndNamedStores(
   named: readonly string[],
 ): Promise<StoreForPricing[]> {
   const r = await client.query<StoreForPricing>(
-    `SELECT id::text AS id, timezone, deleted_at IS NULL AS live
+    `SELECT id::text AS id, timezone, (deleted_at IS NULL AND is_active) AS live
        FROM stores
-      WHERE tenant_id = $1::uuid AND (deleted_at IS NULL OR id = ANY($2::uuid[]))
+      WHERE tenant_id = $1::uuid AND ((deleted_at IS NULL AND is_active) OR id = ANY($2::uuid[]))
       ORDER BY id`,
     [tenantId, named],
   );

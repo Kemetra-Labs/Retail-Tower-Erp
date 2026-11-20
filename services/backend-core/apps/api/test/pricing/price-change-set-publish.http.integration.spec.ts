@@ -858,6 +858,49 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
     refused(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
   });
 
+  // RT-1531: spec 042 §3 / Q-B8 lists deactivating a Store as a staleness trigger; spec 041 data-model
+  // §2.6 bootstraps a (re)activated Store at the head, so a deactivated Store gets no fan-out rows.
+  it("RT-1531: deactivating a Store stales a validated set that targets it, by Store line or by Book line", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const s = await stores.create(ctx, { code: "RT1531STALE", name: "RT-1531 stale" });
+    try {
+      // A Store line naming the Store (its own Store is deactivated: spec 042 §3).
+      const byStore = await validated({ items: [{ op: "set_price", scope: { kind: "stores", storeIds: [s.id, STORE_A_X] }, products: items([P6]), price: "19", ...at("2070-01-01T00:00:00Z") }] });
+      // A Book line reaching it (the default-Zone fallback adds it to the target Store set).
+      const byBook = await approved({ items: [bookPrice(P5, "21", "2071-01-01T00:00:00Z")] });
+      await stores.update(ctx, s.id, { is_active: false });
+      refused(await send(op(byStore.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
+      const h = await head();
+      refused(await publish(byBook), 409, "stale_validation");
+      expect(await head()).toBe(h);
+      expect(await scalar(`SELECT state AS v FROM change_sets WHERE id = $1`, [byBook.header.id])).toBe("draft");
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [s.id]);
+    }
+  });
+
+  it("RT-1531: a deactivated Store gets no fan-out row from a Book revision; its reactivation bootstraps it at the head", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const s = await stores.create(ctx, { code: "RT1531FAN", name: "RT-1531 fan-out" });
+    const fan = async (revisionNo: number): Promise<string[]> =>
+      (await env!.admin.query<{ store: string }>(`SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`, [TENANT_A, revisionNo])).rows.map((r) => r.store);
+    try {
+      await stores.update(ctx, s.id, { is_active: false });
+      const rev = await published({ items: [bookPrice(P3, "23", "2072-01-01T00:00:00Z")] });
+      const reached = await fan(rev.revisionNo);
+      expect(reached).toContain(STORE_A_X);
+      expect(reached).not.toContain(s.id);
+      await stores.update(ctx, s.id, { is_active: true });
+      expect(await scalar(`SELECT max(revision_no)::text AS v FROM pricing_revision_stores WHERE store_id = $1`, [s.id])).toBe(String(await head()));
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [s.id]);
+    }
+  });
+
   it("m5: a no-op activation PATCH takes no bootstrap row; a real activation does", async () => {
     if (skip()) return;
     const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));

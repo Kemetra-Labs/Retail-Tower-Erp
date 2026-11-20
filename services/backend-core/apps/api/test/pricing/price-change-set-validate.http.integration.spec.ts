@@ -1091,6 +1091,30 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     }
   });
 
+  // RT-1531: a deactivated Store (`is_active = false`) is not live for Pricing reach (spec 042 §3).
+  it("RT-1531: a deactivated Store is not counted in a Book set's reach, and a Store line naming it is store_not_live", async () => {
+    if (skip()) return;
+    await env!.admin.query(`UPDATE stores SET is_active = false WHERE id = $1`, [STORE_B_Y]);
+    try {
+      const book = await createSet(SES_OWNER_B, {
+        items: [{ op: "set_price", scope: { kind: "book" }, products: items([PRODUCT_B_ACTIVE]), price: "8", ...at("2034-01-01T00:00:00Z") }],
+      });
+      expect((await validated(SES_OWNER_B, book)).summary).toMatchObject({ stores: 1 });
+      const preview = await allPreview(SES_OWNER_B, book.header.id);
+      expect(preview.lines.map((l) => l.storeId)).not.toContain(STORE_B_Y);
+
+      const named = await validated(
+        SES_OWNER_B,
+        await createSet(SES_OWNER_B, {
+          items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_B_Y] }, products: items([PRODUCT_B_ACTIVE]), price: "9", ...at("2034-06-01T00:00:00Z") }],
+        }),
+      );
+      expect(named.summary).toMatchObject({ blocking: true, findings: { invalid: 1 } });
+    } finally {
+      await env!.admin.query(`UPDATE stores SET is_active = true WHERE id = $1`, [STORE_B_Y]);
+    }
+  });
+
   it("a legacy_import set is never edited or cancelled here (409, comment 17881 follow-up 3)", async () => {
     if (skip()) return;
     refused(await send("patch", csPath(CS_LEGACY_DRAFT), SES_OWNER_B, { expectedVersion: 1, title: "No" }), 409, "change_set_invalid_state");
