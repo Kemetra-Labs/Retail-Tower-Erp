@@ -172,6 +172,14 @@ class Validator {
   /** Lines of other pending sets by key (review round 1, M2: no lines × pending scan). */
   private readonly pendingByKey = new Map<string, PendingLine[]>();
   private readonly liveZones: readonly string[];
+  /** Live Stores in id order. */
+  private readonly liveStores: readonly ValidationStore[];
+  /** Live Stores with a visible membership in each Zone (round 2: a Zone line scans only these). */
+  private readonly storesByZone = new Map<string, ValidationStore[]>();
+  /** Reach per distinct target (scope, Zone or Store, bounds), computed once (round 2). */
+  private readonly reachCache = new Map<string, Reach[]>();
+  /** How many distinct targets reach was computed for (the unit spec's complexity guard). */
+  reachComputations = 0;
   private readonly minorUnit: number;
 
   constructor(private readonly ctx: ValidationContext) {
@@ -186,7 +194,12 @@ class Validator {
     for (const p of ctx.pendingLines) {
       appendTo(this.pendingByKey, p.op === "move_store_zone" ? moveKey(p.storeId ?? "") : keyOf(p), p);
     }
-    this.liveZones = sorted([...ctx.stores.values()].filter((s) => s.live).map((s) => s.timezone));
+    this.liveStores = [...ctx.stores.values()].filter((s) => s.live).sort((x, y) => compareCodeUnits(x.id, y.id));
+    this.liveZones = sorted(this.liveStores.map((s) => s.timezone));
+    // One pass over the live Stores and their memberships: Zone → the Stores it can reach.
+    for (const store of this.liveStores) {
+      for (const zoneId of new Set(this.membershipsOf(store.id).map((m) => m.priceZoneId))) appendTo(this.storesByZone, zoneId, store);
+    }
     this.minorUnit = minorUnitExponent(ctx.book.currencyCode) ?? -1;
   }
 
@@ -351,6 +364,22 @@ class Validator {
    * reached, with `empty_interval` (invalid: it could never take effect there).
    */
   private reach(t: Target, bounds: Bounds): Reach[] {
+    // Every product of one item shares its target and bounds: reach is computed once per target
+    // (round 2, lead decision), so the cost is O(targets × candidate Stores), not O(lines × Stores).
+    const key = `${t.scope}|${t.priceZoneId ?? ""}|${t.storeId ?? ""}|${bounds.timeBasis}|${(rawInterval(bounds)?.from ?? "")}|${(rawInterval(bounds)?.to ?? "")}`;
+    const cached = this.reachCache.get(key);
+    if (cached !== undefined) return cached;
+    const computed = this.computeReach(t, bounds);
+    this.reachCache.set(key, computed);
+    return computed;
+  }
+
+  /**
+   * A Book line reaches every live Store; a Store line its Store; a Zone line only the Stores with
+   * a membership in that Zone, or every live Store for the default Zone (the fallback).
+   */
+  private computeReach(t: Target, bounds: Bounds): Reach[] {
+    this.reachComputations += 1;
     if (t.scope === "store") {
       const store = this.store(t.storeId!);
       const interval = intervalIn(bounds, store.timezone)!;
@@ -358,8 +387,9 @@ class Validator {
       return [{ store, fromMs: interval.from, interval, messages }];
     }
     const out: Reach[] = [];
-    for (const store of this.ctx.stores.values()) {
-      if (!store.live) continue;
+    const candidates =
+      t.scope === "book" || t.priceZoneId === this.ctx.book.defaultZoneId ? this.liveStores : (this.storesByZone.get(t.priceZoneId!) ?? []);
+    for (const store of candidates) {
       const interval = intervalIn(bounds, store.timezone)!;
       // An empty interval is probed over its one instant, so Zone reach still decides membership.
       const probe = isEmpty(interval) ? { from: interval.from, to: interval.from + 1 } : interval;
@@ -661,9 +691,15 @@ export function validateChangeSet(ctx: ValidationContext, items: readonly Positi
  * memberships only (before the events are loaded): `MAX_LINES` lines or `MAX_PREVIEW_ROWS`
  * preview rows, or an item with no target. Null when the set is within budget.
  */
-export function checkBudget(ctx: ValidationContext, items: readonly PositionedItem[]): ValidationRefusal | null {
+export function checkBudget(
+  ctx: ValidationContext,
+  items: readonly PositionedItem[],
+  probe?: { reachComputations: number },
+): ValidationRefusal | null {
   const v = new Validator(ctx);
-  return v.run(() => v.budget(items));
+  const result = v.run(() => v.budget(items));
+  if (probe !== undefined) probe.reachComputations = v.reachComputations;
+  return result;
 }
 
 /** Every product, category and Store id the items name (lower case), for the loader. */

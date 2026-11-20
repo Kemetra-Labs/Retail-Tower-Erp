@@ -475,6 +475,27 @@ describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", (
     expect(checkBudget(context({ products }), items(...list, list[0]!))).toMatchObject({ code: "change_set_too_large" });
   });
 
+  // Round 2 (lead decision on CodeRabbit 4640350996): reach is computed once per distinct target,
+  // and a sparse Zone scans only its member Stores, so the budget's cost does not grow with lines × Stores.
+  it("round 2: the budget computes reach once per target, not per line; a sparse Zone line is a zero-cost line", () => {
+    const stores = new Map(
+      Array.from({ length: 2000 }, (_, i) => {
+        const sid = `0192f000-0000-7000-8000-${(0x300000 + i).toString(16).padStart(12, "0")}`;
+        return [sid, { id: sid, timezone: "UTC", live: true }] as const;
+      }),
+    );
+    const many = Array.from({ length: 5000 }, (_, i) => `0192f000-0000-7000-8000-${(0x400000 + i).toString(16).padStart(12, "0")}`);
+    const products = new Map(many.map((p) => [p, { live: true }]));
+    const zoneItem = { ...bookPrice("1"), scope: { kind: "zone", zoneId: ZONE_NORTH }, products: { kind: "items", productIds: many } } as PriceChangeItem;
+    const probe = { reachComputations: 0 };
+    // 5 000 Zone lines over 2 000 Stores, none in NORTH: no preview rows, no refusal, one reach.
+    expect(checkBudget(context({ stores, products }), items(zoneItem), probe)).toBeNull();
+    expect(probe.reachComputations).toBe(1);
+    // Two items with the same target and bounds still share it; another bound is a new target.
+    checkBudget(context({ stores, products }), items(zoneItem, zoneItem, { ...zoneItem, effectiveFrom: "2032-01-01T00:00:00Z" } as PriceChangeItem), probe);
+    expect(probe.reachComputations).toBe(2);
+  });
+
   it("m2: an end that ends nothing is invalid", () => {
     const end: PriceChangeItem = { op: "end_price", scope: { kind: "book" }, products: { kind: "items", productIds: [P1] }, timeBasis: "absolute", effectiveFrom: "2031-01-01T00:00:00Z" };
     expect(ok(validateChangeSet(context(), items(end))).lines[0]).toMatchObject({ class: "invalid", messages: ["nothing_to_end"] });
