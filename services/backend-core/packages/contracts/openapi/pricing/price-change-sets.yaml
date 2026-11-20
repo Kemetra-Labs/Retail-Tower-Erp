@@ -310,8 +310,15 @@ paths:
         those block `submit`. An empty set is `422 change_set_empty`; more than
         50 000 lines is `422 change_set_too_large` (Q-B6). A `kind: rollback`
         set may come back at `version` + 1, because its items are regenerated
-        from max(`from`, now) before it validates (RT-1484 PR-6). Roles
-        `owner` / `tenant_admin`.
+        from max(`from`, now) before it validates (RT-1484 PR-6). Validating a
+        rollback set is `409 change_set_invalid_state` when its start time
+        cannot be read back (an explicit `from` is never replaced by now), and
+        when an activation of its validation falls before that start (validate
+        again).
+        Its target is checked first: a blocked target is `409
+        rollback_blocked` and a target that is no longer `published` is `409
+        change_set_invalid_state`, both before `409 price_book_missing`
+        (RT-1533). Roles `owner` / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -572,8 +579,12 @@ paths:
         `revisionNo`. Repeats the staleness check (`409 stale_validation`; the
         set returns to `draft`; a line targeting a Zone retired since
         validation is stale too) and, for a sensitive set, refuses a missing,
-        stale or self-made approval (`403 self_approval_forbidden`). Roles
-        `owner` / `tenant_admin`.
+        stale or self-made approval (`403 self_approval_forbidden`). For a
+        `kind: rollback` set, a preview activation before the rollback's start, or
+        a target Store of its population without a preview row, is also `409
+        stale_validation`; the stale audit record names the reason
+        `rollback_store_population_changed` (not part of the response body).
+        Roles `owner` / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:

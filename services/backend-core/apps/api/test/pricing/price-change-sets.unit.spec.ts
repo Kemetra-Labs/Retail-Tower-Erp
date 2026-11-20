@@ -32,7 +32,7 @@ import {
   missingAcknowledgements,
   requiredAcknowledgements,
 } from "../../src/pricing/change-sets/price-change-set-approval";
-import { instantText, localText } from "../../src/pricing/change-sets/price-change-set-rollback";
+import { instantText, localText, refuseActivationBefore } from "../../src/pricing/change-sets/price-change-set-rollback";
 import {
   ApprovePriceChangeSetBodySchema,
   CreatePriceChangeSetBodySchema,
@@ -46,6 +46,7 @@ import {
 } from "../../src/pricing/change-sets/price-change-sets.dto";
 import {
   ChangeSetListCursorError,
+  PriceChangeSetConflictError,
   decodeChangeSetListCursor,
   encodeChangeSetListCursor,
   toHeaderBody,
@@ -371,6 +372,39 @@ describe("rollback", () => {
     expect(instantText(-1n)).toBe("1969-12-31T23:59:59.999999Z");
     expect(localText(1_924_992_000_000_000n)).toBe("2031-01-01T00:00:00");
     expect(() => localText(1_924_992_000_500_000n)).toThrow(/sub-second/);
+  });
+
+  // RT-1533 (review minor on #753): the validate-time guard, fail closed on any activation before `from`.
+  describe("refuseActivationBefore", () => {
+    const FROM_MS = 1_924_992_000_000;
+    const MICROSECOND_MS = 0.001;
+
+    it("accepts every activation when the rollback start time is null (a set that is no rollback)", () => {
+      expect(() => refuseActivationBefore(null, [0, -1, FROM_MS - 1])).not.toThrow();
+    });
+
+    it("accepts an activation at the equal instant and later ones, and an empty list", () => {
+      expect(() => refuseActivationBefore(FROM_MS, [FROM_MS])).not.toThrow();
+      expect(() => refuseActivationBefore(FROM_MS, [FROM_MS, FROM_MS + MICROSECOND_MS, FROM_MS + 3_600_000])).not.toThrow();
+      expect(() => refuseActivationBefore(FROM_MS, [])).not.toThrow();
+    });
+
+    it("refuses an activation 1 microsecond earlier, with change_set_invalid_state", () => {
+      expect(FROM_MS - MICROSECOND_MS).toBeLessThan(FROM_MS);
+      let refusal: unknown;
+      try {
+        refuseActivationBefore(FROM_MS, [FROM_MS - MICROSECOND_MS]);
+      } catch (err) {
+        refusal = err;
+      }
+      expect(refusal).toBeInstanceOf(PriceChangeSetConflictError);
+      expect((refusal as PriceChangeSetConflictError).code).toBe("change_set_invalid_state");
+      expect((refusal as PriceChangeSetConflictError).detail).toMatch(/before its start time/);
+    });
+
+    it("refuses when any one activation is early, wherever it sits in the list", () => {
+      expect(() => refuseActivationBefore(FROM_MS, [FROM_MS + 5, FROM_MS - MICROSECOND_MS, FROM_MS + 9])).toThrow(PriceChangeSetConflictError);
+    });
   });
 });
 
