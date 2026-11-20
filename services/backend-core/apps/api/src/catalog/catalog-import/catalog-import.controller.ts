@@ -120,11 +120,7 @@ export class CatalogImportController {
   @ConsoleRateLimit("cheapRead")
   async get(@Req() request: TenantContextRequest, @Param("batchId") batchId: string): Promise<CatalogImportBatchBody> {
     const id = parseBatchId(batchId);
-    try {
-      return await this.service.get(sessionTenant(request), id);
-    } catch (err) {
-      throw toHttpError(err) ?? err;
-    }
+    return guarded(() => this.service.get(sessionTenant(request), id));
   }
 
   @Put(`${IMPORTS}/:batchId/mapping`)
@@ -136,11 +132,7 @@ export class CatalogImportController {
     @Body(new ZodValidationPipe(SetMappingBodySchema)) body: SetMappingBody,
   ): Promise<CatalogImportBatchBody> {
     const id = parseBatchId(batchId);
-    try {
-      return await this.service.setMapping(writer(request), id, body);
-    } catch (err) {
-      throw toHttpError(err) ?? err;
-    }
+    return guarded(() => this.service.setMapping(writer(request), id, body));
   }
 
   @Post(`${IMPORTS}/:batchId/validate`)
@@ -153,11 +145,7 @@ export class CatalogImportController {
     @Body(new ZodValidationPipe(ValidateBodySchema)) body: ValidateBody,
   ): Promise<CatalogImportBatchBody> {
     const id = parseBatchId(batchId);
-    try {
-      return await this.service.validate(writer(request), id, body.expectedVersion);
-    } catch (err) {
-      throw toHttpError(err) ?? err;
-    }
+    return guarded(() => this.service.validate(writer(request), id, body.expectedVersion));
   }
 
   @Get(`${IMPORTS}/:batchId/rows`)
@@ -171,11 +159,7 @@ export class CatalogImportController {
     const id = parseBatchId(batchId);
     // A malformed or unknown query key is a 400 (the ZodError is the global filter's), before any read.
     const parsed = RowsQuerySchema.parse(query);
-    try {
-      return await this.service.listRows(sessionTenant(request), id, parsed);
-    } catch (err) {
-      throw toHttpError(err) ?? err;
-    }
+    return guarded(() => this.service.listRows(sessionTenant(request), id, parsed));
   }
 
   @Put(`${IMPORTS}/:batchId/rows/:rowNumber/resolution`)
@@ -227,8 +211,9 @@ export class CatalogImportController {
     @Param("batchId") batchId: string,
     @Body(new ZodValidationPipe(ValidateBodySchema)) body: ValidateBody,
   ): Promise<CatalogImportBatchBody> {
-    const id = parseBatchId(batchId);
-    return guarded(() => this.service.cancel(writer(request), id, body.expectedVersion));
+    const actor = writer(request);
+    const { expectedVersion } = body;
+    return guarded(() => this.service.cancel(actor, parseBatchId(batchId), expectedVersion));
   }
 }
 

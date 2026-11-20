@@ -4,11 +4,12 @@
  *
  * From the stored rows (status and outcome) only: a `ready_create` row creates a product with its identifiers; a
  * `ready_update` row changes the product it names (its field changes) and adds identifiers to it; `unchanged` and
- * `excluded` rows write nothing; a `ready_update` row with nothing to change or add writes nothing (a decided row that
+ * `excluded` rows write nothing (an `unchanged` row's stated values still count when two rows share a product); a `ready_update` row with nothing to change or add writes nothing (a decided row that
  * turned out to change nothing). A brand a row names that does not exist is created once, however many rows name it
- * (OD-3 B). Two rows that update one product are one update of that product; if they disagree on a field, or were validated
- * against different states of the product, the plan flags it and the publish is refused (`import_not_publishable` /
- * `stale_validation`), because no merge could be right.
+ * (OD-3 B). Two rows that update one product are one update of that product; if they disagree on a field (a row's explicit
+ * value counts even when it equals the product's current one and so records no field change), or together would give the
+ * product two SKUs, or were validated against different states of the product, the plan flags it and the publish is refused
+ * (`import_not_publishable` / `stale_validation`), because no merge could be right (OD-1: a product keeps one SKU).
  */
 import type { ProductRef } from "./import-issues";
 import type { FieldChange, IdentifierRef, RowOutcome, RowStatus } from "./import-row-evaluate";
@@ -65,7 +66,6 @@ interface MutableUpdate {
   matchedMs: string;
   changes: Map<string, FieldChange>;
   adds: PlannedIdentifier[];
-  conflicting: boolean;
 }
 
 function startUpdate(row: PlanRow): MutableUpdate {
@@ -73,42 +73,89 @@ function startUpdate(row: PlanRow): MutableUpdate {
   if (product === null || row.matchedText === null || row.matchedMs === null) {
     throw new Error(`import row ${row.rowNumber} is ready_update without a matched product`);
   }
-  return { productId: product.productId, product, rowNumbers: [], matchedTexts: new Set(), matchedMs: row.matchedMs, changes: new Map(), adds: [], conflicting: false };
+  return { productId: product.productId, product, rowNumbers: [], matchedTexts: new Set(), matchedMs: row.matchedMs, changes: new Map(), adds: [] };
 }
 
 function mergeInto(update: MutableUpdate, row: PlanRow): void {
   update.rowNumbers.push(row.rowNumber);
   update.matchedTexts.add(row.matchedText as string);
   for (const change of row.outcome.fieldChanges) {
-    const had = update.changes.get(change.field);
-    if (had !== undefined && had.after !== change.after) update.conflicting = true;
-    else if (had === undefined) update.changes.set(change.field, change);
+    if (!update.changes.has(change.field)) update.changes.set(change.field, change);
   }
   for (const id of row.outcome.identifierAdds) {
     if (!update.adds.some((a) => a.type === id.type && a.value === id.value)) update.adds.push({ ...id, rowNumber: row.rowNumber });
   }
 }
 
+/** The values a row sets on its product: its field changes, and the values it states explicitly (when the cells were read). */
+function valuesOf(row: PlanRow, explicit: ReadonlyMap<number, Readonly<Record<string, string>>>): Array<[string, string]> {
+  const values = new Map<string, string>();
+  for (const change of row.outcome.fieldChanges) if (change.after !== null) values.set(change.field, change.after);
+  for (const [field, value] of Object.entries(explicit.get(row.rowNumber) ?? {})) values.set(field, value);
+  return [...values];
+}
+
+/** Whether the row's values disagree with what the product's earlier rows set; records them either way. */
+function disagrees(seen: Map<string, string>, row: PlanRow, explicit: ReadonlyMap<number, Readonly<Record<string, string>>>): boolean {
+  let differs = false;
+  for (const [field, value] of valuesOf(row, explicit)) {
+    const had = seen.get(field);
+    if (had !== undefined && had !== value) differs = true;
+    else seen.set(field, value);
+  }
+  return differs;
+}
+
+/** Records what the row states for its product; a disagreement with the product's earlier rows is remembered. Returns the product id. */
+function trackValues(
+  seenValues: Map<string, Map<string, string>>,
+  disagreeing: Set<string>,
+  row: PlanRow,
+  explicit: ReadonlyMap<number, Readonly<Record<string, string>>>,
+): string {
+  const productId = row.outcome.matchedProduct?.productId ?? "";
+  const seen = seenValues.get(productId) ?? new Map<string, string>();
+  seenValues.set(productId, seen);
+  if (disagrees(seen, row, explicit)) disagreeing.add(productId);
+  return productId;
+}
+
+/** A merged update that would give the product a second SKU (or a SKU to one that has one): OD-1 sends such a row to review. */
+function addsSecondSku(update: MutableUpdate): boolean {
+  const skus = update.adds.filter((a) => a.type === "sku").length;
+  return skus > 1 || (skus === 1 && update.product.identifiers.some((i) => i.type === "sku"));
+}
+
 const hasEffect = (row: PlanRow): boolean => row.outcome.fieldChanges.length > 0 || row.outcome.identifierAdds.length > 0;
 
-/** The effect of the batch's rows (in row order). */
-export function planPublish(rows: readonly PlanRow[]): PublishPlan {
+/**
+ * The effect of the batch's rows (in row order). `explicit` is, per row number, the values the row states for its product
+ * (field -> text, as the field changes name them); it is read only for the rows that share a product (the publish loads those
+ * cells), and lets the plan see a row that restates the product's current value against another row's change.
+ */
+export function planPublish(rows: readonly PlanRow[], explicit: ReadonlyMap<number, Readonly<Record<string, string>>> = new Map()): PublishPlan {
   const brands = new Map<string, number>();
   const creates: PublishPlan["creates"] = [];
   const updates = new Map<string, MutableUpdate>();
+  const seenValues = new Map<string, Map<string, string>>();
+  const disagreeing = new Set<string>();
   let priceNotImported = 0;
   let unchanged = 0;
   let excluded = 0;
   for (const row of rows) {
     if (row.priceNotImported) priceNotImported += 1;
-    if (row.status === "unchanged") unchanged += 1;
-    else if (row.status === "excluded") excluded += 1;
+    if (row.status === "unchanged") {
+      unchanged += 1;
+      // It writes nothing, but what it states for its product still counts against another row's change of it.
+      trackValues(seenValues, disagreeing, row, explicit);
+    } else if (row.status === "excluded") excluded += 1;
     else if (row.status === "ready_create") {
       creates.push({ rowNumber: row.rowNumber, adds: row.outcome.identifierAdds });
       if (row.outcome.brandToCreate !== null && !brands.has(row.outcome.brandToCreate)) brands.set(row.outcome.brandToCreate, row.rowNumber);
-    } else if (row.status === "ready_update" && hasEffect(row)) {
-      const existing = updates.get(row.outcome.matchedProduct?.productId ?? "");
-      const update = existing ?? startUpdate(row);
+    } else if (row.status === "ready_update") {
+      const productId = trackValues(seenValues, disagreeing, row, explicit);
+      if (!hasEffect(row)) continue;
+      const update = updates.get(productId) ?? startUpdate(row);
       updates.set(update.productId, update);
       mergeInto(update, row);
       if (row.outcome.brandToCreate !== null && !brands.has(row.outcome.brandToCreate)) brands.set(row.outcome.brandToCreate, row.rowNumber);
@@ -129,7 +176,7 @@ export function planPublish(rows: readonly PlanRow[]): PublishPlan {
     updates: planned,
     deactivations: planned.flatMap((u) => (u.changes.some((c) => c.field === "is_active" && c.after === "false") ? [{ rowNumber: u.rowNumbers[0] as number, product: u.product }] : [])),
     identifiersToAdd: creates.reduce((n, c) => n + c.adds.length, 0) + planned.reduce((n, u) => n + u.adds.length, 0),
-    conflictingProducts: [...updates.values()].filter((u) => u.conflicting).map((u) => u.productId),
+    conflictingProducts: [...updates.values()].filter((u) => disagreeing.has(u.productId) || addsSecondSku(u)).map((u) => u.productId),
     staleProducts: [...updates.values()].filter((u) => u.matchedTexts.size > 1).map((u) => u.productId),
     rowsWithPriceNotImported: priceNotImported,
     rowsUnchanged: unchanged,

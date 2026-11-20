@@ -825,8 +825,9 @@ paths:
         functions as the single-product console writes, conditionally
         (`expectedUpdatedAt`, the unique indexes), so a concurrent
         single-product edit or identifier claim is `409 stale_validation`,
-        never a 500. Two rows that would change one product differently are
-        `import_not_publishable`. A publish serialises per tenant. A publish of
+        never a 500 (a deadlock with a concurrent write is the same `409`). Two
+        rows that would change one product differently, or give it two SKUs,
+        are `import_not_publishable`. A publish serialises per tenant. A publish of
         an already `published` batch whose `previewHash` is the batch's is a
         replay (`200`, `Idempotent-Replayed: true`) even under a new key; with
         another `previewHash` it is `409 import_batch_closed`. The same key

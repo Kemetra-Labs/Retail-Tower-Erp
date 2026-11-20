@@ -86,10 +86,3 @@ export function hashRowsOf(writes: readonly RowWrite[]): HashableRow[] {
     decision: w.carried === null ? null : w.carried.decision,
   }));
 }
-
-/** Rows per status over the writes (every row has exactly one). */
-export function countWrites(writes: readonly RowWrite[]): Record<RowStatus, number> {
-  const counts: Record<RowStatus, number> = { ready_create: 0, ready_update: 0, unchanged: 0, needs_review: 0, error: 0, excluded: 0 };
-  for (const w of writes) counts[w.status] += 1;
-  return counts;
-}

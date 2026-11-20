@@ -20,13 +20,14 @@
  */
 import "reflect-metadata";
 
+import { ReadDownService } from "../../../src/catalog/read-down/read-down.service";
 import * as domain from "../../../src/catalog/console-catalog/console-catalog.domain";
 import * as publishRepository from "../../../src/catalog/catalog-import/catalog-import.publish-repository";
 import { CatalogImportModule } from "../../../src/catalog/catalog-import/catalog-import.module";
 import { importUploadPassthrough } from "../../../src/catalog/catalog-import/import-upload-intake.guard";
 import { scopedHttpHarness } from "../../_helpers/scoped-http-harness";
 import { SES_MANAGER } from "../../console-sales/__support__/console-sales-fixture";
-import { TENANT_A } from "../__support__/isolation-harness";
+import { STORE_A_X, TENANT_A } from "../__support__/isolation-harness";
 import { SES_OWNER_ALL } from "../erpnext-reconciliation/__support__/read-store-scope";
 import { idempotencyProviders } from "./__support__/idempotency-fakes";
 import { seedMapValidateFixture } from "./__support__/map-validate-fixture";
@@ -198,6 +199,17 @@ describe("a publish", () => {
     // Created products have no price anywhere, so none is sellable at a till until priced (spec 049 section 6, F-4).
     const priced = await admin.query(`SELECT 1 FROM store_product_overrides WHERE tenant_id = $1 AND product_id = ANY($2::uuid[]) AND price IS NOT NULL`, [TENANT_A, created.rows.map((r) => r.id)]);
     expect(priced.rowCount).toBe(0);
+    // And the real read-down service omits them: the sellable snapshot of a store has other products, never these.
+    const read = new ReadDownService(h.env().app);
+    const sellable: string[] = [];
+    let pageToken: string | null = null;
+    do {
+      const page: Awaited<ReturnType<ReadDownService["getSnapshot"]>> = await read.getSnapshot(TENANT_A, STORE_A_X, { limit: 200, pageToken });
+      sellable.push(...page.items.map((i) => i.product_id));
+      pageToken = page.next_page_token;
+    } while (pageToken !== null);
+    expect(sellable.length).toBeGreaterThan(0);
+    for (const id of created.rows.map((r) => r.id)) expect(sellable).not.toContain(id);
 
     // The preview of the published batch is the same effect.
     const after = (await c.preview(SES_OWNER_ALL, s.batch.batchId).expect(200)).body;
@@ -383,6 +395,121 @@ describe("two rows that change one product", () => {
     const name = await h.env().admin.query<{ name: string }>(`SELECT name FROM tenant_products WHERE id = $1`, [product]);
     expect(name.rows[0]!.name).toBe(`RT1507 Twice ${u}`);
     expect(await batchRow(h.env().admin, batch.batchId)).toMatchObject({ state: "validated", version: batch.version });
+  });
+});
+
+/** Polls until the condition holds (a few seconds at most). */
+async function until(condition: () => Promise<boolean>): Promise<void> {
+  for (let i = 0; i < 200; i += 1) {
+    if (await condition()) return;
+    await new Promise((resolve) => setTimeout(resolve, 25));
+  }
+  throw new Error("condition not reached");
+}
+
+describe("a console write that holds a product while the publish runs", () => {
+  // The console edit locks the product first and the tenant offers lock second. The publish used to take the offers lock (the
+  // catalog hook of its creates) before it locked the products it updates: a deadlock, answered 500.
+  it.each([
+    ["changes nothing", false, 200],
+    ["edits the product", true, 409],
+  ] as const)("never deadlocks: a console transaction that %s and then takes the offers lock", async (_label, edits, status) => {
+    if (skip()) return;
+    const { admin } = h.env();
+    const s = await scenario();
+    const other = await admin.connect();
+    try {
+      await other.query("BEGIN");
+      await other.query(`SELECT 1 FROM tenant_products WHERE id = $1 FOR NO KEY UPDATE`, [s.up2]);
+      if (edits) await other.query(`UPDATE tenant_products SET name = $2 WHERE id = $1`, [s.up2, `Edited ${s.u}`]);
+      const publishing = c.publish(SES_OWNER_ALL, s.batch.batchId, bodyOf(s.batch)).then((r) => r);
+      await until(async () => ((await admin.query(`SELECT 1 FROM pg_locks WHERE NOT granted`)).rowCount ?? 0) > 0);
+      await other.query(`SELECT pg_advisory_xact_lock(hashtextextended($1::text, 0))`, [`offers:${TENANT_A}`]);
+      await other.query("COMMIT");
+      const res = await publishing;
+      expect(res.status).toBe(status);
+      if (status === 409) c.expectError(res, 409, "stale_validation");
+      else expect(res.body.batch.state).toBe("published");
+    } finally {
+      await other.query("ROLLBACK").catch(() => undefined);
+      other.release();
+    }
+  }, 30_000);
+
+  it("answers a deadlock or a serialization failure inside the publish as 409 stale_validation", async () => {
+    if (skip()) return;
+    const s = await scenario();
+    for (const code of ["40P01", "40001"]) {
+      jest.spyOn(domain, "createBrandsIn").mockRejectedValueOnce(Object.assign(new Error("contention"), { code }));
+      c.expectError(await c.publish(SES_OWNER_ALL, s.batch.batchId, bodyOf(s.batch)), 409, "stale_validation");
+      const state = await batchRow(h.env().admin, s.batch.batchId);
+      expect(state.state).toBe("draft");
+      const again = (await c.validate(SES_OWNER_ALL, s.batch.batchId, state.version).expect(200)).body as Batch;
+      s.batch.version = again.version;
+      s.batch.previewHash = again.previewHash;
+    }
+  });
+});
+
+describe("the stale re-check on its own", () => {
+  it("refuses before the first write: no brand, product or identifier function runs", async () => {
+    if (skip()) return;
+    const s = await scenario();
+    await h.env().admin.query(`UPDATE tenant_products SET name = $2 WHERE id = $1`, [s.up2, `Edited ${s.u}`]);
+    const spies = [jest.spyOn(domain, "createBrandsIn"), jest.spyOn(domain, "createProductsIn"), jest.spyOn(domain, "updateProductsIn"), jest.spyOn(domain, "insertIdentifiersIn")];
+    c.expectError(await c.publish(SES_OWNER_ALL, s.batch.batchId, bodyOf(s.batch)), 409, "stale_validation");
+    for (const spy of spies) expect(spy).not.toHaveBeenCalled();
+  });
+
+  it("still answers 409 stale_validation when the transition back to draft fails (the batch stays validated)", async () => {
+    if (skip()) return;
+    const s = await scenario();
+    await h.env().admin.query(`UPDATE tenant_products SET name = $2 WHERE id = $1`, [s.up2, `Edited ${s.u}`]);
+    jest.spyOn(publishRepository, "markBatchStale").mockRejectedValueOnce(new Error("injected failure of the second transaction"));
+    c.expectError(await c.publish(SES_OWNER_ALL, s.batch.batchId, bodyOf(s.batch)), 409, "stale_validation");
+    expect(await batchRow(h.env().admin, s.batch.batchId)).toMatchObject({ state: "validated", version: s.batch.version });
+  });
+});
+
+describe("one SKU per product (OD-1) across rows", () => {
+  it("refuses two rows that would give a product two SKUs through its two barcodes", async () => {
+    if (skip()) return;
+    const { admin } = h.env();
+    const u = uniq();
+    const product = await seedProductA(admin, { name: `RT1507 Barcodes ${u}`, barcodes: [`97${u}01`, `97${u}02`] });
+    const batch = await c.validated(`SKU,Barcode,Name,Tax Category\nSKU-ONE-${u},97${u}01,,\nSKU-TWO-${u},97${u}02,,\n`);
+    expect(batch.counts).toMatchObject({ ready_update: 2 });
+    c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "import_not_publishable");
+    const skus = await admin.query(`SELECT 1 FROM product_aliases WHERE product_id = $1 AND identifier_type = 'sku'`, [product]);
+    expect(skus.rowCount).toBe(0);
+    expect(await batchRow(admin, batch.batchId)).toMatchObject({ state: "validated", version: batch.version });
+  });
+
+  it("is a stale validation when the product received a SKU between validate and publish (a console identifier add does not move updated_at)", async () => {
+    if (skip()) return;
+    const { admin } = h.env();
+    const u = uniq();
+    const product = await seedProductA(admin, { name: `RT1507 Late sku ${u}`, barcode: `96${u}01` });
+    const batch = await c.validated(`SKU,Barcode,Name,Tax Category\nSKU-LATE-${u},96${u}01,,\n`);
+    expect(batch.counts).toMatchObject({ ready_update: 1 });
+    await admin.query(`INSERT INTO product_aliases (tenant_id, product_id, identifier_type, value, created_by) VALUES ($1, $2, 'sku', $3, $4)`, [TENANT_A, product, `OTHER-${u}`, "0a000000-0000-7000-8000-0000001507e1"]);
+    c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "stale_validation");
+    const skus = await admin.query<{ value: string }>(`SELECT value FROM product_aliases WHERE product_id = $1 AND identifier_type = 'sku'`, [product]);
+    expect(skus.rows.map((r) => r.value)).toEqual([`OTHER-${u}`]);
+  });
+});
+
+describe("a row that restates a value another row changes", () => {
+  it("refuses an unchanged row that states the product's current value against another row's change", async () => {
+    if (skip()) return;
+    const { admin } = h.env();
+    const u = uniq();
+    const product = await seedProductA(admin, { name: `RT1507 Restate ${u}`, sku: `RS-${u}`, barcode: `95${u}01` });
+    const batch = await c.validated(`SKU,Barcode,Name,Tax Category,Active\nRS-${u},,,,false\n,95${u}01,,,true\n`);
+    expect(batch.counts).toMatchObject({ ready_update: 1, unchanged: 1 });
+    c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "import_not_publishable");
+    const active = await admin.query<{ is_active: boolean }>(`SELECT is_active FROM tenant_products WHERE id = $1`, [product]);
+    expect(active.rows[0]!.is_active).toBe(true);
   });
 });
 

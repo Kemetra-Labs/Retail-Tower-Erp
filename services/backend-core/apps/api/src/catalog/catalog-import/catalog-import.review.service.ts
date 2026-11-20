@@ -93,7 +93,8 @@ export class CatalogImportReviewService {
   /** The impact of the batch's rows: what publish would do, for exactly the stored `previewHash`. */
   async preview(tenantId: string, batchId: string): Promise<PreviewBody> {
     return inTenant(this.pool, tenantId, async (client) => {
-      const batch = await readBatchWithOutcomes(client, tenantId, batchId);
+      // Share-locked: the rows below are read as of this batch row (every row writer locks the batch first).
+      const batch = await readBatchWithOutcomes(client, tenantId, batchId, true);
       const plan = planPublish(await loadPlanRows(client, tenantId, batchId, false));
       const body = toBatchBody(batch);
       return {

@@ -147,7 +147,7 @@ export function importClient(h: ScopedHttpHarness): {
 /** A product of tenant A with a SKU (and optionally a barcode), for the specs that publish and must not disturb the shared fixture. */
 export async function seedProductA(
   admin: Pool,
-  p: { name: string; sku: string; barcode?: string; categoryId?: string | null; active?: boolean },
+  p: { name: string; sku?: string; barcode?: string; barcodes?: string[]; categoryId?: string | null; active?: boolean },
 ): Promise<string> {
   const r = await admin.query<{ id: string }>(
     `INSERT INTO tenant_products (id, tenant_id, name, category_id, is_active, tax_category, created_by, updated_by)
@@ -157,8 +157,8 @@ export async function seedProductA(
   const id = (r.rows[0] as { id: string }).id;
   const alias = (type: string, value: string): Promise<unknown> =>
     admin.query(`INSERT INTO product_aliases (tenant_id, product_id, identifier_type, value, created_by) VALUES ($1, $2, $3, $4, $5)`, [TENANT_A, id, type, value, ACTOR]);
-  await alias("sku", p.sku);
-  if (p.barcode !== undefined) await alias("barcode", p.barcode);
+  if (p.sku !== undefined) await alias("sku", p.sku);
+  for (const barcode of [...(p.barcode === undefined ? [] : [p.barcode]), ...(p.barcodes ?? [])]) await alias("barcode", barcode);
   return id;
 }
 

@@ -4,8 +4,9 @@
  */
 import type { CatalogLookups, ProductFacts } from "../../../src/catalog/catalog-import/import-lookups";
 import { planPublish, previewOf, summaryOf, type PlanRow } from "../../../src/catalog/catalog-import/import-publish-plan";
-import { carryDecisions, countWrites, hashRowsOf } from "../../../src/catalog/catalog-import/import-review-carry";
+import { carryDecisions, hashRowsOf } from "../../../src/catalog/catalog-import/import-review-carry";
 import { applyDecision, baseOf, clearedState, decisionStillStands, publicOutcome, type BaseRow, type StoredRowState } from "../../../src/catalog/catalog-import/import-resolution";
+import { countByStatus } from "../../../src/catalog/catalog-import/import-row-counts";
 import { previewHashOf } from "../../../src/catalog/catalog-import/import-preview-hash";
 import type { RowOutcome, RowResult } from "../../../src/catalog/catalog-import/import-row-evaluate";
 import type { ParsedRow } from "../../../src/catalog/catalog-import/import-row-parse";
@@ -161,7 +162,7 @@ describe("carryDecisions and the hash", () => {
     const prior = [{ rowNumber: 2, decision: { action: "exclude" as const, productId: null }, resolvedBy: "u", resolvedAt: "2026-11-20T10:00:00.000000Z", reviewReason: "no_identifier", candidateIds: [], errorCodes: [] }];
     const writes = carryDecisions("upsert", [fresh], [parsed()], lookups([p1]), prior);
     expect(writes[0]).toMatchObject({ status: "excluded", carried: { resolvedBy: "u" } });
-    expect(countWrites(writes)).toMatchObject({ excluded: 1, needs_review: 0 });
+    expect(countByStatus(writes)).toMatchObject({ excluded: 1, needs_review: 0 });
     const none = carryDecisions("upsert", [fresh], [parsed()], lookups([p1]), []);
     expect(previewHashOf("upsert", hashRowsOf(writes))).not.toBe(previewHashOf("upsert", hashRowsOf(none)));
     expect(previewHashOf("upsert", hashRowsOf(none))).toBe(previewHashOf("upsert", [fresh]));
@@ -218,6 +219,23 @@ describe("planPublish", () => {
     expect(conflict.conflictingProducts).toEqual([P1]);
     const stale = planPublish([update(2, [{ field: "name", before: "a", after: "b" }]), update(3, [{ field: "description", before: null, after: "d" }], {}, { matchedText: "2026-11-20T11:00:00.000000Z" })]);
     expect(stale.staleProducts).toEqual([P1]);
+  });
+
+  it("flags a row that restates a value another row changes, even an unchanged row, and rows that agree", () => {
+    const toFalse = update(2, [{ field: "is_active", before: "true", after: "false" }]);
+    const restates = row(3, "unchanged", { match: "match", matchedProduct: ref(p1) });
+    expect(planPublish([toFalse, restates], new Map([[3, { is_active: "true" }]])).conflictingProducts).toEqual([P1]);
+    expect(planPublish([toFalse, restates], new Map([[3, { is_active: "false" }]])).conflictingProducts).toEqual([]);
+    // Without the cells (the preview) only the field changes count.
+    expect(planPublish([toFalse, restates]).conflictingProducts).toEqual([]);
+  });
+
+  it("flags a merged update that would give a product two SKUs, or a SKU to a product that has one", () => {
+    const noSku: ReturnType<typeof ref> = { ...ref(p1), identifiers: [{ type: "barcode", value: "1" }, { type: "barcode", value: "2" }] };
+    const addSku = (n: number, value: string, product = noSku): PlanRow => update(n, [], { matchedProduct: product, identifierAdds: [{ type: "sku", value }] });
+    expect(planPublish([addSku(2, "A")]).conflictingProducts).toEqual([]);
+    expect(planPublish([addSku(2, "A"), addSku(3, "B")]).conflictingProducts).toEqual([P1]);
+    expect(planPublish([addSku(2, "A", ref(p1))]).conflictingProducts).toEqual([P1]);
   });
 
   it("refuses a ready_update row that names no product", () => {

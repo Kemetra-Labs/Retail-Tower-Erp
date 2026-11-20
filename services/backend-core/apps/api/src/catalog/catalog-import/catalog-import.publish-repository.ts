@@ -8,6 +8,7 @@ import type { PoolClient } from "pg";
 
 import { BATCH_TTL_DAYS } from "./catalog-import.limits";
 import { BATCH_COLUMNS, type BatchRow } from "./catalog-import.projections";
+import { isoOf } from "./import-sql";
 import type { PlanRow } from "./import-publish-plan";
 import type { IdentifierRef, RowOutcome, RowStatus } from "./import-row-evaluate";
 import type { StagedCell } from "./staged-cell";
@@ -43,7 +44,7 @@ export interface LoadedPlanRow extends PlanRow {
 export async function loadPlanRows(client: PoolClient, tenantId: string, batchId: string, withCreateCells: boolean): Promise<LoadedPlanRow[]> {
   const r = await client.query<PlanRecord>(
     `SELECT row_number, status, outcome - '_validated' AS outcome,
-            to_char(matched_updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS matched_text,
+            ${isoOf("matched_updated_at")} AS matched_text,
             floor(extract(epoch FROM date_trunc('milliseconds', matched_updated_at)) * 1000)::bigint::text AS matched_ms,
             EXISTS (SELECT 1 FROM jsonb_array_elements(issues) i WHERE i->>'code' = 'price_not_imported') AS price_not_imported,
             CASE WHEN $3::boolean AND status = 'ready_create' THEN cells END AS cells
@@ -72,6 +73,8 @@ export interface CatalogueExpectations {
   readonly existingBrands: readonly string[];
   /** Brands to create: still absent. */
   readonly newBrands: readonly string[];
+  /** Products that receive a SKU: still without an active tenant-wide SKU (OD-1; a console identifier add does not move `updated_at`). */
+  readonly skuReceivers: readonly string[];
 }
 
 async function count(client: PoolClient, sql: string, params: unknown[]): Promise<number> {
@@ -103,6 +106,17 @@ async function identifiersFree(client: PoolClient, tenantId: string, identifiers
   return n === 0;
 }
 
+async function skuReceiversFree(client: PoolClient, tenantId: string, productIds: readonly string[]): Promise<boolean> {
+  if (productIds.length === 0) return true;
+  const n = await count(
+    client,
+    `SELECT count(*)::text AS n FROM product_aliases
+      WHERE tenant_id = $1::uuid AND product_id = ANY($2::uuid[]) AND identifier_type = 'sku' AND store_id IS NULL AND retired_at IS NULL`,
+    [tenantId, productIds],
+  );
+  return n === 0;
+}
+
 async function activeCount(client: PoolClient, table: "tenant_product_categories" | "tenant_product_brands", tenantId: string, names: readonly string[]): Promise<number> {
   if (names.length === 0) return 0;
   return count(client, `SELECT count(*)::text AS n FROM ${table} WHERE tenant_id = $1::uuid AND retired_at IS NULL AND name = ANY($2::text[])`, [tenantId, names]);
@@ -110,11 +124,14 @@ async function activeCount(client: PoolClient, table: "tenant_product_categories
 
 /**
  * Whether the catalogue still is what validation saw: every matched product unchanged and not retired, every identifier to
- * add still free, every referenced category and brand still active, every brand to create still absent.
+ * add still free, every product that receives a SKU still without one, every referenced category and brand still active, every
+ * brand to create still absent. Run after the matched products are locked, so a concurrent console write is either seen here or
+ * waits for this transaction.
  */
 export async function catalogueChanged(client: PoolClient, tenantId: string, expected: CatalogueExpectations): Promise<boolean> {
   if (!(await productsUnchanged(client, tenantId, expected.products))) return true;
   if (!(await identifiersFree(client, tenantId, expected.identifiers))) return true;
+  if (!(await skuReceiversFree(client, tenantId, expected.skuReceivers))) return true;
   if ((await activeCount(client, "tenant_product_categories", tenantId, expected.categories)) !== expected.categories.length) return true;
   if ((await activeCount(client, "tenant_product_brands", tenantId, expected.existingBrands)) !== expected.existingBrands.length) return true;
   return (await activeCount(client, "tenant_product_brands", tenantId, expected.newBrands)) !== 0;
@@ -176,4 +193,14 @@ export async function readPublishSummary(client: PoolClient, tenantId: string, b
     [tenantId, batchId],
   );
   return r.rows[0]?.publish_summary ?? null;
+}
+
+/** The staged cells of some rows of the batch, by row number. */
+export async function loadRowCells(client: PoolClient, tenantId: string, batchId: string, rowNumbers: readonly number[]): Promise<Array<{ rowNumber: number; cells: StagedCell[] }>> {
+  if (rowNumbers.length === 0) return [];
+  const r = await client.query<{ row_number: number; cells: StagedCell[] }>(
+    `SELECT row_number, cells FROM catalog_import_rows WHERE tenant_id = $1 AND batch_id = $2 AND row_number = ANY($3::int[]) ORDER BY row_number`,
+    [tenantId, batchId, rowNumbers],
+  );
+  return r.rows.map((row) => ({ rowNumber: row.row_number, cells: row.cells }));
 }

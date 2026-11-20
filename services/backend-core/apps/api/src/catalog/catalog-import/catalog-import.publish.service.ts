@@ -20,7 +20,7 @@
  * No price is written and there is no approval step (OD-2, OD-12: the hook is reserved). The brand, category and product
  * names come from the staged rows through the same parse validate used.
  */
-import { Inject, Injectable } from "@nestjs/common";
+import { Inject, Injectable, Logger } from "@nestjs/common";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../database";
@@ -29,6 +29,7 @@ import {
   createBrandsIn,
   createProductsIn,
   insertIdentifiersIn,
+  lockProductsIn,
   RerunWrite,
   updateProductsIn,
   type DomainContext,
@@ -42,6 +43,7 @@ import {
   activeIdsByName,
   catalogueChanged,
   loadPlanRows,
+  loadRowCells,
   lockTenantPublish,
   markBatchPublished,
   markBatchStale,
@@ -81,9 +83,14 @@ class StaleValidationSignal extends Error {
 /** The domain refusals a concurrent single-product write or identifier claim can cause between validate and publish. */
 const STALE_CODES: ReadonlySet<string> = new Set(["stale_write", "product_retired", "alias_conflict", "category_unavailable", "brand_unavailable", "brand_name_conflict"]);
 
+/** SQLSTATE of a deadlock and of a serialization failure: a concurrent write won, so the validation is stale (never a 500). */
+const CONTENTION_SQLSTATES: ReadonlySet<string> = new Set(["40P01", "40001"]);
+
 function isStale(err: unknown): boolean {
   if (err instanceof StaleValidationSignal || err instanceof RerunWrite || err instanceof CatalogProductNotFoundError) return true;
-  return err instanceof CatalogWriteRefusedError && STALE_CODES.has(err.code);
+  if (err instanceof CatalogWriteRefusedError) return STALE_CODES.has(err.code);
+  const code = typeof err === "object" && err !== null ? (err as { code?: unknown }).code : undefined;
+  return typeof code === "string" && CONTENTION_SQLSTATES.has(code);
 }
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
@@ -127,6 +134,7 @@ function expectationsOf(plan: PublishPlan, creates: readonly CreateValues[]): Ca
     categories: names.categories,
     existingBrands: names.existingBrands,
     newBrands: plan.brands.map((b) => b.name),
+    skuReceivers: plan.updates.filter((u) => u.adds.some((a) => a.type === "sku")).map((u) => u.productId),
   };
 }
 
@@ -152,8 +160,37 @@ function idOf(ids: ReadonlyMap<string, string>, name: string | null): string | n
   return id;
 }
 
+/**
+ * What each row that shares its product with another row states for it, field by field (as the field changes name them),
+ * read from the staged cells through the same parse validate used. Only those rows' cells are read: a row alone on its
+ * product cannot disagree with anyone.
+ */
+async function explicitValues(client: PoolClient, tenantId: string, batch: BatchRow, rows: readonly LoadedPlanRow[]): Promise<Map<number, Record<string, string>>> {
+  const perProduct = new Map<string, number[]>();
+  for (const r of rows) {
+    if ((r.status !== "ready_update" && r.status !== "unchanged") || r.outcome.matchedProduct === null) continue;
+    perProduct.set(r.outcome.matchedProduct.productId, [...(perProduct.get(r.outcome.matchedProduct.productId) ?? []), r.rowNumber]);
+  }
+  const shared = [...perProduct.values()].filter((numbers) => numbers.length > 1).flat();
+  const cells = await loadRowCells(client, tenantId, batch.id, shared);
+  const explicit = new Map<number, Record<string, string>>();
+  for (const p of parseRows(batch.mapping as ColumnMapping[], cells)) {
+    const values: Record<string, string> = {};
+    if (p.name !== null) values["name"] = p.name.value;
+    if (p.description !== null) values["description"] = p.description.value;
+    if (p.category !== null) values["category"] = p.category.value;
+    if (p.brand !== null) values["brand"] = p.brand.value;
+    if (p.taxCategory !== null) values["tax_category"] = p.taxCategory.value;
+    if (p.isActive !== null) values["is_active"] = String(p.isActive.value);
+    explicit.set(p.rowNumber, values);
+  }
+  return explicit;
+}
+
 @Injectable()
 export class CatalogImportPublishService {
+  private readonly logger = new Logger(CatalogImportPublishService.name);
+
   constructor(@Inject(PG_POOL) private readonly pool: Pool) {}
 
   /** Publishes the validated, publishable batch in one transaction; see the file header. */
@@ -162,8 +199,11 @@ export class CatalogImportPublishService {
       return await inTenant(this.pool, input.tenantId, (client) => this.attempt(client, input, batchId, body));
     } catch (err) {
       if (!isStale(err)) throw err;
-      // The attempt rolled back. The batch returns to draft (only if it is still the validated batch at this version).
-      await inTenant(this.pool, input.tenantId, (client) => markBatchStale(client, input.tenantId, batchId, body.expectedVersion));
+      // The attempt rolled back. The batch returns to draft (only if it is still the validated batch at this version); if that
+      // second transaction fails the answer is still the stale refusal (the batch stays validated, and a retry is refused again).
+      await inTenant(this.pool, input.tenantId, (client) => markBatchStale(client, input.tenantId, batchId, body.expectedVersion)).catch((e: unknown) => {
+        this.logger.error(`could not return import batch ${batchId} to draft after a stale publish: ${e instanceof Error ? e.message : String(e)}`);
+      });
       throw new ImportBatchRefusedError("stale_validation");
     }
   }
@@ -179,9 +219,13 @@ export class CatalogImportPublishService {
     if (batch.preview_hash !== body.previewHash) throw new ImportBatchRefusedError("preview_changed");
     const rows = await loadPlanRows(client, input.tenantId, batchId, true);
     if (rows.some((r) => r.status === "needs_review" || r.status === "error")) throw new ImportBatchRefusedError("import_not_publishable");
-    const plan = planPublish(rows);
+    const plan = planPublish(rows, await explicitValues(client, input.tenantId, batch, rows));
     if (plan.conflictingProducts.length > 0) throw new ImportBatchRefusedError("import_not_publishable");
     if (plan.staleProducts.length > 0) throw new StaleValidationSignal();
+    // Lock every product the publish updates BEFORE anything can take the tenant offers lock (the catalog hook of the creates):
+    // a console edit or retire locks the product first and the offers lock second, so the reverse order here would deadlock.
+    // In id order, as every batch lock does.
+    await lockProductsIn(client, input.tenantId, plan.updates.map((u) => u.productId));
     const creates = createValuesOf(batch, rows, plan);
     if (await catalogueChanged(client, input.tenantId, expectationsOf(plan, creates))) throw new StaleValidationSignal();
     return { body: await this.write(client, input, batch, plan, creates), replayed: false };

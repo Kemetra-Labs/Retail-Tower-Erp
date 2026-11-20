@@ -7,15 +7,12 @@ import type { PoolClient } from "pg";
 
 import { BATCH_TTL_DAYS } from "./catalog-import.limits";
 import { BATCH_COLUMNS, type BatchRow } from "./catalog-import.projections";
+import { isoOf } from "./import-sql";
 import type { StoredRow } from "./catalog-import.validate-repository";
 import type { HashableRow } from "./import-preview-hash";
 import type { Decision, StoredOutcome } from "./import-resolution";
 import type { RowStatus } from "./import-row-evaluate";
 import type { StagedCell } from "./staged-cell";
-
-/** The UTC ISO instant with microseconds validate stored (and the preview hash reads) for a `timestamptz` column. */
-const ISO_MICROS = `to_char(%s AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
-const isoOf = (column: string): string => ISO_MICROS.replace("%s", column);
 
 /** A row as a review decision reads it. */
 export interface DecisionRow {

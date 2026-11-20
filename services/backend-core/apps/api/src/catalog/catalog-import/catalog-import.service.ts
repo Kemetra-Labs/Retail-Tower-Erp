@@ -57,7 +57,8 @@ import { parseImportFile, type ParsedImportFile } from "./import-file-parser";
 import { collectLookupKeys } from "./import-lookups";
 import { mappingProblem, profileEntries, type ColumnMapping, type ImportMode, type SetMappingBody } from "./import-mapping";
 import { previewHashOf } from "./import-preview-hash";
-import { carryDecisions, countWrites, hashRowsOf } from "./import-review-carry";
+import { carryDecisions, hashRowsOf } from "./import-review-carry";
+import { countByStatus } from "./import-row-counts";
 import { loadPreviousDecisions, markBatchCancelled } from "./catalog-import.review-repository";
 import { evaluateRows } from "./import-row-evaluate";
 import { parseRows } from "./import-row-parse";
@@ -184,7 +185,7 @@ export class CatalogImportService {
       const previous = await loadPreviousDecisions(client, input.tenantId, batchId);
       const writes = carryDecisions(batch.mode as ImportMode, results, parsed, lookups, previous);
       await writeRowResults(client, input.tenantId, batchId, writes);
-      const row = await markBatchValidated(client, input.tenantId, batchId, countWrites(writes), previewHashOf(batch.mode, hashRowsOf(writes)));
+      const row = await markBatchValidated(client, input.tenantId, batchId, countByStatus(writes), previewHashOf(batch.mode, hashRowsOf(writes)));
       await writeBatchAudit(client, input, "catalog.import.validate", row, issueCounts(results));
       return toBatchBody(row);
     });
@@ -256,8 +257,8 @@ export class CatalogImportService {
  * The batch when it has current outcomes to show (`validated` or `published`, rows not purged): 404 when absent, `409
  * import_batch_not_validated` otherwise (a reader never gets an empty page for a batch without outcomes).
  */
-export async function readBatchWithOutcomes(client: PoolClient, tenantId: string, batchId: string): Promise<BatchRow> {
-  const batch = await findBatch(client, tenantId, batchId);
+export async function readBatchWithOutcomes(client: PoolClient, tenantId: string, batchId: string, forShare = false): Promise<BatchRow> {
+  const batch = await findBatch(client, tenantId, batchId, forShare);
   if (batch === null) throw new ImportBatchNotFoundError();
   if ((batch.state !== "validated" && batch.state !== "published") || batch.rows_purged_at !== null) {
     throw new ImportBatchRefusedError("import_batch_not_validated");

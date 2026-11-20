@@ -651,20 +651,26 @@ owner's acknowledgement. Contract 1.0.5-draft states each in its description tex
 - **One plan** (`import-publish-plan.ts`) feeds the preview and the publish, so the counts are the effect. A decided
   `ready_update` row that changes nothing and adds nothing writes nothing and is not counted as an update. A brand named by
   several rows is created once (the first row is its provenance). Two rows that update one product are one update of it
-  when they agree; if they disagree on a field the publish is `409 import_not_publishable`, and if they were validated
-  against different states of the product it is `409 stale_validation` (lead decision 2026-11-20, pending
-  acknowledgement: validate does not flag two rows that reach one product through different identifiers).
+  when they agree. They disagree, and the publish is `409 import_not_publishable`, when they state different values for a
+  field (a row's explicit value counts even when it equals the product's current one, and so does an `unchanged` row's),
+  or when together they would give the product a second SKU (OD-1; a SKU added to a product that already has one, or two
+  SKUs through two barcodes). If they were validated against different states of the product it is `409 stale_validation`
+  (lead decision 2026-11-20, pending acknowledgement: validate does not flag two rows that reach one product through
+  different identifiers). Only the rows that share a product have their cells read for this.
 - **Publish** (`catalog-import.publish.service.ts`): one transaction, a per-tenant advisory lock, the contract's order of
   checks (404; a published batch replays for its own `previewHash` and is `import_batch_closed` for another, whatever the
   key; closed or lapsed; `version_conflict`; `import_batch_not_validated`; `preview_changed`; `import_not_publishable`;
   the stale re-check), then every write through `console-catalog.domain.ts` (set-based; the single-product writes call the
   same functions with one item). The re-check reads, set-based: every matched product's `updated_at` (microseconds) and
-  that it is not retired, every identifier to add still free tenant-wide, every referenced category and existing brand
+  that it is not retired, every identifier to add still free tenant-wide, every product that receives a SKU still without one (a console identifier add does not move `updated_at`), every referenced category and existing brand
   still active, every brand to create still absent. The writes are conditional (`expectedUpdatedAt` in milliseconds as the
   console writes, the unique indexes); a `stale_write`, `product_retired`, `alias_conflict`, `category_unavailable`,
-  `brand_unavailable`, `brand_name_conflict`, a vanished product or a millisecond rerun inside the transaction rolls it back
-  and is `409 stale_validation`; a second transaction then returns the batch to `draft` at the next version (only if it
-  still is the `validated` batch at that version). No audit row is written for the stale transition. Any other failure rolls
+  `brand_unavailable`, `brand_name_conflict`, a vanished product, a millisecond rerun, a deadlock (40P01) or a serialization failure (40001) inside the transaction rolls it
+  back and is `409 stale_validation`; a second transaction then returns the batch to `draft` at the next version (only if it
+  still is the `validated` batch at that version; if that second transaction fails, the answer is still the 409 and the error
+  is logged). The publish locks every product it updates, in id order, right after the plan is made and before any write, because
+  the catalog hook of its creates takes the tenant offers lock and a console edit locks the product first and the offers
+  lock second. No audit row is written for the stale transition. Any other failure rolls
   back and is a 500; the batch is untouched and the same publish can be retried.
 - **Audit.** `catalog.import.review` (row number, action, chosen product id, new status), `catalog.import.publish` (the
   summary), `catalog.import.cancel`; per product `catalog.product.create` / `.update`, per identifier
