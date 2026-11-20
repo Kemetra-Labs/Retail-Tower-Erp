@@ -222,6 +222,12 @@ class ReleaseCiGuardWiring(unittest.TestCase):
             self.assertEqual(present, [".github/release/ci-check-gate.cjs", ".nvmrc"])
 
     @per_workflow
+    def test_the_guard_node_setup_caches_nothing(self, text):
+        # zizmor cache-poisoning: a release workflow must not restore a package-manager cache a PR could have written.
+        setup = step(job(text, "guard"), "Setup Node")
+        self.assertIn("package-manager-cache: false", setup)
+
+    @per_workflow
     def test_the_guard_refuses_the_whole_release_not_only_the_publish(self, text):
         script = step_script(job(text, "guard"), GATE_STEP)
         self.assertIn('[ "$status" -eq 0 ] || {', script)

@@ -156,6 +156,7 @@ jobs:
         uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
         with:
           node-version-file: .nvmrc
+          package-manager-cache: false # nothing is installed here, and a release job restores no cache
 
       - name: Read the check runs and workflow runs of the release SHA
         env:
