@@ -209,7 +209,7 @@ RT-284 (the Policy engine) is not delivered. Until it is, a narrow tenant-level 
   data-model §2.3), and fans out to that Store. It is validated, previewed, approved (always sensitive) and published like any set. The
   original becomes `rolled_back`. History before the rollback instant is never rewritten (521, 531, 534).
 - A rollback of a set whose events or memberships were already superseded by later revisions is refused with the list of blocking
-  revisions; the author rolls back newest-first or authors a corrective set.
+  revisions; the author authors a corrective standard set. A later revision stays a blocker even after it is rolled back.
 - **Optimistic concurrency (532).** Every mutating call carries `expectedVersion` (or `If-Match`). A mismatch →
   `409 version_conflict`. Publish additionally re-checks the head revision (§3).
 - **Publish serialization.** Per-tenant transaction-scoped advisory lock around publish. Authoring and validation do

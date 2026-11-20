@@ -642,9 +642,11 @@ export class PriceChangeSetsService {
     set: LockedSet,
     targetId: string,
   ): Promise<{ set: LockedSet; stores: Awaited<ReturnType<typeof regeneratedRollback>>["stores"]; fromMs: number }> {
+    // RT-1533: the target's refusals (`rollback_blocked`, `change_set_invalid_state`) answer before `price_book_missing`.
+    const target = await requireRollbackable(client, input.tenantId, targetId);
     const book = await loadRetailBook(client, input.tenantId);
     if (book === null) throw new PriceChangeSetConflictError("price_book_missing");
-    const { items, stores, fromMs, from } = await regeneratedRollback(client, { tenantId: input.tenantId, setId: id, targetId, nowMs: this.clock(), defaultZoneId: book.defaultZoneId });
+    const { items, stores, fromMs, from } = await regeneratedRollback(client, { tenantId: input.tenantId, setId: id, target, nowMs: this.clock(), defaultZoneId: book.defaultZoneId });
     const current = await loadCurrentItems(client, input.tenantId, id, set.version);
     if (sameItems(current.items.map((i) => i.item), items)) return { set, stores, fromMs };
     const version = set.version + 1;

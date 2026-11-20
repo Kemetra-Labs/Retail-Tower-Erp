@@ -110,6 +110,9 @@ const P = {
   missing: a("16b5f108"),
   guard: a("16b5f109"),
   direct: a("16b5f10a"),
+  // RT-1533: validate error precedence.
+  precedence: a("16b5f10b"),
+  precedenceOk: a("16b5f10c"),
 };
 
 /** CodeRabbit 4642366476: the service clock is pinned for the whole suite, before the first fixture. */
@@ -695,6 +698,50 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     expect(stale.rows[0]!.metadata).toMatchObject({ reason: "rollback_blocked" });
     // A superseded target is not rollbackable.
     refused(await rollback(target2.set.header.id), 409, "change_set_invalid_state");
+  });
+
+  it("RT-1533: validate answers a blocked or non-published target (rollback_blocked / change_set_invalid_state) before price_book_missing", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.precedence, "95", "2070-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.precedence, "96", "2071-01-01T00:00:00Z")] });
+    const blockedRb = createdRollback(await rollback(target.set.header.id));
+    const later = await published({ items: [bookPrice(P.precedence, "97", "2072-01-01T00:00:00Z")] });
+    const target2 = await published({ items: [bookPrice(P.precedence, "98", "2073-01-01T00:00:00Z")] });
+    const notPublishedRb = createdRollback(await rollback(target2.set.header.id));
+    await env!.admin.query(`UPDATE change_sets SET state = 'superseded' WHERE id = $1`, [target2.set.header.id]);
+    // Positive control: a rollback whose target is fine, on a key nothing touched afterwards.
+    await published({ items: [bookPrice(P.precedenceOk, "10", "2075-01-01T00:00:00Z")] });
+    const okTarget = await published({ items: [bookPrice(P.precedenceOk, "11", "2076-01-01T00:00:00Z")] });
+    const okRb = createdRollback(await rollback(okTarget.set.header.id));
+
+    // v1 has no Book retirement (a trigger refuses it), so the fixture bypasses triggers, as the other tamper helpers do.
+    const setRetired = async (retired: boolean): Promise<void> => {
+      const c = await env!.admin.connect();
+      try {
+        await c.query("BEGIN");
+        await c.query("SET LOCAL session_replication_role = replica");
+        await c.query(`UPDATE price_books SET retired_at = ${retired ? "now()" : "NULL"} WHERE id = $1`, [BOOK]);
+        await c.query("COMMIT");
+      } catch (err) {
+        await c.query("ROLLBACK");
+        throw err;
+      } finally {
+        c.release();
+      }
+    };
+    await setRetired(true);
+    try {
+      // With the retail Book gone, the target's refusal still comes first.
+      const blocked = await send(op(blockedRb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 });
+      refused(blocked, 409, "rollback_blocked");
+      expect((blocked.body as { blockingRevisionNos: number[] }).blockingRevisionNos).toContain(later.revisionNo);
+      refused(await send(op(notPublishedRb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "change_set_invalid_state");
+      // A fine target reaches the Book check.
+      refused(await send(op(okRb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "price_book_missing");
+    } finally {
+      await setRetired(false);
+    }
+    for (const rb of [blockedRb, notPublishedRb, okRb]) expect(await stateOf(rb.header.id)).toBe("draft");
   });
 
   it("refuses a draft target, the legacy import, an absent or foreign id; nothing to restore is 422 change_set_empty", async () => {

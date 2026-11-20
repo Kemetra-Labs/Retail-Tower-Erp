@@ -611,13 +611,14 @@ async function generatedFromMs(client: Queryable, tenantId: string, setId: strin
 /**
  * RT-1484 PR-6 (owner decision on m2): a rollback set's items regenerated at validate from
  * max(requested `from`, now), against ONE Store snapshot that validation also reaches and hashes
- * with (CodeRabbit 4642497268), after re-checking its target.
+ * with (CodeRabbit 4642497268). The caller resolves the target first with `requireRollbackable`
+ * (RT-1533: its refusals answer before `price_book_missing`).
  */
 export async function regeneratedRollback(
   client: Queryable,
-  input: { readonly tenantId: string; readonly setId: string; readonly targetId: string; readonly nowMs: number; readonly defaultZoneId: string },
+  input: { readonly tenantId: string; readonly setId: string; readonly target: RollbackTarget; readonly nowMs: number; readonly defaultZoneId: string },
 ): Promise<{ readonly items: PriceChangeItem[]; readonly stores: readonly StoreForPricing[]; readonly fromMs: number; readonly from: string }> {
-  const target = await requireRollbackable(client, input.tenantId, input.targetId);
+  const { target } = input;
   const fromMs = Math.max(await requestedFromMs(client, input.tenantId, input.setId), input.nowMs);
   const from = new Date(fromMs).toISOString();
   const stores = await liveAndNamedStores(client, input.tenantId, await rollbackStoreIds(client, input.tenantId, target.revisionNo));
