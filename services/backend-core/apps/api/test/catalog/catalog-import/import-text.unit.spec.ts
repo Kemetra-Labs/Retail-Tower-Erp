@@ -37,6 +37,35 @@ describe("trimImportText: Unicode White_Space plus the bidi marks, at the edges 
   });
 });
 
+describe("trimImportText is linear on adversarial input (security review of PR #761, M6)", () => {
+  const adversarial = [
+    `${" ".repeat(1999)}a`,
+    `a${" ".repeat(1999)}`,
+    " a".repeat(1000),
+    `${"\u{a0}".repeat(1000)}x${"\u{200f}".repeat(999)}`,
+    `${" ".repeat(1000)}${"a".repeat(500)}${" ".repeat(500)}`,
+  ];
+
+  it("trims 2,000-character cells, 200 times each, in well under a second", () => {
+    const started = process.hrtime.bigint();
+    for (let i = 0; i < 200; i += 1) for (const text of adversarial) trimImportText(text);
+    const ms = Number(process.hrtime.bigint() - started) / 1e6;
+    expect(ms).toBeLessThan(1000);
+  });
+
+  it("gives the same answer as the definition", () => {
+    expect(trimImportText(adversarial[0] as string)).toBe("a");
+    expect(trimImportText(adversarial[1] as string)).toBe("a");
+    expect(trimImportText(adversarial[2] as string)).toBe(`a${" a".repeat(999)}`);
+    expect(trimImportText(adversarial[3] as string)).toBe("x");
+    expect(trimImportText(adversarial[4] as string)).toBe("a".repeat(500));
+    expect(trimImportText("   ")).toBe("");
+    expect(trimImportText("")).toBe("");
+    expect(isBlankText(" ".repeat(2000))).toBe(true);
+    expect(isBlankText(`${" ".repeat(1999)}a`)).toBe(false);
+  });
+});
+
 describe("storable text and length", () => {
   it("counts code points, not UTF-16 units", () => {
     expect(charCount("abc")).toBe(3);

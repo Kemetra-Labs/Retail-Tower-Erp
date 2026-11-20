@@ -1,54 +1,54 @@
 /**
  * RT-1505 (spec 049 §8.5): what the import needs from the package parts of an
- * XLSX, read from the guarded zip (`zip-guard.ts`) before the library runs:
+ * XLSX, read from the guarded zip (`zip-guard.ts`), with the rules of
+ * `read-excel-file` itself, so the import and the library cannot disagree
+ * about which sheet is which (security review of PR #761, B2):
  *
  *   - the type, from `[Content_Types].xml` and never from the file name or the
- *     `Content-Type` header (spec 039 FR-03): a workbook part declared
- *     `…spreadsheetml.sheet.main+xml` is XLSX; a macro-enabled, template or
- *     binary workbook type, or no workbook part at all, is
+ *     `Content-Type` header (spec 039 FR-03): the workbook part the library
+ *     reads, `/xl/workbook.xml`, must be declared
+ *     `…spreadsheetml.sheet.main+xml`; a macro-enabled, template or binary
+ *     workbook type declared anywhere, or no such workbook part, is
  *     `file_type_unsupported`;
- *   - the sheet names, in workbook order, and each sheet's part path, so the
- *     sheet to read (`sheet`, default the first) is known and its XML can be
- *     pre-scanned (`xlsx-sheet-scan.ts`).
+ *   - the workbook at its FIXED path `xl/workbook.xml` (the library never reads
+ *     another): the sheets in `<sheets>` order, skipping a sheet with no name,
+ *     a name with its `_xHHHH_` escapes decoded, the relationship id taken from
+ *     the LAST attribute whose local name is `id`; and `date1904`;
+ *   - the relationships at `xl/_rels/workbook.xml.rels`: only the library's
+ *     relationship types (worksheet, styles, sharedStrings, transitional or
+ *     strict), the last relationship of an id and of a kind wins, and a target
+ *     is resolved as the library resolves it (`/x` is `x`, else `xl/x`).
  *
- * The XML is read with small attribute scanners, not a general parser: the
- * parts are bounded (verified by the zip guard) and only a few attributes of
- * a few elements matter.
+ * Tags come from the shared tokenizer (`xml-tags.ts`): a commented-out
+ * `<sheet>` is not a sheet.
  */
-import type { InspectedZip } from "./zip-guard";
 import { ImportFileRejectedError } from "./import-file-rejected";
+import { forEachTag, tagAttributes, unescapeXlsxString } from "./xml-tags";
+import type { InspectedZip } from "./zip-guard";
 
+const WORKBOOK_PART = "xl/workbook.xml";
+const WORKBOOK_RELS_PART = "xl/_rels/workbook.xml.rels";
 const WORKBOOK_MAIN = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml";
 /** A content type that names a workbook the import never reads. */
 const REFUSED_TYPE = /macroenabled|spreadsheetml\.template|ms-excel\.sheet\.binary|vbaproject/i;
 
-/** One sheet of the workbook, in `<sheets>` order. */
-export interface WorkbookSheet {
+const REL_BASES = ["http://schemas.openxmlformats.org/officeDocument/2006/relationships/", "http://purl.oclc.org/ooxml/officeDocument/relationships/"];
+
+/** One sheet of the workbook, in `<sheets>` order (a sheet with no name is not one). */
+interface WorkbookSheet {
   readonly name: string;
-  /** The part path inside the zip, no leading slash. */
-  readonly path: string;
+  /** The relationship id (`r:id`) that locates its part. */
+  readonly relationId: string | undefined;
 }
 
-const ATTRIBUTE = /([A-Za-z_][\w:.-]*)\s*=\s*(?:"([^"]*)"|'([^']*)')/g;
-
-function attributes(tag: string): Map<string, string> {
-  const found = new Map<string, string>();
-  for (const m of tag.matchAll(ATTRIBUTE)) found.set(m[1] as string, decodeXmlText((m[2] ?? m[3]) as string));
-  return found;
-}
-
-/** The start tags named `element` (any namespace prefix) of `xml`. */
-function startTags(xml: string, element: string): string[] {
-  return [...xml.matchAll(new RegExp(`<(?:[\\w.-]+:)?${element}\\b[^>]*>`, "g"))].map((m) => m[0]);
-}
-
-/** Decodes the five predefined entities and numeric character references of an XML attribute value. */
-function decodeXmlText(value: string): string {
-  return value.replace(/&(?:#x([0-9a-fA-F]{1,6})|#(\d{1,7})|(amp|lt|gt|quot|apos));/g, (_m, hex?: string, dec?: string, named?: string) => {
-    if (named !== undefined) return { amp: "&", lt: "<", gt: ">", quot: '"', apos: "'" }[named] as string;
-    const code = hex !== undefined ? parseInt(hex, 16) : Number(dec);
-    return code > 0 && code <= 0x10ffff && !(code >= 0xd800 && code <= 0xdfff) ? String.fromCodePoint(code) : "";
-  });
+/** What the workbook and its relationships say. */
+export interface WorkbookInfo {
+  readonly sheets: readonly WorkbookSheet[];
+  readonly date1904: boolean;
+  /** Relationship id to the part path of a worksheet, no leading slash. */
+  readonly sheetPaths: ReadonlyMap<string, string>;
+  readonly sharedStringsPath: string | null;
+  readonly stylesPath: string | null;
 }
 
 const unreadable = (): ImportFileRejectedError => new ImportFileRejectedError("file_unreadable");
@@ -59,61 +59,75 @@ async function readText(zip: InspectedZip, name: string): Promise<string | null>
   return bytes === null ? null : bytes.toString("utf8");
 }
 
-/** The workbook part path of an archive whose content types declare a plain XLSX workbook; else `file_type_unsupported`. */
-async function workbookPart(zip: InspectedZip): Promise<string> {
-  const types = await readText(zip, "[Content_Types].xml");
-  if (types === null) throw unsupported();
-  let workbook: string | null = null;
-  for (const tag of [...startTags(types, "Override"), ...startTags(types, "Default")]) {
-    const a = attributes(tag);
+/** Refuses a package whose content types do not declare `/xl/workbook.xml` a plain workbook, or declare any macro, template or binary type. */
+function checkContentTypes(types: string): void {
+  let workbookDeclared = false;
+  const walked = forEachTag(types, (tag) => {
+    if (tag.closing || (tag.name !== "Override" && tag.name !== "Default")) return;
+    const a = tagAttributes(tag);
     const type = a.get("ContentType") ?? "";
     if (REFUSED_TYPE.test(type)) throw unsupported();
-    const part = a.get("PartName");
-    if (type === WORKBOOK_MAIN && part !== undefined && workbook === null) workbook = part.replace(/^\//, "");
-  }
-  if (workbook === null) throw unsupported();
-  return workbook;
+    if (tag.name === "Override" && type === WORKBOOK_MAIN && a.get("PartName") === `/${WORKBOOK_PART}`) workbookDeclared = true;
+  });
+  if (!walked || !workbookDeclared) throw unsupported();
 }
 
-/** `Target` of a relationship, resolved against the directory of the part that owns the relationships. */
-function resolveTarget(ownerDir: string, target: string): string {
-  const parts = (target.startsWith("/") ? target.slice(1) : `${ownerDir}${target}`).split("/");
-  const out: string[] = [];
-  for (const part of parts) {
-    if (part === "..") out.pop();
-    else if (part !== "." && part !== "") out.push(part);
-  }
-  return out.join("/");
+/** A relationship target as `read-excel-file` resolves it. */
+function libraryPath(target: string): string {
+  return target.startsWith("/") ? target.slice(1) : `xl/${target}`;
+}
+
+function parseWorkbook(xml: string): { sheets: WorkbookSheet[]; date1904: boolean } {
+  const sheets: WorkbookSheet[] = [];
+  const pr = { seen: false, date1904: false };
+  const walked = forEachTag(xml, (tag) => {
+    if (tag.closing) return;
+    const a = tagAttributes(tag);
+    // The library reads the first `workbookPr` only.
+    if (tag.name === "workbookPr" && !pr.seen) Object.assign(pr, { seen: true, date1904: a.get("date1904") === "1" });
+    if (tag.name !== "sheet") return;
+    const name = a.get("name");
+    // The library skips a sheet with no name.
+    if (name === undefined || name === "") return;
+    sheets.push({ name: unescapeXlsxString(name), relationId: a.get("id") });
+  });
+  if (!walked) throw unreadable();
+  return { sheets, date1904: pr.date1904 };
+}
+
+function parseRelationships(xml: string): { sheetPaths: Map<string, string>; sharedStringsPath: string | null; stylesPath: string | null } {
+  const sheetPaths = new Map<string, string>();
+  let sharedStringsPath: string | null = null;
+  let stylesPath: string | null = null;
+  const walked = forEachTag(xml, (tag) => {
+    if (tag.closing || tag.name !== "Relationship") return;
+    const a = tagAttributes(tag);
+    const type = a.get("Type");
+    const target = a.get("Target");
+    const base = REL_BASES.find((b) => type?.startsWith(b) === true);
+    if (base === undefined || target === undefined || target === "" || type === undefined) return;
+    const kind = type.slice(base.length);
+    if (kind === "worksheet") sheetPaths.set(a.get("Id") as string, libraryPath(target));
+    else if (kind === "sharedStrings") sharedStringsPath = libraryPath(target);
+    else if (kind === "styles") stylesPath = libraryPath(target);
+  });
+  if (!walked) throw unreadable();
+  return { sheetPaths, sharedStringsPath, stylesPath };
 }
 
 /**
- * The sheets of the workbook, in order. Throws `file_type_unsupported` for a
- * package that is not a plain XLSX and `file_unreadable` for one with no
- * readable workbook.
+ * The workbook as the library will read it. Throws `file_type_unsupported` for a
+ * package that is not a plain XLSX and `file_unreadable` for one the library
+ * could not read.
  */
-export async function readWorkbookSheets(zip: InspectedZip): Promise<WorkbookSheet[]> {
-  const part = await workbookPart(zip);
-  const dir = part.includes("/") ? part.slice(0, part.lastIndexOf("/") + 1) : "";
-  const base = part.slice(dir.length);
-  const workbook = await readText(zip, part);
-  const rels = await readText(zip, `${dir}_rels/${base}.rels`);
+export async function readWorkbookInfo(zip: InspectedZip): Promise<WorkbookInfo> {
+  const types = await readText(zip, "[Content_Types].xml");
+  if (types === null) throw unsupported();
+  checkContentTypes(types);
+  const workbook = await readText(zip, WORKBOOK_PART);
+  const rels = await readText(zip, WORKBOOK_RELS_PART);
   if (workbook === null || rels === null) throw unreadable();
-  const targets = new Map<string, string>();
-  for (const tag of startTags(rels, "Relationship")) {
-    const a = attributes(tag);
-    const id = a.get("Id");
-    const target = a.get("Target");
-    if (id !== undefined && target !== undefined && a.get("TargetMode") !== "External") targets.set(id, resolveTarget(dir, target));
-  }
-  const sheets: WorkbookSheet[] = [];
-  for (const tag of startTags(workbook, "sheet")) {
-    const a = attributes(tag);
-    const name = a.get("name");
-    const id = [...a].find(([key]) => key === "r:id" || key.endsWith(":id"))?.[1];
-    const path = id === undefined ? undefined : targets.get(id);
-    if (name === undefined || path === undefined) throw unreadable();
-    sheets.push({ name, path });
-  }
-  if (sheets.length === 0) throw unreadable();
-  return sheets;
+  const parsed = parseWorkbook(workbook);
+  if (parsed.sheets.length === 0) throw unreadable();
+  return { ...parsed, ...parseRelationships(rels) };
 }

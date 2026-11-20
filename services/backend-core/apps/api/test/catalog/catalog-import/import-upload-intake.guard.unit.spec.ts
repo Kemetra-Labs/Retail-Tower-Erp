@@ -15,7 +15,7 @@ import { ZodError } from "zod";
 
 import { RolesGuard, SessionOnlyAdminGuard } from "../../../src/auth";
 import { CatalogImportController } from "../../../src/catalog/catalog-import/catalog-import.controller";
-import { IMPORT_UPLOAD_MAX_CONCURRENT, ImportUploadGate } from "../../../src/catalog/catalog-import/import-upload.gate";
+import { IMPORT_UPLOAD_MAX_CONCURRENT, ImportUploadGate, type ImportUploadSlot } from "../../../src/catalog/catalog-import/import-upload.gate";
 import {
   importUploadPassthrough,
   ImportUploadIntakeGuard,
@@ -31,11 +31,16 @@ interface Harness {
   readonly context: ExecutionContext;
 }
 
-function harness(init: { headers?: Record<string, string>; query?: Record<string, unknown> } = {}): Harness {
+let tenantSeq = 0;
+
+function harness(init: { headers?: Record<string, string>; query?: Record<string, unknown>; tenant?: string } = {}): Harness {
+  tenantSeq += 1;
   const req = Object.assign(new PassThrough(), {
     headers: { "idempotency-key": KEY, ...init.headers },
     query: init.query ?? { mode: "create" },
     body: undefined,
+    // The tenant guard has run: a distinct tenant per request unless a test says otherwise.
+    context: { tenantId: init.tenant ?? `tenant-${tenantSeq}` },
   }) as unknown as Harness["req"];
   const res = Object.assign(new EventEmitter(), {
     headers: {} as Record<string, string>,
@@ -92,13 +97,109 @@ describe("ImportUploadIntakeGuard: the order of checks", () => {
     expect(gate.active()).toBe(0);
   });
 
-  it("bounds concurrent uploads by default at four", () => {
+  it("bounds concurrent uploads by default at four, one per tenant", () => {
     const gate = new ImportUploadGate();
-    const releases = Array.from({ length: IMPORT_UPLOAD_MAX_CONCURRENT }, () => gate.tryAcquire());
-    expect(releases.every((r) => r !== null)).toBe(true);
-    expect(gate.tryAcquire()).toBeNull();
-    releases[0]?.();
-    expect(gate.tryAcquire()).not.toBeNull();
+    const slots = Array.from({ length: IMPORT_UPLOAD_MAX_CONCURRENT }, (_v, i) => gate.tryAcquire(`t${i}`));
+    expect(slots.every((r) => r !== null)).toBe(true);
+    expect(gate.tryAcquire("another")).toBeNull();
+    slots[0]?.responseEnded();
+    expect(gate.tryAcquire("another")).not.toBeNull();
+  });
+});
+
+describe("the upload slot (security review of PR #761, M4)", () => {
+  it("allows one concurrent upload per tenant, while other tenants keep their slots", async () => {
+    const gate = new ImportUploadGate(4);
+    const guard = new ImportUploadIntakeGuard(gate);
+    const first = harness({ tenant: "tenant-a" });
+    const pending = guard.canActivate(first.context);
+    const sameTenant = harness({ tenant: "tenant-a" });
+    const refused = await guard.canActivate(sameTenant.context).catch((e: unknown) => e);
+    expect((refused as HttpException).getStatus()).toBe(429);
+    expect(sameTenant.res.headers["Retry-After"]).toBe("5");
+    expect(sameTenant.req.readableFlowing).toBeNull();
+    const other = harness({ tenant: "tenant-b" });
+    const otherPending = guard.canActivate(other.context);
+    first.req.end(Buffer.from("a\n1\n"));
+    other.req.end(Buffer.from("a\n1\n"));
+    await Promise.all([pending, otherPending]);
+    expect(gate.active()).toBe(2);
+    first.res.emit("finish");
+    // The tenant's slot is free again once its upload is over.
+    const again = harness({ tenant: "tenant-a" });
+    const againPending = guard.canActivate(again.context);
+    again.req.end(Buffer.from("a\n1\n"));
+    await expect(againPending).resolves.toBe(true);
+  });
+
+  it("is held until the handler's work is done, even when the client aborts mid-parse", async () => {
+    const gate = new ImportUploadGate(1);
+    const guard = new ImportUploadIntakeGuard(gate);
+    const h = harness();
+    const done = guard.canActivate(h.context);
+    h.req.end(Buffer.from("a\n1\n"));
+    await done;
+    const slot = h.req.importUploadSlot as ImportUploadSlot;
+    expect(slot.begin()).toBe(true);
+    // The client goes away while the server still parses.
+    h.res.emit("close");
+    h.res.emit("finish");
+    expect(gate.active()).toBe(1);
+    expect(gate.tryAcquire("someone-else")).toBeNull();
+    slot.end();
+    expect(gate.active()).toBe(0);
+    expect(gate.tryAcquire("someone-else")).not.toBeNull();
+  });
+
+  it("is released by the response alone when the handler never runs (a replay, a conflict)", async () => {
+    const gate = new ImportUploadGate(1);
+    const guard = new ImportUploadIntakeGuard(gate);
+    const h = harness();
+    const done = guard.canActivate(h.context);
+    h.req.end(Buffer.from("a\n1\n"));
+    await done;
+    expect(gate.active()).toBe(1);
+    h.res.emit("finish");
+    h.res.emit("close");
+    expect(gate.active()).toBe(0);
+  });
+
+  it("tells a handler that starts after the client left to do nothing, and frees the slot exactly once", async () => {
+    const gate = new ImportUploadGate(1);
+    const guard = new ImportUploadIntakeGuard(gate);
+    const h = harness();
+    const done = guard.canActivate(h.context);
+    h.req.end(Buffer.from("a\n1\n"));
+    await done;
+    h.res.emit("close");
+    const slot = h.req.importUploadSlot as ImportUploadSlot;
+    expect(slot.begin()).toBe(false);
+    expect(gate.active()).toBe(0);
+    slot.end();
+    expect(gate.active()).toBe(0);
+    // A fresh slot of the same gate is unaffected by the stale one's extra calls.
+    expect(gate.tryAcquire("t")).not.toBeNull();
+    expect(gate.tryAcquire("u")).toBeNull();
+  });
+
+  it("drops a body that does not arrive within the deadline: 400, the connection closes, the slot frees with the response", async () => {
+    const gate = new ImportUploadGate(1, 40);
+    const guard = new ImportUploadIntakeGuard(gate);
+    const slow = harness();
+    const started = Date.now();
+    const err = await guard.canActivate(slow.context).catch((e: unknown) => e);
+    expect(Date.now() - started).toBeLessThan(1000);
+    expect(err).toBeInstanceOf(BadRequestException);
+    expect((err as BadRequestException).getResponse()).toMatchObject({ code: "validation_error" });
+    expect(slow.res.headers["Connection"]).toBe("close");
+    expect(gate.active()).toBe(1);
+    slow.res.emit("close");
+    expect(gate.active()).toBe(0);
+    // A body that is complete in time is unaffected by the deadline.
+    const fine = harness();
+    const ok = guard.canActivate(fine.context);
+    fine.req.end(Buffer.from("a\n1\n"));
+    await expect(ok).resolves.toBe(true);
   });
 });
 

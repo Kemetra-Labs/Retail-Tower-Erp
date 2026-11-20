@@ -1,5 +1,5 @@
 /**
- * RT-1505 (spec 049 §10, contract `catalog/catalog-import.yaml` 1.0.2-draft):
+ * RT-1505 (spec 049 §10, contract `catalog/catalog-import.yaml` 1.0.3-draft):
  * a `catalog_import_batches` row and the `CatalogImportBatch` body the
  * operations answer with. Pure: no I/O.
  */

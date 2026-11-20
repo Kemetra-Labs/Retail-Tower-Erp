@@ -508,7 +508,7 @@ Definition of Ready, with a contract revision where the wire changes:
   by the XLSX sheet maximum (2..1,048,576), so gaps never push a valid file out of range; the 5,000 limit applies
   to `data_row_count` alone.
 
-### 12.2 Settled in S4 part A (RT-1505: upload and file guards)
+### 12.2 Settled and proposed in S4 part A (RT-1505: upload and file guards)
 
 - **Blank rows.** A data row with no value in any cell is skipped: a gap in the source row numbers, not counted in
   `data_row_count`. Every row with a value is kept (a whitespace-only cell is blank; a number, boolean, date or formula
@@ -519,15 +519,24 @@ Definition of Ready, with a contract revision where the wire changes:
   file_too_many_rows` (RT-1503 comment 17873). A CSV record counts once however many lines it spans. For XLSX only, a
   sheet whose valued cells reach so far down and across that the library would build more than 10,000,000 cells is
   `xlsx_limits_exceeded` (the library pads every row to the widest valued cell).
-- **Staged cells.** `catalog_import_rows.cells` holds plain text as a JSON string, a blank cell as `null`, and a typed
-  XLSX cell as an object (`{t: "n"|"b"|"d", v}`; a formula `{t: "f", v}` with its cached value or `null`), so validate
-  can apply the §5 rules to numeric and formula cells once it knows the mapping (`apps/api/src/catalog/catalog-import/
-  staged-cell.ts`). Cells are staged untrimmed; the trim and its notice count are validate's (OD-10).
+- **Staged cells (PROPOSED, pending owner approval).** `catalog_import_rows.cells` is documented as parsed text. To let
+  validate apply the §5 rules to numeric and formula cells once it knows the mapping, the implementation stages plain
+  text as a JSON string, a blank cell as `null`, and a typed XLSX cell as an object (`{t: "n"|"b"|"d", v}`; a formula
+  `{t: "f", v}` with its cached value or `null`; `apps/api/src/catalog/catalog-import/staged-cell.ts`). No schema
+  change (`cells` is `jsonb`), but the shape of an immutable column is a data-model decision the owner has not
+  approved; until then it is a proposal and may change before S5 builds on it. Cells are staged untrimmed; the trim
+  and its notice count are validate's (OD-10).
 - **Upload fingerprint.** `req.body` of the raw upload is the fingerprint object `{fileSha256, query: [mode, sheet,
   delimiter, file_name]}` (absent as `null`), so the shared idempotency interceptor serves the replay and the
   `409 idempotency_key_conflict` unchanged (§12.1 "Upload fingerprint serialisation").
-- **Capacity.** At most four upload bodies are read and parsed at once; one more is the contract's `429 rate_limited`
-  with `Retry-After`, answered before its body is read (the contract has no 503).
+- **Capacity.** At most four uploads in the process and one per tenant hold a slot, from before the body is read until
+  the parse and write are done (not only until the response ends); a body not received within 30 s is dropped (400).
+  One more is the contract's `429 rate_limited` with `Retry-After`, answered before its body is read (the contract has
+  no 503). `read-excel-file` parses on the calling thread, so a read blocks the event loop for its duration; worker-thread
+  isolation is a recorded follow-up.
+- **The library never sees the upload.** After the zip guard, `read-excel-file` reads a stored-only archive rebuilt from
+  the verified parts (a synthesized one-sheet workbook and relationships, the chosen sheet, shared strings and styles),
+  because it re-parses a ZIP with rules of its own (local headers, fixed part paths, a SAX parser).
 - **Still open for part B.** The profile selection rule and the suggestion (a new batch stores an empty
   `suggestedMapping` and no profile until then), and the read refusal after the retention purge.
 

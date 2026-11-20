@@ -5,23 +5,23 @@
  * literal and a formula with no cached value reads as blank. Spec 049 §5 needs
  * to know which cells are formulas (an identifier from a formula is an error,
  * a formula elsewhere a counted notice, an uncached formula an error), so this
- * names them, in the same pre-pass as the zip guard and before the library
- * runs.
+ * names them, before the library runs.
  *
  * It also bounds what the library will allocate: the library pads every row to
  * the widest valued cell, so one valued cell at `XFD1` (16,384 columns) or at
  * the last row would cost hundreds of MiB. The scan reports the extent of the
  * VALUED cells (a cell with `<v>`, `<is>` or `<f>`; the library ignores a
- * styled empty cell) so the reader can refuse such a sheet first.
+ * styled empty cell), and refuses more valued rows than the import accepts
+ * before the library sees the sheet (the library parses on the main thread, so
+ * a sheet it would build is a sheet that blocks the event loop).
  *
- * A small tokenizer, not a regular expression over the text: comments, CDATA
- * and processing instructions are skipped, attribute values may hold `>`, and a
- * namespace prefix is ignored (`x:f`). Only `<f>` inside a `<c>` counts, so
- * text that merely contains the characters `<f>` (escaped, or in CDATA) is
- * never a formula.
+ * It tokenizes like the library's SAX parser (`xml-tags.ts`): the cell address
+ * is the cell's own `r` attribute (last value wins, entities decoded, never
+ * text inside another attribute's value), and `<f>` counts only inside a `<c>`.
  */
-import { MAX_SOURCE_ROWS } from "./catalog-import.limits";
+import { MAX_DATA_ROWS, MAX_SOURCE_ROWS } from "./catalog-import.limits";
 import { ImportFileRejectedError } from "./import-file-rejected";
+import { forEachTag, tagAttributes, type XmlTag } from "./xml-tags";
 
 /** What the pre-scan learned about one sheet. */
 export interface SheetScan {
@@ -32,11 +32,8 @@ export interface SheetScan {
   readonly maxValuedColumn: number;
 }
 
-/** A tag, up to its closing `>`; a `>` inside a quoted attribute value does not end it. */
-const TAG_END = /[^>"']*(?:(?:"[^"]*"|'[^']*')[^>"']*)*>/y;
-const NAME = /^(\/?)(?:[\w.-]+:)?([\w.-]+)/;
-const CELL_REF = /\br\s*=\s*(?:"([A-Z]{1,3})(\d{1,7})"|'([A-Z]{1,3})(\d{1,7})')/;
-const ROW_REF = /\br\s*=\s*(?:"(\d{1,7})"|'(\d{1,7})')/;
+const CELL_REF = /^([A-Z]{1,3})(\d{1,7})$/;
+const ROW_REF = /^\d{1,7}$/;
 
 /** Column letters to a 1-based number ("A" is 1, "XFD" is 16384). */
 function columnNumber(letters: string): number {
@@ -50,7 +47,6 @@ function unreadable(): ImportFileRejectedError {
 }
 
 interface ScanState {
-  row: number;
   rowsSeen: number;
   inCell: boolean;
   cellRow: number;
@@ -58,25 +54,27 @@ interface ScanState {
   cellValued: boolean;
   maxRow: number;
   maxColumn: number;
+  readonly valuedRows: Set<number>;
   readonly formulas: Set<string>;
 }
 
-function openRow(state: ScanState, tag: string): void {
+function openRow(state: ScanState, tag: XmlTag): void {
   state.rowsSeen += 1;
   if (state.rowsSeen > MAX_SOURCE_ROWS) throw new ImportFileRejectedError("file_too_many_rows");
-  const ref = ROW_REF.exec(tag);
-  state.row = ref === null ? state.row + 1 : Number(ref[1] ?? ref[2]);
-  if (state.row > MAX_SOURCE_ROWS) throw new ImportFileRejectedError("file_too_many_rows");
+  const ref = tagAttributes(tag).get("r");
+  if (ref === undefined) return;
+  if (!ROW_REF.test(ref)) throw unreadable();
+  if (Number(ref) > MAX_SOURCE_ROWS) throw new ImportFileRejectedError("file_too_many_rows");
 }
 
-function openCell(state: ScanState, tag: string): void {
-  // The library cannot place a cell without its address, so such a sheet is unreadable.
-  const ref = CELL_REF.exec(tag);
+function openCell(state: ScanState, tag: XmlTag): void {
+  // The library cannot place a cell without a valid address, so such a sheet is unreadable.
+  const ref = CELL_REF.exec(tagAttributes(tag).get("r") ?? "");
   if (ref === null) throw unreadable();
-  state.cellColumn = columnNumber((ref[1] ?? ref[3]) as string);
-  state.cellRow = Number((ref[2] ?? ref[4]) as string);
-  // `tag` ends with the closing `>`; a `/` before it is a self-closing (empty) cell.
-  state.inCell = !tag.slice(0, -1).trimEnd().endsWith("/");
+  state.cellColumn = columnNumber(ref[1] as string);
+  state.cellRow = Number(ref[2]);
+  if (state.cellRow > MAX_SOURCE_ROWS) throw new ImportFileRejectedError("file_too_many_rows");
+  state.inCell = !tag.selfClosing;
   state.cellValued = false;
 }
 
@@ -85,40 +83,27 @@ function markValued(state: ScanState): void {
   state.cellValued = true;
   state.maxRow = Math.max(state.maxRow, state.cellRow);
   state.maxColumn = Math.max(state.maxColumn, state.cellColumn);
+  state.valuedRows.add(state.cellRow);
+  // The header is a row too: more valued rows than the header plus 5,000 data rows can never be accepted.
+  if (state.valuedRows.size > MAX_DATA_ROWS + 1) throw new ImportFileRejectedError("too_many_rows");
 }
 
-function onTag(state: ScanState, closing: boolean, name: string, tag: string): void {
-  if (closing) {
-    if (name === "c") state.inCell = false;
+function onTag(state: ScanState, tag: XmlTag): void {
+  if (tag.closing) {
+    if (tag.name === "c") state.inCell = false;
     return;
   }
-  if (name === "row") openRow(state, tag);
-  else if (name === "c") openCell(state, tag);
-  else if (state.inCell && (name === "f" || name === "v" || name === "is")) {
+  if (tag.name === "row") openRow(state, tag);
+  else if (tag.name === "c") openCell(state, tag);
+  else if (state.inCell && (tag.name === "f" || tag.name === "v" || tag.name === "is")) {
     markValued(state);
-    if (name === "f") state.formulas.add(`${state.cellRow}:${state.cellColumn}`);
+    if (tag.name === "f") state.formulas.add(`${state.cellRow}:${state.cellColumn}`);
   }
 }
 
-/** The index just past a construct that starts at `at` and ends with `terminator`, or -1 when it never ends. */
-function skipPast(xml: string, at: number, terminator: string): number {
-  const end = xml.indexOf(terminator, at);
-  return end === -1 ? -1 : end + terminator.length;
-}
-
-/** The index after a non-element construct (comment, CDATA, processing instruction, declaration) at `at`, or `at` for an element. */
-function skipMarkup(xml: string, at: number): number {
-  if (xml.startsWith("<!--", at)) return skipPast(xml, at + 4, "-->");
-  if (xml.startsWith("<![CDATA[", at)) return skipPast(xml, at + 9, "]]>");
-  if (xml.startsWith("<?", at)) return skipPast(xml, at + 2, "?>");
-  if (xml.startsWith("<!", at)) return skipPast(xml, at + 2, ">");
-  return at;
-}
-
-/** Scans one worksheet's XML. Throws `ImportFileRejectedError` for a sheet the import cannot read. */
+/** Scans one worksheet's XML. Throws `ImportFileRejectedError` for a sheet the import cannot read or would refuse anyway. */
 export function scanSheet(xml: string): SheetScan {
   const state: ScanState = {
-    row: 0,
     rowsSeen: 0,
     inCell: false,
     cellRow: 0,
@@ -126,23 +111,9 @@ export function scanSheet(xml: string): SheetScan {
     cellValued: false,
     maxRow: 0,
     maxColumn: 0,
+    valuedRows: new Set<number>(),
     formulas: new Set<string>(),
   };
-  let at = xml.indexOf("<");
-  while (at !== -1) {
-    const afterMarkup = skipMarkup(xml, at);
-    if (afterMarkup === -1) throw unreadable();
-    if (afterMarkup !== at) {
-      at = xml.indexOf("<", afterMarkup);
-      continue;
-    }
-    TAG_END.lastIndex = at + 1;
-    const matched = TAG_END.exec(xml);
-    if (matched === null) throw unreadable();
-    const tag = matched[0];
-    const named = NAME.exec(tag);
-    if (named !== null) onTag(state, named[1] === "/", named[2] as string, tag);
-    at = xml.indexOf("<", at + 1 + tag.length);
-  }
+  if (!forEachTag(xml, (tag) => onTag(state, tag))) throw unreadable();
   return { formulaCells: state.formulas, maxValuedRow: state.maxRow, maxValuedColumn: state.maxColumn };
 }

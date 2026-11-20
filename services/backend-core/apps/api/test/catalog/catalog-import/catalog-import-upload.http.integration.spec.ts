@@ -31,11 +31,13 @@ import "reflect-metadata";
 import type { Provider } from "@nestjs/common";
 import { APP_INTERCEPTOR, Reflector } from "@nestjs/core";
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
+import { createHash } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import type request from "supertest";
 
 import { CatalogImportModule } from "../../../src/catalog/catalog-import/catalog-import.module";
 import { importUploadPassthrough } from "../../../src/catalog/catalog-import/import-upload-intake.guard";
+import { CatalogImportService, ImportBatchOpenError, type ImportUpload } from "../../../src/catalog/catalog-import/catalog-import.service";
 import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../../src/idempotency/idempotency.interceptor";
 import { INFLIGHT_REDIS, InProgressMarker } from "../../../src/idempotency/in-progress-marker";
 import { scopedHttpHarness } from "../../_helpers/scoped-http-harness";
@@ -450,17 +452,41 @@ describe("upload: one open batch per tenant", () => {
     expect(await batches()).toHaveLength(2);
   });
 
-  it("lets exactly one of two concurrent uploads win (the unique index, not only the pre-check)", async () => {
+  it("lets exactly one of two concurrent uploads of a tenant win: the other is turned away (429 per-tenant slot, or 409 once the first is stored)", async () => {
     if (skip()) return;
     const [x, y] = await Promise.all([
       upload(SES_OWNER_ALL, csv("sku,name,tax_category\nX1,One,standard\n")),
       upload(SES_OWNER_ALL, csv("sku,name,tax_category\nY1,Two,standard\n")),
     ]);
-    const statuses = [x.status, y.status].sort();
-    expect(statuses).toEqual([201, 409]);
-    const loser = x.status === 409 ? x : y;
     const winner = x.status === 201 ? x : y;
-    expect(loser.body.error).toMatchObject({ code: "import_batch_open", openBatchId: winner.body.batchId });
+    const loser = x.status === 201 ? y : x;
+    expect(winner.status).toBe(201);
+    expect([409, 429]).toContain(loser.status);
+    if (loser.status === 409) expect(loser.body.error).toMatchObject({ code: "import_batch_open", openBatchId: winner.body.batchId });
+    else expectError(loser, 429, "rate_limited");
+    expect(await batches()).toHaveLength(1);
+    expect(await audits()).toHaveLength(1);
+  });
+
+  it("holds the one-open-batch rule in the database too: two concurrent service uploads of a tenant, one wins on the unique index", async () => {
+    if (skip()) return;
+    // Below the HTTP slot, so the unique index (not the per-tenant slot) is what decides.
+    const service = new CatalogImportService(h.env().app);
+    const file = (text: string): ImportUpload => {
+      const bytes = csv(text);
+      return { bytes, sha256: createHash("sha256").update(bytes).digest("hex"), query: { mode: "create" } };
+    };
+    const input = { tenantId: TENANT_A, actorUserId: OWNER_A_USER, requestId: null };
+    const results = await Promise.allSettled([
+      service.upload(input, file("sku,name,tax_category\nX1,One,standard\n")),
+      service.upload(input, file("sku,name,tax_category\nY1,Two,standard\n")),
+    ]);
+    const won = results.filter((r): r is PromiseFulfilledResult<Awaited<ReturnType<CatalogImportService["upload"]>>> => r.status === "fulfilled");
+    const lost = results.filter((r): r is PromiseRejectedResult => r.status === "rejected");
+    expect(won).toHaveLength(1);
+    expect(lost).toHaveLength(1);
+    expect(lost[0]!.reason).toBeInstanceOf(ImportBatchOpenError);
+    expect((lost[0]!.reason as ImportBatchOpenError).openBatchId).toBe(won[0]!.value.batchId);
     expect(await batches()).toHaveLength(1);
     expect(await audits()).toHaveLength(1);
   });

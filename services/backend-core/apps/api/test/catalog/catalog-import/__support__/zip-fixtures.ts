@@ -32,6 +32,8 @@ export interface ZipEntrySpec {
   readonly descriptor?: "plain" | "signed";
   /** Bytes between the local header and the data. */
   readonly localExtra?: Buffer;
+  /** An extra field in the central record. */
+  readonly centralExtra?: Buffer;
 }
 
 export interface ZipOptions {
@@ -71,7 +73,7 @@ function localHeader(name: Buffer, f: HeaderFacts, extra: Buffer): Buffer {
   return Buffer.concat([h, name, extra]);
 }
 
-function centralHeader(name: Buffer, f: HeaderFacts, offset: number): Buffer {
+function centralHeader(name: Buffer, f: HeaderFacts, offset: number, extra: Buffer): Buffer {
   const h = Buffer.alloc(46);
   h.writeUInt32LE(0x02014b50, 0);
   h.writeUInt16LE(20, 4);
@@ -84,8 +86,9 @@ function centralHeader(name: Buffer, f: HeaderFacts, offset: number): Buffer {
   h.writeUInt32LE(f.compressedSize >>> 0, 20);
   h.writeUInt32LE(f.uncompressedSize >>> 0, 24);
   h.writeUInt16LE(name.length, 28);
+  h.writeUInt16LE(extra.length, 30);
   h.writeUInt32LE(offset, 42);
-  return Buffer.concat([h, name]);
+  return Buffer.concat([h, name, extra]);
 }
 
 function descriptor(kind: "plain" | "signed", f: HeaderFacts): Buffer {
@@ -118,7 +121,7 @@ export function buildZip(entries: readonly ZipEntrySpec[], options: ZipOptions =
       comp,
       spec.descriptor === undefined ? Buffer.alloc(0) : descriptor(spec.descriptor, real),
     ]);
-    centrals.push(centralHeader(nameBytes, centralFacts, offset));
+    centrals.push(centralHeader(nameBytes, centralFacts, offset, spec.centralExtra ?? Buffer.alloc(0)));
     locals.push(part);
     offset += part.length;
   }
@@ -223,6 +226,13 @@ export function buildXlsx(sheets: readonly XlsxSheetSpec[], options: XlsxOptions
     ...(options.extraEntries ?? []),
   ];
   return buildZip(entries);
+}
+
+/** The local part of one honest entry (local header, name and data), no central record: what an entry hidden inside another entry's data looks like. */
+export function localEntryBytes(spec: ZipEntrySpec): Buffer {
+  const whole = buildZip([spec]);
+  const eocd = whole.length - 22;
+  return whole.subarray(0, whole.readUInt32LE(eocd + 16));
 }
 
 /** The entries of a valid one-sheet workbook, for a test that edits one of them. */

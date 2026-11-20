@@ -12,7 +12,7 @@
  *   - a FORMULA cell (§5: an identifier from a formula is an error, a formula
  *     elsewhere is a counted notice, a formula with no cached value is an
  *     error). The library cannot tell a cached formula value from a literal,
- *     so the sheet-XML pre-scan (xlsx-formulas.ts) names the formula cells and
+ *     so the sheet-XML pre-scan (xlsx-sheet-scan.ts) names the formula cells and
  *     the reader wraps them here (RT-1504 finding F1).
  *
  * A plain text cell stays a bare JSON string and a blank one `null`, so a CSV

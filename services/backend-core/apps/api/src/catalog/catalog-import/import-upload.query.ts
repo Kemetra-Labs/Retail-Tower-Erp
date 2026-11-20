@@ -1,6 +1,6 @@
 /**
  * RT-1505: the query of `consoleUploadCatalogImport` and the path of the batch
- * routes (contract `catalog/catalog-import.yaml` 1.0.2-draft). An unknown or
+ * routes (contract `catalog/catalog-import.yaml` 1.0.3-draft). An unknown or
  * repeated key is a 400 `validation_error` (the ZodError is the global
  * filter's).
  */

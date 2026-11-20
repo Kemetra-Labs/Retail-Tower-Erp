@@ -84,8 +84,9 @@ function extractEnvelopeFields(
     // the name for something else.
     const blocking = Array.isArray(r["blockingRevisionNos"]) ? { blockingRevisionNos: r["blockingRevisionNos"] as unknown[] } : {};
     // RT-1505: `import_batch_open` names the open batch inside `error` (`catalog-import.yaml` `UploadConflictError`:
-    // `error.openBatchId`). Like `conflicts`, a SHARED passthrough key: no other payload may use the name.
-    const openBatch = typeof r["openBatchId"] === "string" ? { openBatchId: r["openBatchId"] } : {};
+    // `error.openBatchId`, and only on that code). Only that code carries it through, whatever else a payload holds.
+    const openBatch =
+      code === "import_batch_open" && typeof r["openBatchId"] === "string" ? { openBatchId: r["openBatchId"] } : {};
     if (typeof msg === "string") {
       return { code, message: msg, details: r["details"], ...conflicts, ...blocking, ...openBatch };
     }

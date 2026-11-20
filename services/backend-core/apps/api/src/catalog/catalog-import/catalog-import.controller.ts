@@ -1,6 +1,6 @@
 /**
  * CatalogImportController — RT-1505 (spec 049 slice S4, part A): the first
- * operations of `catalog/catalog-import.yaml` 1.0.2-draft.
+ * operations of `catalog/catalog-import.yaml` 1.0.3-draft.
  *
  *   POST /api/v1/catalog/imports            consoleUploadCatalogImport
  *   GET  /api/v1/catalog/imports/{batchId}  consoleGetCatalogImport
@@ -75,11 +75,17 @@ export class CatalogImportController {
   async upload(@Req() request: ImportRequest): Promise<CatalogImportBatchBody> {
     const upload = request.importUpload;
     // The intake guard sets it on every request that reaches the handler; its absence is a wiring bug (500).
-    if (upload === undefined) throw new Error("import upload intake guard did not run");
+    const slot = request.importUploadSlot;
+    if (upload === undefined || slot === undefined) throw new Error("import upload intake guard did not run");
+    // The client may have gone while the idempotency interceptor ran: its slot is already free, so do no work.
+    if (!slot.begin()) throw new BadRequestException({ code: "validation_error", message: "The request was abandoned." });
     try {
       return await this.service.upload(writer(request), upload);
     } catch (err) {
       throw toHttpError(err) ?? err;
+    } finally {
+      // The slot is held through the parse and the write, even when the client aborted.
+      slot.end();
     }
   }
 

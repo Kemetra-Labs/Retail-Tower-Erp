@@ -59,6 +59,35 @@ describe("scanSheet formulas", () => {
   });
 });
 
+describe("scanSheet reads a cell address like the library's SAX parser (security review of PR #761, B3)", () => {
+  it("takes r from the cell's own attribute, never from text inside another attribute's value", () => {
+    const scan = scanSheet(sheet(`<row r="2"><c q='r="Z9"' r="A2"><f>1</f><v>1</v></c><c q="r='B9'" r="C2"><f>2</f></c></row>`));
+    expect([...scan.formulaCells].sort()).toEqual(["2:1", "2:3"]);
+    expect(scan).toMatchObject({ maxValuedRow: 2, maxValuedColumn: 3 });
+    expect(scanSheet(sheet(`<row r="3000"><c q='r="A1"' r="XFD3000"><v>1</v></c></row>`)).maxValuedColumn).toBe(16384);
+  });
+
+  it("ignores a namespace prefix, lets the last of a repeated r win and decodes entities", () => {
+    const scan = scanSheet(sheet(`<row r="2"><c x:r="Z9" r="A2"><f>1</f></c><c r="B2" r="C2"><f>1</f></c><c r="&#65;3"><f>1</f></c><c xmlns:r="urn:x" r="D4"><f>1</f></c></row>`));
+    expect([...scan.formulaCells].sort()).toEqual(["2:1", "2:3", "3:1", "4:4"]);
+  });
+
+  it("refuses an address that is not A1 syntax, or an entity that decodes to nothing", () => {
+    for (const ref of ['r="A1B"', 'r="1"', 'r="&#0;1"', 'r=""']) {
+      expect(code(() => scanSheet(sheet(`<row r="1"><c ${ref}><v>1</v></c></row>`)))).toBe("file_unreadable");
+    }
+  });
+
+  it("refuses more valued rows than the header plus 5,000 data rows, before any library runs", () => {
+    const cell = (r: number): string => `<row r="${r}"><c r="A${r}"><v>1</v></c></row>`;
+    const rows = (n: number): string => Array.from({ length: n }, (_v, i) => cell(i + 1)).join("");
+    expect(code(() => scanSheet(sheet(rows(5001))))).toBe("none");
+    expect(code(() => scanSheet(sheet(rows(5002))))).toBe("too_many_rows");
+    // Empty (styled) cells are not valued rows.
+    expect(code(() => scanSheet(sheet(Array.from({ length: 8000 }, (_v, i) => `<row r="${i + 1}"><c r="A${i + 1}" s="1"/></row>`).join(""))))).toBe("none");
+  });
+});
+
 describe("scanSheet extent", () => {
   it("measures valued cells only: a styled empty cell at XFD1 does not widen the sheet", () => {
     const scan = scanSheet(sheet(`<row r="1"><c r="A1" t="inlineStr"><is><t>a</t></is></c><c r="XFD1" s="1"/></row>`));

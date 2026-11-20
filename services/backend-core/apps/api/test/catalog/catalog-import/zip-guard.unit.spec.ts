@@ -8,11 +8,13 @@ import { deflateRawSync } from "node:zlib";
 
 import { ImportFileRejectedError, type ImportFileRejectionCode } from "../../../src/catalog/catalog-import/import-file-rejected";
 import { inspectZip } from "../../../src/catalog/catalog-import/zip-guard";
-import { buildXlsx, buildZip, xlsxEntries, type ZipEntrySpec } from "./__support__/zip-fixtures";
+import { buildXlsx, buildZip, localEntryBytes, xlsxEntries, type ZipEntrySpec } from "./__support__/zip-fixtures";
 
+/** Inspects the archive and reads every entry the library would (`*.xml`, `*.xml.rels`): the verification happens on read. */
 async function refusal(buf: Buffer): Promise<ImportFileRejectionCode | "accepted"> {
   try {
-    await inspectZip(buf);
+    const zip = inspectZip(buf);
+    for (const name of zip.names) if (name.endsWith(".xml") || name.endsWith(".xml.rels")) await zip.read(name);
     return "accepted";
   } catch (err) {
     if (err instanceof ImportFileRejectedError) return err.code as ImportFileRejectionCode;
@@ -26,7 +28,7 @@ const MIB = 1024 * 1024;
 
 describe("zip guard: what it accepts", () => {
   it("accepts an honest workbook and reads its parts", async () => {
-    const zip = await inspectZip(buildXlsx([{ name: "Products", rows: SHEET_ROWS }]));
+    const zip = inspectZip(buildXlsx([{ name: "Products", rows: SHEET_ROWS }]));
     expect(zip.names).toContain("xl/workbook.xml");
     expect((await zip.read("xl/workbook.xml"))?.toString()).toContain('name="Products"');
     expect(await zip.read("nope.xml")).toBeNull();
@@ -196,5 +198,60 @@ describe("zip guard: lying headers", () => {
   it("refuses a truncated archive", async () => {
     const zip = buildXlsx([{ name: "Products", rows: SHEET_ROWS }]);
     expect(await refusal(zip.subarray(0, zip.length - 40))).toBe("file_unreadable");
+  });
+});
+
+describe("zip guard: local sizes are what a streaming reader trusts (security review of PR #761, B1)", () => {
+  const APP = "<Properties/>";
+
+  /** Entry A (stored, with a data descriptor, honest central record) whose LOCAL size is stretched over entry B's local header; B is stored and holds a whole hidden local entry (a deflate bomb). */
+  function hiddenBombArchive(bomb: Buffer): { zip: Buffer; hiddenLength: number } {
+    const hidden = localEntryBytes({ name: "xl/hidden.xml", data: bomb });
+    const bName = "docProps/thumbnail.jpeg";
+    const stretch = APP.length + 16 + 30 + bName.length;
+    const a: ZipEntrySpec = { name: "docProps/app.xml", data: APP, method: 0, descriptor: "signed", local: { compressedSize: stretch, uncompressedSize: stretch } };
+    const b: ZipEntrySpec = { name: bName, data: hidden, method: 0 };
+    return { zip: buildZip([...entries(), a, b]), hiddenLength: hidden.length };
+  }
+
+  it("refuses the hidden-bomb file: a small upload whose local sizes skip into a second, deflated 'xl/hidden.xml'", async () => {
+    const { zip, hiddenLength } = hiddenBombArchive(Buffer.alloc(60 * MIB, 0x20));
+    expect(zip.length).toBeLessThan(1 * MIB);
+    expect(hiddenLength).toBeLessThan(1 * MIB);
+    const started = Date.now();
+    expect(await refusal(zip)).toBe("file_unreadable");
+    expect(Date.now() - started).toBeLessThan(2000);
+  });
+
+  it("refuses a nonzero local size that differs from the central record, with or without a descriptor", async () => {
+    for (const descriptor of [undefined, "signed" as const, "plain" as const]) {
+      const lying = entries().map((e, i) => (i === 2 ? { ...e, ...(descriptor === undefined ? {} : { descriptor }), local: { compressedSize: 1_000_000 } } : e));
+      expect(await refusal(buildZip(lying))).toBe("file_unreadable");
+    }
+  });
+
+  it("accepts a local size of 0 only with a data descriptor that matches the central record", async () => {
+    expect(await refusal(buildZip(entries().map((e) => ({ ...e, descriptor: "signed" as const }))))).toBe("accepted");
+    const zeroNoDescriptor = entries().map((e, i) => (i === 2 ? { ...e, local: { compressedSize: 0, uncompressedSize: 0, crc: 0 } } : e));
+    expect(await refusal(buildZip(zeroNoDescriptor))).toBe("file_unreadable");
+  });
+
+  it("refuses a zip64 extra field (ID 0x0001) in a local header and in a central record", async () => {
+    const zip64 = Buffer.from([0x01, 0x00, 0x00, 0x00]);
+    const other = Buffer.from([0x55, 0x54, 0x00, 0x00]);
+    expect(await refusal(buildZip(entries().map((e, i) => (i === 2 ? { ...e, localExtra: zip64 } : e))))).toBe("file_type_unsupported");
+    expect(await refusal(buildZip(entries().map((e, i) => (i === 2 ? { ...e, centralExtra: zip64 } : e))))).toBe("file_type_unsupported");
+    // Another extra field is harmless, and a zip64 record behind it is still found.
+    expect(await refusal(buildZip(entries().map((e, i) => (i === 2 ? { ...e, localExtra: other } : e))))).toBe("accepted");
+    expect(await refusal(buildZip(entries().map((e, i) => (i === 2 ? { ...e, localExtra: Buffer.concat([other, zip64]) } : e))))).toBe("file_type_unsupported");
+  });
+
+  it("inflates nothing when inspecting: an entry the import never reads costs nothing", async () => {
+    const withUnused = [...entries(), { name: "docProps/unused.xml", data: Buffer.alloc(30 * MIB, 0x20) }];
+    const started = Date.now();
+    const zip = inspectZip(buildZip(withUnused));
+    expect(zip.names).toContain("docProps/unused.xml");
+    expect((await zip.read("xl/workbook.xml"))?.length).toBeGreaterThan(0);
+    expect(Date.now() - started).toBeLessThan(2000);
   });
 });

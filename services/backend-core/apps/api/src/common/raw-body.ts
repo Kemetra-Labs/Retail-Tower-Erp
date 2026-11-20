@@ -21,6 +21,15 @@ export interface RawBodyRules {
   readonly tooLargeMessage: string;
   /** The plain `Error` (a 500) when a body parser already consumed the body: names the passthrough that was not wired. */
   readonly unwiredMessage: string;
+  /** When set, a body not complete within this many milliseconds is dropped with {@link RawBodyTimeoutError} (a slow sender must not hold a slot). */
+  readonly timeoutMs?: number;
+}
+
+/** The body did not arrive in time: a 400 `validation_error` (the contract has no 408), and the caller should close the connection. */
+export class RawBodyTimeoutError extends BadRequestException {
+  constructor() {
+    super({ code: "validation_error", message: "The request body was not received in time." });
+  }
 }
 
 function tooLarge(rules: RawBodyRules): PayloadTooLargeException {
@@ -46,7 +55,16 @@ export function readRawBody(req: BodyStream, rules: RawBodyRules): Promise<Buffe
   return new Promise<Buffer>((resolve, reject) => {
     const chunks: Buffer[] = [];
     let total = 0;
+    const timer =
+      rules.timeoutMs === undefined
+        ? null
+        : setTimeout(() => {
+            cleanup();
+            reject(new RawBodyTimeoutError());
+          }, rules.timeoutMs);
+    timer?.unref();
     const cleanup = (): void => {
+      if (timer !== null) clearTimeout(timer);
       req.off("data", onData);
       req.off("end", onEnd);
       req.off("error", onError);

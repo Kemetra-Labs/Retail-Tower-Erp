@@ -15,16 +15,19 @@
  *   3. Per central record: refuse a `vbaProject*` entry, an encrypted entry and
  *      a method other than stored / deflate; refuse a duplicate name; sum the
  *      declared uncompressed sizes and refuse above 50 MiB.
- *   4. Cross-check the local headers the library actually walks: the entries
- *      must tile the file exactly from byte 0 to the central directory (name,
- *      method and, with no data descriptor, sizes and CRC equal to the central
- *      record; a descriptor equal to it), so a lying central directory and a
- *      hidden local entry are both refused.
- *   5. Inflate every entry the library inflates (`*.xml`, `*.xml.rels`) with
- *      `inflateRaw` and `maxOutputLength`: the real stream must end exactly at
- *      its declared compressed size, produce exactly its declared size and
- *      match its CRC. A header that lies is refused after at most the declared
- *      size of work (and the declared sizes sum to at most 50 MiB).
+ *   4. Cross-check every local header: the entries must tile the file exactly
+ *      from byte 0 to the central directory; name, method, sizes and CRC must
+ *      equal the central record (with a data descriptor a local value may be 0,
+ *      and the descriptor must then equal the central record), so a lying
+ *      central directory, a local size stretched over the next entry's header
+ *      (security review of PR #761, B1) and a hidden local entry are all
+ *      refused; a zip64 extra field (ID 0x0001) is refused.
+ *   5. `read(name)` inflates an entry with `inflateRaw` and `maxOutputLength`
+ *      once, when the import needs it: the real stream must end exactly at its
+ *      declared compressed size, produce exactly its declared size and match
+ *      its CRC. A header that lies is refused after at most the declared size
+ *      of work (and the declared sizes sum to at most 50 MiB). The import reads
+ *      only the parts it uses, and the library never sees the uploaded bytes.
  *
  * Codes: a limit (entries, declared size) is `xlsx_limits_exceeded`; a macro
  * part, encryption, zip64, multi-disk or an exotic method is
@@ -67,7 +70,7 @@ interface ZipEntry {
   readonly localOffset: number;
 }
 
-/** A guarded archive: the entries that passed, and a reader for the ones the import needs. */
+/** A guarded archive: the entries that passed, and a verifying reader for the ones the import needs. */
 export interface InspectedZip {
   readonly names: readonly string[];
   /** The inflated bytes of an entry that passed the guard, or `null` when the archive has none by that name. */
@@ -131,6 +134,7 @@ function parseCentralRecord(buf: Buffer, at: number, limit: number): { entry: Zi
     localOffset: buf.readUInt32LE(at + 42),
   };
   if (buf.readUInt16LE(at + 34) !== 0) throw refuse("file_type_unsupported");
+  if (hasZip64Extra(buf, at + CENTRAL_SIZE + nameLength, buf.readUInt16LE(at + 30))) throw refuse("file_type_unsupported");
   return { entry, next };
 }
 
@@ -169,18 +173,33 @@ function localDataStart(buf: Buffer, entry: ZipEntry): number {
   if (at + LOCAL_SIZE > buf.length || buf.readUInt32LE(at) !== LOCAL_SIG) throw refuse("file_unreadable");
   const flags = buf.readUInt16LE(at + 6);
   const nameLength = buf.readUInt16LE(at + 26);
-  const start = at + LOCAL_SIZE + nameLength + buf.readUInt16LE(at + 28);
+  const extraLength = buf.readUInt16LE(at + 28);
+  const start = at + LOCAL_SIZE + nameLength + extraLength;
   const sameFlags = (flags & FLAG_DESCRIPTOR) === (entry.flags & FLAG_DESCRIPTOR) && (flags & FLAG_ENCRYPTED) === 0;
   const sameName = buf.subarray(at + LOCAL_SIZE, at + LOCAL_SIZE + nameLength).equals(entry.nameBytes);
   if (!sameFlags || !sameName || buf.readUInt16LE(at + 8) !== entry.method || start > buf.length) throw refuse("file_unreadable");
-  if ((entry.flags & FLAG_DESCRIPTOR) === 0) {
-    const same =
-      buf.readUInt32LE(at + 14) === entry.crc &&
-      buf.readUInt32LE(at + 18) === entry.compressedSize &&
-      buf.readUInt32LE(at + 22) === entry.uncompressedSize;
-    if (!same) throw refuse("file_unreadable");
-  }
+  if (hasZip64Extra(buf, at + LOCAL_SIZE + nameLength, extraLength)) throw refuse("file_type_unsupported");
+  // The local sizes and CRC are what a streaming reader trusts, so they must be the central record's. With a data
+  // descriptor a writer may leave a local value at 0; the descriptor (checked after the data) must then agree.
+  const hasDescriptor = (entry.flags & FLAG_DESCRIPTOR) !== 0;
+  const agrees = (local: number, central: number): boolean => local === central || (hasDescriptor && local === 0);
+  const same =
+    agrees(buf.readUInt32LE(at + 14), entry.crc) &&
+    agrees(buf.readUInt32LE(at + 18), entry.compressedSize) &&
+    agrees(buf.readUInt32LE(at + 22), entry.uncompressedSize);
+  if (!same) throw refuse("file_unreadable");
   return start;
+}
+
+/** Whether an extra field of `length` bytes at `from` holds the zip64 record (header ID 0x0001). */
+function hasZip64Extra(buf: Buffer, from: number, length: number): boolean {
+  const end = Math.min(buf.length, from + length);
+  let at = from;
+  while (at + 4 <= end) {
+    if (buf.readUInt16LE(at) === 0x0001) return true;
+    at += 4 + buf.readUInt16LE(at + 2);
+  }
+  return false;
 }
 
 /** The length of the data descriptor after an entry's data (0 when it has none), once it agrees with the central record. */
@@ -211,11 +230,6 @@ function tileLocalEntries(buf: Buffer, entries: readonly ZipEntry[], centralOffs
   }
   if (expected !== centralOffset) throw refuse("file_unreadable");
   return spans;
-}
-
-/** The entries the library inflates (`read-excel-file`'s own filter), the ones whose real size matters. */
-function isInflatedByLibrary(name: string): boolean {
-  return name.endsWith(".xml") || name.endsWith(".xml.rels");
 }
 
 interface InflateInfo {
@@ -257,16 +271,12 @@ async function readVerified(buf: Buffer, entry: ZipEntry, span: readonly [number
  * Guards `buf` (an in-memory upload that starts with a ZIP signature) and
  * resolves a reader for its entries. Throws `ImportFileRejectedError`.
  */
-export async function inspectZip(buf: Buffer): Promise<InspectedZip> {
+export function inspectZip(buf: Buffer): InspectedZip {
   const eocd = findEocd(buf);
   checkEocd(buf, eocd);
   const entries = readCentralDirectory(buf, eocd);
   const spans = tileLocalEntries(buf, entries, eocd.centralOffset);
   const byName = new Map(entries.map((e) => [e.name, e] as const));
-  // Every entry the library will inflate, verified before it ever sees the file.
-  for (const entry of entries) {
-    if (isInflatedByLibrary(entry.name)) await readVerified(buf, entry, spans.get(entry.name) as readonly [number, number]);
-  }
   return {
     names: entries.map((e) => e.name),
     async read(name) {

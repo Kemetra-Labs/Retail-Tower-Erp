@@ -1,6 +1,6 @@
 /**
  * CatalogImportService — RT-1505 (spec 049 slice S4, part A): the upload and
- * the batch read of `catalog/catalog-import.yaml` 1.0.2-draft.
+ * the batch read of `catalog/catalog-import.yaml` 1.0.3-draft.
  *
  * Upload, in the contract's order (the guards, the key format, the query and
  * the 413 / SHA-256 / idempotent replay are the controller's chain; see
