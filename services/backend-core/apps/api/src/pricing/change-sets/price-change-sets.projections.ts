@@ -73,6 +73,17 @@ export class PriceChangeSetForbiddenError extends Error {
   }
 }
 
+/**
+ * RT-1484 PR-6: `409 rollback_blocked` (contract `RollbackBlocked`): revisions after the target's
+ * published or ended rows on what the rollback would restore. Nothing was written.
+ */
+export class PriceChangeSetRollbackBlockedError extends Error {
+  constructor(readonly blockingRevisionNos: readonly number[]) {
+    super("rollback_blocked");
+    this.name = "PriceChangeSetRollbackBlockedError";
+  }
+}
+
 /** A list cursor this operation did not issue → 400 `validation_error`. */
 export class ChangeSetListCursorError extends InvalidCursorError {
   constructor(message?: string) {

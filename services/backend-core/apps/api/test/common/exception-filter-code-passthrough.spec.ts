@@ -18,6 +18,7 @@
  *   CP3 — Structured 404 with `code: "tenant_not_found"` → envelope honors it
  *   CP4 — ZodError handling is UNAFFECTED (still `validation_error`)
  *   CP5 — Structured throw with both `code` AND `details` → both surface
+ *   CP6 — RT-1484 PR-6: `blockingRevisionNos` surfaces beside `error` (`RollbackBlocked`)
  */
 import "reflect-metadata";
 
@@ -150,5 +151,19 @@ describe("GlobalExceptionFilter — code passthrough (Constitution §IV)", () =>
       offending_alias: "abc",
       conflicting_item_id: "xyz",
     });
+  });
+
+  // CP6 — RT-1484 PR-6: the rollback_blocked body carries its blocking revisions at the top level.
+  it("CP6: blockingRevisionNos surfaces beside the error envelope; absent otherwise", () => {
+    const { host, captured } = makeMockHost();
+    filter.catch(new ConflictException({ code: "rollback_blocked", message: "blocked", blockingRevisionNos: [7, 9] }), host);
+    expect(captured.statusCode).toBe(HttpStatus.CONFLICT);
+    expect(captured.body).toEqual({
+      error: { code: "rollback_blocked", message: "blocked", request_id: "test-req-id-passthrough" },
+      blockingRevisionNos: [7, 9],
+    });
+    const plain = makeMockHost();
+    filter.catch(new ConflictException({ code: "alias_conflict", message: "m" }), plain.host);
+    expect(Object.keys(plain.captured.body as object)).toEqual(["error"]);
   });
 });

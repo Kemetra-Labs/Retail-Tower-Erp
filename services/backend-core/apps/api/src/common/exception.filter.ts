@@ -57,7 +57,7 @@ function statusToCode(status: number): string {
 function extractEnvelopeFields(
   exception: HttpException,
   fallback: string,
-): { code: string | undefined; message: string; details?: unknown; conflicts?: unknown[] } {
+): { code: string | undefined; message: string; details?: unknown; conflicts?: unknown[]; blockingRevisionNos?: unknown[] } {
   const response = exception.getResponse();
   if (typeof response === "string") {
     return { code: undefined, message: response };
@@ -70,8 +70,11 @@ function extractEnvelopeFields(
     // RT-1337: `offer_conflict` lists the conflicting offers beside `code` and `message`
     // (`offers.openapi.yaml` `OfferError.error.conflicts`).
     const conflicts = Array.isArray(r["conflicts"]) ? { conflicts: r["conflicts"] as unknown[] } : {};
+    // RT-1484 PR-6: `rollback_blocked` lists the blocking revisions beside the envelope
+    // (`price-change-sets.yaml` `RollbackBlocked.blockingRevisionNos`, a top-level key).
+    const blocking = Array.isArray(r["blockingRevisionNos"]) ? { blockingRevisionNos: r["blockingRevisionNos"] as unknown[] } : {};
     if (typeof msg === "string") {
-      return { code, message: msg, details: r["details"], ...conflicts };
+      return { code, message: msg, details: r["details"], ...conflicts, ...blocking };
     }
     if (Array.isArray(msg)) {
       return {
@@ -138,6 +141,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         message,
         details,
         conflicts,
+        blockingRevisionNos,
       } = extractEnvelopeFields(exception, statusDefaultMessage(status));
       // Honor user-supplied fine-grained code (e.g., "alias_conflict") when
       // present; fall back to the canonical status-derived code otherwise.
@@ -158,7 +162,7 @@ export class GlobalExceptionFilter implements ExceptionFilter {
         ...(details !== undefined ? { details } : {}),
       });
       if (conflicts !== undefined) (envelope.error as unknown as Record<string, unknown>)["conflicts"] = conflicts;
-      response.status(status).json(envelope);
+      response.status(status).json(blockingRevisionNos === undefined ? envelope : { ...envelope, blockingRevisionNos });
       return;
     }
 

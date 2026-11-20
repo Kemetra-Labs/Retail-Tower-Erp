@@ -900,6 +900,7 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     const lockKey = `pricing-validate:${TENANT_A}`;
     const holder = await env!.admin.connect();
     let both: Promise<[ChangeSet, ChangeSet]> | undefined;
+    let failed = false;
     try {
       await holder.query("BEGIN");
       await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockKey]);
@@ -923,15 +924,19 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
         await new Promise((r) => setTimeout(r, 50));
       }
     } catch (err) {
-      // Never leave the two requests unobserved when the wait fails.
-      await holder.query("COMMIT");
-      holder.release();
-      await both?.catch(() => undefined);
+      failed = true;
       throw err;
+    } finally {
+      // RT-1484 PR-6 (#750 review nit): the holder is always released, whatever failed.
+      try {
+        await holder.query("COMMIT");
+      } finally {
+        holder.release();
+      }
+      // Never leave the two requests unobserved when the wait fails.
+      if (failed) await both?.catch(() => undefined);
     }
-    await holder.query("COMMIT");
-    holder.release();
-    const [vx, vy] = await both;
+    const [vx, vy] = await both!;
     const pending = [vx, vy].map((v) => (v.summary as { findings: { conflicts_pending: number } }).findings.conflicts_pending).sort();
     expect(pending).toEqual([0, 1]);
   });

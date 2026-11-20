@@ -16,8 +16,8 @@ info:
 
     **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
     owner on RT-1151 (D1, comment 17783). RT-1484 (RT-282 PR-09/PR-10)
-    ships the runtime operation by operation; an operation still marked
-    `x-runtime-status: contract-only` (rollback) is not routed yet. The approval-mode setting (`pricing.change_set_approval`,
+    ships the runtime operation by operation; since RT-1484 PR-6 (rollback)
+    every operation here is routed and none carries `x-runtime-status`. The approval-mode setting (`pricing.change_set_approval`,
     v1 default `always`, Q-B1) and the optional lead time are RT-1484's.
 
 
@@ -77,7 +77,12 @@ info:
     machine and is always sensitive. History before the rollback instant is
     never rewritten (521, 531, 534). A target whose events or memberships were
     already superseded by later revisions is `409 rollback_blocked` with the
-    blocking revisions.
+    blocking revisions. RT-1484 PR-6 applies this fail closed: any revision
+    after the target's that published or ended an event of a price key (Book,
+    Zone or Store target, product, sell unit) the target touched, or a Zone
+    membership of a Store it touched, blocks the rollback. Like `emergency`,
+    a rollback is exempt from the lead time and from the past-dated recheck
+    (spec 042 §5, §7): it may restore from an instant already past.
 
 
     **Money and time.** Prices are exact decimal strings and must be exact at
@@ -605,18 +610,29 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Generates a new `kind: rollback` set in `draft` (info **Rollback**)
         for a `published` target, restoring from `from` (default now) forward.
-        The target becomes `rolled_back` only when the rollback set is
-        published. A target already rolled back, or not published, is `409
-        change_set_invalid_state`; one whose rows later revisions superseded is
-        `409 rollback_blocked` (body `RollbackBlocked`). Roles `owner` /
-        `tenant_admin`.
+        Its items are generated (RT-1484 PR-6): for every price key the
+        target's revision touched, from the first instant at or after `from`
+        where the timeline differs from the one before that revision, a
+        `set_price` per event the revision superseded (clipped to that
+        instant) and, where the revision priced an interval that had no price,
+        an `end_price` at that instant first; for every Store whose Zone
+        membership it touched, `move_store_zone` items restoring the earlier
+        Zone timeline (an interval with no membership becomes a move into the
+        Book's default Zone, which resolves identically). For a `store_local`
+        key, `from` is taken at the latest wall-clock time any of the tenant's
+        live Stores shows then (the key's own Store's for a Store target), rounded up
+        to the second, so no Store sees the rollback before `from`. The target
+        becomes `rolled_back` only when the rollback set is published. A target
+        already rolled back, not published (a draft, a cancelled set), the
+        system legacy import, or with a rollback set that is not cancelled is
+        `409 change_set_invalid_state`; one whose rows later revisions
+        superseded (a `superseded` target always) or whose keys later
+        revisions touched is `409 rollback_blocked` (body `RollbackBlocked`); validating the
+        rollback set repeats that check, and publish treats it as `409
+        stale_validation`. Roles `owner` / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -645,6 +661,8 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/RollbackConflict"
+        "422":
+          $ref: "#/components/responses/RollbackUnprocessable"
         "425":
           $ref: "#/components/responses/IdempotencyInProgress"
         "429":
@@ -1675,7 +1693,11 @@ components:
         (price authoring is not enabled for the tenant: until its legacy
         cutover, RT-1485 and spec 044 §6.1, only tenants on the operator's
         authoring allowlist may write Change Sets; reads stay open);
-        `idempotency_key_conflict`.
+        `idempotency_key_conflict`; `rollback_blocked` (`validate` of a
+        `kind: rollback` set whose target's keys a later revision touched;
+        the body carries `blockingRevisionNos` as in `RollbackBlocked`;
+        RT-1484 PR-6). On `publish` a rollback set whose target is no longer
+        published or is blocked is `stale_validation`.
         Nothing is written, except the return to `draft` on
         `stale_validation`.
       content:
@@ -1685,7 +1707,9 @@ components:
     RollbackConflict:
       description: >
         409: `rollback_blocked` (body `RollbackBlocked`, with the revisions
-        that superseded the target's rows), `change_set_invalid_state` or
+        that superseded the target's rows or touched its keys),
+        `change_set_invalid_state`, `pricing_authority_legacy` (the tenant is
+        not on the authoring allowlist), `price_book_missing` or
         `idempotency_key_conflict` (body `Error`). Nothing is written.
       content:
         application/json:
@@ -1717,6 +1741,16 @@ components:
         or names a Store, Zone or product the tenant does not have; the message
         names the item's position and the reason; RT-1484).
         Nothing is stored.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    RollbackUnprocessable:
+      description: >
+        422, `error.code` one of: `change_set_empty` (nothing the target's
+        revision changed differs from `from` on); `change_set_too_large` (the
+        rollback needs more than 500 items; author corrective sets instead).
+        RT-1484 PR-6. Nothing is written.
       content:
         application/json:
           schema:

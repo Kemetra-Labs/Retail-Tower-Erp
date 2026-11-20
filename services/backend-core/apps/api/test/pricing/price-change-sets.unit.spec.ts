@@ -32,11 +32,13 @@ import {
   missingAcknowledgements,
   requiredAcknowledgements,
 } from "../../src/pricing/change-sets/price-change-set-approval";
+import { instantText, localText, RollbackUnsupportedError } from "../../src/pricing/change-sets/price-change-set-rollback";
 import {
   ApprovePriceChangeSetBodySchema,
   CreatePriceChangeSetBodySchema,
   ListChangeSetsQuerySchema,
   RejectPriceChangeSetBodySchema,
+  RollbackPriceChangeSetBodySchema,
   SubmitPriceChangeSetBodySchema,
   UpdatePriceChangeSetBodySchema,
   VersionedBodySchema,
@@ -317,7 +319,7 @@ describe("the authoring gate is structural (PricingAuthoringGuard)", () => {
 
   it("refuses every non-GET route of a tenant off the allowlist, and lets every GET through", () => {
     const writes = routes.filter((r) => r.method !== RequestMethod.GET);
-    expect(writes.map((r) => r.name).sort()).toEqual(["approve", "cancel", "create", "publish", "reject", "submit", "update", "validate"]);
+    expect(writes.map((r) => r.name).sort()).toEqual(["approve", "cancel", "create", "publish", "reject", "rollback", "submit", "update", "validate"]);
     for (const r of routes) {
       const verb = RequestMethod[r.method!];
       if (r.method === RequestMethod.GET) {
@@ -344,6 +346,31 @@ describe("the authoring gate is structural (PricingAuthoringGuard)", () => {
   // RT-1484 PR-5: submit, approve, reject and publish document 200 only.
   it.each(["submit", "approve", "reject", "publish"] as const)("%s answers 200", (handler) => {
     expect(Reflect.getMetadata(HTTP_CODE_METADATA, PriceChangeSetsController.prototype[handler])).toBe(200);
+  });
+
+  // RT-1484 PR-6: rollback creates a set (the contract documents 201).
+  it("rollback answers 201", () => {
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, PriceChangeSetsController.prototype.rollback)).toBe(201);
+  });
+});
+
+// RT-1484 PR-6 (RT-282 PR-10c): the rollback request and the generator's exact time text.
+describe("rollback", () => {
+  it("takes a reason and an optional strict RFC 3339 `from`; nothing else", () => {
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "Undo" }).success).toBe(true);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "Undo", from: "2031-03-01T00:00:00.123456+02:00" }).success).toBe(true);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({}).success).toBe(false);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "" }).success).toBe(false);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "Undo", from: "2031-03-01T00:00" }).success).toBe(false);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "Undo", from: "2031-02-30T00:00:00Z" }).success).toBe(false);
+    expect(RollbackPriceChangeSetBodySchema.safeParse({ reason: "Undo", expectedVersion: 1 }).success).toBe(false);
+  });
+
+  it("writes microsecond instants exactly and refuses a sub-second local bound", () => {
+    expect(instantText(1_924_992_000_000_001n)).toBe("2031-01-01T00:00:00.000001Z");
+    expect(instantText(-1n)).toBe("1969-12-31T23:59:59.999999Z");
+    expect(localText(1_924_992_000_000_000n)).toBe("2031-01-01T00:00:00");
+    expect(() => localText(1_924_992_000_500_000n)).toThrow(RollbackUnsupportedError);
   });
 });
 

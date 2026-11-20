@@ -30,13 +30,18 @@
  *     consecutive revisions, the second of two intersecting sets goes stale;
  *   - the Store lifecycle bootstrap row (data-model §2.6) at the head;
  *   - the allowlist refusal, roles, two-tenant RLS including direct SQL under a mismatched GUC;
- *   - a Zone move publishes its membership rows; idempotent replay; AJV on every body.
+ *   - a Zone move publishes its membership rows; idempotent replay; AJV on every body;
+ *   - RT-1484 PR-6 (#750 review carry-overs): an unforeseen exclusion conflict (23P01) is a logged
+ *     `stale_validation` that writes nothing but the return to draft (audit `reason:
+ *     exclusion_conflict`); the past-dated recheck at submit (the straight-to-approved path too),
+ *     its emergency exemption, the per-Store minimum of a `store_local` line and a Zone move's
+ *     instant at approve; the m3 audit fields.
  *
  * Docker policy: HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1.
  */
 import "reflect-metadata";
 
-import type { INestApplication, Provider } from "@nestjs/common";
+import { Logger, type INestApplication, type Provider } from "@nestjs/common";
 import { APP_INTERCEPTOR, Reflector } from "@nestjs/core";
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
@@ -79,6 +84,8 @@ const ACTOR = a("15b5e2");
 const BOOK = a("15b5b0");
 const ZONE_DEFAULT = a("15b5d0");
 const ZONE_NORTH = a("15b5d1");
+/** RT-1484 PR-6 (#750 review nit): a Zone only the self-contained m7 Zone case uses. */
+const ZONE_SOUTH = a("15b5d2");
 const P1 = PRODUCT_A_ACTIVE;
 const P2 = PRODUCT_A_RETIRED;
 const P3 = a("15b5f3");
@@ -95,6 +102,13 @@ const P = {
   gone: a("15b5fc"),
   dst: a("15b5fd"),
   late: a("15b5fe"),
+  // RT-1484 PR-6: the #750 review carry-overs (MINOR-1, MINOR-3).
+  excl: a("15b5ff"),
+  pSubmit: a("15b5f100"),
+  pAuto: a("15b5f101"),
+  pEmergency: a("15b5f102"),
+  pLocal: a("15b5f103"),
+  m3: a("15b5f104"),
 };
 const CS_LEGACY = a("15b5c1");
 const E_BOOK_P1 = a("15b5e101");
@@ -200,8 +214,8 @@ async function seedPricing(): Promise<void> {
     await c.query(
       `INSERT INTO price_zones (id, tenant_id, price_book_id, code, name, is_default, created_by_user_id, correlation_id)
        VALUES ($1, $2, $3, 'DEFAULT', 'Default', true, $4, $1), ($5, $2, $3, 'NORTH', 'North', false, $4, $5),
-              ($6, $7, $8, 'DEFAULT', 'Default', true, $4, $6)`,
-      [ZONE_DEFAULT, TENANT_A, BOOK, ACTOR, ZONE_NORTH, B_ZONE, TENANT_B, B_BOOK],
+              ($6, $7, $8, 'DEFAULT', 'Default', true, $4, $6), ($9, $2, $3, 'SOUTH', 'South', false, $4, $9)`,
+      [ZONE_DEFAULT, TENANT_A, BOOK, ACTOR, ZONE_NORTH, B_ZONE, TENANT_B, B_BOOK, ZONE_SOUTH],
     );
     await c.query(
       `INSERT INTO change_sets (id, tenant_id, domain, kind, title, state, revision_no, created_by_user_id, correlation_id,
@@ -870,23 +884,223 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("m7: a non-default Zone event fans out to that Zone's members; a move that replaces a membership carries it forward", async () => {
     if (skip()) return;
-    // STORE_A_Y is in NORTH from 2044 (the Zone move case above).
-    const zone = await published({ items: [{ op: "set_price", scope: { kind: "zone", zoneId: ZONE_NORTH }, products: items([P.zone]), price: "70", ...at("2045-01-01T00:00:00Z") }] });
-    const fan = await env!.admin.query<{ store: string }>(`SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`, [TENANT_A, zone.revisionNo]);
-    expect(fan.rows.map((r) => r.store)).toEqual([STORE_A_Y]);
+    // RT-1484 PR-6 (#750 review nit): self-contained. A Store of its own, moved into a Zone only
+    // this case uses, so no earlier case's membership is assumed.
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const s = await stores.create(ctx, { code: "RT1484SOU", name: "RT-1484 South" });
+    try {
+      await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_SOUTH, effectiveFrom: "2044-01-01T00:00:00Z" }] });
+      const zone = await published({ items: [{ op: "set_price", scope: { kind: "zone", zoneId: ZONE_SOUTH }, products: items([P.zone]), price: "70", ...at("2045-01-01T00:00:00Z") }] });
+      const fan = await env!.admin.query<{ store: string }>(`SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`, [TENANT_A, zone.revisionNo]);
+      expect(fan.rows.map((r) => r.store)).toEqual([s.id]);
 
-    const move = await published({ items: [{ op: "move_store_zone", storeId: STORE_A_Y, zoneId: ZONE_DEFAULT, effectiveFrom: "2046-01-01T00:00:00Z" }] });
-    const m = await env!.admin.query<{ zone: string; carried: boolean; f: string; t: string | null }>(
-      `SELECT price_zone_id::text AS zone, carried_forward AS carried,
-              to_char(effective_from AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS f, to_char(effective_to AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS t
-         FROM price_zone_memberships WHERE tenant_id = $1 AND store_id = $2 AND state = 'active' ORDER BY effective_from`,
-      [TENANT_A, STORE_A_Y],
+      const move = await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_DEFAULT, effectiveFrom: "2046-01-01T00:00:00Z" }] });
+      const m = await env!.admin.query<{ zone: string; carried: boolean; f: string; t: string | null }>(
+        `SELECT price_zone_id::text AS zone, carried_forward AS carried,
+                to_char(effective_from AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS f, to_char(effective_to AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS t
+           FROM price_zone_memberships WHERE tenant_id = $1 AND store_id = $2 AND state = 'active' ORDER BY effective_from`,
+        [TENANT_A, s.id],
+      );
+      expect(m.rows).toEqual([
+        { zone: ZONE_SOUTH, carried: true, f: "2044-01-01", t: "2046-01-01" },
+        { zone: ZONE_DEFAULT, carried: false, f: "2046-01-01", t: null },
+      ]);
+      expect(await recordOf(move.set.header.id)).toEqual([{ line: 1, event: false, results: 2 }]);
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [s.id]);
+    }
+  });
+
+  // ---------------------------------------------------------------------------------------------
+  // RT-1484 PR-6: carry-overs from the #750 review (MINOR-1, MINOR-2, MINOR-3)
+  // ---------------------------------------------------------------------------------------------
+
+  /** The `stale` audit rows of a set. */
+  async function staleRows(id: string): Promise<Record<string, unknown>[]> {
+    const r = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.stale' ORDER BY occurred_at, id`,
+      [id],
     );
-    expect(m.rows).toEqual([
-      { zone: ZONE_NORTH, carried: true, f: "2044-01-01", t: "2046-01-01" },
-      { zone: ZONE_DEFAULT, carried: false, f: "2046-01-01", t: null },
+    return r.rows.map((row) => row.metadata);
+  }
+
+  /** Runs `work` with the service clock at `iso`, then restores it. */
+  async function at2(iso: string, work: () => Promise<void>): Promise<void> {
+    const service = app!.get(PriceChangeSetsService);
+    const real = service.clock;
+    service.clock = () => Date.parse(iso);
+    try {
+      await work();
+    } finally {
+      service.clock = real;
+    }
+  }
+
+  /** Makes a validated set non-sensitive in its row and its validation (triggers off: v1 has no such set). */
+  async function nonSensitive(id: string): Promise<void> {
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(`UPDATE change_sets SET sensitive = false, sensitivity_reasons = '{}' WHERE id = $1`, [id]);
+      await c.query(`UPDATE price_change_set_validations SET sensitive = false, sensitivity_reasons = '{}' WHERE change_set_id = $1`, [id]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+  }
+
+  const approveOf = (set: ChangeSet) => ({ expectedVersion: set.header.version, previewHash: set.header.previewHash, acknowledgedFindings: ALL_ACKS });
+
+  it("MINOR-1/2: an exclusion conflict (23P01) the staleness check did not foresee is stale; nothing but the return to draft is written", async () => {
+    if (skip()) return;
+    const set = await approved({ items: [bookPrice(P.excl, "5", "2055-01-01T00:00:00Z")] });
+    const h = await head();
+    expect(set.header.validatedAtRevision).toBeLessThanOrEqual(h);
+    // An active event overlapping the line, not in its replaced_ids, published at or below the
+    // validated head: written by the superuser with triggers off (no revision of its own).
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(
+        `INSERT INTO price_events (id, tenant_id, price_book_id, scope, product_id, price, currency_code, time_basis, effective_from,
+                                   effective_to, state, published_in_revision, change_set_id, source, created_by_user_id, correlation_id)
+         VALUES (gen_random_uuid(), $1, $2, 'book', $3, 6, 'EGP', 'absolute', '2056-01-01T00:00:00Z', '2057-01-01T00:00:00Z', 'active', $4, $5,
+                 'legacy_import', $6, $6)`,
+        [TENANT_A, BOOK, P.excl, set.header.validatedAtRevision, CS_LEGACY, ACTOR],
+      );
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+    const count = async (table: string): Promise<string | null> => scalar(`SELECT count(*)::text AS v FROM ${table} WHERE tenant_id = $1`, [TENANT_A]);
+    const [events, fanRows] = [await count("price_events"), await count("pricing_revision_stores")];
+    const warn = jest.spyOn(Logger.prototype, "warn").mockImplementation(() => undefined);
+    try {
+      refused(await publish(set), 409, "stale_validation");
+      expect(warn).toHaveBeenCalledWith(expect.stringMatching(new RegExp(`tenantId=${TENANT_A} changeSetId=${set.header.id} constraint=price_events_no_overlap_absolute`)));
+    } finally {
+      warn.mockRestore();
+    }
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [set.header.id])).toBe("draft:2");
+    expect(await head()).toBe(h);
+    expect(await count("price_events")).toBe(events);
+    expect(await count("pricing_revision_stores")).toBe(fanRows);
+    const stale = await staleRows(set.header.id);
+    expect(stale).toHaveLength(1);
+    expect(stale[0]).toMatchObject({ reason: "exclusion_conflict", previous_state: "approved", version: 2, head_revision: h });
+  });
+
+  it("MINOR-3: the past-dated recheck at submit stales the set; the straight-to-approved path too", async () => {
+    if (skip()) return;
+    const set = await validated({ items: [bookPrice(P.pSubmit, "7", "2070-01-01T00:00:00Z")] });
+    await at2("2070-06-01T00:00:00Z", async () => {
+      refused(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
+    });
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [set.header.id])).toBe("draft:2");
+    expect(await staleRows(set.header.id)).toEqual([
+      expect.objectContaining({ previous_state: "validated", earliest_effective_at: (set.summary as { earliestEffectiveAt: string }).earliestEffectiveAt }),
     ]);
-    expect(await recordOf(move.set.header.id)).toEqual([{ line: 1, event: false, results: 2 }]);
+
+    // A non-sensitive set (made so outside the API: v1 has none) goes straight to approved at
+    // submit; the recheck runs on that path as well.
+    const auto = await validated({ items: [bookPrice(P.pAuto, "8", "2070-01-01T00:00:00Z")] });
+    await nonSensitive(auto.header.id);
+    await at2("2070-06-01T00:00:00Z", async () => {
+      refused(await send(op(auto.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
+    });
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [auto.header.id])).toBe("draft:2");
+    expect(await staleRows(auto.header.id)).toHaveLength(1);
+    // Before the line's instant, the same path approves at submit.
+    const ok2 = await validated({ items: [bookPrice(P.pAuto, "9", "2071-01-01T00:00:00Z")] });
+    await nonSensitive(ok2.header.id);
+    const straight = await ok(await send(op(ok2.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }));
+    expect(straight.header).toMatchObject({ state: "approved", approved: { userId: USER_OWNER_ALL } });
+  });
+
+  it("MINOR-3: an emergency set is exempt from the past-dated recheck at submit, approve and publish", async () => {
+    if (skip()) return;
+    const set = await validated({ kind: "emergency", reason: "Recall", items: [bookPrice(P.pEmergency, "10", "2071-01-01T00:00:00Z")] });
+    await at2("2071-06-01T00:00:00Z", async () => {
+      const sub = await ok(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }));
+      const appr = await ok(await send(op(set.header.id, "approve"), SES_ADMIN_SPEC, approveOf(sub)));
+      status(await publish(appr), 200);
+    });
+    expect(await staleRows(set.header.id)).toEqual([]);
+  });
+
+  it("MINOR-3: the recheck takes the per-Store minimum of a store_local line, and a Zone move's membership instant; approve goes stale", async () => {
+    if (skip()) return;
+    const local = { op: "set_price", scope: { kind: "book" }, products: items([P.pLocal]), price: "11", timeBasis: "store_local", effectiveFrom: "2072-01-01T00:00" };
+    const early = await submitted({ items: [local] });
+    const late = await submitted({ items: [{ ...local, price: "12" }] });
+    // The earliest exact activation over the reached Stores (each Store's own zone).
+    const earliest = Date.parse((await scalar(
+      `SELECT to_char(min(effective_from) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS v FROM price_change_set_preview_lines WHERE change_set_id = $1`,
+      [late.header.id],
+    ))!);
+    const latest = Date.parse((await scalar(
+      `SELECT to_char(max(effective_from) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS v FROM price_change_set_preview_lines WHERE change_set_id = $1`,
+      [late.header.id],
+    ))!);
+    expect(latest).toBeGreaterThan(earliest);
+    // One minute before the first Store's activation the set approves; one minute after it (other
+    // Stores still ahead) it is stale.
+    await at2(new Date(earliest - 60_000).toISOString(), async () => {
+      expect((await ok(await send(op(early.header.id, "approve"), SES_ADMIN_SPEC, approveOf(early)))).header.state).toBe("approved");
+    });
+    await at2(new Date(earliest + 60_000).toISOString(), async () => {
+      refused(await send(op(late.header.id, "approve"), SES_ADMIN_SPEC, approveOf(late)), 409, "stale_validation");
+    });
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [late.header.id])).toBe("draft:2");
+    expect(await staleRows(late.header.id)).toEqual([expect.objectContaining({ previous_state: "pending_approval" })]);
+
+    const move = await submitted({ items: [{ op: "move_store_zone", storeId: STORE_A_X, zoneId: ZONE_NORTH, effectiveFrom: "2073-01-01T00:00:00Z" }] });
+    await at2("2073-01-01T00:00:01Z", async () => {
+      refused(await send(op(move.header.id, "approve"), SES_ADMIN_SPEC, approveOf(move)), 409, "stale_validation");
+    });
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [move.header.id])).toBe("draft:2");
+    expect(await staleRows(move.header.id)).toEqual([
+      expect.objectContaining({ previous_state: "pending_approval", earliest_effective_at: (move.summary as { earliestEffectiveAt: string }).earliestEffectiveAt }),
+    ]);
+  });
+
+  it("MINOR-3 (m3): earliest_effective_at on submitted, approved, rejected, stale and published; preview_hash and reason_present on superseded", async () => {
+    if (skip()) return;
+    const set = await submitted({ items: [bookPrice(P.m3, "13", "2074-01-01T00:00:00Z")] });
+    const earliest = (set.summary as { earliestEffectiveAt: string }).earliestEffectiveAt;
+    expect(earliest).toBeTruthy();
+    await ok(await send(op(set.header.id, "reject"), SES_ADMIN_SPEC, { expectedVersion: 1, reason: "Again" }));
+    const again = await ok(await send(op(set.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 2 }));
+    const sub = await ok(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 2 }));
+    const appr = await ok(await send(op(set.header.id, "approve"), SES_ADMIN_SPEC, approveOf(sub)));
+    status(await publish(appr), 200);
+    const audit = await env!.admin.query<{ action: string; metadata: Record<string, unknown> }>(
+      `SELECT action, metadata FROM audit_events WHERE target_id = $1 ORDER BY occurred_at, id`,
+      [set.header.id],
+    );
+    for (const action of ["submitted", "rejected", "approved", "published"]) {
+      const row = audit.rows.find((r) => r.action === `pricing.change_set.${action}`);
+      expect({ action, at: row?.metadata["earliest_effective_at"] }).toEqual({ action, at: earliest });
+    }
+    expect((again.summary as { earliestEffectiveAt: string }).earliestEffectiveAt).toBe(earliest);
+    // A later set covering every row of this one supersedes it: its audit row names the preview
+    // hash and whether a reason exists, never the reason itself.
+    status(await publish(await approved({ items: [bookPrice(P.m3, "14", "2073-06-01T00:00:00Z")] })), 200);
+    const superseded = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.superseded'`,
+      [set.header.id],
+    );
+    expect(superseded.rows).toHaveLength(1);
+    expect(superseded.rows[0]!.metadata).toMatchObject({ preview_hash: appr.header.previewHash, reason_present: false });
   });
 
   it("m1: a store_local line starting in a DST gap where the head event ends publishes (replaced by wall clock, no 23P01)", async () => {

@@ -24,7 +24,10 @@
  *      Store event or membership names, every live Store for a Book event or a default-Zone event,
  *      and every live Store with a membership in a Zone a written or ended Zone event names. A
  *      superset is safe (POS applies whole revisions); a missed Store is not.
- *   7. Published sets whose every event and membership row is now ended become `superseded`.
+ *   7. A rollback (RT-1484 PR-6, spec 042 §8): its revision names the revision it rolls back
+ *      (`rolls_back_revision_no`), and its target set becomes `rolled_back` (before step 8, so the
+ *      target, whose rows this revision ends, is never also marked `superseded`).
+ *   8. Published sets whose every event and membership row is now ended become `superseded`.
  *
  * No `price_history` write (spec 044 §4.5, RT-1484 comment 17829 decision 2) and no outbox event
  * (`pricing.revision.published` is RT-1486's). 0123's COMMIT-time checks (the record is complete,
@@ -50,6 +53,8 @@ export interface PublishWrite {
   readonly lines: readonly StoredLine[];
   readonly targetStoreIds: readonly string[];
   readonly defaultZoneId: string;
+  /** For a rollback set: the published set it rolls back and that set's revision (else null). */
+  readonly rollsBack: { readonly changeSetId: string; readonly revisionNo: number } | null;
 }
 
 /** A carried-forward part of a replaced row: its new id, the row and the line that records it. */
@@ -104,12 +109,13 @@ async function remaindersOf(client: Queryable, w: PublishWrite, table: "price_ev
 async function issueRevision(client: Queryable, w: PublishWrite): Promise<number> {
   const revisionNo = w.head + 1;
   await client.query(
-    `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, published_by_user_id, earliest_effective_at, correlation_id)
-     SELECT $4::uuid, $1::uuid, $5::bigint, $2::uuid, $6, $7::uuid,
+    `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, rolls_back_revision_no, published_by_user_id,
+                                   earliest_effective_at, correlation_id)
+     SELECT $4::uuid, $1::uuid, $5::bigint, $2::uuid, $6, $9::bigint, $7::uuid,
             (SELECT min(COALESCE(l.effective_from, (l.effective_from_local - interval '14 hours') AT TIME ZONE 'UTC'))
                FROM price_change_set_lines l WHERE ${LINES_OF}),
             $8::uuid`,
-    [w.tenantId, w.changeSetId, w.version, newId(), revisionNo, REVISION_KIND[w.kind], w.actorUserId, w.correlationId],
+    [w.tenantId, w.changeSetId, w.version, newId(), revisionNo, REVISION_KIND[w.kind], w.actorUserId, w.correlationId, w.rollsBack?.revisionNo ?? null],
   );
   await client.query(
     `UPDATE change_sets
@@ -264,7 +270,19 @@ interface SupersededSet {
   readonly reasonPresent: boolean;
 }
 
-/** Step 7: the published sets this revision completed superseding. */
+/** Step 7: a rollback's target becomes `rolled_back` (0121 `change_sets_guard`: only its derived state changes). */
+async function markRolledBack(client: Queryable, w: PublishWrite): Promise<void> {
+  if (w.rollsBack === null) return;
+  const r = await client.query(
+    `UPDATE change_sets SET state = 'rolled_back'
+      WHERE tenant_id = $1::uuid AND id = $2::uuid AND state = 'published' AND revision_no = $3`,
+    [w.tenantId, w.rollsBack.changeSetId, w.rollsBack.revisionNo],
+  );
+  // The caller checked the target under the publish lock; anything else is a defect (500, rolled back).
+  if (r.rowCount !== 1) throw new Error("rollback target is no longer published");
+}
+
+/** Step 8: the published sets this revision completed superseding. */
 async function supersedeCompleted(client: Queryable, w: PublishWrite, revisionNo: number): Promise<SupersededSet[]> {
   const r = await client.query<SupersededSet>(
     `UPDATE change_sets c SET state = 'superseded'
@@ -304,6 +322,7 @@ export async function writePublication(client: Queryable, w: PublishWrite): Prom
   const records = await writeRows(client, w, revisionNo);
   await recordLines(client, w, records);
   const fanOutStores = await fanOut(client, w, revisionNo);
+  await markRolledBack(client, w);
   const superseded = await supersedeCompleted(client, w, revisionNo);
   return { revisionNo, fanOutStores, superseded };
 }
