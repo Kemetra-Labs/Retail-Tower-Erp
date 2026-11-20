@@ -70,7 +70,8 @@
 -- the content of `cells`, `outcome`, `issues`, `counts`, `columns`, `warnings`
 -- and `publish_summary` beyond their JSON type; that a mapping names each
 -- column exactly once (only its length = column_count, its element shape and
--- keys are checked); that a row number is within the batch's data rows; that
+-- keys are checked); that a batch has at most data_row_count rows (row_number
+-- is the source row number, 2..1048576, with gaps for skipped blank rows); that
 -- the rows of a closed batch stay unchanged (a closed batch's header is frozen,
 -- its rows are not: RT-1505 / RT-1507 write rows only of an open batch, and
 -- publish sets product_id in the publishing transaction); the 7-day
@@ -369,7 +370,8 @@ CREATE TRIGGER catalog_import_batches_no_delete_truncate BEFORE TRUNCATE ON cata
 CREATE TABLE catalog_import_rows (
   tenant_id              UUID         NOT NULL REFERENCES tenants(id) ON DELETE RESTRICT,
   batch_id               UUID         NOT NULL,
-  -- The source row number; row 1 is the header row.
+  -- The SOURCE row number (row 1 is the header row). Skipped blank rows leave gaps, so it is bounded by the
+  -- XLSX sheet maximum (1,048,576), not by the 5,000-row limit, which bounds data_row_count only.
   row_number             INTEGER      NOT NULL,
   -- The parsed text of each source column, in column order (NULL for a blank cell).
   cells                  JSONB        NOT NULL,
@@ -393,7 +395,7 @@ CREATE TABLE catalog_import_rows (
   created_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
   updated_at             TIMESTAMPTZ  NOT NULL DEFAULT now(),
   CONSTRAINT catalog_import_rows_pk PRIMARY KEY (tenant_id, batch_id, row_number),
-  CONSTRAINT catalog_import_rows_row_number CHECK (row_number BETWEEN 2 AND 5001),
+  CONSTRAINT catalog_import_rows_row_number CHECK (row_number BETWEEN 2 AND 1048576),
   CONSTRAINT catalog_import_rows_cells CHECK (
     jsonb_typeof(cells) = 'array' AND jsonb_array_length(cells) BETWEEN 1 AND 50),
   CONSTRAINT catalog_import_rows_status CHECK (status IS NULL OR status IN (

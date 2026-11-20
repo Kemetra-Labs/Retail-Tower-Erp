@@ -186,7 +186,7 @@ export const catalogImportRows = pgTable(
       columns: [t.productId, t.tenantId],
       foreignColumns: [tenantProducts.id, tenantProducts.tenantId],
     }).onDelete("restrict"),
-    check("catalog_import_rows_row_number", sql`${t.rowNumber} BETWEEN 2 AND 5001`),
+    check("catalog_import_rows_row_number", sql`${t.rowNumber} BETWEEN 2 AND 1048576`),
     check(
       "catalog_import_rows_status",
       sql`${t.status} IS NULL OR ${t.status} IN ('ready_create', 'ready_update', 'unchanged', 'needs_review', 'error', 'excluded')`,

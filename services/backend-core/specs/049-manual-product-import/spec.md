@@ -407,7 +407,9 @@ profiles have no delete policy. Column names are the S2 migration's; the wire na
   `outcome` (match result, candidate product ids, field diff, identifier adds), `issues` (`code`, `field`, `severity`
   error | review | warning | notice), **`review_reason`** (one of the §7.3 reasons, `null` unless validation sent the
   row to review; kept when a decision changes the status, so `clear` and re-validation can compare it), `resolution`
-  (+ actor, time), `matched_updated_at`, `product_id` (after publish). Primary key `(tenant_id, batch_id, row_number)`,
+  (+ actor, time), `matched_updated_at`, `product_id` (after publish). `row_number` is the **source** row number
+  (row 1 is the header; 2..1,048,576, the XLSX sheet maximum): a skipped blank row leaves a gap, so it is not bounded
+  by the 5,000-row limit, which applies to `data_row_count` only. Primary key `(tenant_id, batch_id, row_number)`,
   which is also the keyset order of the review list; the rows reference their batch by `(tenant_id, batch_id)`.
 - `catalog_import_mapping_profiles`: `id`, `tenant_id`, `name` (1–100 characters, unique per tenant: saving under an
   existing name is an upsert that replaces the entries and **keeps the `id`**, so a batch's `mapping_profile_id` stays
@@ -502,7 +504,9 @@ Definition of Ready, with a contract revision where the wire changes:
 - **Blank rows and `row_number` (S4).** A row's number is its source row number (row 1 is the header), so the row
   numbers of a batch can have gaps where the file has fully blank rows. S4 decides whether a blank row is skipped (a
   gap, and not counted in `data_row_count`) or staged as an `error` row, and states it with the no-silent-skip rule
-  (decision 419); 0124 only bounds `row_number` to 2..5001.
+  (decision 419). 0124 (lead decision, RT-1503 review round 3): `row_number` is the source row number, bounded only
+  by the XLSX sheet maximum (2..1,048,576), so gaps never push a valid file out of range; the 5,000 limit applies
+  to `data_row_count` alone.
 
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 

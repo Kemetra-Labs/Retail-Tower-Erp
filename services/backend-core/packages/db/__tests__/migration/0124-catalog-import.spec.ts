@@ -412,6 +412,8 @@ describe("0124_catalog_import — batches", () => {
       expect(await sp(c, () => insert("draft", 2, 0, null))).toBe("23514");
       expect(await sp(c, () => insert("draft", 1, 1, null))).toBe("23514");
       expect(await sp(c, () => insert("cancelled", 1, 0, "2026-11-19T00:00:00Z"))).toBe("23514");
+      // An otherwise valid draft with a purge timestamp is refused; the same draft without one is the positive control.
+      expect(await sp(c, () => insert("draft", 1, 0, "2026-11-19T00:00:00Z"))).toBe("23514");
       expect(await sp(c, () => insert("draft", 1, 0, null))).toBeNull();
     });
   });
@@ -493,9 +495,12 @@ describe("0124_catalog_import — batches", () => {
       // Not yet due.
       expect((await c.query(expire, [BATCH_A, 1])).rowCount).toBe(0);
       await c.query(`UPDATE catalog_import_batches SET expires_at = now() - interval '1 second' WHERE id = $1`, [BATCH_A]);
-      // Changed since it was read (stale version).
-      expect((await c.query(expire, [BATCH_A, 7])).rowCount).toBe(0);
-      expect((await c.query(expire, [BATCH_A, 1])).rowCount).toBe(1);
+      // The sweep reads version 1; the batch then changes (version 2) while still due: the stale read expires nothing.
+      const read = await c.query<{ version: number }>(`SELECT version FROM catalog_import_batches WHERE id = $1`, [BATCH_A]);
+      expect(read.rows[0]!.version).toBe(1);
+      await c.query(`UPDATE catalog_import_batches SET version = version + 1, file_name = 'renamed.csv' WHERE id = $1`, [BATCH_A]);
+      expect((await c.query(expire, [BATCH_A, 1])).rowCount).toBe(0);
+      expect((await c.query(expire, [BATCH_A, 2])).rowCount).toBe(1);
       const r = await c.query<{ state: string; expires_at: Date | null; closed_at: Date | null }>(
         `SELECT state, expires_at, closed_at FROM catalog_import_batches WHERE id = $1`,
         [BATCH_A],
@@ -639,6 +644,15 @@ describe("0124_catalog_import — rows", () => {
       expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 2))).toBe("23505");
       expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 1))).toBe("23514");
       expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 4))).toBeNull();
+    });
+  });
+
+  it("keeps the source row number: gaps from skipped blank rows may pass 5001, up to the XLSX sheet maximum", async () => {
+    if (skip()) return;
+    await admin(async (c) => {
+      expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 5002))).toBeNull();
+      expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 1048576))).toBeNull();
+      expect(await sp(c, () => insertRow(c, BATCH_A, TENANT_A, 1048577))).toBe("23514");
     });
   });
 
@@ -803,12 +817,27 @@ describe("0124_catalog_import — isolation and production grants", () => {
         );
         expect(saved.rows).toEqual([{ resolution: "create_new", product_id: PROD_A1, state: "published" }]);
         // The purge: rows of a closed batch go, the header records it.
-        await c.query(`DELETE FROM catalog_import_rows WHERE batch_id = $1`, [BATCH_A]);
-        await c.query(`UPDATE catalog_import_batches SET rows_purged_at = now() WHERE id = $1`, [BATCH_A]);
+        const purged = await c.query(`DELETE FROM catalog_import_rows WHERE batch_id = $1`, [BATCH_A]);
+        if (purged.rowCount !== 2) throw new Error(`purge deleted ${purged.rowCount} row(s), expected 2`);
+        const stamped = await c.query<{ rows_purged_at: Date | null }>(
+          `UPDATE catalog_import_batches SET rows_purged_at = now() WHERE id = $1 RETURNING rows_purged_at`,
+          [BATCH_A],
+        );
+        if (stamped.rows.length !== 1 || stamped.rows[0]!.rows_purged_at === null) {
+          throw new Error(`purge stamp returned ${JSON.stringify(stamped.rows)}`);
+        }
       }),
     );
     expect(failed).toBeNull();
-    // No DELETE on the batches or the profiles, and no TRUNCATE anywhere.
+    // No TRUNCATE anywhere: checked on the grant itself, for each table.
+    for (const table of TABLES) {
+      const r = await guard().admin.query<{ t: boolean }>(`SELECT has_table_privilege($1, $2, 'TRUNCATE') AS t`, [
+        DOMAIN_ROLE,
+        `public.${table}`,
+      ]);
+      expect([table, r.rows[0]!.t]).toEqual([table, false]);
+    }
+    // No DELETE on the batches or the profiles.
     for (const statement of [
       `DELETE FROM catalog_import_batches WHERE id = '${BATCH_A}'`,
       `DELETE FROM catalog_import_mapping_profiles WHERE id = '${PROFILE_A}'`,
@@ -843,6 +872,9 @@ describe("0124_catalog_import — down migration", () => {
   it("REFUSES while a batch or a mapping profile exists, also as a NOSUPERUSER owner under FORCE RLS", async () => {
     if (skip()) return;
     const e = guard();
+    // Seed its own data: a committed batch (with rows) and a profile, independent of earlier tests.
+    await clearImport();
+    await seedBaseline();
     expect(await runSqlFile(e, DOWN_PATH)).toBe("P0001");
     const owner = { role: "rt1503_refuse_owner", tables: OWNER_TABLES, functions: FUNCTIONS };
     await asMigrationOwner(e, owner, async () => {
