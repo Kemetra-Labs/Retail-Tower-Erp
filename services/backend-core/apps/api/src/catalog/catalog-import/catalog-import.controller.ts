@@ -1,14 +1,16 @@
 /**
- * CatalogImportController — RT-1505 (spec 049 slice S4, part A): the first
- * operations of `catalog/catalog-import.yaml` 1.0.3-draft.
+ * CatalogImportController — RT-1505 (spec 049 slice S4): the operations of
+ * `catalog/catalog-import.yaml` 1.0.4-draft that are served.
  *
- *   POST /api/v1/catalog/imports            consoleUploadCatalogImport
- *   GET  /api/v1/catalog/imports/{batchId}  consoleGetCatalogImport
+ *   POST /api/v1/catalog/imports                       consoleUploadCatalogImport     (part A)
+ *   GET  /api/v1/catalog/imports/{batchId}             consoleGetCatalogImport        (part A)
+ *   PUT  /api/v1/catalog/imports/{batchId}/mapping     consoleSetCatalogImportMapping (part B)
+ *   POST /api/v1/catalog/imports/{batchId}/validate    consoleValidateCatalogImport   (part B)
+ *   GET  /api/v1/catalog/imports/{batchId}/rows        consoleListCatalogImportRows   (part B)
  *
- * The other ten operations stay `x-runtime-status: contract-only` (no route is
- * registered for them): the file replace, the mapping, validate, the row list,
- * the review decision, preview, publish, cancel, the error report and the
- * template are part B and S5.
+ * The other seven operations stay `x-runtime-status: contract-only` (no route is
+ * registered for them): the file replace, the review decision, preview, publish,
+ * cancel, the error report and the template are S5 and later.
  *
  * Auth: `SessionOnlyAdminGuard` (the human cookie session only; every bearer is
  * 401; a write without a trusted `Origin` is 403 `origin_rejected`, RT-430),
@@ -25,6 +27,7 @@
  */
 import {
   BadRequestException,
+  Body,
   Controller,
   Get,
   Header,
@@ -33,6 +36,8 @@ import {
   NotFoundException,
   Param,
   Post,
+  Put,
+  Query,
   Req,
   UnauthorizedException,
   UseGuards,
@@ -41,6 +46,7 @@ import {
 import { Roles, RolesGuard, SessionOnlyAdminGuard } from "../../auth";
 import { ConsoleRateLimit } from "../../console-rate-limit";
 import { TenantContextGuard, type TenantContextRequest } from "../../context";
+import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { Idempotent } from "../../idempotency";
 import {
   CatalogImportService,
@@ -49,7 +55,14 @@ import {
   type ImportWriteInput,
 } from "./catalog-import.service";
 import type { CatalogImportBatchBody } from "./catalog-import.projections";
+import {
+  IMPORT_BATCH_REFUSAL_MESSAGES,
+  ImportBatchRefusedError,
+  InvalidImportCursorError,
+} from "./import-batch-refusal";
 import { ImportFileRejectedError, IMPORT_FILE_MESSAGES } from "./import-file-rejected";
+import { SetMappingBodySchema, ValidateBodySchema, type SetMappingBody, type ValidateBody } from "./import-mapping";
+import { RowsQuerySchema, type CatalogImportRowBody } from "./import-row-page";
 import { ImportUploadIntakeGuard, type ImportUploadRequest } from "./import-upload-intake.guard";
 import { BatchIdSchema } from "./import-upload.query";
 
@@ -100,6 +113,57 @@ export class CatalogImportController {
       throw toHttpError(err) ?? err;
     }
   }
+
+  @Put(`${IMPORTS}/:batchId/mapping`)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("write")
+  async setMapping(
+    @Req() request: TenantContextRequest,
+    @Param("batchId") batchId: string,
+    @Body(new ZodValidationPipe(SetMappingBodySchema)) body: SetMappingBody,
+  ): Promise<CatalogImportBatchBody> {
+    const id = parseBatchId(batchId);
+    try {
+      return await this.service.setMapping(writer(request), id, body);
+    } catch (err) {
+      throw toHttpError(err) ?? err;
+    }
+  }
+
+  @Post(`${IMPORTS}/:batchId/validate`)
+  @HttpCode(200)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("jobOrPreview")
+  async validate(
+    @Req() request: TenantContextRequest,
+    @Param("batchId") batchId: string,
+    @Body(new ZodValidationPipe(ValidateBodySchema)) body: ValidateBody,
+  ): Promise<CatalogImportBatchBody> {
+    const id = parseBatchId(batchId);
+    try {
+      return await this.service.validate(writer(request), id, body.expectedVersion);
+    } catch (err) {
+      throw toHttpError(err) ?? err;
+    }
+  }
+
+  @Get(`${IMPORTS}/:batchId/rows`)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("expensiveRead")
+  async rows(
+    @Req() request: TenantContextRequest,
+    @Param("batchId") batchId: string,
+    @Query() query: unknown,
+  ): Promise<{ batchId: string; version: number; items: CatalogImportRowBody[]; nextCursor: string | null }> {
+    const id = parseBatchId(batchId);
+    // A malformed or unknown query key is a 400 (the ZodError is the global filter's), before any read.
+    const parsed = RowsQuerySchema.parse(query);
+    try {
+      return await this.service.listRows(sessionTenant(request), id, parsed);
+    } catch (err) {
+      throw toHttpError(err) ?? err;
+    }
+  }
 }
 
 /** The session's tenant (§XII: never from the request), or 401. */
@@ -131,6 +195,12 @@ function toHttpError(err: unknown): HttpException | null {
       { code: "import_batch_open", message: "The tenant already has an open import batch. Resume or cancel it first.", openBatchId: err.openBatchId },
       409,
     );
+  }
+  if (err instanceof ImportBatchRefusedError) {
+    return new HttpException({ code: err.code, message: IMPORT_BATCH_REFUSAL_MESSAGES[err.code] }, err.status);
+  }
+  if (err instanceof InvalidImportCursorError) {
+    return new BadRequestException({ code: "validation_error", message: err.message });
   }
   if (err instanceof ImportFileRejectedError) {
     const status = err.code === "validation_error" ? 400 : 422;

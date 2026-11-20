@@ -28,9 +28,6 @@
  */
 import "reflect-metadata";
 
-import type { Provider } from "@nestjs/common";
-import { APP_INTERCEPTOR, Reflector } from "@nestjs/core";
-import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 import { createHash } from "node:crypto";
 import { deflateRawSync } from "node:zlib";
 import type request from "supertest";
@@ -38,8 +35,6 @@ import type request from "supertest";
 import { CatalogImportModule } from "../../../src/catalog/catalog-import/catalog-import.module";
 import { importUploadPassthrough } from "../../../src/catalog/catalog-import/import-upload-intake.guard";
 import { CatalogImportService, ImportBatchOpenError, type ImportUpload } from "../../../src/catalog/catalog-import/catalog-import.service";
-import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../../src/idempotency/idempotency.interceptor";
-import { INFLIGHT_REDIS, InProgressMarker } from "../../../src/idempotency/in-progress-marker";
 import { scopedHttpHarness } from "../../_helpers/scoped-http-harness";
 import { DASHBOARD_TOKEN, SES_MANAGER, SES_STAFF } from "../../console-sales/__support__/console-sales-fixture";
 import { TENANT_A, TENANT_B } from "../__support__/isolation-harness";
@@ -54,6 +49,7 @@ import {
   SES_OWNER_B,
   uploadAudits,
 } from "./__support__/catalog-import-fixture";
+import { idempotencyProviders } from "./__support__/idempotency-fakes";
 import { buildXlsx, buildZip, sheetXml, xlsxEntries, type XlsxCell } from "./__support__/zip-fixtures";
 
 const IMPORTS = "/api/v1/catalog/imports";
@@ -61,46 +57,6 @@ const ORIGIN = "http://127.0.0.1";
 const NOT_FOUND = { code: "not_found", message: "Not Found" };
 const MIB = 1024 * 1024;
 const OWNER_A_USER = "0a000000-0000-7000-8000-0000019202a3";
-
-class FakeRedis {
-  private readonly s = new Map<string, { value: string; expiresAt: number }>();
-  async get(k: string): Promise<string | null> {
-    const e = this.s.get(k);
-    if (!e || Date.now() > e.expiresAt) return null;
-    return e.value;
-  }
-  async set(k: string, v: string, o: { px: number }): Promise<unknown> {
-    this.s.set(k, { value: v, expiresAt: Date.now() + o.px });
-    return "OK";
-  }
-}
-class FakeMarker {
-  async trySet(): Promise<boolean> {
-    return true;
-  }
-  async del(): Promise<void> {}
-}
-
-function idempotencyProviders(): Provider[] {
-  const redis = new FakeRedis();
-  const marker = new FakeMarker();
-  const store = new IdempotencyKeyStore({
-    redis,
-    pgWriter: { async insert(): Promise<void> {} },
-    pgReader: {
-      async find(): Promise<null> {
-        return null;
-      },
-    },
-    defaultTtlMs: 72 * 60 * 60 * 1000,
-  });
-  return [
-    { provide: IDEMPOTENCY_KEY_STORE, useValue: store },
-    { provide: INFLIGHT_REDIS, useValue: redis },
-    { provide: InProgressMarker, useValue: marker },
-    { provide: APP_INTERCEPTOR, useValue: new IdempotencyInterceptor(new Reflector(), store, marker as unknown as InProgressMarker) },
-  ];
-}
 
 const h = scopedHttpHarness({
   label: "RT-1505 catalog-import upload",
@@ -196,7 +152,12 @@ describe("upload: a CSV", () => {
       version: 1,
       mode: "upsert",
       mapping: null,
-      suggestedMapping: [],
+      // Part B: the header synonyms place sku, name and tax_category (no profile exists).
+      suggestedMapping: [
+        { columnNumber: 1, target: "sku" },
+        { columnNumber: 2, target: "name" },
+        { columnNumber: 3, target: "tax_category" },
+      ],
       mappingProfileId: null,
       counts: null,
       previewHash: null,

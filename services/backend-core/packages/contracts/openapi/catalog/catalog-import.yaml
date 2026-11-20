@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.3-draft"
+  version: "1.0.4-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,12 +11,13 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.3-draft`, `[GATED]` contract-first. An operation
+    **Posture.** `1.0.4-draft`, `[GATED]` contract-first. An operation
     without a runtime carries `x-runtime-status: contract-only`: the batch
     tables ship in RT-1503 (S2) and the routes in RT-1505 (S4: the upload and
-    the batch read are served since part A; map / validate follow) and the S5
-    slice (review / preview / publish), which remove the markers. The Admin
-    Console repins to this file in RT-1506 (S6).
+    the batch read are served since part A; the mapping, validate and the row
+    list since part B) and the S5 slice (review / preview / publish), which
+    remove the markers. The Admin Console repins to this file in RT-1506
+    (S6).
 
 
     **1.0.1-draft (RT-1502 review follow-up to PR #717).** Corrections only,
@@ -49,8 +50,20 @@ info:
     text states which code each guard uses (the zip guard, the formula
     pre-scan and the UTF-8 check of RT-1505 comment 17947), and the blank-row
     rule (spec 049 §12.1). Until the mapping slice (RT-1505 part B) a new
-    batch returns an empty `suggestedMapping` and a `null`
-    `mappingProfileId`, which the schema allows.
+    batch returned an empty `suggestedMapping` and a `null`
+    `mappingProfileId`, which the schema allowed.
+
+
+    **1.0.4-draft (RT-1505 part B: map, validate and the row list served).**
+    No new operation and no schema shape change.
+    `consoleSetCatalogImportMapping`, `consoleValidateCatalogImport` and
+    `consoleListCatalogImportRows` lose their `contract-only` markers. A new
+    batch now carries a stored `suggestedMapping` (header synonyms in English
+    and Arabic, and the tenant's mapping profiles) and the
+    `mappingProfileId` it drew on. Description text only: the profile
+    selection rule and its tie-break, the validation rules below, the answer
+    of the row list to a batch whose rows were purged, and the 422
+    `mapping_invalid` of a `saveProfileName` that no column can carry.
 
 
     **Change Set: interim batch (spec 049 §9, OD-14 A).** The OD-14
@@ -248,6 +261,51 @@ info:
     `productId`. Retention (OD-6 A): rows of a published batch 13 months,
     then the batch summary only; rows of a cancelled or expired batch 30
     days. A refused call and a replay write no audit row.
+
+
+    **Mapping suggestion and profile selection (RT-1505 part B).** At
+    upload the server stores a suggestion, which the merchant confirms and
+    which is never applied by itself. For each column the profile entry of
+    its exact trimmed header (when the header is not empty and appears once
+    in the file) comes first, then the header synonyms (English and Arabic;
+    the match ignores case, spacing, punctuation, Arabic diacritics and the
+    alef, ya and ta marbuta variants). The profile used is the tenant's
+    profile whose entries cover the most columns of the file (at least one);
+    a tie goes to the most recently updated profile, then to the smaller
+    name, then to the smaller id, by UTF-16 code units. Only the 200 most
+    recently updated profiles are considered. A field is suggested at most
+    once (`barcode` up to 5 columns); a column nothing places is absent;
+    `ignore` is only suggested by a profile. `mappingProfileId` names the
+    profile only when it placed at least one column.
+
+
+    **Validation rules (RT-1505 part B, spec 049 §5, §7).** Every cell is
+    trimmed, mapped or not, and each cell the trim changed carries one
+    `whitespace_trimmed` notice on its row (the batch-level count of notices
+    is in the audit row). A formula cell is read through its cached value;
+    in an identifier field it is `identifier_formula_cell`, in any other
+    mapped field except `price` and `currency` it is the notice
+    `formula_cached_value`, or `formula_without_value` when the file holds no
+    cached value; a number cell in an identifier field is
+    `identifier_numeric_cell`, a boolean or date cell there is
+    `value_invalid`. `is_active` accepts `true`/`false`, `1`/`0`, `yes`/`no`
+    (any case) and the Arabic yes/no. A digits-only `barcode` of 8, 12, 13
+    or 14 characters with a wrong GS1 check digit is the warning
+    `gtin_check_digit`. Matching unites the products the row's identifiers
+    are active on: none is `no_match`, one `match`, two or more `ambiguous`
+    (a review, in every mode); a retired matched product is `product_retired`
+    in every mode. A row with any error is `error`, drops its review issues
+    and writes nothing (no field change, identifier add or brand to
+    create). Otherwise the review reason is the first that applies of
+    `ambiguous`, `sku_mismatch`, `store_scoped_conflict`, `no_identifier`,
+    `possible_duplicate`; the others are still listed as issues. A
+    store-scoped identifier is checked only for a value the row would add,
+    and it counts whatever the state of its store (a deleted store's leftover
+    too: a review is the safe answer). `possible_duplicate` lists at most five products of that name. The
+    `previewHash` covers the mode and, per row in order, the status, review
+    reason, matched product and its `updatedAt`, candidates, field changes,
+    identifier adds and brand to create. Validate clears review decisions
+    (none can exist before the review slice).
 
 
     **Error envelope.** The canonical `{ error: { code, message, request_id } }`
@@ -448,10 +506,6 @@ paths:
       security:
         - cookieAuth: []
       x-audit-action: catalog.import.map
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         Maps every source column to one canonical field or `ignore`. Every
         column of the batch must appear exactly once (none is dropped
@@ -504,10 +558,6 @@ paths:
       security:
         - cookieAuth: []
       x-audit-action: catalog.import.validate
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         Applies the mapping, the field rules and the matching to every row,
         gives each row exactly one status, stores the counts, each matched
@@ -565,10 +615,6 @@ paths:
       tags: [catalog-import-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         Rows in `rowNumber` order, optionally of one status, each with its
         cells, outcome, issues and review decision. A `draft`, `cancelled` or
@@ -1988,7 +2034,8 @@ components:
     NotValidated:
       description: >
         409 `import_batch_not_validated`: the batch has no current outcomes
-        (it is `draft`, `cancelled` or `expired`).
+        (it is `draft`, `cancelled` or `expired`, or its rows were deleted by
+        the retention purge: a reader never gets an empty page for them).
       content:
         application/json:
           schema:
@@ -2045,7 +2092,10 @@ components:
         422 `mapping_invalid`: a column of the batch is missing or listed
         twice, a `columnNumber` the batch does not have, a field mapped more
         than once (`barcode` more than 5 times), or mode `create` / `upsert`
-        without `name` and `tax_category` mapped. Nothing is written.
+        without `name` and `tax_category` mapped, or a `saveProfileName` with
+        no column that can be saved (a profile keeps the exact trimmed header
+        text of a column whose header is not empty and appears once).
+        Nothing is written.
       content:
         application/json:
           schema:

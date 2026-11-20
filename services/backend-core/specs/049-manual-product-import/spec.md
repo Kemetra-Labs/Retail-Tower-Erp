@@ -556,8 +556,59 @@ Definition of Ready, with a contract revision where the wire changes:
 - **For part B: booleans.** LibreOffice writes a boolean as a formula (`=TRUE()`), so it stages as `{t: "f", v: {t: "b",
   v: "true"}}`; the `is_active` rule must read the cached value of a formula cell, and the "formula in a non-identifier
   cell" notice (§5) applies to it.
-- **Still open for part B.** The profile selection rule and the suggestion (a new batch stores an empty
-  `suggestedMapping` and no profile until then), and the read refusal after the retention purge.
+- **Settled in part B (see 12.3).** The profile selection rule, the suggestion and the read refusal after the
+  retention purge, which were open here.
+
+### 12.3 Settled and proposed in S4 part B (RT-1505: map, validate and the row list)
+
+Settled by the implementation; where a rule goes beyond spec 049 sections 5 to 8 it is marked and awaits the lead's or
+the owner's acknowledgement. Contract 1.0.4-draft states each in its description text; no schema shape changes.
+
+- **Served.** `consoleSetCatalogImportMapping`, `consoleValidateCatalogImport` and `consoleListCatalogImportRows`
+  (the contract's own marker says the list is part of S4). Audit rows `catalog.import.map` and `catalog.import.validate`
+  carry ids and counts only (the notice, warning and error counts per issue code; never a header, a cell, a file or
+  profile name).
+- **Profile selection rule and tie-break** (the open item of 12.1). A new batch stores a suggestion: for each column the
+  profile entry of its exact trimmed header (a header that is empty or appears twice never takes one) comes first, then the
+  header synonyms (English and Arabic; the match ignores case, spacing, punctuation, Arabic diacritics and the alef, ya and ta
+  marbuta variants). The profile is the one covering the most usable headers (at least one); a tie goes to the most
+  recently updated, then the smaller name, then the smaller id (UTF-16 code units). The 200 most recently updated profiles
+  are considered. A field is suggested once (`barcode` up to five columns); `ignore` only comes from a profile.
+  `mappingProfileId` names the profile only when it placed a column. A saved profile keeps the exact trimmed header text
+  of each column whose header is not empty and appears once; a `saveProfileName` with no such column is `422
+  mapping_invalid` (it is never dropped silently).
+- **Mapping and validate order.** Both lock the batch row, then: 404, closed (`409 import_batch_closed`),
+  `409 version_conflict`, then the 422 rules. Set mapping and validate both bump `version` and move the expiry;
+  validate also bumps the validation generation, stores the counts and the `previewHash`, and clears review decisions
+  (none can exist before S5, which refines this to keep a decision whose candidate set and reason are unchanged).
+- **Trim.** Every cell is trimmed, mapped or not, and each cell the trim changes is one `whitespace_trimmed` notice on its
+  row (the batch has no count field: the per-issue totals are in the audit row). The row list shows the cells after the
+  trim.
+- **Identifier cells.** A number cell is `identifier_numeric_cell`; a formula cell is `identifier_formula_cell`, cached or
+  not; a boolean or date cell is `value_invalid`. Inside an identifier a NBSP or a bidi mark is
+  `identifier_invisible_char`; Arabic-Indic and Persian digits in a barcode or PLU are `identifier_non_ascii_digits`; the
+  console write's own identifier pattern applies (no control character, no outer whitespace, 200 characters). A digits-only
+  barcode of 8, 12, 13 or 14 characters with a wrong GS1 check digit is the warning `gtin_check_digit`.
+- **Formulas elsewhere.** A mapped field other than an identifier reads the cached value and counts the notice
+  `formula_cached_value`; no cached value is `formula_without_value`. LibreOffice's `=TRUE()` booleans therefore read for
+  `is_active`. `price`, `currency` and ignored columns are never interpreted, so a formula there is not an error.
+- **Matching.** The products the row's active tenant-wide identifiers resolve to are united: none is `no_match`, one is
+  `match`, two or more `ambiguous` (a review in every mode). A retired matched product is `product_retired` in every
+  mode. A store-scoped identifier counts whatever the state of its store (a deleted store's leftover too, since the stores
+  module cannot be asked from the catalogue without an import cycle: a review is the safe answer) and is checked only
+  for a value the row would add.
+- **Statuses and reasons.** A row with any error is `error`, drops its review issues and writes nothing (no field change,
+  identifier add or brand to create). Otherwise the review reason is the first that applies of `ambiguous`,
+  `sku_mismatch`, `store_scoped_conflict`, `no_identifier`, `possible_duplicate`; the others are still listed as issues.
+  `possible_duplicate` is checked against non-retired products and lists at most five. `required_field_missing` applies
+  only when the row would create. `deactivates_product` is a warning only when an active product goes inactive.
+- **`previewHash`.** `sha256:` over the canonical JSON of the mode and, per row in order, the status, review reason,
+  matched product and its `updated_at` (microseconds kept), candidates, field changes, identifier adds, brand to create
+  and a review-decision slot that is `null` until S5.
+- **Row list.** Keyset by row number; the cursor is unsigned and bound to the tenant, the batch, the validation
+  generation and the `status` query parameter. A `draft`, `cancelled` or `expired` batch, and a batch whose rows were
+  purged (`rows_purged_at`), is `409 import_batch_not_validated` (the interim answer to the open item of 12.1: never an
+  empty page).
 
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 
