@@ -6,4 +6,5 @@
  * recorded.
  */
 export { Auditable, annotateAudit } from "./auditable.decorator";
-export { insertAuditRowInTransaction, readLatestAuditMetadataWithKey } from "./audit-row.writer";
+export { insertAuditRowInTransaction, insertAuditRowsInTransaction, readLatestAuditMetadataWithKey } from "./audit-row.writer";
+export type { TransactionalAuditRow } from "./audit-row.writer";

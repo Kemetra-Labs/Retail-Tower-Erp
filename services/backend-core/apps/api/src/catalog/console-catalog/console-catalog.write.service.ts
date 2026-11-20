@@ -41,8 +41,8 @@
  *     same strictly-later `updatedAt` rule as a product. Both are audited in
  *     their transaction; neither touches the POS change log.
  */
-import { rebuildOfferPackForCatalogChange } from "../../offers/offer-pack.rebuild";
 import { Inject, Injectable } from "@nestjs/common";
+import { rebuildOfferPackForCatalogChanges } from "../../offers";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
@@ -51,6 +51,23 @@ import { PG_POOL } from "../../database";
 import { MembershipRepository } from "../../context/membership.repository";
 import { inStoreScope, readScope } from "../../context/operator-store-scope";
 import type { StoreScope } from "../../context/store-scope";
+import {
+  applyPatch,
+  changes,
+  createBrandsIn,
+  createProductsIn,
+  insertIdentifiersIn,
+  isBrandNameConflict,
+  isUniqueViolation,
+  lockProductsIn,
+  type LockedProduct,
+  RerunWrite,
+  requireAdvance,
+  requireExpected,
+  UPDATED_MS_SQL,
+  updateProductsIn,
+} from "./console-catalog.domain";
+import { CatalogWriteRefusedError } from "./console-catalog.refusal";
 import { toBrand, type BrandRow, type ConsoleCatalogBrand, type ConsoleCatalogProductDetail } from "./console-catalog.projections";
 import {
   BRANDS_SQL,
@@ -70,38 +87,8 @@ import type {
 } from "./console-catalog.write-bodies";
 import { findCallerRoleCode } from "../../context";
 
-export type CatalogWriteRefusalCode =
-  | "stale_write"
-  | "product_retired"
-  | "alias_conflict"
-  | "price_override_present"
-  | "category_unavailable"
-  | "brand_unavailable"
-  | "brand_name_conflict"
-  | "override_empty"
-  | "tax_override_forbidden";
-
-const REFUSAL_STATUS: Readonly<Record<CatalogWriteRefusalCode, 403 | 409 | 422>> = {
-  stale_write: 409,
-  product_retired: 409,
-  alias_conflict: 409,
-  price_override_present: 409,
-  category_unavailable: 422,
-  brand_unavailable: 422,
-  brand_name_conflict: 409,
-  override_empty: 422,
-  tax_override_forbidden: 403,
-};
-
-/** A write the contract refuses with a 403 / 409 / 422 and its code. Nothing is written. */
-export class CatalogWriteRefusedError extends Error {
-  readonly status: 403 | 409 | 422;
-  constructor(readonly code: CatalogWriteRefusalCode) {
-    super(code);
-    this.name = "CatalogWriteRefusedError";
-    this.status = REFUSAL_STATUS[code];
-  }
-}
+// RT-1507: the refusals moved to `console-catalog.refusal.ts` (shared with the domain functions); same names.
+export { CatalogWriteRefusedError };
 
 /** The session context of a write, with the actor and the request id for the audit row. */
 export interface CatalogWriteInput extends ScopedCatalogReadInput {
@@ -145,31 +132,8 @@ const IDENTIFIER_TARGET = "product_alias";
 const OVERRIDE_TARGET = "store_product_override";
 const BRAND_TARGET = "tenant_product_brand";
 
-/** The 0097 partial unique index: one ACTIVE brand per (tenant, name). */
-const BRAND_NAME_INDEX = "UQ_idx_tenant_product_brands_tenant_name";
-
 /** Reruns of a write whose transaction began in the row's `updated_at` millisecond. */
 const ADVANCE_ATTEMPTS = 5;
-
-/** Thrown inside a transaction to roll it back and rerun it (see the class header). */
-class RerunWrite extends Error {
-  constructor() {
-    super("rerun");
-    this.name = "RerunWrite";
-  }
-}
-
-interface ProductLockRow {
-  readonly name: string;
-  readonly description: string | null;
-  readonly category_id: string | null;
-  readonly brand_id: string | null;
-  readonly tax_category: string;
-  readonly is_active: boolean;
-  readonly retired: boolean;
-  readonly updated_ms: string;
-  readonly can_advance: boolean;
-}
 
 interface BrandLockRow {
   readonly name: string;
@@ -186,32 +150,6 @@ interface OverrideLockRow {
   readonly can_advance: boolean;
 }
 
-/**
- * The row's `updated_at` in epoch milliseconds, and whether this
- * transaction's `now()` is a later millisecond.
- */
-const UPDATED_MS_SQL = `
-         floor(extract(epoch FROM date_trunc('milliseconds', updated_at)) * 1000)::bigint::text AS updated_ms,
-         date_trunc('milliseconds', now()) > date_trunc('milliseconds', updated_at) AS can_advance`;
-
-// FOR NO KEY UPDATE, not FOR UPDATE (RT-1337): the offer Pack writes take FOR KEY SHARE on this row through
-// their foreign keys while holding the tenant offers lock; FOR UPDATE here would deadlock against them
-// once this transaction reaches that lock. A product edit changes no key column, and two edits still queue.
-const LOCK_PRODUCT_SQL = `
-  SELECT name, description, category_id::text AS category_id, brand_id::text AS brand_id, tax_category, is_active,
-         retired_at IS NOT NULL AS retired,${UPDATED_MS_SQL}
-    FROM tenant_products
-   WHERE tenant_id = $1::uuid AND id = $2::uuid
-     FOR NO KEY UPDATE`;
-
-const CATEGORY_USABLE_SQL = `
-  SELECT 1 FROM tenant_product_categories
-   WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL`;
-
-const BRAND_USABLE_SQL = `
-  SELECT 1 FROM tenant_product_brands
-   WHERE tenant_id = $1::uuid AND id = $2::uuid AND retired_at IS NULL`;
-
 const LOCK_BRAND_SQL = `
   SELECT name,${UPDATED_MS_SQL}
     FROM tenant_product_brands
@@ -227,15 +165,6 @@ const LOCK_OVERRIDE_SQL = `
    WHERE tenant_id = $1::uuid AND product_id = $2::uuid AND store_id = $3::uuid AND retired_at IS NULL
      FOR UPDATE`;
 
-function isUniqueViolation(err: unknown): boolean {
-  return typeof err === "object" && err !== null && (err as { code?: unknown }).code === "23505";
-}
-
-/** A unique violation of the active-brand-name index (any other 23505 propagates). */
-function isBrandNameConflict(err: unknown): boolean {
-  return isUniqueViolation(err) && (err as { constraint?: unknown }).constraint === BRAND_NAME_INDEX;
-}
-
 @Injectable()
 export class ConsoleCatalogWriteService {
   constructor(
@@ -247,75 +176,25 @@ export class ConsoleCatalogWriteService {
   /** consoleCreateCatalogProduct — a new product with no price, identifier or override. */
   async createProduct(input: CatalogWriteInput, body: CreateCatalogProductBody): Promise<ConsoleCatalogProductDetail> {
     return await this.write(input, async (client) => {
-      const categoryId = body.categoryId ?? null;
-      if (categoryId !== null) await this.requireUsableCategory(client, input, { categoryId });
-      const brandId = body.brandId ?? null;
-      if (brandId !== null) await this.requireUsableBrand(client, input, { brandId });
-      const productId = newId();
-      const fields = {
-        name: body.name,
-        description: body.description ?? null,
-        categoryId,
-        brandId,
-        taxCategory: body.taxCategory,
-        isActive: body.isActive ?? true,
-      };
-      await client.query(
-        `INSERT INTO tenant_products
-           (id, tenant_id, name, description, category_id, brand_id, is_active, tax_category, created_by, updated_by,
-            correlation_id)
-         VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $9, $10)`,
-        [
-          productId,
-          input.tenantId,
-          fields.name,
-          fields.description,
-          fields.categoryId,
-          fields.brandId,
-          fields.isActive,
-          fields.taxCategory,
-          input.actorUserId,
-          input.requestId,
-        ],
-      );
-      await this.audit(client, input, {
-        action: "catalog.product.create",
-        targetType: PRODUCT_TARGET,
-        targetId: productId,
-        storeId: null,
-        metadata: { product_id: productId, new: fields },
-      });
-      // RT-1337: a new product can match a live offer's category or brand rule.
-      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
-        productId,
-        categoryIds: [fields.categoryId],
-        brandIds: [fields.brandId],
-      });
-      return this.reads.detailIn(client, input, productId);
+      const [productId] = await createProductsIn(client, input, [
+        {
+          name: body.name,
+          description: body.description ?? null,
+          categoryId: body.categoryId ?? null,
+          brandId: body.brandId ?? null,
+          taxCategory: body.taxCategory,
+          isActive: body.isActive ?? true,
+        },
+      ]);
+      return this.reads.detailIn(client, input, productId as string);
     });
   }
 
   /** RT-1334 consoleCreateCatalogBrand — a new active brand; a taken active name is `brand_name_conflict`. */
   async createBrand(input: CatalogWriteInput, body: CreateCatalogBrandBody): Promise<ConsoleCatalogBrand> {
     return await this.write(input, async (client) => {
-      const brandId = newId();
-      try {
-        await client.query(
-          `INSERT INTO tenant_product_brands (id, tenant_id, name, created_by) VALUES ($1, $2, $3, $4)`,
-          [brandId, input.tenantId, body.name, input.actorUserId],
-        );
-      } catch (err) {
-        if (isBrandNameConflict(err)) throw new CatalogWriteRefusedError("brand_name_conflict");
-        throw err;
-      }
-      await this.audit(client, input, {
-        action: "catalog.brand.create",
-        targetType: BRAND_TARGET,
-        targetId: brandId,
-        storeId: null,
-        metadata: { brand_id: brandId, new: { name: body.name } },
-      });
-      return this.brandIn(client, input, brandId);
+      const [brandId] = await createBrandsIn(client, input, [{ name: body.name }]);
+      return this.brandIn(client, input, brandId as string);
     });
   }
 
@@ -365,58 +244,8 @@ export class ConsoleCatalogWriteService {
   ): Promise<ConsoleCatalogProductDetail> {
     const { productId } = target;
     return await this.write(input, async (client) => {
-      const current = await this.lockProduct(client, input, target);
-      requireLiveProduct(current);
-      requireExpected(current, body);
-      if (typeof body.categoryId === "string") {
-        await this.requireUsableCategory(client, input, { categoryId: body.categoryId });
-      }
-      if (typeof body.brandId === "string") {
-        await this.requireUsableBrand(client, input, { brandId: body.brandId });
-      }
-      requireAdvance(current);
-
-      const before: ProductFields = {
-        name: current.name,
-        description: current.description,
-        categoryId: current.category_id,
-        brandId: current.brand_id,
-        taxCategory: current.tax_category,
-        isActive: current.is_active,
-      };
-      const { expectedUpdatedAt: _precondition, ...patch } = body;
-      const after = applyPatch(before, patch);
-      await client.query(
-        `UPDATE tenant_products
-            SET name = $3, description = $4, category_id = $5, brand_id = $6, tax_category = $7, is_active = $8,
-                updated_by = $9, correlation_id = $10
-          WHERE tenant_id = $1::uuid AND id = $2::uuid`,
-        [
-          input.tenantId,
-          productId,
-          after.name,
-          after.description,
-          after.categoryId,
-          after.brandId,
-          after.taxCategory,
-          after.isActive,
-          input.actorUserId,
-          input.requestId,
-        ],
-      );
-      await this.audit(client, input, {
-        action: "catalog.product.update",
-        targetType: PRODUCT_TARGET,
-        targetId: productId,
-        storeId: null,
-        metadata: { product_id: productId, ...changes(before, after) },
-      });
-      // RT-1337: a category, brand or active change can move the product into or out of a live offer's set.
-      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
-        productId,
-        categoryIds: [before.categoryId, after.categoryId],
-        brandIds: [before.brandId, after.brandId],
-      });
+      const { expectedUpdatedAt, ...patch } = body;
+      await updateProductsIn(client, input, [{ productId, expectedUpdatedAt, patch }]);
       return this.reads.detailIn(client, input, productId);
     });
   }
@@ -442,8 +271,8 @@ export class ConsoleCatalogWriteService {
         metadata: { product_id: productId, old: { status: current.is_active ? "active" : "inactive" }, new: { status: "retired" } },
       });
       // RT-1337: a retired product leaves every live offer's eligible set.
-      await rebuildOfferPackForCatalogChange(client, input.tenantId, {
-        productId,
+      await rebuildOfferPackForCatalogChanges(client, input.tenantId, {
+        productIds: [productId],
         categoryIds: [current.category_id],
         brandIds: [current.brand_id],
       });
@@ -463,38 +292,9 @@ export class ConsoleCatalogWriteService {
       const storeId = key.storeId ?? null;
       if (storeId !== null) await this.requireStoreInScope(client, input, { storeId });
       if (current.retired) throw new CatalogWriteRefusedError("product_retired");
-      const identifierId = newId();
-      const sourceSystem = key.sourceSystem ?? null;
-      try {
-        await client.query(
-          `INSERT INTO product_aliases
-             (id, tenant_id, product_id, identifier_type, value, source_system, store_id, created_by, correlation_id)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)`,
-          [
-            identifierId,
-            input.tenantId,
-            productId,
-            key.identifierType,
-            key.value,
-            sourceSystem,
-            storeId,
-            input.actorUserId,
-            input.requestId,
-          ],
-        );
-      } catch (err) {
-        // One of the partial unique indexes: the value is active in its scope,
-        // on this or another product. The code never says which (FR-042).
-        if (isUniqueViolation(err)) throw new CatalogWriteRefusedError("alias_conflict");
-        throw err;
-      }
-      await this.audit(client, input, {
-        action: "catalog.product_identifier.add",
-        targetType: IDENTIFIER_TARGET,
-        targetId: identifierId,
-        storeId,
-        metadata: identifierMetadata(target, key),
-      });
+      await insertIdentifiersIn(client, input, [
+        { productId, identifierType: key.identifierType, value: key.value, storeId, sourceSystem: key.sourceSystem ?? null },
+      ]);
       return this.reads.detailIn(client, input, productId);
     });
   }
@@ -665,21 +465,8 @@ export class ConsoleCatalogWriteService {
   }
 
   /** The product row, locked for this write; absent or of another tenant → 404. */
-  private async lockProduct(client: PoolClient, input: CatalogWriteInput, target: ProductTarget): Promise<ProductLockRow> {
-    const r = await client.query<ProductLockRow>(LOCK_PRODUCT_SQL, [input.tenantId, target.productId]);
-    const row = r.rows[0];
-    if (row === undefined) throw new CatalogProductNotFoundError();
-    return row;
-  }
-
-  /** RT-1334: the brand must be an active brand of the tenant, else 422 `brand_unavailable`. */
-  private async requireUsableBrand(
-    client: PoolClient,
-    input: CatalogWriteInput,
-    brand: { readonly brandId: string },
-  ): Promise<void> {
-    const r = await client.query(BRAND_USABLE_SQL, [input.tenantId, brand.brandId]);
-    if (r.rowCount === 0) throw new CatalogWriteRefusedError("brand_unavailable");
+  private async lockProduct(client: PoolClient, input: CatalogWriteInput, target: ProductTarget): Promise<LockedProduct> {
+    return (await lockProductsIn(client, input.tenantId, [target.productId])).get(target.productId) as LockedProduct;
   }
 
   /** The brand as the contract renders it, read in the write's transaction. */
@@ -688,15 +475,6 @@ export class ConsoleCatalogWriteService {
     const row = r.rows[0];
     if (row === undefined) throw new CatalogBrandNotFoundError();
     return toBrand(row);
-  }
-
-  private async requireUsableCategory(
-    client: PoolClient,
-    input: CatalogWriteInput,
-    category: { readonly categoryId: string },
-  ): Promise<void> {
-    const r = await client.query(CATEGORY_USABLE_SQL, [input.tenantId, category.categoryId]);
-    if (r.rowCount === 0) throw new CatalogWriteRefusedError("category_unavailable");
   }
 
   /**
@@ -760,36 +538,13 @@ export class ConsoleCatalogWriteService {
   }
 }
 
-interface ProductFields extends Record<string, unknown> {
-  readonly name: string;
-  readonly description: string | null;
-  readonly categoryId: string | null;
-  readonly brandId: string | null;
-  readonly taxCategory: string;
-  readonly isActive: boolean;
-}
-
 interface OverrideFields extends Record<string, unknown> {
   readonly isActive: boolean | null;
   readonly taxCategory: string | null;
 }
 
-/** `before` with every key the request sent (`null` included) replaced; absent keys keep their value. */
-function applyPatch<T extends Record<string, unknown>>(before: T, patch: { readonly [K in keyof T]?: T[K] | undefined }): T {
-  const after: Record<string, unknown> = { ...before };
-  for (const [key, value] of Object.entries(patch)) {
-    if (value !== undefined) after[key] = value;
-  }
-  return after as T;
-}
-
-function requireLiveProduct(product: ProductLockRow): void {
+function requireLiveProduct(product: LockedProduct): void {
   if (product.retired) throw new CatalogWriteRefusedError("product_retired");
-}
-
-/** The precondition: the row's `updated_at` (ms) must be the one the caller read. */
-function requireExpected(row: { readonly updated_ms: string }, body: { readonly expectedUpdatedAt: number }): void {
-  if (Number(row.updated_ms) !== body.expectedUpdatedAt) throw new CatalogWriteRefusedError("stale_write");
 }
 
 /** The override precondition: `null` asserts there is no active override. */
@@ -803,11 +558,6 @@ function requireOverrideExpected(
   requireExpected(current, { expectedUpdatedAt: expected });
 }
 
-/** Reruns the write when its `now()` is in the row's own `updated_at` millisecond (see the class header). */
-function requireAdvance(row: { readonly can_advance: boolean }): void {
-  if (!row.can_advance) throw new RerunWrite();
-}
-
 /** Only owner / tenant_admin change a store tax override (O-4). */
 function requireTaxRole(access: StoreAccess): void {
   if (!TAX_OVERRIDE_ROLES.has(access.roleCode ?? "")) throw new CatalogWriteRefusedError("tax_override_forbidden");
@@ -818,19 +568,6 @@ function requireNotEmpty(fields: OverrideFields, current: OverrideLockRow | null
   const hasPrice = current?.has_price ?? false;
   const overridden = [fields.isActive !== null, fields.taxCategory !== null, hasPrice].filter(Boolean).length;
   if (overridden === 0) throw new CatalogWriteRefusedError("override_empty");
-}
-
-/** The audit `old` / `new` of the fields whose value changed. */
-function changes<T extends Record<string, unknown>>(before: T, after: T): { old: Partial<T>; new: Partial<T> } {
-  const old: Partial<T> = {};
-  const next: Partial<T> = {};
-  for (const key of Object.keys(after) as (keyof T)[]) {
-    if (before[key] !== after[key]) {
-      old[key] = before[key];
-      next[key] = after[key];
-    }
-  }
-  return { old, new: next };
 }
 
 function identifierMetadata(target: ProductTarget, key: ProductIdentifierKeyBody): Record<string, unknown> {

@@ -11,7 +11,7 @@ import { BATCH_TTL_DAYS } from "./catalog-import.limits";
 import { BATCH_COLUMNS, type BatchRow, type ColumnMappingBody } from "./catalog-import.projections";
 import { MAX_NAME_MATCHES, type CatalogLookups, type LookupKeys, type ProductFacts } from "./import-lookups";
 import type { MappingTarget } from "./import-mapping";
-import type { RowResult } from "./import-row-evaluate";
+import type { RowWrite } from "./import-review-carry";
 import type { StagedRow } from "./import-row-parse";
 import type { SuggestionProfile } from "./import-synonyms";
 import type { RowIssue } from "./import-issues";
@@ -97,7 +97,7 @@ interface FactsRow {
 }
 
 /** The product facts of `ids`, with their active tenant-wide identifiers. */
-async function loadProducts(client: PoolClient, tenantId: string, ids: readonly string[]): Promise<Map<string, ProductFacts>> {
+export async function loadProducts(client: PoolClient, tenantId: string, ids: readonly string[]): Promise<Map<string, ProductFacts>> {
   const products = new Map<string, ProductFacts>();
   if (ids.length === 0) return products;
   const facts = await client.query<FactsRow>(
@@ -209,26 +209,33 @@ export async function loadCatalogLookups(client: PoolClient, tenantId: string, k
 const ROWS_PER_UPDATE = 500;
 
 /**
- * Writes every row's outcome (status, outcome, issues, review reason, the matched product's `updated_at`) and clears any
- * review decision: validation starts the rows afresh (the review slice refines this to keep a decision whose candidate
- * set and reason are unchanged, spec 049 section 8.1).
+ * Writes every row's outcome (status, outcome, issues, review reason, the matched product's `updated_at`) and its review
+ * decision: none, or the one a new validation kept because the row's candidate set and reason are unchanged (spec 049
+ * section 8.1; `import-review-carry.ts`).
  */
-export async function writeRowResults(client: PoolClient, tenantId: string, batchId: string, results: readonly RowResult[]): Promise<void> {
-  for (let from = 0; from < results.length; from += ROWS_PER_UPDATE) {
-    const chunk = results.slice(from, from + ROWS_PER_UPDATE).map((r) => ({
-      n: r.rowNumber,
-      status: r.status,
-      outcome: r.outcome,
-      issues: r.issues,
-      reason: r.reviewReason,
-      matched: r.matchedUpdatedAt,
+export async function writeRowResults(client: PoolClient, tenantId: string, batchId: string, writes: readonly RowWrite[]): Promise<void> {
+  for (let from = 0; from < writes.length; from += ROWS_PER_UPDATE) {
+    const chunk = writes.slice(from, from + ROWS_PER_UPDATE).map((w) => ({
+      n: w.rowNumber,
+      status: w.status,
+      outcome: w.outcome,
+      issues: w.issues,
+      reason: w.reviewReason,
+      matched: w.matchedUpdatedAt,
+      resolution: w.carried?.decision.action ?? null,
+      resolution_product: w.carried?.decision.productId ?? null,
+      resolved_by: w.carried?.resolvedBy ?? null,
+      resolved_at: w.carried?.resolvedAt ?? null,
     }));
     await client.query(
       `UPDATE catalog_import_rows r
           SET status = v.status, outcome = v.outcome, issues = v.issues, review_reason = v.reason,
               matched_updated_at = v.matched::timestamptz,
-              resolution = NULL, resolution_product_id = NULL, resolved_by = NULL, resolved_at = NULL
-         FROM jsonb_to_recordset($3::jsonb) AS v(n int, status text, outcome jsonb, issues jsonb, reason text, matched text)
+              resolution = v.resolution, resolution_product_id = v.resolution_product::uuid,
+              resolved_by = v.resolved_by::uuid, resolved_at = v.resolved_at::timestamptz
+         FROM jsonb_to_recordset($3::jsonb)
+              AS v(n int, status text, outcome jsonb, issues jsonb, reason text, matched text, resolution text, resolution_product text,
+                   resolved_by text, resolved_at text)
         WHERE r.tenant_id = $1 AND r.batch_id = $2 AND r.row_number = v.n`,
       [tenantId, batchId, JSON.stringify(chunk)],
     );

@@ -22,7 +22,7 @@
  * Map and validate (part B) lock the batch row (`FOR UPDATE`), then check in
  * the contract's order: the batch (404), closed (409), `expectedVersion`
  * (409), the operation's own rules (422); the change and its audit row are one
- * transaction. Not in this slice (S5): review decisions, preview, publish. The
+ * transaction. Cancel (RT-1507) is here too; the review decisions and the preview are `catalog-import.review.service.ts`, the publish `catalog-import.publish.service.ts`. The
  * original bytes are never stored (OD-6 A).
  */
 import { Inject, Injectable } from "@nestjs/common";
@@ -57,7 +57,10 @@ import { parseImportFile, type ParsedImportFile } from "./import-file-parser";
 import { collectLookupKeys } from "./import-lookups";
 import { mappingProblem, profileEntries, type ColumnMapping, type ImportMode, type SetMappingBody } from "./import-mapping";
 import { previewHashOf } from "./import-preview-hash";
-import { countStatuses, evaluateRows } from "./import-row-evaluate";
+import { carryDecisions, hashRowsOf } from "./import-review-carry";
+import { countByStatus } from "./import-row-counts";
+import { loadPreviousDecisions, markBatchCancelled } from "./catalog-import.review-repository";
+import { evaluateRows } from "./import-row-evaluate";
 import { parseRows } from "./import-row-parse";
 import { decodeRowCursor, encodeRowCursor, toRowBody, ROW_PAGE_DEFAULT, type CatalogImportRowBody, type RowsQuery } from "./import-row-page";
 import { suggestMapping } from "./import-synonyms";
@@ -93,6 +96,15 @@ export interface ImportUpload {
   readonly sha256: string;
   readonly query: ImportUploadQuery;
 }
+
+/** The batch audit actions (spec 049 section 8.7; `.expire` is the retention worker's). */
+export type ImportBatchAction =
+  | "catalog.import.upload"
+  | "catalog.import.map"
+  | "catalog.import.validate"
+  | "catalog.import.review"
+  | "catalog.import.publish"
+  | "catalog.import.cancel";
 
 const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -169,10 +181,22 @@ export class CatalogImportService {
       const parsed = parseRows(mapping, await loadStagedRows(client, input.tenantId, batchId));
       const lookups = await loadCatalogLookups(client, input.tenantId, collectLookupKeys(parsed), batch.mode !== "update");
       const results = evaluateRows(batch.mode as ImportMode, mapping, parsed, lookups);
-      const counts = countStatuses(results);
-      await writeRowResults(client, input.tenantId, batchId, results);
-      const row = await markBatchValidated(client, input.tenantId, batchId, counts, previewHashOf(batch.mode, results));
+      // Spec 049 section 8.1: a review decision stands again while its row's candidate set and reason are unchanged.
+      const previous = await loadPreviousDecisions(client, input.tenantId, batchId);
+      const writes = carryDecisions(batch.mode as ImportMode, results, parsed, lookups, previous);
+      await writeRowResults(client, input.tenantId, batchId, writes);
+      const row = await markBatchValidated(client, input.tenantId, batchId, countByStatus(writes), previewHashOf(batch.mode, hashRowsOf(writes)));
       await writeBatchAudit(client, input, "catalog.import.validate", row, issueCounts(results));
+      return toBatchBody(row);
+    });
+  }
+
+  /** Cancels an open batch (spec 049 section 8.1): closed, no expiry, no preview hash; nothing is written to the catalogue. */
+  async cancel(input: ImportWriteInput, batchId: string, expectedVersion: number): Promise<CatalogImportBatchBody> {
+    return inTenant(this.pool, input.tenantId, async (client) => {
+      await openCurrentBatch(client, input.tenantId, batchId, expectedVersion, true);
+      const row = await markBatchCancelled(client, input.tenantId, batchId);
+      await writeBatchAudit(client, input, "catalog.import.cancel", row, {});
       return toBatchBody(row);
     });
   }
@@ -180,12 +204,7 @@ export class CatalogImportService {
   /** One page of the rows of a validated or published batch (keyset by row number). */
   async listRows(tenantId: string, batchId: string, query: RowsQuery): Promise<{ batchId: string; version: number; items: CatalogImportRowBody[]; nextCursor: string | null }> {
     return inTenant(this.pool, tenantId, async (client) => {
-      const batch = await findBatch(client, tenantId, batchId);
-      if (batch === null) throw new ImportBatchNotFoundError();
-      // Only a validated or published batch has current outcomes; a purged one has none to show (never an empty page).
-      if ((batch.state !== "validated" && batch.state !== "published") || batch.rows_purged_at !== null) {
-        throw new ImportBatchRefusedError("import_batch_not_validated");
-      }
+      const batch = await readBatchWithOutcomes(client, tenantId, batchId);
       const binding = { tenantId, batchId, generation: batch.validation_generation, status: query.status ?? null };
       const after = query.cursor === undefined ? 0 : decodeRowCursor(query.cursor, binding);
       const limit = query.limit ?? ROW_PAGE_DEFAULT;
@@ -235,15 +254,29 @@ export class CatalogImportService {
 }
 
 /**
+ * The batch when it has current outcomes to show (`validated` or `published`, rows not purged): 404 when absent, `409
+ * import_batch_not_validated` otherwise (a reader never gets an empty page for a batch without outcomes).
+ */
+export async function readBatchWithOutcomes(client: PoolClient, tenantId: string, batchId: string, forShare = false): Promise<BatchRow> {
+  const batch = await findBatch(client, tenantId, batchId, forShare);
+  if (batch === null) throw new ImportBatchNotFoundError();
+  if ((batch.state !== "validated" && batch.state !== "published") || batch.rows_purged_at !== null) {
+    throw new ImportBatchRefusedError("import_batch_not_validated");
+  }
+  return batch;
+}
+
+/**
  * The batch, locked, when it is open and at `expectedVersion`: 404 when absent (or another tenant's), `import_batch_closed`
  * when it is not `draft` or `validated`, or is past its expiry (the expiry job has not closed it yet: a change must not
  * move a lapsed batch's expiry forward, spec 049 section 8.1), `version_conflict` when the version moved. The contract's
- * order of checks.
+ * order of checks. `allowLapsed`: a cancel may close a lapsed batch the expiry job has not reached yet (it frees the tenant's
+ * one open batch).
  */
-async function openCurrentBatch(client: PoolClient, tenantId: string, batchId: string, expectedVersion: number): Promise<BatchRow> {
+export async function openCurrentBatch(client: PoolClient, tenantId: string, batchId: string, expectedVersion: number, allowLapsed = false): Promise<BatchRow> {
   const batch = await lockBatch(client, tenantId, batchId);
   if (batch === null) throw new ImportBatchNotFoundError();
-  if ((batch.state !== "draft" && batch.state !== "validated") || batch.past_expiry) throw new ImportBatchRefusedError("import_batch_closed");
+  if ((batch.state !== "draft" && batch.state !== "validated") || (batch.past_expiry && !allowLapsed)) throw new ImportBatchRefusedError("import_batch_closed");
   if (batch.version !== expectedVersion) throw new ImportBatchRefusedError("version_conflict");
   return batch;
 }
@@ -259,10 +292,10 @@ function issueCounts(results: ReturnType<typeof evaluateRows>): Record<string, u
  * One batch audit row in the caller's transaction: ids, codes and counts only (FR-AUDIT-3, section XIV), never a cell, a
  * header, a profile name or the file name. `row` is the batch after the change (its version and counts).
  */
-async function writeBatchAudit(
+export async function writeBatchAudit(
   client: PoolClient,
   input: ImportWriteInput,
-  action: "catalog.import.upload" | "catalog.import.map" | "catalog.import.validate",
+  action: ImportBatchAction,
   row: BatchRow,
   extra: Record<string, unknown>,
 ): Promise<void> {
@@ -289,7 +322,7 @@ async function writeBatchAudit(
 }
 
 /** One transaction under the tenant's RLS context (never a platform-admin bypass: the session's tenant only). */
-function inTenant<T>(pool: Pool, tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
+export function inTenant<T>(pool: Pool, tenantId: string, work: (client: PoolClient) => Promise<T>): Promise<T> {
   const context = { isPlatformAdmin: false, tenantId };
   return runWithTenantContext(pool, context, work);
 }

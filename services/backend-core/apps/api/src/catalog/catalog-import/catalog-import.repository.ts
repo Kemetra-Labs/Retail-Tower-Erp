@@ -113,11 +113,15 @@ export async function insertRows(client: PoolClient, tenantId: string, batchId: 
   }
 }
 
-/** One batch of the tenant, or null (absent or another tenant's: RLS and the predicate give the same answer). */
-export async function findBatch(client: PoolClient, tenantId: string, batchId: string): Promise<BatchRow | null> {
-  const r = await client.query<BatchRow>(`SELECT ${BATCH_COLUMNS} FROM catalog_import_batches WHERE tenant_id = $1 AND id = $2`, [
-    tenantId,
-    batchId,
-  ]);
+/**
+ * One batch of the tenant, or null (absent or another tenant's: RLS and the predicate give the same answer). `forShare`
+ * takes a share lock on the row until the transaction ends: every writer of the batch's rows locks the batch row first, so a
+ * reader that goes on to read the rows sees them as of the batch it read (the preview's hash, version and counts agree).
+ */
+export async function findBatch(client: PoolClient, tenantId: string, batchId: string, forShare = false): Promise<BatchRow | null> {
+  const r = await client.query<BatchRow>(
+    `SELECT ${BATCH_COLUMNS} FROM catalog_import_batches WHERE tenant_id = $1 AND id = $2${forShare ? " FOR SHARE" : ""}`,
+    [tenantId, batchId],
+  );
   return r.rows[0] ?? null;
 }

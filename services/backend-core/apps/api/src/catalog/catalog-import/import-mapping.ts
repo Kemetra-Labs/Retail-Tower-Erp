@@ -42,7 +42,7 @@ const TARGET = z.enum([...CANONICAL_FIELDS, "ignore"]);
 /** The largest `version` the column holds (an INTEGER): a bigger `expectedVersion` can never match. */
 const VERSION_MAX = 2_147_483_647;
 
-const ExpectedVersionSchema = z.number().int().min(1).max(VERSION_MAX);
+export const ExpectedVersionSchema = z.number().int().min(1).max(VERSION_MAX);
 
 /** `saveProfileName`: 1 to 100 characters, one of them not whitespace, no NUL (contract and the 0124 CHECK). */
 const ProfileName = z

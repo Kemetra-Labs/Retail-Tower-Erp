@@ -37,6 +37,40 @@ export async function insertAuditRowInTransaction(
   await client.query(INSERT_SQL, [newId(), ...values]);
 }
 
+/** Rows per statement of {@link insertAuditRowsInTransaction}. */
+const AUDIT_ROWS_PER_STATEMENT = 1000;
+
+/**
+ * RT-1507 — many audit rows of one tenant-scoped write in as few statements as possible, on the caller's client inside
+ * its open transaction (the product import's publish writes one row per product, identifier and brand). Same columns and
+ * rules as {@link insertAuditRowInTransaction}.
+ */
+export async function insertAuditRowsInTransaction(
+  client: Pick<PoolClient, "query">,
+  rows: readonly TransactionalAuditRow[],
+): Promise<void> {
+  for (let from = 0; from < rows.length; from += AUDIT_ROWS_PER_STATEMENT) {
+    const chunk = rows.slice(from, from + AUDIT_ROWS_PER_STATEMENT).map((r) => ({
+      id: newId(),
+      tenant_id: r.tenantId,
+      actor_user_id: r.actorUserId,
+      store_id: r.storeId,
+      action: r.action,
+      target_type: r.targetType,
+      target_id: r.targetId,
+      request_id: r.requestId,
+      metadata: r.metadata,
+    }));
+    await client.query(
+      `INSERT INTO audit_events (id, tenant_id, actor_user_id, store_id, action, target_type, target_id, request_id, metadata)
+       SELECT v.id, v.tenant_id, v.actor_user_id, v.store_id, v.action, v.target_type, v.target_id, v.request_id, v.metadata
+         FROM jsonb_to_recordset($1::jsonb) AS v(id uuid, tenant_id uuid, actor_user_id uuid, store_id uuid, action text,
+                                                  target_type text, target_id uuid, request_id uuid, metadata jsonb)`,
+      [JSON.stringify(chunk)],
+    );
+  }
+}
+
 /**
  * RT-1484 PR-6 (owner decision on m2): the metadata of the NEWEST row about `targetId` whose
  * metadata holds `metadataKey`, read on the caller's client under its tenant context (RLS), or

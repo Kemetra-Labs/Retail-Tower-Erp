@@ -103,7 +103,6 @@
     "apps/api/src/catalog/console-catalog/console-catalog.write.service.ts -> apps/api/src/context/membership.repository.ts": 1,
     "apps/api/src/catalog/console-catalog/console-catalog.write.service.ts -> apps/api/src/context/operator-store-scope.ts": 1,
     "apps/api/src/catalog/console-catalog/console-catalog.write.service.ts -> apps/api/src/context/store-scope.ts": 1,
-    "apps/api/src/catalog/console-catalog/console-catalog.write.service.ts -> apps/api/src/offers/offer-pack.rebuild.ts": 1,
     "apps/api/src/catalog/erpnext-bin-view/erpnext-bin-view.controller.ts -> apps/api/src/audit/auditable.decorator.ts": 1,
     "apps/api/src/catalog/erpnext-bin-view/erpnext-bin-view.controller.ts -> apps/api/src/auth/auth.guard.ts": 1,
     "apps/api/src/catalog/erpnext-bin-view/erpnext-bin-view.controller.ts -> apps/api/src/auth/connector-auth.guard.ts": 1,

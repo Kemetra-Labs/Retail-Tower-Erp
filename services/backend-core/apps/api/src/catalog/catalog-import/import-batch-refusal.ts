@@ -9,7 +9,11 @@ export type ImportBatchRefusalCode =
   | "import_batch_closed"
   | "import_batch_not_validated"
   | "mapping_invalid"
-  | "mapping_required";
+  | "mapping_required"
+  | "resolution_not_allowed"
+  | "preview_changed"
+  | "import_not_publishable"
+  | "stale_validation";
 
 const STATUS: Readonly<Record<ImportBatchRefusalCode, number>> = {
   version_conflict: 409,
@@ -17,6 +21,10 @@ const STATUS: Readonly<Record<ImportBatchRefusalCode, number>> = {
   import_batch_not_validated: 409,
   mapping_invalid: 422,
   mapping_required: 422,
+  resolution_not_allowed: 422,
+  preview_changed: 409,
+  import_not_publishable: 409,
+  stale_validation: 409,
 };
 
 export const IMPORT_BATCH_REFUSAL_MESSAGES: Readonly<Record<ImportBatchRefusalCode, string>> = {
@@ -25,6 +33,10 @@ export const IMPORT_BATCH_REFUSAL_MESSAGES: Readonly<Record<ImportBatchRefusalCo
   import_batch_not_validated: "The batch has no current validation outcomes. Validate it first.",
   mapping_invalid: "The column mapping is not complete or not allowed. Map every column once, each field once (barcode up to five times), and name and tax_category for create and upsert.",
   mapping_required: "The batch has no confirmed column mapping. Set the mapping first.",
+  resolution_not_allowed: "That decision is not offered for this row. Choose another, or clear the row's decision.",
+  preview_changed: "The preview changed since it was shown. Read the preview again and confirm it.",
+  import_not_publishable: "The batch cannot be published: a row still needs review or has an error, or two rows would change the same product differently.",
+  stale_validation: "The catalogue changed since the batch was validated. Nothing was published. Validate the batch again and review the new preview.",
 };
 
 /** A refusal the contract defines (a 409 or a 422); nothing was written. */
