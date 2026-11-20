@@ -512,6 +512,30 @@ test("connector: a red lane job does not decide the aggregate check, only connec
   assert.ok(productJudge(p, input).problems.length > 0);
 });
 
+// The check runs and the jobs are read at different moments (CodeRabbit on #754): a re-run that starts between the two
+// reads is a job with no check run, and the older green check run must not decide.
+test("a newer job of a required check with no check run in the snapshot refuses", () => {
+  const input = good();
+  input.jobs = [...jobsFor(input.checks), { id: 9001, run_id: 100, name: "pos/test", status: "queued", conclusion: null, head_sha: SHA, check_run_url: "https://api.github.com/repos/" + REPO + "/check-runs/9001" }];
+  const r = judge(input);
+  assert.match(problemText(r), /job 9001 of workflow run 100 is named 'pos\/test' but has no check run/);
+});
+
+test("a job without a check run is ignored when it is not a required name or not from a trusted run", () => {
+  const extra = (over) => ({ id: 9002, run_id: 100, name: "pos/test", status: "queued", conclusion: null, head_sha: SHA, check_run_url: "x", ...over });
+  for (const job of [extra({ name: "pos/docs" }), extra({ run_id: 777 })]) {
+    const input = good();
+    input.jobs = [...jobsFor(input.checks), job];
+    assert.deepEqual(judge(input).problems, [], JSON.stringify(job));
+  }
+  for (const over of [{ event: "pull_request" }, { head_branch: "claude/x" }, { path: ".github/workflows/other.yml" }]) {
+    const input = good();
+    input.runs = [run(100), run(200, over)];
+    input.jobs = [...jobsFor(input.checks), extra({ run_id: 200 })];
+    assert.deepEqual(judge(input).problems, [], JSON.stringify(over));
+  }
+});
+
 // CLI.
 function cli(args, files = {}) {
   const dir = fs.mkdtempSync(path.join(os.tmpdir(), "rt1471-pos-gate-"));

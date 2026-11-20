@@ -149,6 +149,17 @@ function judgeChecks({ checks, runs, jobs, required, sha, repo }) {
       }
       counted.push(r);
     }
+    // The two reads are not one snapshot: a re-run that starts between them has a job in the list with no check run
+    // here, and an older green check run must not stand in for it. Refuse; the evidence is read again next time.
+    const seen = new Set(valid.map((r) => String(r.id)));
+    for (const j of jobs) {
+      if (!isObject(j) || j.name !== name || seen.has(String(j.id))) continue;
+      const wfRun = runsById.get(String(j.run_id));
+      if (!wfRun || wfRun.path !== workflow || !TRUSTED_EVENTS.includes(wfRun.event) || wfRun.head_branch !== TRUSTED_BRANCH ||
+          wfRun.head_sha !== sha || wfRun.repository !== repo || wfRun.head_repository !== repo) continue;
+      problems.push(`Actions job ${String(j.id)} of workflow run ${String(j.run_id)} is named '${name}' but has no check run in the evidence read (a re-run started during the read?)`);
+      blocked = true;
+    }
     const newest = counted.reduce((max, r) => (when(r) > max ? when(r) : max), "");
     const bad = counted.filter((r) => when(r) === newest).find((r) => r.status !== "completed" || r.conclusion !== "success");
     const result = counted.length === 0 ? "missing" : !bad ? "success" : bad.status !== "completed" ? "pending" : (bad.conclusion ?? "pending");

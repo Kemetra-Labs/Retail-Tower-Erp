@@ -450,6 +450,10 @@ class ReleaseCiGuardSteps(unittest.TestCase):
             edited = next(c for c in checks if c["name"] == first_name)
             cases["job did not succeed"] = (checks, runs, first_name, [{**job_for(c), "conclusion": "failure"} if c is edited else job_for(c) for c in checks])
             cases["job missing"] = (checks, runs, "job", [job_for(c) for c in checks if c is not edited])
+            # A re-run that started between the check-run read and the job read: a job with no check run.
+            late = {"id": 99999, "run_id": 100, "name": last_name, "status": "queued", "conclusion": None, "head_sha": SHA,
+                    "check_run_url": f"https://api.github.com/repos/{REPO}/check-runs/99999"}
+            cases["re-run between the two reads"] = (checks, runs, "has no check run", [*[job_for(c) for c in checks], late])
             # A job whose name only starts like the required one is not the required check.
             cases["lookalike name"] = ([c for c in checks if c["name"] != last_name] + [check_run(f"{last_name} lane v16", 100)], runs, last_name)
             for label, case in cases.items():
