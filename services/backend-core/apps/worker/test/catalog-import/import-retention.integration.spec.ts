@@ -19,7 +19,9 @@
  * 30-day and 13-month purge edges; the header kept; idempotent reruns.
  *
  * Docker policy: HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1 (RT-123
- * retention-rls precedent).
+ * retention-rls precedent), and even then only "no container runtime" skips
+ * (`startPgEnvOrSkip`, RT-1503); an image pull or container start failure is
+ * rethrown.
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -35,6 +37,7 @@ import {
   stopPgEnv,
   type PgTestEnv,
 } from "../../../../packages/db/__tests__/_helpers/postgres-container";
+import { startPgEnvOrSkip } from "../../../../packages/db/__tests__/_helpers/migration-spec";
 import {
   IMPORT_RETENTION_JOB_NAME,
   ImportRetentionProcessor,
@@ -70,16 +73,14 @@ let env: PgTestEnv | null = null;
 let probe: Pool | null = null;
 
 beforeAll(async () => {
-  try {
-    env = await startPgEnv();
-  } catch (err: unknown) {
-    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1") {
-      // eslint-disable-next-line no-console
-      console.warn(`\n[import-retention.integration] Docker NOT AVAILABLE — skipping: ${String(err)}\n`);
-      return;
-    }
-    throw err;
+  // Only a missing container runtime may skip, and only with the opt-in; any other setup failure is rethrown.
+  const started = await startPgEnvOrSkip(startPgEnv, process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1");
+  if (started.env === null) {
+    // eslint-disable-next-line no-console
+    console.warn(`\n[import-retention.integration] Docker NOT AVAILABLE — skipping: ${started.skipReason}\n`);
+    return;
   }
+  env = started.env;
   await applyAllUpAndCreateAppRole(env);
   const a = env.admin;
 
