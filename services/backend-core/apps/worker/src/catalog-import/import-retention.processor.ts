@@ -13,9 +13,11 @@
  *      are deleted and the batch stamped `rows_purged_at`; the header stays.
  * Expiry runs first, so a batch expired in this run starts its 30 days now.
  *
- * Each step drains in bounded passes until a pass comes back short. A failing
- * tenant is logged and counted and the next tenant still runs; the job then
- * fails with `ImportRetentionIncompleteError` so BullMQ retries it. A rerun is
+ * Each step drains in bounded passes until a pass comes back short. Each step
+ * of a tenant fails on its own: a failed expiry is logged (with its `step`)
+ * and the tenant's purge still runs. A tenant with a failed step is counted
+ * once and the next tenant still runs; the job then fails with
+ * `ImportRetentionIncompleteError` so BullMQ retries it. A rerun is
  * safe: an expired batch no longer matches the expiry, and a stamped batch no
  * longer matches the purge.
  *
@@ -108,13 +110,10 @@ export class ImportRetentionProcessor {
     // sequential: one tenant at a time bounds the DB load and isolates a tenant's failure.
     for (const tenantId of tenantIds) {
       counters.tenants += 1;
-      try {
-        await this.expireTenant(tenantId, counters);
-        await this.purgeTenant(tenantId, counters);
-      } catch (err) {
-        counters.failedTenants += 1;
-        this.log({ level: "error", component: COMPONENT, message: "tenant_retention_failed", ...errorFields(err) });
-      }
+      // Each step in its own try: a failed expiry does not skip the tenant's purge.
+      const expired = await this.runStep("expiry", () => this.expireTenant(tenantId, counters));
+      const purged = await this.runStep("purge", () => this.purgeTenant(tenantId, counters));
+      if (!expired || !purged) counters.failedTenants += 1;
     }
 
     const result: ImportRetentionResult = { ...counters, durationMs: Date.now() - started };
@@ -132,6 +131,17 @@ export class ImportRetentionProcessor {
     });
     if (result.failedTenants > 0) throw new ImportRetentionIncompleteError(result);
     return result;
+  }
+
+  /** Runs one step of one tenant; a failure is logged (class and code only) and reported as `false`. */
+  private async runStep(step: "expiry" | "purge", work: () => Promise<void>): Promise<boolean> {
+    try {
+      await work();
+      return true;
+    } catch (err) {
+      this.log({ level: "error", component: COMPONENT, message: "tenant_retention_failed", step, ...errorFields(err) });
+      return false;
+    }
   }
 
   /** Expiry passes until one picks fewer than the limit (or expires nothing). */

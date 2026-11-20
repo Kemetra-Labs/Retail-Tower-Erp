@@ -874,7 +874,9 @@ context. It expires each open `draft` or `validated` import batch whose
 `catalog.import.expire` audit row in the same transaction), at most 100 per
 transaction. It then deletes the staged rows of `cancelled` and `expired`
 batches 30 days after `closed_at`, and of `published` batches 13 months after
-`published_at`, at most 10 batches per transaction, stamps `rows_purged_at` and
+`published_at`, at most 10 batches per transaction (about 50,000 rows when the
+runtime respects each batch's `data_row_count`; the schema does not enforce
+that), stamps `rows_purged_at` and
 keeps the batch header. It uses the worker's `DATABASE_URL` (domain) role with
 the catalogue import grants that step 2 applies, `SELECT` on `tenants` and
 `INSERT` on `audit_events`, which the api already needs. It

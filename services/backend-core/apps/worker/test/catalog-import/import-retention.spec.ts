@@ -106,7 +106,7 @@ describe("RT-1503 import retention config", () => {
     expect(resolveImportRetentionIntervalMs()).toBe(120_000);
   });
 
-  it("bounds each transaction: 100 expiries or 10 purged batches (at most 50,000 rows)", () => {
+  it("bounds each transaction: 100 expiries or 10 purged batches", () => {
     expect(DEFAULT_EXPIRY_BATCH_LIMIT).toBe(100);
     expect(DEFAULT_PURGE_BATCH_LIMIT).toBe(10);
   });
@@ -129,7 +129,14 @@ class FakeRepo implements ImportRetentionRepository {
   constructor(
     readonly tenants: Map<string, TenantState>,
     private readonly failing: ReadonlySet<string> = new Set(),
+    private readonly failingPurge: ReadonlySet<string> = new Set(),
   ) {}
+
+  private fail(tenantId: string): never {
+    const err = new Error(`batch of ${tenantId} broke`);
+    (err as Error & { code?: string }).code = "40P01";
+    throw err;
+  }
 
   async listTenantIds(): Promise<string[]> {
     return [...this.tenants.keys()];
@@ -137,11 +144,7 @@ class FakeRepo implements ImportRetentionRepository {
 
   async expireDueBatches(tenantId: string, limit: number): Promise<ExpiryPass> {
     this.calls.push({ kind: "expire", tenantId, limit });
-    if (this.failing.has(tenantId)) {
-      const err = new Error(`batch of ${tenantId} broke`);
-      (err as Error & { code?: string }).code = "40P01";
-      throw err;
-    }
+    if (this.failing.has(tenantId)) this.fail(tenantId);
     const t = this.tenants.get(tenantId)!;
     const n = Math.min(t.due, limit);
     t.due -= n;
@@ -151,6 +154,7 @@ class FakeRepo implements ImportRetentionRepository {
 
   async purgeDueRows(tenantId: string, limit: number): Promise<PurgePass> {
     this.calls.push({ kind: "purge", tenantId, limit });
+    if (this.failingPurge.has(tenantId)) this.fail(tenantId);
     const t = this.tenants.get(tenantId)!;
     const taken = t.purgeable.splice(0, limit);
     return { batches: taken.length, rows: taken.reduce((a, b) => a + b, 0) };
@@ -236,14 +240,58 @@ describe("RT-1503 ImportRetentionProcessor", () => {
     expect((err as ImportRetentionIncompleteError).result).toMatchObject({
       tenants: 3,
       expired: 2,
-      purgedBatches: 2,
+      // B's expiry failed, but its purge still ran.
+      purgedBatches: 3,
       failedTenants: 1,
     });
     expect(lines.find((l) => l["message"] === "tenant_retention_failed")).toMatchObject({
       level: "error",
+      step: "expiry",
       errorName: "Error",
       errorCode: "40P01",
     });
+  });
+
+  it("an expiry failure does not skip that tenant's purge; the job still fails so BullMQ retries", async () => {
+    const lines: ImportRetentionLogLine[] = [];
+    const repo = new FakeRepo(tenants([[TENANT_A, 1, [4]]]), new Set([TENANT_A]));
+    const err = await processor(repo, lines).process(IMPORT_RETENTION_JOB_NAME, {}).catch((e: unknown) => e);
+
+    expect(repo.calls.map((c) => c.kind)).toEqual(["expire", "purge"]);
+    expect(err).toBeInstanceOf(ImportRetentionIncompleteError);
+    expect((err as ImportRetentionIncompleteError).result).toMatchObject({
+      tenants: 1,
+      expired: 0,
+      purgedBatches: 1,
+      purgedRows: 4,
+      failedTenants: 1,
+    });
+    expect(lines.filter((l) => l["message"] === "tenant_retention_failed")).toEqual([
+      expect.objectContaining({ level: "error", step: "expiry" }),
+    ]);
+  });
+
+  it("a purge failure is logged with its step and fails the job; both steps failing counts the tenant once", async () => {
+    const lines: ImportRetentionLogLine[] = [];
+    const repo = new FakeRepo(
+      tenants([[TENANT_A, 1, [4]], [TENANT_B, 1, [2]]]),
+      new Set([TENANT_B]),
+      new Set([TENANT_A, TENANT_B]),
+    );
+    const err = await processor(repo, lines).process(IMPORT_RETENTION_JOB_NAME, {}).catch((e: unknown) => e);
+
+    expect(err).toBeInstanceOf(ImportRetentionIncompleteError);
+    expect((err as ImportRetentionIncompleteError).result).toMatchObject({
+      tenants: 2,
+      expired: 1,
+      purgedBatches: 0,
+      failedTenants: 2,
+    });
+    expect(lines.filter((l) => l["message"] === "tenant_retention_failed").map((l) => l["step"])).toEqual([
+      "purge",
+      "expiry",
+      "purge",
+    ]);
   });
 
   it("a failing tenant listing fails the job", async () => {
@@ -270,7 +318,8 @@ describe("RT-1503 ImportRetentionProcessor", () => {
       expired: 1,
       purged_batches: 1,
       purged_rows: 4,
-      passes: 2,
+      // A: expiry + purge; B: its failed expiry, then its (empty) purge still runs.
+      passes: 3,
       failed_tenants: 1,
       duration_ms: expect.any(Number),
     });
