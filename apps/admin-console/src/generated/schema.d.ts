@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 7441b33d1f6b7f9f090c4a9963ecd6639c80e0c7
+// Source: Kemetra-Labs/Retail-Tower-Erp @ eb8a97dbd2cad8b78a09355f010a3c0dec9d4d56
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -44,6 +44,7 @@
 // - services/backend-core/packages/contracts/openapi/vouchers-admin.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/offers.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/catalog/catalog-import.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -11717,8 +11718,26 @@ export namespace SaleSyncOpsSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description not_found (404, 1.3.0-draft) — the quarantine ref does not resolve within the operator's (tenant, store) scope. Non-disclosing: identical for cross-tenant, out-of-scope and genuinely absent refs (FR-102). */
+            /** @description not_found (404, 1.3.0-draft) — the quarantine ref (on the list, the `store_id` filter) does not resolve within the operator's (tenant, store) scope, or the signed-in user's role is not `owner` or `tenant_admin` (RT-1312 comment 17812: a wrong role is 404, never 403). Non-disclosing: identical for cross-tenant, out-of-scope, wrong-role and genuinely absent refs (FR-102). */
             QuarantineNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description forbidden (403, 1.3.0-draft) — NEVER the answer to a wrong role on a quarantine operation: that is 404 (see `QuarantineNotFound`, RT-1312 comment 17812). A 403 here is only the route guard's fail-closed answer for a route without a declared role. */
+            QuarantineForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description forbidden (403, 1.3.0-draft) — NEVER the answer to a wrong role: that is 404 (see `QuarantineNotFound`, RT-1312 comment 17812). A 403 here is `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`; or the route guard's fail-closed answer for a route without a declared role. */
+            QuarantineForbiddenOrOriginRejected: {
                 headers: {
                     [name: string]: unknown;
                 };
@@ -11939,8 +11958,8 @@ export namespace SaleSyncOpsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
-                404: components["responses"]["NotFound"];
+                403: components["responses"]["QuarantineForbidden"];
+                404: components["responses"]["QuarantineNotFound"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
             };
@@ -11968,7 +11987,7 @@ export namespace SaleSyncOpsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                403: components["responses"]["Forbidden"];
+                403: components["responses"]["QuarantineForbidden"];
                 404: components["responses"]["QuarantineNotFound"];
                 429: components["responses"]["TooManyRequests"];
                 500: components["responses"]["SystemFailure"];
@@ -12000,7 +12019,7 @@ export namespace SaleSyncOpsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                403: components["responses"]["ForbiddenOrOriginRejected"];
+                403: components["responses"]["QuarantineForbiddenOrOriginRejected"];
                 404: components["responses"]["QuarantineNotFound"];
                 409: components["responses"]["QuarantineRepairConflict"];
                 429: components["responses"]["TooManyRequests"];
@@ -12037,7 +12056,7 @@ export namespace SaleSyncOpsSchema {
                 };
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
-                403: components["responses"]["ForbiddenOrOriginRejected"];
+                403: components["responses"]["QuarantineForbiddenOrOriginRejected"];
                 404: components["responses"]["QuarantineNotFound"];
                 409: components["responses"]["QuarantineRepairConflict"];
                 429: components["responses"]["TooManyRequests"];
@@ -12679,7 +12698,7 @@ export namespace InventorySchema {
             put?: never;
             /**
              * Close a Transfer, short-closing what is still in transit.
-             * @description RT-1512 (812). Moves a `received` Transfer to `closed` (`shortCloseReason` null). A `partially_received` Transfer, or an `in_transit` one, can be closed only as an approved short-close: the caller gives `shortCloseReason`, each line's remaining `inTransitQuantity` becomes its `shortClosedQuantity` and is written off as a loss (its ERP leg is decided with RT-1513 and RT-1514, see `posting-feed.yaml` 1.16.0-draft), and the Transfer is `closed`. Without a reason while any quantity is in transit the close is refused with 409 `short_close_reason_required`. A short-close needs the discrepancy approval capability: owner or tenant_admin. Closing a fully received Transfer: also a store_manager of the destination store. Idempotent via the `Idempotency-Key` header.
+             * @description RT-1512 (812). Moves a `received` Transfer to `closed` (`shortCloseReason` null). A `partially_received` Transfer, or an `in_transit` one, can be closed only as an approved short-close: the caller gives `shortCloseReason`, each line's remaining `inTransitQuantity` becomes its `shortClosedQuantity` and is written off as a loss (V1 keeps it in Backend-Core: an approved discrepancy, no ERP work item, see `posting-feed.yaml` 1.17.0-draft), and the Transfer is `closed`. Without a reason while any quantity is in transit the close is refused with 409 `short_close_reason_required`. A short-close needs the discrepancy approval capability: owner or tenant_admin. Closing a fully received Transfer: also a store_manager of the destination store. Idempotent via the `Idempotency-Key` header.
              */
             post: operations["closeShipmentTransfer"];
             delete?: never;
@@ -14537,7 +14556,7 @@ export namespace InventorySchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 409 — RT-1512 (RT-291 Gate 5). `shipment_transfer_not_in_state`: the command is not allowed in the Transfer's state (for example cancel after dispatch, or dispatch after the reservation expired). `cross_legal_entity_transfer`: the stores belong to different legal entities; that is a future intercompany workflow, not a Transfer (817, 963). `tracking_identity_required`: a tracked product's line has no tracking identity. `tracking_identity_held_or_expired`: the identity is under an active hold, or past its expiry at the source store's business date (G7-4). `serial_transfer_not_supported`: serial products cannot be transferred until the serial gate. `transfer_warehouse_unmapped`: the source, destination or tenant transit warehouse has no ERP mapping, so the Transfer fails closed (O2). `over_receipt_requires_approval`: a receipt line exceeds the line's in-transit quantity (813). `short_close_reason_required`: a close while quantity is still in transit has no short-close reason (812). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
+            /** @description 409 — RT-1512 (RT-291 Gate 5). `shipment_transfer_not_in_state`: the command is not allowed in the Transfer's state (for example cancel after dispatch, or dispatch after the reservation expired). `cross_legal_entity_transfer`: the stores belong to different legal entities; that is a future intercompany workflow, not a Transfer (817, 963). `tracking_identity_required`: a tracked product's line has no tracking identity. `tracking_identity_held_or_expired`: the identity is under an active hold, or past its expiry at the source store's business date (G7-4). `serial_transfer_not_supported`: serial products cannot be transferred until the serial gate. `transfer_warehouse_unmapped`: the source, destination or tenant transit warehouse has no ERP mapping, so the Transfer fails closed (O2). `transfer_item_unmapped`: a line's product has no confirmed ERP item mapping (or its tracking identity no ERP batch mapping), so it could never be posted (886). `over_receipt_requires_approval`: a receipt line exceeds the line's in-transit quantity (813). `short_close_reason_required`: a close while quantity is still in transit has no short-close reason (812). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. */
             ShipmentTransferConflict: {
                 headers: {
                     [name: string]: unknown;
@@ -24491,6 +24510,1239 @@ export namespace ConsoleForceActionsSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations;
+export namespace CatalogImportSchema {
+    export interface paths {
+        "/api/v1/catalog/imports": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Upload a CSV or XLSX file and open a draft import batch.
+             * @description Parses the file (type from content), and creates a `draft` batch at version 1 with its columns, a suggested mapping (header synonyms and the tenant's saved mapping profiles) and the parsed rows. Roles `owner` / `tenant_admin`. After the guards and the key format, the order is: size (413 while reading), SHA-256, the idempotent replay or `409 idempotency_key_conflict` (fingerprint: the key, the file SHA-256 and the canonical `mode`, `sheet`, `delimiter` and `file_name`), the open-batch rule (`409 import_batch_open`), then the parse (422). Audited as `catalog.import.upload`.
+             */
+            post: operations["consoleUploadCatalogImport"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Read one import batch.
+             * @description The batch in any state, with its file facts, columns, mapping, counts and `previewHash` when validated. Not audited per request.
+             */
+            get: operations["consoleGetCatalogImport"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/file": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Replace the file of an open batch (re-upload after fixing it).
+             * @description Re-upload (spec 049 §8.1): replaces the parsed rows of an open (`draft` or `validated`) batch with the new file, keeps the mode, returns the batch to `draft` and increments `version`. The new file is the merchant's fixed source file, never the error report (which is read-only). `mapping` becomes `null`: every entry of the previous mapping whose header text is unchanged (exact text after the trim; an empty header, or a header that appears more than once in either file, is never carried) is placed in `suggestedMapping` at the column's new `columnNumber`; the other columns get the upload's suggestion. The carried entries come first, which means they take priority: they are placed before any other suggestion is made, and the suggestion for the remaining columns (header synonyms and the tenant's mapping profiles) leaves out every field a carried entry already holds, except `barcode`, which may still be suggested while the carried and suggested `barcode` entries together stay at most 5. A carried entry is never replaced by a synonym or profile suggestion, and no canonical field is ever suggested twice (except `barcode` up to 5; `ignore` is not a field). Nothing is applied by itself: validate requires a non-null mapping (`422 mapping_required`), so the merchant confirms the mapping again with `consoleSetCatalogImportMapping` and no column is silently skipped (decision 419). Review decisions are dropped. Same body, limits and 413 / 422 file refusals as the upload. Idempotent by `expected_version`. Audited as `catalog.import.upload`.
+             */
+            put: operations["consoleReplaceCatalogImportFile"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/mapping": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Set the column mapping of an open batch.
+             * @description Maps every source column to one canonical field or `ignore`. Every column of the batch must appear exactly once (none is dropped silently, decision 419); a field at most once, `barcode` up to 5 times; mode `create` and `upsert` need `name` and `tax_category` mapped. Returns the batch to `draft` and increments `version`. With `saveProfileName`, the mapping (by header text) is also saved as the tenant's mapping profile of that name, replacing one of the same name. Audited as `catalog.import.map`.
+             */
+            put: operations["consoleSetCatalogImportMapping"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/validate": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Validate and match every row of an open batch.
+             * @description Applies the mapping, the field rules and the matching to every row, gives each row exactly one status, stores the counts, each matched product's `updatedAt` and the `previewHash`, and moves the batch to `validated` (version + 1). Allowed on a `draft` batch whose `mapping` is not `null`, and on a `validated` one (a re-check); a `null` mapping (a new upload, or after a re-upload) is `422 mapping_required`. As defence in depth, validate re-applies the mapping completeness rules of `consoleSetCatalogImportMapping` to the stored mapping and the batch's current columns (every column exactly once, a field at most once, `barcode` at most 5 times, `name` and `tax_category` for `create` / `upsert`); a failure is `422 mapping_invalid` and changes nothing. Each validate starts a new validation generation, which the row-list cursor is bound to. Synchronous (OD-7 A). Audited as `catalog.import.validate`.
+             */
+            post: operations["consoleValidateCatalogImport"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/rows": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * List the rows of a validated or published batch (keyset paginated).
+             * @description Rows in `rowNumber` order, optionally of one status, each with its cells, outcome, issues and review decision. A `draft`, `cancelled` or `expired` batch has no current outcomes: `409 import_batch_not_validated`. The keyset walk is bound to the validation generation (a new one only when validate runs), not to the batch `version`: a review decision between two pages does not end the walk. Each page shows the rows' current status and decision; the keyset is `rowNumber`, so no row appears twice, and with `status` a row is included by the status it has when its page is read. Not audited per request.
+             */
+            get: operations["consoleListCatalogImportRows"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/rows/{rowNumber}/resolution": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                    /** @description The row's number in the source sheet, the header being row 1 (so it matches what the merchant sees in the spreadsheet). A number with no row in the batch → 404. */
+                    rowNumber: components["parameters"]["RowNumber"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            /**
+             * Record the review decision for one row.
+             * @description On a `validated` batch, for a row whose validated status is `needs_review` or `error`. Actions (spec 049 §7.3): `create_new`, `update_product` (a product among the row's candidates, or for `possible_duplicate` the named product), `exclude`, or `clear` (undo the decision). Per reason: for `sku_mismatch`, `update_product` keeps the product's SKU and does not add the row's; for `store_scoped_conflict`, `create_new` and `update_product` leave the conflicting identifier out and list it as not added; `create_new` is not offered while an identifier on the row is active on another product. An `error` row takes only `exclude` and `clear`. The row's `status` after the decision: `create_new` → `ready_create`; `update_product` → `ready_update`; `exclude` → `excluded`; `clear` → the status validate gave it (`needs_review` or `error`), with `resolution` `null`. `reviewReason` and `issues` are kept. The batch stays `validated`, `version` + 1, and `previewHash` and `counts` are recomputed; the validation generation is unchanged, so a row-list walk in progress continues. Audited as `catalog.import.review` with the row number and action.
+             */
+            put: operations["consoleResolveCatalogImportRow"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/preview": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * The impact preview of a validated batch.
+             * @description What publish would do, for exactly `previewHash`: brands to create, products to create and update, identifiers to add, rows excluded and unchanged, the products taken off the tills by `is_active = false` (OD-17 A) and the new products that will have no price (spec 049 §6). The field-level before → after of each row is on its row (`consoleListCatalogImportRows`). Not audited per request.
+             */
+            get: operations["consoleGetCatalogImportPreview"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/publish": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Publish a validated, publishable batch in one transaction.
+             * @description Under the per-tenant import publish lock: checks `expectedVersion` and `previewHash` (`409 version_conflict` / `409 preview_changed`), that no row is `needs_review` or `error` (`409 import_not_publishable`), re-checks the catalogue (`409 stale_validation`, batch back to `draft`), then writes every brand create, product create and update, identifier add and audit row and the `published` transition in one transaction. A publish of an already `published` batch with its `previewHash` replays the stored result. Audited as `catalog.import.publish`, plus the per-product and per-identifier actions (OD-13 A).
+             */
+            post: operations["consolePublishCatalogImport"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/cancel": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Cancel an open batch.
+             * @description Moves a `draft` or `validated` batch to `cancelled` (version + 1), which frees the tenant's one open batch. Writes nothing to the catalogue. Audited as `catalog.import.cancel`.
+             */
+            post: operations["consoleCancelCatalogImport"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/imports/{batchId}/error-report": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Download the error report (CSV) of a validated batch.
+             * @description A UTF-8 CSV with a BOM, one line per `error` or `needs_review` row in `rowNumber` order: `row_number`, `status`, `issues` (each issue's code, field and message), then the row's source cells under their original headers. The report is read-only and is never re-uploaded: the merchant reads it, fixes the **source file** and re-uploads that (`consoleReplaceCatalogImportFile`, spec 049 §7.3). Every cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written with a leading `'` so a spreadsheet never evaluates it (CSV formula injection). That formula-guard `'` is part of the report's text, not of the value: a value copied from the report into the source file keeps the `'` and then does not match (identifiers are byte-exact) or fails its field rule, one more reason the report is not an import file. Same state rule as the row list. Not audited per request.
+             */
+            get: operations["consoleGetCatalogImportErrorReport"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/import-template": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Download the import template (CSV, Arabic or English headers).
+             * @description A UTF-8 CSV with a BOM and one header line naming every canonical field in the chosen language (each header is a synonym the auto-mapping recognises), including `price` and `currency`, which are recognised and not imported yet (spec 049 §6). No data rows. The same for every tenant. Not audited per request.
+             */
+            get: operations["consoleGetCatalogImportTemplate"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description `create`: an unmatched row creates, a matched row is the error `already_exists`. `update`: a matched row updates, an unmatched row is the error `not_found`. `upsert`: both.
+             * @enum {string}
+             */
+            ImportMode: "create" | "update" | "upsert";
+            /**
+             * @description Spec 042 §3 names (spec 049 §8.1). V1 returns `draft`, `validated`, `published`, `cancelled` and `expired` only; `pending_approval` and `approved` are reserved for the OD-12 approval hook and never returned by V1. Open = `draft` or `validated`.
+             * @enum {string}
+             */
+            BatchState: "draft" | "validated" | "pending_approval" | "approved" | "published" | "cancelled" | "expired";
+            /**
+             * @description Set by validate. A review decision then moves a `needs_review` or `error` row: `create_new` → `ready_create`, `update_product` → `ready_update`, `exclude` → `excluded`, `clear` → back to the status validate gave it (`needs_review` or `error`).
+             * @enum {string}
+             */
+            RowStatus: "ready_create" | "ready_update" | "unchanged" | "needs_review" | "error" | "excluded";
+            /** @enum {string} */
+            CsvDelimiter: "comma" | "semicolon" | "tab";
+            /** @enum {string} */
+            FileKind: "csv" | "xlsx";
+            /**
+             * @description Spec 049 §5. `sku`, `barcode`, `plu`: tenant-wide identifiers (1 to 200 characters, no control character, byte-exact). `name` (1 to 500), `description` (1 to 2000), `category` (exact name of an active category), `brand` (exact name of an active brand, else created, OD-3 B), `tax_category` (1 to 50), `is_active`. `price` and `currency` are recognised and never written (OD-2 A).
+             * @enum {string}
+             */
+            CanonicalField: "sku" | "barcode" | "plu" | "name" | "description" | "category" | "brand" | "tax_category" | "is_active" | "price" | "currency";
+            /** @description A canonical field, or `ignore` (the column is confirmed as not imported). */
+            MappingTarget: components["schemas"]["CanonicalField"] | "ignore";
+            /** @description The batch version; every change increments it (spec 042 optimistic concurrency). */
+            Version: number;
+            /** @description `sha256:` and the lowercase hex SHA-256 over the canonical JSON of the ordered row outcomes, field diffs, identifier adds, review decisions and the mode (spec 049 §8.2). Opaque to clients. */
+            PreviewHash: string;
+            Sha256Hex: string;
+            /**
+             * @description `error` and `review` block publish until fixed in the file or resolved; `warning` and `notice` never block.
+             * @enum {string}
+             */
+            IssueSeverity: "error" | "review" | "warning" | "notice";
+            /**
+             * @description Spec 049 §5–§7. Errors: `required_field_missing` (create needs `name` and `tax_category`), `value_invalid` (a cell breaks its field's rule; `field` names it), `identifier_numeric_cell` (an XLSX identifier stored as a number: format the column as Text), `identifier_formula_cell`, `identifier_non_ascii_digits` (Arabic-Indic digits in a `barcode` or `plu`, OD-15 A), `identifier_invisible_char` (a bidi mark or NBSP inside an identifier), `formula_without_value` (a formula with no cached value), `duplicate_in_file` (two rows share an identifier; both rows), `category_not_found` (OD-3 A), `product_retired`, `already_exists` (mode `create`, matched), `not_found` (mode `update`, unmatched). Review: `ambiguous` (the row's identifiers resolve to two or more products), `no_identifier` (create / upsert row with no identifier), `sku_mismatch`, `store_scoped_conflict`, `possible_duplicate` (a create whose exact name equals an active product's, with no identifier match; a hint, never a match). Warnings: `gtin_check_digit` (OD-16 A), `tax_category_unused` (a tax category the tenant never used), `store_scoped_same_product`, `deactivates_product` (OD-17 A). Notices: `price_not_imported` (OD-2 A), `whitespace_trimmed` (OD-10 A), `formula_cached_value`, `brand_created` (OD-3 B).
+             * @enum {string}
+             */
+            RowIssueCode: "required_field_missing" | "value_invalid" | "identifier_numeric_cell" | "identifier_formula_cell" | "identifier_non_ascii_digits" | "identifier_invisible_char" | "formula_without_value" | "duplicate_in_file" | "category_not_found" | "product_retired" | "already_exists" | "not_found" | "ambiguous" | "no_identifier" | "sku_mismatch" | "store_scoped_conflict" | "possible_duplicate" | "gtin_check_digit" | "tax_category_unused" | "store_scoped_same_product" | "deactivates_product" | "price_not_imported" | "whitespace_trimmed" | "formula_cached_value" | "brand_created";
+            /** @enum {string} */
+            ReviewReason: "ambiguous" | "no_identifier" | "sku_mismatch" | "store_scoped_conflict" | "possible_duplicate";
+            /**
+             * @description The tenant-wide identifier types an import reads and adds.
+             * @enum {string}
+             */
+            IdentifierType: "sku" | "barcode" | "plu";
+            IdentifierValue: string;
+            ImportIdentifier: {
+                type: components["schemas"]["IdentifierType"];
+                value: components["schemas"]["IdentifierValue"];
+            };
+            /** @description A product of the session's tenant named in an outcome (OD-11 A): its name and its ACTIVE tenant-wide identifiers. */
+            ProductRef: {
+                /** Format: uuid */
+                productId: string;
+                name: string;
+                identifiers: components["schemas"]["ImportIdentifier"][];
+            };
+            ImportColumn: {
+                /** @description 1-based position in the header row. */
+                columnNumber: number;
+                /** @description The header cell's text after trimming; may be empty. */
+                header: string;
+                /** @description Up to three non-blank values from the first data rows, for the mapping step. */
+                samples: string[];
+            };
+            ColumnMapping: {
+                columnNumber: number;
+                target: components["schemas"]["MappingTarget"];
+            };
+            ImportFileFacts: {
+                /** @description The `file_name` given at upload, or `null`. */
+                name: string | null;
+                sizeBytes: number;
+                sha256: components["schemas"]["Sha256Hex"];
+                kind: components["schemas"]["FileKind"];
+                /** @description The sheet read (XLSX); `null` for CSV. */
+                sheetName: string | null;
+                /** @description The delimiter used (CSV); `null` for XLSX. Shown for confirmation. */
+                csvDelimiter: components["schemas"]["CsvDelimiter"] | null;
+                dataRowCount: number;
+                columnCount: number;
+                parserVersion: string;
+            };
+            /** @description Rows per status; their sum is `file.dataRowCount` (no silent skip, decision 419). */
+            StatusCounts: {
+                ready_create: number;
+                ready_update: number;
+                unchanged: number;
+                needs_review: number;
+                error: number;
+                excluded: number;
+            };
+            /** @description `file_previously_published`: a batch of this tenant published in the last 30 days had the same file SHA-256 (spec 049 §8.4). Not a refusal. */
+            BatchWarning: {
+                /** @constant */
+                code: "file_previously_published";
+                /** Format: uuid */
+                publishedBatchId: string;
+                /** Format: date-time */
+                publishedAt: string;
+            };
+            CatalogImportBatch: {
+                /** Format: uuid */
+                batchId: string;
+                state: components["schemas"]["BatchState"];
+                version: components["schemas"]["Version"];
+                mode: components["schemas"]["ImportMode"];
+                file: components["schemas"]["ImportFileFacts"];
+                columns: components["schemas"]["ImportColumn"][];
+                /** @description The mapping set by the merchant; `null` until set, and `null` again after a re-upload (`consoleReplaceCatalogImportFile`) until the merchant confirms it. */
+                mapping: components["schemas"]["ColumnMapping"][] | null;
+                /** @description Server suggestion from header synonyms (Arabic and English) and the tenant's mapping profiles; after a re-upload, the previous mapping's entries whose header text is unchanged (exact match) come first: they take priority, and the suggestion for the other columns leaves out every field they already hold (`barcode` may still appear, at most 5 entries in total). Columns it cannot place are absent. A hint the merchant confirms with `consoleSetCatalogImportMapping`; never applied by itself. */
+                suggestedMapping: components["schemas"]["ColumnMapping"][];
+                /**
+                 * Format: uuid
+                 * @description The tenant mapping profile that `suggestedMapping` drew on, or `null` when no profile contributed. After a re-upload it names the profile used for the columns that were not carried, or is `null` when no profile contributed to them; the carried entries come from the batch's previous mapping, never from a profile, so it never names the profile of the previous file's suggestion only because entries were carried.
+                 */
+                mappingProfileId: string | null;
+                /** @description Rows per status once validated; `null` in `draft`, `cancelled` or `expired` without a validation. */
+                counts: components["schemas"]["StatusCounts"] | null;
+                /** @description Set when `validated` or `published`; `null` otherwise. */
+                previewHash: components["schemas"]["PreviewHash"] | null;
+                /** @description `validated` and no row is `needs_review` or `error`. */
+                publishable: boolean;
+                warnings: components["schemas"]["BatchWarning"][];
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                updatedAt: string;
+                /**
+                 * Format: date-time
+                 * @description When an open batch expires (7 days after its last change); `null` once closed.
+                 */
+                expiresAt: string | null;
+                /** Format: date-time */
+                publishedAt: string | null;
+            };
+            RowIssue: {
+                code: components["schemas"]["RowIssueCode"];
+                severity: components["schemas"]["IssueSeverity"];
+                /** @description The canonical field concerned, or `null` for a row-level issue. */
+                field: components["schemas"]["CanonicalField"] | null;
+                columnNumber: number | null;
+                /** @description Human-readable explanation with the fix, in the session's language. */
+                message: string;
+                /** @description The product the issue names (`already_exists`, `product_retired`, `sku_mismatch`, `possible_duplicate`), with its tenant-wide identifiers only (OD-11 A); absent or `null` otherwise. */
+                relatedProduct?: components["schemas"]["ProductRef"] | null;
+                /** @description For `duplicate_in_file`, the other row. */
+                relatedRowNumber?: number | null;
+            };
+            /** @description One field's before → after on an update (category and brand by name). */
+            FieldChange: {
+                /** @enum {string} */
+                field: "name" | "description" | "category" | "brand" | "tax_category" | "is_active";
+                before: string | null;
+                after: string | null;
+            };
+            RowOutcome: {
+                /** @enum {string} */
+                match: "no_match" | "match" | "ambiguous";
+                matchedProduct: components["schemas"]["ProductRef"] | null;
+                /** @description For a review row, the products a decision may choose. */
+                candidates: components["schemas"]["ProductRef"][];
+                fieldChanges: components["schemas"]["FieldChange"][];
+                identifierAdds: components["schemas"]["ImportIdentifier"][];
+                /** @description Identifiers left out by a review decision (`sku_mismatch`, `store_scoped_conflict`). */
+                identifiersNotAdded: components["schemas"]["ImportIdentifier"][];
+                /** @description The brand name this row would create (OD-3 B), or `null`. */
+                brandToCreate: string | null;
+            };
+            /** @enum {string} */
+            RowResolutionAction: "create_new" | "update_product" | "exclude";
+            /** @description A recorded review decision; the actor is in the audit trail, never on the wire. */
+            RowResolution: {
+                action: components["schemas"]["RowResolutionAction"];
+                /**
+                 * Format: uuid
+                 * @description The chosen product for `update_product`; `null` otherwise.
+                 */
+                productId: string | null;
+                /** Format: date-time */
+                decidedAt: string;
+            };
+            CatalogImportRow: {
+                rowNumber: number;
+                status: components["schemas"]["RowStatus"];
+                /** @description The parsed text of each source column, in column order, after the trim; `null` for a blank cell. A price cell is kept as text for provenance and never interpreted (spec 049 §6). */
+                cells: (string | null)[];
+                outcome: components["schemas"]["RowOutcome"];
+                issues: components["schemas"]["RowIssue"][];
+                /** @description The review reason of a row validated as `needs_review`, kept after a decision. */
+                reviewReason: components["schemas"]["ReviewReason"] | null;
+                resolution: components["schemas"]["RowResolution"] | null;
+                /**
+                 * Format: uuid
+                 * @description After publish, the product the row created or updated (provenance, decision 423).
+                 */
+                productId: string | null;
+            };
+            CatalogImportRowPage: {
+                /** Format: uuid */
+                batchId: string;
+                version: components["schemas"]["Version"];
+                items: components["schemas"]["CatalogImportRow"][];
+                /** @description The next page's cursor; only `null` ends the walk. */
+                nextCursor: string | null;
+            };
+            CatalogImportRowResolved: {
+                row: components["schemas"]["CatalogImportRow"];
+                version: components["schemas"]["Version"];
+                previewHash: components["schemas"]["PreviewHash"];
+                counts: components["schemas"]["StatusCounts"];
+                publishable: boolean;
+            };
+            DeactivatedProduct: {
+                rowNumber: number;
+                product: components["schemas"]["ProductRef"];
+            };
+            CatalogImportPreview: {
+                /** Format: uuid */
+                batchId: string;
+                version: components["schemas"]["Version"];
+                previewHash: components["schemas"]["PreviewHash"];
+                mode: components["schemas"]["ImportMode"];
+                publishable: boolean;
+                counts: components["schemas"]["StatusCounts"];
+                /** @description Brand names publish creates (OD-3 B), each once. */
+                brandsToCreate: string[];
+                productsToCreate: number;
+                productsToUpdate: number;
+                identifiersToAdd: number;
+                /** @description Products an update takes off every till (`is_active` → false, OD-17 A). */
+                deactivations: components["schemas"]["DeactivatedProduct"][];
+                /** @description Every created product: none has a price, so none reaches a till until priced in Pricing (spec 049 §6, F-4). */
+                newProductsWithoutPrice: number;
+                /** @description Rows that carried a price value, not imported (`price_not_imported`). */
+                rowsWithPriceNotImported: number;
+            };
+            PublishSummary: {
+                brandsCreated: number;
+                productsCreated: number;
+                productsUpdated: number;
+                identifiersAdded: number;
+                productsDeactivated: number;
+                rowsUnchanged: number;
+                rowsExcluded: number;
+            };
+            CatalogImportPublishResult: {
+                batch: components["schemas"]["CatalogImportBatch"];
+                summary: components["schemas"]["PublishSummary"];
+            };
+            ExpectedVersionRequest: {
+                expectedVersion: components["schemas"]["Version"];
+            };
+            SetCatalogImportMappingRequest: {
+                expectedVersion: components["schemas"]["Version"];
+                /** @description Every column of the batch exactly once. */
+                columns: components["schemas"]["ColumnMapping"][];
+                /** @description Also save this mapping as the tenant's profile of this name (replacing it). */
+                saveProfileName?: string;
+            };
+            ResolveCatalogImportRowRequest: {
+                expectedVersion: components["schemas"]["Version"];
+                /** @enum {string} */
+                action: "create_new" | "update_product" | "exclude" | "clear";
+                /**
+                 * Format: uuid
+                 * @description Required for, and only for, `update_product`.
+                 */
+                productId?: string;
+            };
+            PublishCatalogImportRequest: {
+                expectedVersion: components["schemas"]["Version"];
+                previewHash: components["schemas"]["PreviewHash"];
+            };
+            /** @description The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope). */
+            IdempotencyInProgressBody: {
+                /** @constant */
+                error: "idempotency_in_progress";
+                retryAfterSec: number;
+            };
+            /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII). */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /** Format: uuid */
+                    request_id?: string;
+                };
+            };
+            /** @description The upload's 409 body: the canonical envelope; when `error.code` is `import_batch_open` it also carries `error.openBatchId`, the open batch to resume or cancel. One schema (not a `oneOf` of overlapping envelopes), so every valid body matches exactly once. */
+            UploadConflictError: components["schemas"]["Error"] & {
+                error?: {
+                    /** @enum {string} */
+                    code?: "idempotency_key_conflict" | "import_batch_open";
+                    /** Format: uuid */
+                    openBatchId?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 400 `validation_error`: a malformed path or query value, an unknown or repeated query key, or a cursor the server did not issue for this query. Checked after the guards and before any database read. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400 on a write, `error.code` one of: `validation_error` (a malformed path or query value, an unknown or repeated query key, a body that does not match the request schema, an unknown or server-owned body key such as a tenant id); on the upload and the publish `idempotency_key_required` / `idempotency_key_malformed`. Nothing is written. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): no valid session cookie, whatever other credential is sent. Non-disclosing. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `origin_rejected` (RT-430): a cookie-authenticated write whose `Origin` is missing or not allowed. Nothing is written. */
+            OriginRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: identical for a role outside `owner` / `tenant_admin`, a batch of another tenant and an absent batch. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing: as `NotFound`, and a `rowNumber` with no row in the batch. Nothing is written. */
+            RowNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `idempotency_key_conflict` (the same `Idempotency-Key` with other file bytes, or with any of `mode`, `sheet`, `delimiter` or `file_name` different); `import_batch_open` (the tenant already has an open batch; `error.openBatchId` names it). Nothing is written. */
+            UploadConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["UploadConflictError"];
+                };
+            };
+            /** @description 409, `error.code` one of: `version_conflict` (`expectedVersion` is not the batch's current `version`; reload); `import_batch_closed` (the batch is `published`, `cancelled` or `expired`); on a review decision `import_batch_not_validated` (the batch is `draft`). Nothing is written. */
+            BatchConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 `import_batch_not_validated`: the batch has no current outcomes (it is `draft`, `cancelled` or `expired`). */
+            NotValidated: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409, `error.code` one of: `idempotency_key_conflict` (the same key with another body); `version_conflict`; `import_batch_not_validated` (`draft`); `import_batch_closed` (`cancelled`, `expired`, or `published` with another `previewHash`); `preview_changed` (the `previewHash` is not the batch's current one; re-read the preview); `import_not_publishable` (a row is `needs_review` or `error`); `stale_validation` (the catalogue changed since validation, or a conditional write failed inside the transaction; the batch is back in `draft` at the next version and nothing was published). Nothing is written, except the `draft` transition of `stale_validation`. */
+            PublishConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description `file_too_large` (413): the body is over 5 MiB; refused while reading, before parsing. */
+            FileTooLarge: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422, the file cannot be imported; `error.code` one of: `file_type_unsupported` (`.xls`, `.xlsm`, `.xlsb`, a macro-enabled or binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP); `encoding_not_utf8` (a CSV that is not UTF-8, or has a NUL byte: save as "CSV UTF-8", or upload XLSX, OD-8 A); `file_unreadable` (a corrupt workbook or a CSV quoting error); `xlsx_limits_exceeded` (over 200 ZIP entries or 50 MiB uncompressed); `sheet_not_found`; `header_missing` (no header row); `no_data_rows`; `too_many_rows` (over 5,000 data rows); `too_many_columns` (over 50); `cell_too_long` (a cell over 2,000 characters). Nothing is written. */
+            FileRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 `mapping_invalid`: a column of the batch is missing or listed twice, a `columnNumber` the batch does not have, a field mapped more than once (`barcode` more than 5 times), or mode `create` / `upsert` without `name` and `tax_category` mapped. Nothing is written. */
+            MappingRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 on validate, `error.code` one of: `mapping_required` (the batch's `mapping` is `null`: never set, or cleared by a re-upload; confirm it with `consoleSetCatalogImportMapping` first); `mapping_invalid` (the stored mapping fails the completeness rules of `consoleSetCatalogImportMapping` against the batch's current columns; defence in depth, set the mapping again). Nothing is written. */
+            ValidateMappingRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 `resolution_not_allowed`: the action is not offered for this row (its validated status is not `needs_review` or `error`, an `error` row with an action other than `exclude` / `clear`, `create_new` while an identifier on the row is active on another product, `clear` on a row with no decision), or `productId` is not one of the row's candidates. Nothing is written. */
+            ResolutionRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 425 `idempotency_in_progress`: the first request with this `Idempotency-Key` is still being processed. Retry after `Retry-After` seconds with the same key and body. */
+            IdempotencyInProgress: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterInProgress"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgressBody"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+            BatchId: string;
+            /** @description The row's number in the source sheet, the header being row 1 (so it matches what the merchant sees in the spreadsheet). A number with no row in the batch → 404. */
+            RowNumber: number;
+            /** @description REQUIRED on `consoleUploadCatalogImport` and `consolePublishCatalogImport`: 16 to 128 printable ASCII characters with no whitespace, keyed on the verified actor and tenant. Upload fingerprint: the key plus the file's SHA-256 plus the canonical query (`mode`, `sheet`, `delimiter`, `file_name`; each the decoded value compared byte for byte, with no Unicode normalisation; an absent one is distinct from any value, so an explicit `sheet` naming the default first sheet is not the same as no `sheet`); publish fingerprint: the key plus the body. Same fingerprint → replay with `Idempotent-Replayed: true`; same key, other fingerprint → 409 `idempotency_key_conflict`; still processing → 425 `idempotency_in_progress`. Missing → 400 `idempotency_key_required`; malformed → 400 `idempotency_key_malformed`. */
+            IdempotencyKey: string;
+            /** @description The batch's mode, fixed for the batch (decision 418). */
+            ImportModeQuery: components["schemas"]["ImportMode"];
+            /** @description The file's name as the merchant chose it, for display and audit only; it never decides the type. No control character, `/` or `\`. */
+            FileNameQuery: string;
+            /** @description XLSX only: the name of the one sheet to read (default the first). A name the workbook does not have → 422 `sheet_not_found`; given with a CSV file → 400 `validation_error`. */
+            SheetQuery: string;
+            /** @description CSV only: the delimiter to use instead of detecting it (a re-upload is how the merchant corrects a wrong detection, since the bytes are not stored). Given with an XLSX file → 400 `validation_error`. */
+            DelimiterQuery: components["schemas"]["CsvDelimiter"];
+            /** @description The batch `version` the caller last read (the body of a re-upload is the file, so the precondition is a query value). Not the current one → 409 `version_conflict`. */
+            ExpectedVersionQuery: number;
+            /** @description Only rows of this status. Absent → every row. */
+            RowStatusQuery: components["schemas"]["RowStatus"];
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the batch, its validation generation and `status` query filter: the value of the request's `status` parameter (absent is its own filter value), not any row's status, so a row whose status changes through a review decision does not invalidate the cursor, and the next page must repeat the same `status` parameter (another value, or dropping it, is 400 `validation_error`). The validation generation changes only when validate runs (`consoleValidateCatalogImport`); a review decision increments `version` but keeps the generation, so a walk survives it. A value the server did not issue for that query, or one issued under an older validation generation, is 400 `validation_error`; restart from the first page. */
+            Cursor: string;
+            /** @description Maximum rows per page. The server MAY return fewer. */
+            Limit: number;
+            /** @description The language of the template's header line (Arabic first). */
+            TemplateHeadersQuery: "ar" | "en";
+        };
+        requestBodies: {
+            /** @description The raw file bytes, at most 5 MiB, under any `Content-Type` (read as bytes). XLSX or UTF-8 CSV, decided from content only; the declared content type and the file name are ignored, so there is no `415`. The Admin Console sends `application/octet-stream`. */
+            ImportFile: {
+                content: {
+                    "*/*": unknown;
+                };
+            };
+        };
+        headers: {
+            /** @description `no-store`: the bodies carry tenant catalogue data and merchant file contents. */
+            CacheControlNoStore: "no-store";
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+            /** @description Present and `true` on a replay of `consoleUploadCatalogImport` (same key, same file bytes, same `mode`, `sheet`, `delimiter` and `file_name`) or `consolePublishCatalogImport` (same key and body, or an already `published` batch with its `previewHash`). Absent otherwise. */
+            IdempotentReplayed: boolean;
+            /** @description Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. */
+            RetryAfterInProgress: number;
+            /** @description `attachment` with an ASCII `filename` and a UTF-8 `filename*` (RFC 6266). */
+            ContentDispositionAttachment: string;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleUploadCatalogImport: {
+            parameters: {
+                query: {
+                    /** @description The batch's mode, fixed for the batch (decision 418). */
+                    mode: components["parameters"]["ImportModeQuery"];
+                    /** @description The file's name as the merchant chose it, for display and audit only; it never decides the type. No control character, `/` or `\`. */
+                    file_name?: components["parameters"]["FileNameQuery"];
+                    /** @description XLSX only: the name of the one sheet to read (default the first). A name the workbook does not have → 422 `sheet_not_found`; given with a CSV file → 400 `validation_error`. */
+                    sheet?: components["parameters"]["SheetQuery"];
+                    /** @description CSV only: the delimiter to use instead of detecting it (a re-upload is how the merchant corrects a wrong detection, since the bytes are not stored). Given with an XLSX file → 400 `validation_error`. */
+                    delimiter?: components["parameters"]["DelimiterQuery"];
+                };
+                header: {
+                    /** @description REQUIRED on `consoleUploadCatalogImport` and `consolePublishCatalogImport`: 16 to 128 printable ASCII characters with no whitespace, keyed on the verified actor and tenant. Upload fingerprint: the key plus the file's SHA-256 plus the canonical query (`mode`, `sheet`, `delimiter`, `file_name`; each the decoded value compared byte for byte, with no Unicode normalisation; an absent one is distinct from any value, so an explicit `sheet` naming the default first sheet is not the same as no `sheet`); publish fingerprint: the key plus the body. Same fingerprint → replay with `Idempotent-Replayed: true`; same key, other fingerprint → 409 `idempotency_key_conflict`; still processing → 425 `idempotency_in_progress`. Missing → 400 `idempotency_key_required`; malformed → 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: components["requestBodies"]["ImportFile"];
+            responses: {
+                /** @description The new `draft` batch. A retry with the same key, the same bytes and the same query replays this `201` with `Idempotent-Replayed: true`. */
+                201: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["UploadConflict"];
+                413: components["responses"]["FileTooLarge"];
+                422: components["responses"]["FileRejected"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetCatalogImport: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The batch. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleReplaceCatalogImportFile: {
+            parameters: {
+                query: {
+                    /** @description The batch `version` the caller last read (the body of a re-upload is the file, so the precondition is a query value). Not the current one → 409 `version_conflict`. */
+                    expected_version: components["parameters"]["ExpectedVersionQuery"];
+                    /** @description The file's name as the merchant chose it, for display and audit only; it never decides the type. No control character, `/` or `\`. */
+                    file_name?: components["parameters"]["FileNameQuery"];
+                    /** @description XLSX only: the name of the one sheet to read (default the first). A name the workbook does not have → 422 `sheet_not_found`; given with a CSV file → 400 `validation_error`. */
+                    sheet?: components["parameters"]["SheetQuery"];
+                    /** @description CSV only: the delimiter to use instead of detecting it (a re-upload is how the merchant corrects a wrong detection, since the bytes are not stored). Given with an XLSX file → 400 `validation_error`. */
+                    delimiter?: components["parameters"]["DelimiterQuery"];
+                };
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody: components["requestBodies"]["ImportFile"];
+            responses: {
+                /** @description The batch, back in `draft` at the next version, with `mapping` `null` and the kept columns in `suggestedMapping`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["BatchConflict"];
+                413: components["responses"]["FileTooLarge"];
+                422: components["responses"]["FileRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleSetCatalogImportMapping: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetCatalogImportMappingRequest"];
+                };
+            };
+            responses: {
+                /** @description The batch, in `draft` at the next version. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["BatchConflict"];
+                422: components["responses"]["MappingRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleValidateCatalogImport: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExpectedVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description The batch, `validated`, with its counts and `previewHash`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["BatchConflict"];
+                422: components["responses"]["ValidateMappingRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleListCatalogImportRows: {
+            parameters: {
+                query?: {
+                    /** @description Only rows of this status. Absent → every row. */
+                    status?: components["parameters"]["RowStatusQuery"];
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant, the batch, its validation generation and `status` query filter: the value of the request's `status` parameter (absent is its own filter value), not any row's status, so a row whose status changes through a review decision does not invalidate the cursor, and the next page must repeat the same `status` parameter (another value, or dropping it, is 400 `validation_error`). The validation generation changes only when validate runs (`consoleValidateCatalogImport`); a review decision increments `version` but keeps the generation, so a walk survives it. A value the server did not issue for that query, or one issued under an older validation generation, is 400 `validation_error`; restart from the first page. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description Maximum rows per page. The server MAY return fewer. */
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of rows. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportRowPage"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["NotValidated"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleResolveCatalogImportRow: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                    /** @description The row's number in the source sheet, the header being row 1 (so it matches what the merchant sees in the spreadsheet). A number with no row in the batch → 404. */
+                    rowNumber: components["parameters"]["RowNumber"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ResolveCatalogImportRowRequest"];
+                };
+            };
+            responses: {
+                /** @description The row with its decision, and the batch's new version and hash. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportRowResolved"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["RowNotFound"];
+                409: components["responses"]["BatchConflict"];
+                422: components["responses"]["ResolutionRejected"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetCatalogImportPreview: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The preview. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportPreview"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["NotValidated"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consolePublishCatalogImport: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on `consoleUploadCatalogImport` and `consolePublishCatalogImport`: 16 to 128 printable ASCII characters with no whitespace, keyed on the verified actor and tenant. Upload fingerprint: the key plus the file's SHA-256 plus the canonical query (`mode`, `sheet`, `delimiter`, `file_name`; each the decoded value compared byte for byte, with no Unicode normalisation; an absent one is distinct from any value, so an explicit `sheet` naming the default first sheet is not the same as no `sheet`); publish fingerprint: the key plus the body. Same fingerprint → replay with `Idempotent-Replayed: true`; same key, other fingerprint → 409 `idempotency_key_conflict`; still processing → 425 `idempotency_in_progress`. Missing → 400 `idempotency_key_required`; malformed → 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["PublishCatalogImportRequest"];
+                };
+            };
+            responses: {
+                /** @description Published (or a replay of the stored result, with `Idempotent-Replayed: true`). */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportPublishResult"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["PublishConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleCancelCatalogImport: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ExpectedVersionRequest"];
+                };
+            };
+            responses: {
+                /** @description The batch, `cancelled`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["CatalogImportBatch"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["BatchConflict"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetCatalogImportErrorReport: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The import batch id. Not a UUID → 400 `validation_error`; a batch of another tenant or absent → the non-disclosing 404. */
+                    batchId: components["parameters"]["BatchId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The report. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Content-Disposition": components["headers"]["ContentDispositionAttachment"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["NotValidated"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetCatalogImportTemplate: {
+            parameters: {
+                query?: {
+                    /** @description The language of the template's header line (Arabic first). */
+                    headers?: components["parameters"]["TemplateHeadersQuery"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The template. */
+                200: {
+                    headers: {
+                        "Content-Disposition": components["headers"]["ContentDispositionAttachment"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "text/csv": string;
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths & CatalogImportSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components & CatalogImportSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations & CatalogImportSchema.operations;
