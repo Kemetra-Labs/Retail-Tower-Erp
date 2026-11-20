@@ -29,7 +29,10 @@ export type PriceChangeSetConflictCode =
   | "change_set_invalid_state"
   | "change_set_not_validated"
   | "price_book_missing"
-  | "pricing_authority_legacy";
+  | "pricing_authority_legacy"
+  // RT-1484 PR-10b: submit, approve and publish.
+  | "stale_validation"
+  | "preview_changed";
 
 /** A 409 of the contract's `Conflict` list; nothing was written. */
 export class PriceChangeSetConflictError extends Error {
@@ -43,9 +46,12 @@ export type PriceChangeSetUnprocessableCode =
   | "change_set_empty"
   | "change_set_too_large"
   | "change_set_no_target_store"
-  | "lead_time_violation";
+  | "lead_time_violation"
+  // RT-1484 PR-10b: the contract's `SubmitUnprocessable` (submit, approve).
+  | "blocking_findings"
+  | "acknowledgement_required";
 
-/** A 422 of the contract's `ValidateUnprocessable` list; nothing was stored. */
+/** A 422 of the contract's `ValidateUnprocessable` or `SubmitUnprocessable` list; nothing was stored. */
 export class PriceChangeSetUnprocessableError extends Error {
   constructor(
     readonly code: PriceChangeSetUnprocessableCode,
@@ -53,6 +59,17 @@ export class PriceChangeSetUnprocessableError extends Error {
   ) {
     super(message);
     this.name = "PriceChangeSetUnprocessableError";
+  }
+}
+
+/**
+ * RT-1484 PR-10b: a 403 of the contract's `WriteForbidden` list, `self_approval_forbidden` (four
+ * eyes: a sensitive set approved by its author or submitter, or published with such an approval).
+ */
+export class PriceChangeSetForbiddenError extends Error {
+  constructor(readonly code: "self_approval_forbidden") {
+    super(code);
+    this.name = "PriceChangeSetForbiddenError";
   }
 }
 
@@ -107,6 +124,8 @@ export interface ChangeSetRow {
   rejected_by_user_id: string | null;
   rejected_at: Date | null;
   rejection_reason: string | null;
+  /** For a `published` set: `scheduled` or `active` at read time (spec 042 §3); else null. */
+  publication_status: "scheduled" | "active" | null;
   /** The keyset position, canonical UTC text with microseconds. */
   created_key: string;
 }
@@ -146,6 +165,12 @@ export interface PriceChangeSetBody {
   readonly summary: Readonly<Record<string, unknown>> | null;
 }
 
+/** `PublishPriceChangeSetResponse` (RT-1484 PR-10b). */
+export interface PublishPriceChangeSetBody {
+  readonly revisionNo: number;
+  readonly changeSet: PriceChangeSetBody;
+}
+
 export interface PriceChangeSetPageBody {
   readonly items: readonly PriceChangeSetHeaderBody[];
   readonly nextCursor: string | null;
@@ -158,8 +183,9 @@ function actor(userId: string | null, at: Date | null): ActorBody | null {
 const toNumber = (v: string | null): number | null => (v === null ? null : Number(v));
 
 /**
- * The header of a row. `publicationStatus` is null: a set reaches `published` only through the
- * publish of a later RT-1484 slice (PR-5), which computes it at read time (spec 042 §3).
+ * The header of a row. `publicationStatus` is computed at read time in SQL (spec 042 §3, RT-1484
+ * PR-10b): for a `published` set, `scheduled` until the earliest exact per-Store activation instant
+ * of its stored preview (its preview rows and membership changes), then `active`; null otherwise.
  */
 export function toHeaderBody(row: ChangeSetRow): PriceChangeSetHeaderBody {
   return {
@@ -168,7 +194,7 @@ export function toHeaderBody(row: ChangeSetRow): PriceChangeSetHeaderBody {
     title: row.title,
     reason: row.reason,
     state: row.state,
-    publicationStatus: null,
+    publicationStatus: row.publication_status,
     version: row.version,
     validatedAtRevision: toNumber(row.validated_at_revision),
     previewHash: row.preview_hash,

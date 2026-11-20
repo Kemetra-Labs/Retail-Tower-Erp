@@ -60,6 +60,18 @@ jest.mock("../../src/stores/deletion/store-deletion.write", () => ({
 }));
 
 // RT-1337: store create / delete refresh the offer Pack; these unit specs run on a bare fake client.
+// RT-1484 PR-5 (spec 042 §8): Store lifecycle writes take the pricing publish lock and write the
+// bootstrap row; these unit specs run on a bare fake client, so the helpers are recorded instead.
+const mockPricingCalls: string[] = [];
+jest.mock("../../src/common/pricing-store-lifecycle", () => ({
+  lockPricingPublish: jest.fn(async () => {
+    mockPricingCalls.push("lock");
+  }),
+  bootstrapStorePricing: jest.fn(async () => {
+    mockPricingCalls.push("bootstrap");
+  }),
+}));
+
 jest.mock("../../src/offers/offer-pack.rebuild", () => ({
   rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
 }));

@@ -28,8 +28,16 @@ import {
   resolvePricingAuthoringConfig,
 } from "../../src/pricing/change-sets/price-authoring.config";
 import {
+  isSelfApproval,
+  missingAcknowledgements,
+  requiredAcknowledgements,
+} from "../../src/pricing/change-sets/price-change-set-approval";
+import {
+  ApprovePriceChangeSetBodySchema,
   CreatePriceChangeSetBodySchema,
   ListChangeSetsQuerySchema,
+  RejectPriceChangeSetBodySchema,
+  SubmitPriceChangeSetBodySchema,
   UpdatePriceChangeSetBodySchema,
   VersionedBodySchema,
   isAfter,
@@ -212,6 +220,7 @@ const row = (over: Partial<ChangeSetRow> = {}): ChangeSetRow => ({
   rejected_by_user_id: null,
   rejected_at: null,
   rejection_reason: null,
+  publication_status: null,
   created_key: "2026-11-20T10:00:00.123456Z",
   ...over,
 });
@@ -308,7 +317,7 @@ describe("the authoring gate is structural (PricingAuthoringGuard)", () => {
 
   it("refuses every non-GET route of a tenant off the allowlist, and lets every GET through", () => {
     const writes = routes.filter((r) => r.method !== RequestMethod.GET);
-    expect(writes.map((r) => r.name).sort()).toEqual(["cancel", "create", "update", "validate"]);
+    expect(writes.map((r) => r.name).sort()).toEqual(["approve", "cancel", "create", "publish", "reject", "submit", "update", "validate"]);
     for (const r of routes) {
       const verb = RequestMethod[r.method!];
       if (r.method === RequestMethod.GET) {
@@ -330,5 +339,73 @@ describe("the authoring gate is structural (PricingAuthoringGuard)", () => {
 
   it("validate answers 200 (the contract documents 200 only)", () => {
     expect(Reflect.getMetadata(HTTP_CODE_METADATA, PriceChangeSetsController.prototype.validate)).toBe(200);
+  });
+
+  // RT-1484 PR-5: submit, approve, reject and publish document 200 only.
+  it.each(["submit", "approve", "reject", "publish"] as const)("%s answers 200", (handler) => {
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, PriceChangeSetsController.prototype[handler])).toBe(200);
+  });
+});
+
+// RT-1484 PR-5 (RT-282 PR-10b): the approval rules (spec 042 §5, §7; contract AcknowledgedFindings).
+describe("approval rules", () => {
+  const all = { replaces: true, invalidates_dependent: true, rounded_price: true };
+  const none = { replaces: false, invalidates_dependent: false, rounded_price: false };
+
+  it("submit needs rounded_price; straight to approved it also needs replaces and invalidates_dependent", () => {
+    expect(requiredAcknowledgements({ kind: "submit", straightToApproved: false }, all)).toEqual(["rounded_price"]);
+    expect(requiredAcknowledgements({ kind: "submit", straightToApproved: true }, all)).toEqual(["replaces", "invalidates_dependent", "rounded_price"]);
+    expect(requiredAcknowledgements({ kind: "submit", straightToApproved: true }, none)).toEqual([]);
+  });
+
+  it("approve needs replaces and invalidates_dependent, never rounded_price", () => {
+    expect(requiredAcknowledgements({ kind: "approve" }, all)).toEqual(["replaces", "invalidates_dependent"]);
+    expect(requiredAcknowledgements({ kind: "approve" }, { ...none, invalidates_dependent: true })).toEqual(["invalidates_dependent"]);
+  });
+
+  it("names every missing acknowledgement; an extra kind is allowed", () => {
+    expect(missingAcknowledgements(["replaces", "rounded_price"], undefined)).toEqual(["replaces", "rounded_price"]);
+    expect(missingAcknowledgements(["replaces"], ["replaces", "invalidates_dependent"])).toEqual([]);
+  });
+
+  it("four eyes: a sensitive (or unknown) set is not approved by its author or submitter", () => {
+    const set = { sensitive: true, createdBy: USER, submittedBy: T1 };
+    expect(isSelfApproval(set, USER)).toBe(true);
+    expect(isSelfApproval(set, T1)).toBe(true);
+    expect(isSelfApproval(set, T2)).toBe(false);
+    expect(isSelfApproval({ ...set, sensitive: null }, USER)).toBe(true);
+    expect(isSelfApproval({ ...set, sensitive: false }, USER)).toBe(false);
+  });
+
+  it("request bodies: approve needs the previewHash, reject a reason, findings never repeat", () => {
+    const hash = `sha256:${"a".repeat(64)}`;
+    expect(SubmitPriceChangeSetBodySchema.safeParse({ expectedVersion: 1 }).success).toBe(true);
+    expect(SubmitPriceChangeSetBodySchema.safeParse({ expectedVersion: 1, acknowledgedFindings: ["rounded_price", "rounded_price"] }).success).toBe(false);
+    expect(SubmitPriceChangeSetBodySchema.safeParse({ expectedVersion: 1, acknowledgedFindings: ["shadowed"] }).success).toBe(false);
+    expect(ApprovePriceChangeSetBodySchema.safeParse({ expectedVersion: 1 }).success).toBe(false);
+    expect(ApprovePriceChangeSetBodySchema.safeParse({ expectedVersion: 1, previewHash: hash, acknowledgedFindings: ["replaces"] }).success).toBe(true);
+    expect(ApprovePriceChangeSetBodySchema.safeParse({ expectedVersion: 1, previewHash: "sha256:XYZ" }).success).toBe(false);
+    expect(RejectPriceChangeSetBodySchema.safeParse({ expectedVersion: 1 }).success).toBe(false);
+    expect(RejectPriceChangeSetBodySchema.safeParse({ expectedVersion: 1, reason: "too deep", extra: 1 }).success).toBe(false);
+    for (const [name, body] of [
+      ["SubmitPriceChangeSetRequest", { expectedVersion: 1, acknowledgedFindings: ["rounded_price"] }],
+      ["ApprovePriceChangeSetRequest", { expectedVersion: 1, previewHash: hash }],
+      ["RejectPriceChangeSetRequest", { expectedVersion: 1, reason: "too deep" }],
+    ] as const) {
+      expect({ name, ok: schema(name)(body) }).toEqual({ name, ok: true });
+    }
+  });
+
+  it("a published set projects its publicationStatus", () => {
+    const at = new Date("2026-11-20T11:00:00Z");
+    const published = toHeaderBody(
+      row({
+        state: "published", validated_at_revision: "2", preview_hash: `sha256:${"a".repeat(64)}`, sensitive: true, revision_no: "3",
+        submitted_by_user_id: USER, submitted_at: at, approved_by_user_id: T1, approved_at: at, published_by_user_id: USER, published_at: at,
+        publication_status: "scheduled",
+      }),
+    );
+    expect(published.publicationStatus).toBe("scheduled");
+    if (!schema("PriceChangeSetHeader")(published)) throw new Error("PriceChangeSetHeader contract violation");
   });
 });

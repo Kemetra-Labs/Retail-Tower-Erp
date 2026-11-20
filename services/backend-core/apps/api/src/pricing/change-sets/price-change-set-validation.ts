@@ -297,6 +297,33 @@ class Validator {
     };
   }
 
+  /**
+   * RT-1484 PR-10b (spec 042 §3, Q-B8): the target Stores the stored lines reach now, computed by
+   * the same reach rule as `validate`, or null when a line can no longer be published as validated
+   * (its Zone was retired, it reaches no live Store, or a Store it reaches is no longer live).
+   */
+  targetStoresOf(lines: readonly StoredLineReach[]): TargetStore[] | null {
+    const byId = new Map<string, TargetStore>();
+    const add = (store: ValidationStore): boolean => {
+      byId.set(store.id, { storeId: store.id, timezone: store.timezone });
+      return store.live;
+    };
+    const zoneLive = (id: string | null): boolean => this.ctx.zones.get(id ?? "")?.live ?? false;
+    for (const l of lines) {
+      if (l.op === "move_store_zone") {
+        // A move into a Zone retired since validation is stale too (contract: publish).
+        const store = this.ctx.stores.get(l.storeId ?? "");
+        if (store === undefined || !add(store) || !zoneLive(l.priceZoneId)) return null;
+        continue;
+      }
+      if (l.scope === "zone" && !zoneLive(l.priceZoneId)) return null;
+      const target: Target = { position: 0, item: undefined as never, scope: l.scope, priceZoneId: l.priceZoneId, storeId: l.storeId, productId: "" };
+      const reached = this.reach(target, l.bounds);
+      if (reached.length === 0 || !reached.every((r) => add(r.store))) return null;
+    }
+    return sortTargetStores([...byId.values()]);
+  }
+
   // ---- materialization ----------------------------------------------------
 
   /** Every line before classification, in item order (a move keeps its item's place); 422 over the limit. */
@@ -745,6 +772,25 @@ export function checkBudget(
   const result = v.run(() => v.budget(items));
   if (probe !== undefined) probe.reachComputations = v.reachComputations;
   return result;
+}
+
+/** A stored line as the target-Store recheck reads it (RT-1484 PR-10b). */
+export interface StoredLineReach {
+  readonly op: string;
+  readonly scope: PriceScope;
+  readonly priceZoneId: string | null;
+  readonly storeId: string | null;
+  readonly bounds: Bounds;
+}
+
+/**
+ * RT-1484 PR-10b (spec 042 §3, Q-B8): the sorted target Stores the stored lines of a validated set
+ * reach at the context's head, or null when a line no longer reaches what it was validated for. A
+ * Store lifecycle change (create, delete, time-zone change) produces no revision, so `submit`,
+ * `approve` and `publish` compare this set's hash with the stored `targetStoreSetHash`.
+ */
+export function currentTargetStores(ctx: ValidationContext, lines: readonly StoredLineReach[]): TargetStore[] | null {
+  return new Validator(ctx).targetStoresOf(lines);
 }
 
 /** Every product, category and Store id the items name (lower case), for the loader. */

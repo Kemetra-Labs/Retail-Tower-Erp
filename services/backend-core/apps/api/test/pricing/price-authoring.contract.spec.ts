@@ -85,6 +85,11 @@ const CHANGE_SET_RUNTIME = new Set([
   // RT-1484 PR-4b (RT-282 PR-10a): validate and preview.
   "consoleValidatePriceChangeSet",
   "consoleGetPriceChangeSetPreview",
+  // RT-1484 PR-5 (RT-282 PR-10b): submit, approve, reject and publish.
+  "consoleSubmitPriceChangeSet",
+  "consoleApprovePriceChangeSet",
+  "consoleRejectPriceChangeSet",
+  "consolePublishPriceChangeSet",
 ]);
 
 /** The request body schema of every write (spec 042 §12: every transition carries expectedVersion). */

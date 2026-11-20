@@ -22,6 +22,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 
 import { PG_POOL } from "../../database";
 import type { ForceActionAuditActor } from "../../common/force-action-actor";
+import { lockPricingPublish } from "../../common/pricing-store-lifecycle";
 import { enforceForceActionCap } from "../../console-action-cap/force-action-cap";
 import { StoresRepository } from "../stores.repository";
 import { type ReauthBinding, ReauthGrantStore } from "./reauth-grant.store";
@@ -170,6 +171,8 @@ export class StoreDeletionService {
       purpose: "store_deletion",
     };
     return await runWithTenantContext(this.pool, { tenantId: input.tenantId, isPlatformAdmin: false }, async (client) => {
+      // RT-1484 (spec 042 §8): a Store deletion is a lifecycle write; the pricing publish lock first.
+      await lockPricingPublish(client, input.tenantId);
       const store = await this.stores.findByIdForUpdate(client, input.storeId);
       if (!store) throw storeNotFound();
       if (!(await this.grants.peek(input.reauthToken, binding))) throw reauthRequired();

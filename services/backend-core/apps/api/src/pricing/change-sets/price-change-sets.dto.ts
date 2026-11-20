@@ -169,6 +169,29 @@ export type UpdatePriceChangeSetBody = z.infer<typeof UpdatePriceChangeSetBodySc
 export const VersionedBodySchema = z.object({ expectedVersion: Version }).strict();
 export type VersionedBody = z.infer<typeof VersionedBodySchema>;
 
+// RT-1484 PR-10b: submit, approve and reject (`SubmitPriceChangeSetRequest`,
+// `ApprovePriceChangeSetRequest`, `RejectPriceChangeSetRequest`).
+const AcknowledgedFindings = z
+  .array(z.enum(["replaces", "invalidates_dependent", "rounded_price"]))
+  .refine((v) => new Set(v).size === v.length, "must not repeat a finding");
+
+export const SubmitPriceChangeSetBodySchema = z
+  .object({ expectedVersion: Version, acknowledgedFindings: AcknowledgedFindings.optional() })
+  .strict();
+export type SubmitPriceChangeSetBody = z.infer<typeof SubmitPriceChangeSetBodySchema>;
+
+export const ApprovePriceChangeSetBodySchema = z
+  .object({
+    expectedVersion: Version,
+    previewHash: z.string().regex(/^sha256:[0-9a-f]{64}$/, "must be sha256:<64 lower-case hex>"),
+    acknowledgedFindings: AcknowledgedFindings.optional(),
+  })
+  .strict();
+export type ApprovePriceChangeSetBody = z.infer<typeof ApprovePriceChangeSetBodySchema>;
+
+export const RejectPriceChangeSetBodySchema = z.object({ expectedVersion: Version, reason: Reason }).strict();
+export type RejectPriceChangeSetBody = z.infer<typeof RejectPriceChangeSetBodySchema>;
+
 const PageSize = z
   .string()
   .regex(/^\d{1,3}$/, "must be an integer from 1 to 200")
