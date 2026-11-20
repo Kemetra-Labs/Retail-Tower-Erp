@@ -557,6 +557,16 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "ConsoleForceActions",
     path: "services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml",
   },
+  // Console product import (RT-1502 contract, spec 049 S1; RT-1506 S6): the twelve operations
+  // `consoleUploadCatalogImport` .. `consoleGetCatalogImportTemplate` (upload, map, validate,
+  // review, preview, publish, cancel, error report, template). Composed only: nothing wraps
+  // them yet, the wizard screens are the following slices, and the runtime routes are RT-1505
+  // (S4) and the S5 slice. Consume-only; no YAML authored here. NEW SOURCE at the repin to
+  // `main` after RT-1502 (#717).
+  {
+    name: "CatalogImport",
+    path: "services/backend-core/packages/contracts/openapi/catalog/catalog-import.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */
