@@ -38,16 +38,22 @@ import type { PoolClient } from "pg";
 
 import { liveAndNamedStores } from "../../stores";
 import type { PriceChangeItem } from "./price-change-sets.dto";
-import { PriceChangeSetConflictError, PriceChangeSetRollbackBlockedError, type ChangeSetState } from "./price-change-sets.projections";
+import {
+  PriceChangeSetConflictError,
+  PriceChangeSetRollbackBlockedError,
+  PriceChangeSetUnprocessableError,
+  type ChangeSetState,
+} from "./price-change-sets.projections";
+import { EARLIEST_ACTIVATION } from "./price-change-set-staleness";
 
 type Queryable = Pick<PoolClient, "query">;
 
 /** The contract caps a set at 500 items, and a product selector at 5 000 ids. */
-export const MAX_ROLLBACK_ITEMS = 500;
+const MAX_ROLLBACK_ITEMS = 500;
 const MAX_PRODUCTS_PER_ITEM = 5000;
 
 /** A rollback the generator cannot express exactly (a key that mixes time bases, a sub-second local bound). */
-export class RollbackUnsupportedError extends Error {
+class RollbackUnsupportedError extends Error {
   constructor(message: string) {
     super(message);
     this.name = "RollbackUnsupportedError";
@@ -120,22 +126,57 @@ async function rollbackTarget(client: Queryable, tenantId: string, id: string, s
  * The rollback's target, refused unless rollbackable (create and validate): `409 rollback_blocked`
  * when a later revision touched its keys (a `superseded` target always is: later revisions ended
  * its rows, spec 042 §8), else `409 change_set_invalid_state` unless it is `published` (not a
- * draft, rolled back or the system legacy import).
+ * draft, rolled back, the system legacy import, or itself a rollback set).
  */
 export async function requireRollbackable(client: Queryable, tenantId: string, id: string): Promise<RollbackTarget> {
   const target = await rollbackTarget(client, tenantId, id, ["published", "superseded"]);
   if (target === null) throw new PriceChangeSetConflictError("change_set_invalid_state");
+  // Review round 1 (t1): a rollback is not rolled back (no redo chain in v1).
+  if (target.kind === "rollback") {
+    throw new PriceChangeSetConflictError("change_set_invalid_state", "A rollback Change Set is not rolled back; author a corrective Change Set instead.");
+  }
   const blocking = await blockingRevisions(client, tenantId, target.revisionNo);
   if (blocking.length > 0) throw new PriceChangeSetRollbackBlockedError(blocking);
   if (target.state !== "published") throw new PriceChangeSetConflictError("change_set_invalid_state");
   return target;
 }
 
-/** At publish (under the publish lock): the target while it is still `published` and unblocked, else null. */
-export async function publishableRollbackTarget(client: Queryable, tenantId: string, id: string): Promise<RollbackTarget | null> {
-  const target = await rollbackTarget(client, tenantId, id, ["published"]);
-  if (target === null || (await blockingRevisions(client, tenantId, target.revisionNo)).length > 0) return null;
-  return target;
+/**
+ * Owner decision (RT-1484 PR-6, m2): a rollback takes effect from publish time. A rollback whose
+ * restore would start more than this before now is refused: an explicit `from` at create (`422
+ * rollback_from_past`), a validated set at publish (`409 stale_validation`, re-validation then
+ * regenerates from now). The window covers normal approve-then-publish latency.
+ */
+export const ROLLBACK_FROM_SKEW_MS = 15 * 60_000;
+
+/** The rollback set at publish, as the check reads it. */
+export interface PublishingRollback {
+  readonly tenantId: string;
+  readonly changeSetId: string;
+  readonly version: number;
+  readonly targetId: string;
+  readonly nowMs: number;
+}
+
+/**
+ * At publish (under the publish lock): the target while it is still `published` and unblocked and
+ * the set's earliest exact activation is within `ROLLBACK_FROM_SKEW_MS` of now; else the stale
+ * reason (`rollback_blocked` or `rollback_from_past`).
+ */
+export async function publishableRollbackTarget(
+  client: Queryable,
+  p: PublishingRollback,
+): Promise<{ readonly target: RollbackTarget } | { readonly stale: "rollback_blocked" | "rollback_from_past" }> {
+  const target = await rollbackTarget(client, p.tenantId, p.targetId, ["published"]);
+  if (target === null || (await blockingRevisions(client, p.tenantId, target.revisionNo)).length > 0) return { stale: "rollback_blocked" };
+  const r = await client.query<{ at: Date | null }>(`SELECT ${EARLIEST_ACTIVATION("$1::uuid", "$2::uuid", "$3")} AS at`, [
+    p.tenantId,
+    p.changeSetId,
+    p.version,
+  ]);
+  const at = r.rows[0]?.at ?? null;
+  if (at !== null && at.getTime() < p.nowMs - ROLLBACK_FROM_SKEW_MS) return { stale: "rollback_from_past" };
+  return { target };
 }
 
 /** One row of a timeline: `[from, to)` in epoch microseconds (wall clock for `store_local`), and its value. */
@@ -160,12 +201,35 @@ function pointsFrom(start: bigint, ...timelines: (readonly Row[])[]): bigint[] {
   return [...all].sort((x, y) => (x < y ? -1 : x > y ? 1 : 0));
 }
 
-/** The first instant at or after `start` where the two timelines hold different values (null: none). */
-function firstDifference(head: readonly Row[], before: readonly Row[], start: bigint, value: (r: Row | undefined) => string | null): bigint | null {
-  for (const p of pointsFrom(start, head, before)) {
-    if (value(covering(head, p)) !== value(covering(before, p))) return p;
-  }
-  return null;
+/** A maximal interval `[from, to)` (open when `to` is null) where the two timelines differ. */
+interface Segment {
+  from: bigint;
+  to: bigint | null;
+}
+
+/**
+ * Review round 1 (m1): the intervals at or after `start` where the head and the R − 1 timelines
+ * hold different values, adjacent ones merged, ascending. Both timelines are constant between two
+ * consecutive bounds, so each elementary interval is judged at its start. Empty: nothing differs.
+ */
+function differingSegments(head: readonly Row[], before: readonly Row[], start: bigint, value: (r: Row | undefined) => string | null): Segment[] {
+  const points = pointsFrom(start, head, before);
+  const out: Segment[] = [];
+  points.forEach((p, i) => {
+    if (value(covering(head, p)) === value(covering(before, p))) return;
+    const to = points[i + 1] ?? null;
+    const last = out[out.length - 1];
+    if (last !== undefined && last.to === p) last.to = to;
+    else out.push({ from: p, to });
+  });
+  return out;
+}
+
+/** `row` clipped to `seg`, or null when they do not meet. */
+function clipRow(row: Row, seg: Segment): Segment | null {
+  const from = row.from > seg.from ? row.from : seg.from;
+  const to = row.to === null ? seg.to : seg.to === null ? row.to : row.to < seg.to ? row.to : seg.to;
+  return to !== null && to <= from ? null : { from, to };
 }
 
 const floorDiv = (a: bigint, b: bigint): bigint => (a % b < 0n ? a / b - 1n : a / b);
@@ -254,18 +318,26 @@ async function fromBounds(client: Queryable, tenantId: string, from: string, nam
   return { absolute, local };
 }
 
-/** The items restoring one priced key from `s0` on, or none. */
+/**
+ * The items restoring one priced key from the rollback instant on, or none (review round 1, m1):
+ *   - where every differing interval holds an R − 1 price, one `set_price` per R − 1 event clipped
+ *     to each differing interval; rows where the head already equals R − 1 are left alone (an
+ *     older set's untouched rows stay its own);
+ *   - where the head holds a price R − 1 did not (R priced an empty interval), only an open
+ *     `end_price` can remove it, so the key is ended at the first difference `s0` and every R − 1
+ *     event after `s0` is re-created. Known v1 limitation: later rows of older sets on the key are
+ *     then re-written at their own prices and those sets may become `superseded`.
+ */
 function keyItems(rows: readonly EventRow[], start: bigint): PriceChangeItem[] {
   const bases = new Set(rows.map((r) => r.basis));
   if (bases.size > 1) throw new RollbackUnsupportedError("a price key mixes time bases between the target revision and the head");
   const basis = rows[0]!.basis;
   const toRow = (e: EventRow): Row => ({ from: BigInt(e.f), to: e.t === null ? null : BigInt(e.t), value: e.price });
   const head = rows.filter((e) => e.head).map(toRow);
-  const before = rows.filter((e) => e.prior).map(toRow);
-  const value = (r: Row | undefined): string | null => r?.value ?? null;
-  const s0 = firstDifference(head, before, start, value);
-  if (s0 === null) return [];
-  const needsEnd = pointsFrom(s0, head, before).some((p) => covering(head, p) !== undefined && covering(before, p) === undefined);
+  const before = rows.filter((e) => e.prior).map(toRow).sort((x, y) => (x.from < y.from ? -1 : 1));
+  const segments = differingSegments(head, before, start, (r) => r?.value ?? null);
+  if (segments.length === 0) return [];
+  const needsEnd = segments.some((seg) => covering(before, seg.from) === undefined);
   const text = basis === "absolute" ? instantText : localText;
   const sample = rows[0]!;
   const scope =
@@ -275,52 +347,58 @@ function keyItems(rows: readonly EventRow[], start: bigint): PriceChangeItem[] {
         ? { kind: "zone" as const, zoneId: sample.zone! }
         : { kind: "stores" as const, storeIds: [sample.store!] };
   const products = { kind: "items" as const, productIds: [sample.product] };
+  const s0 = segments[0]!.from;
   const out: PriceChangeItem[] = [];
   if (needsEnd) out.push({ op: "end_price", scope, products, sellUnit: "each", timeBasis: basis, effectiveFrom: text(s0) });
-  for (const r of [...before].sort((x, y) => (x.from < y.from ? -1 : 1))) {
-    if (r.to !== null && r.to <= s0) continue;
-    const from = r.from > s0 ? r.from : s0;
-    out.push({
-      op: "set_price",
-      scope,
-      products,
-      sellUnit: "each",
-      price: r.value,
-      timeBasis: basis,
-      effectiveFrom: text(from),
-      ...(r.to === null ? {} : { effectiveTo: text(r.to) }),
-    });
+  const spans: readonly Segment[] = needsEnd ? [{ from: s0, to: null }] : segments;
+  for (const span of spans) {
+    for (const r of before) {
+      const part = clipRow(r, span);
+      if (part === null) continue;
+      out.push({
+        op: "set_price",
+        scope,
+        products,
+        sellUnit: "each",
+        price: r.value,
+        timeBasis: basis,
+        effectiveFrom: text(part.from),
+        ...(part.to === null ? {} : { effectiveTo: text(part.to) }),
+      });
+    }
   }
   return out;
 }
 
-/** The moves restoring one Store's Zone timeline from `s0` on, or none. */
+/**
+ * The moves restoring one Store's Zone timeline from the rollback instant on, or none: one move per
+ * differing interval into the R − 1 Zone (the default Zone where R − 1 had no membership, which
+ * resolves identically); intervals where the head already equals R − 1 are left alone (review
+ * round 1, m1), so an older set's later membership is not re-written.
+ */
 function storeMoves(storeId: string, rows: readonly MembershipRow[], start: bigint, defaultZoneId: string): PriceChangeItem[] {
   const toRow = (m: MembershipRow): Row => ({ from: BigInt(m.f), to: m.t === null ? null : BigInt(m.t), value: m.zone });
   const head = rows.filter((m) => m.head).map(toRow);
   const before = rows.filter((m) => m.prior).map(toRow);
   const zone = (r: Row | undefined): string => r?.value ?? defaultZoneId;
-  const s0 = firstDifference(head, before, start, zone);
-  if (s0 === null) return [];
-  const all = [...head, ...before];
-  // The moves cover [s0, end): the last bound either timeline has (open when either is open).
-  const end = all.some((r) => r.to === null) ? null : all.reduce<bigint>((m, r) => (r.to! > m ? r.to! : m), s0);
-  if (end !== null && end <= s0) return [];
-  const bounds = pointsFrom(s0, head, before).filter((p) => end === null || p < end);
-  const segments: { from: bigint; to: bigint | null; zone: string }[] = [];
-  bounds.forEach((p, i) => {
-    const to = bounds[i + 1] ?? end;
-    const z = zone(covering(before, p));
-    const last = segments[segments.length - 1];
-    if (last !== undefined && last.zone === z) last.to = to;
-    else segments.push({ from: p, to, zone: z });
-  });
-  return segments.map((s) => ({
+  const moves: { from: bigint; to: bigint | null; zone: string }[] = [];
+  for (const seg of differingSegments(head, before, start, zone)) {
+    // Inside one differing interval R − 1 may still change Zone: one move per R − 1 Zone.
+    const points = pointsFrom(seg.from, before).filter((p) => seg.to === null || p < seg.to);
+    points.forEach((p, i) => {
+      const z = zone(covering(before, p));
+      const to = points[i + 1] ?? seg.to;
+      const last = moves[moves.length - 1];
+      if (last !== undefined && last.to === p && last.zone === z) last.to = to;
+      else moves.push({ from: p, to, zone: z });
+    });
+  }
+  return moves.map((m) => ({
     op: "move_store_zone" as const,
     storeId,
-    zoneId: s.zone,
-    effectiveFrom: instantText(s.from),
-    ...(s.to === null ? {} : { effectiveTo: instantText(s.to) }),
+    zoneId: m.zone,
+    effectiveFrom: instantText(m.from),
+    ...(m.to === null ? {} : { effectiveTo: instantText(m.to) }),
   }));
 }
 
@@ -358,6 +436,26 @@ function merge(items: readonly PriceChangeItem[]): PriceChangeItem[] {
  * under the tenant's publish lock, so no revision after R touched these keys: the head is R's.
  */
 export async function rollbackItems(client: Queryable, input: RollbackInput): Promise<PriceChangeItem[]> {
+  const items = await generatedItems(client, input).catch((err: unknown) => {
+    // Review round 1 (m3): a key the items cannot express exactly is a 422, never a 500.
+    if (err instanceof RollbackUnsupportedError) {
+      throw new PriceChangeSetUnprocessableError("rollback_unsupported", "The rollback cannot be expressed exactly as Change Set items; author a corrective Change Set.");
+    }
+    throw err;
+  });
+  if (items.length === 0) {
+    throw new PriceChangeSetUnprocessableError("change_set_empty", "Nothing the target's revision changed differs from the rollback instant on.");
+  }
+  if (items.length > MAX_ROLLBACK_ITEMS) {
+    throw new PriceChangeSetUnprocessableError(
+      "change_set_too_large",
+      `The rollback needs more than ${MAX_ROLLBACK_ITEMS} items; author corrective Change Sets instead.`,
+    );
+  }
+  return items;
+}
+
+async function generatedItems(client: Queryable, input: RollbackInput): Promise<PriceChangeItem[]> {
   const events = await client.query<EventRow>(
     `WITH ${TOUCHED}
      SELECT e.scope, e.price_zone_id::text AS zone, e.store_id::text AS store, e.product_id::text AS product,
@@ -385,7 +483,9 @@ export async function rollbackItems(client: Queryable, input: RollbackInput): Pr
   const byKey = new Map<string, EventRow[]>();
   for (const e of events.rows) {
     const key = `${e.scope}|${e.zone ?? ""}|${e.store ?? ""}|${e.product}`;
-    byKey.set(key, [...(byKey.get(key) ?? []), e]);
+    const group = byKey.get(key);
+    if (group === undefined) byKey.set(key, [e]);
+    else group.push(e);
   }
   const ends: PriceChangeItem[] = [];
   const prices: PriceChangeItem[] = [];
@@ -395,7 +495,27 @@ export async function rollbackItems(client: Queryable, input: RollbackInput): Pr
     for (const item of keyItems(rows, start)) (item.op === "end_price" ? ends : prices).push(item);
   }
   const byStore = new Map<string, MembershipRow[]>();
-  for (const m of memberships.rows) byStore.set(m.store, [...(byStore.get(m.store) ?? []), m]);
+  for (const m of memberships.rows) {
+    // Review round 1 (Atlassian 4642337989): append in place, never copy the group per row.
+    const group = byStore.get(m.store);
+    if (group === undefined) byStore.set(m.store, [m]);
+    else group.push(m);
+  }
   const moves = [...byStore].flatMap(([store, rows]) => storeMoves(store, rows, from.absolute, input.defaultZoneId));
   return [...merge(ends), ...merge(prices), ...moves];
+}
+
+/** JSON with object keys sorted at every level. */
+function canonicalJson(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(canonicalJson).join(",")}]`;
+  if (value !== null && typeof value === "object") {
+    const entries = Object.entries(value as Record<string, unknown>).sort(([x], [y]) => (x < y ? -1 : x > y ? 1 : 0));
+    return `{${entries.map(([k, v]) => `${JSON.stringify(k)}:${canonicalJson(v)}`).join(",")}}`;
+  }
+  return JSON.stringify(value);
+}
+
+/** Whether two item lists are equal, key order aside (stored items come back from jsonb, which reorders keys). */
+export function sameItems(a: readonly PriceChangeItem[], b: readonly PriceChangeItem[]): boolean {
+  return canonicalJson(a) === canonicalJson(b);
 }

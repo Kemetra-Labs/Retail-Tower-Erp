@@ -94,7 +94,21 @@ const P = {
   stale: a("16b5fa"),
   nothing: a("16b5fb"),
   superseded: a("16b5fc"),
+  // Review round 1 (m1, m3, m6) and the owner decision on m2.
+  zone: a("16b5fd"),
+  store: a("16b5fe"),
+  multi: a("16b5ff"),
+  older: a("16b5f100"),
+  mz: a("16b5f101"),
+  unsup: a("16b5f102"),
+  publish: a("16b5f103"),
+  late: a("16b5f104"),
+  tokyo: a("16b5f105"),
+  added: a("16b5f106"),
 };
+
+/** CodeRabbit 4642366476: the service clock is pinned for the whole suite, before the first fixture. */
+const PINNED = "2026-12-01T00:00:00Z";
 
 const at = (instant: string) => ({ timeBasis: "absolute", effectiveFrom: instant });
 const items = (productIds: string[]) => ({ kind: "items", productIds });
@@ -270,6 +284,7 @@ beforeAll(async () => {
   ];
   process.env["PRICING_AUTHORING_TENANT_ALLOWLIST"] = `${TENANT_A},${TENANT_B}`;
   app = await bootScopedApp(env, PriceChangeSetsModule, undefined, { authLookupPool: env.admin, providers });
+  app.get(PriceChangeSetsService).clock = () => Date.parse(PINNED);
 }, 240_000);
 
 afterAll(async () => {
@@ -319,6 +334,28 @@ function ok(res: request.Response): ChangeSet {
   expectValid("PriceChangeSet", res.body);
   return res.body as ChangeSet;
 }
+
+/** Runs `work` with the service clock at `iso`; the pinned clock is restored in `finally`. */
+async function atClock<T>(iso: string, work: () => Promise<T>): Promise<T> {
+  const service = app!.get(PriceChangeSetsService);
+  service.clock = () => Date.parse(iso);
+  try {
+    return await work();
+  } finally {
+    service.clock = () => Date.parse(PINNED);
+  }
+}
+
+/** A Store of the tenant in `timezone`, created through the Store lifecycle (it takes the publish lock). */
+async function newStore(code: string, timezone: string): Promise<{ id: string }> {
+  const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+  const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+  return stores.create(ctx, { code, name: `RT-1484 rollback ${code}`, timezone });
+}
+
+const dropStore = async (id: string): Promise<void> => {
+  await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [id]);
+};
 
 async function approvedSet(created: ChangeSet, author: Session = SES_OWNER_ALL): Promise<ChangeSet> {
   const v = ok(await send(op(created.header.id, "validate"), author, { expectedVersion: created.header.version }));
@@ -401,6 +438,8 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
         price: "100.0000",
         timeBasis: "absolute",
         effectiveFrom: "2031-03-01T00:00:00.000000Z",
+        // Review round 1 (m1): only the interval where the head differs is restored.
+        effectiveTo: "2031-06-01T00:00:00.000000Z",
       },
     ]);
     const replay = await rollback(target.set.header.id, { from: "2031-03-01T00:00:00Z", reason: "Wrong price" }, SES_OWNER_ALL, k);
@@ -450,6 +489,9 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     expect(await priceAt(P.basic, "2033-01-01T00:00:00Z")).toBe("100.0000");
     // As known at the target's revision, nothing changed (no history is rewritten).
     expect(await priceAt(P.basic, "2031-04-01T00:00:00Z", target.revisionNo)).toBe("120.0000");
+    // Review round 1 (m6): the same at a Store in another time zone (absolute key: exact instant).
+    expect(await priceAt(P.basic, "2031-02-28T23:59:59Z", undefined, STORE_A_Y, "America/New_York")).toBe("120.0000");
+    expect(await priceAt(P.basic, "2031-03-01T00:00:00Z", undefined, STORE_A_Y, "America/New_York")).toBe("100.0000");
 
     // The per-line record and the fan-out (a Book line: every live Store).
     const lines = await env!.admin.query<{ event: boolean; results: number }>(
@@ -457,6 +499,10 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
       [rb.header.id],
     );
     expect(lines.rows).toEqual([{ event: true, results: 1 }]);
+    // Review round 1 (t1): a rollback set is not rolled back.
+    const again = await rollback(rb.header.id);
+    refused(again, 409, "change_set_invalid_state");
+    expect((again.body as { error: { message: string } }).error.message).toMatch(/corrective/);
     const fan = await env!.admin.query<{ store: string }>(
       `SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`,
       [TENANT_A, before + 1],
@@ -579,9 +625,17 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     status(await publish(await approvedSet(rb)), 200);
     expect(await priceAt(P.local, "2072-01-01T00:00:00Z")).toBe("50.0000");
     expect(await priceAt(P.local, "2071-03-01T00:00:00Z")).toBe("55.0000");
+    // Review round 1 (m6) and CodeRabbit 4642366494: each Store activates at the shared wall clock
+    // in its own zone, never before `from` (UTC exactly at it; New York, west, four hours later).
+    const wall = Date.parse(`${item.effectiveFrom}Z`);
+    const utc = (ms: number): string => new Date(ms).toISOString();
+    expect(await priceAt(P.local, utc(wall - 1000), undefined, STORE_A_X, "UTC")).toBe("55.0000");
+    expect(await priceAt(P.local, utc(wall), undefined, STORE_A_X, "UTC")).toBe("50.0000");
+    expect(await priceAt(P.local, utc(wall + 4 * 3_600_000 - 1000), undefined, STORE_A_Y, "America/New_York")).toBe("55.0000");
+    expect(await priceAt(P.local, utc(wall + 4 * 3_600_000), undefined, STORE_A_Y, "America/New_York")).toBe("50.0000");
   });
 
-  it("rollback_blocked: a later revision superseded the target's rows or priced a key it touched; newest first works", async () => {
+  it("rollback_blocked: a later revision superseded the target's rows or priced a key it touched; the later set itself rolls back", async () => {
     if (skip()) return;
     const first = await published({ items: [bookPrice(P.blocked, "70", "2060-01-01T00:00:00Z")] });
     // `second` supersedes every row of `first`: `first` is `superseded`, and its rollback is blocked.
@@ -595,8 +649,10 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     expect(conflict(blocked.body)).toBe(true);
     expectValid("RollbackBlocked", blocked.body);
     expect(await scalar(`SELECT count(*)::text AS v FROM change_sets WHERE tenant_id = $1`, [TENANT_A])).toBe(sets);
-    // Newest first: the later set rolls back.
-    createdRollback(await rollback(second.set.header.id));
+    // The later set itself rolls back. The earlier one stays blocked even after that rollback is
+    // published (CodeRabbit 4642366445): the remedy is a corrective standard set.
+    status(await publish(await approvedSet(createdRollback(await rollback(second.set.header.id)))), 200);
+    refused(await rollback(first.set.header.id), 409, "rollback_blocked");
 
     // A later revision that prices an interval the target ended (no row of the target superseded).
     await published({ items: [bookPrice(P.later, "80", "2060-01-01T00:00:00Z")] });
@@ -650,28 +706,69 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     refused(await rollback(target.set.header.id, { from: "2069-01-01T00:00:00Z", reason: "late" }), 422, "change_set_empty");
   });
 
-  it("a rollback publishes past-dated lines: exempt from the lead time and the past-dated recheck", async () => {
+  // Owner decision (m2, 2026-11-20): a rollback takes effect from PUBLISH time.
+  it("owner decision: a default-from rollback takes effect at publish; the sold window keeps the old price; an explicit past from is 422", async () => {
     if (skip()) return;
-    const service = app!.get(PriceChangeSetsService);
-    const real = service.clock;
-    try {
-      service.clock = () => Date.parse("2029-01-01T00:00:00Z");
+    const T0 = "2032-01-01T00:00:00Z";
+    const plus = (min: number): string => new Date(Date.parse(T0) + min * 60_000).toISOString();
+    const target = await atClock("2029-01-01T00:00:00Z", async () => {
       await published({ items: [bookPrice(P.past, "15", "2030-01-01T00:00:00Z")] });
-      const target = await published({ items: [bookPrice(P.past, "16", "2031-01-01T00:00:00Z")] });
-      // Later, `from` defaults to now: the restored line starts in the past.
-      service.clock = () => Date.parse("2032-01-01T00:00:00Z");
-      const rb = createdRollback(await rollback(target.set.header.id));
-      expect((rb.items[0] as { effectiveFrom: string }).effectiveFrom).toBe("2032-01-01T00:00:00.000000Z");
-      service.clock = () => Date.parse("2032-02-01T00:00:00Z");
-      const ready = await approvedSet(rb);
-      expect(ready.summary).toMatchObject({ blocking: false, findings: expect.objectContaining({ past_dated: 1 }) });
-      service.clock = () => Date.parse("2032-03-01T00:00:00Z");
-      status(await publish(ready), 200);
-      expect(await priceAt(P.past, "2032-06-01T00:00:00Z")).toBe("15.0000");
-      expect(await priceAt(P.past, "2031-06-01T00:00:00Z")).toBe("16.0000");
-    } finally {
-      service.clock = real;
-    }
+      return published({ items: [bookPrice(P.past, "16", "2031-01-01T00:00:00Z")] });
+    });
+    const rb = await atClock(T0, async () => createdRollback(await rollback(target.set.header.id)));
+    expect((rb.items[0] as { effectiveFrom: string }).effectiveFrom).toBe("2032-01-01T00:00:00.000000Z");
+    const created = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.created'`,
+      [rb.header.id],
+    );
+    expect(created.rows[0]!.metadata).toMatchObject({ rollback_from_defaulted: true });
+    // Validated five minutes later: the items are regenerated from now (a new draft version).
+    const ready = await atClock(plus(5), async () => approvedSet(rb));
+    expect(ready.header.version).toBe(2);
+    expect((ready.items[0] as { effectiveFrom: string }).effectiveFrom).toBe(`${plus(5).slice(0, 19)}.000000Z`);
+    expect(ready.summary).toMatchObject({ blocking: false });
+    expect((ready.summary as { findings: Record<string, number> }).findings["past_dated"] ?? 0).toBe(0);
+    // Published within the window: the restore starts at about publish time; the sold window keeps 16.
+    await atClock(plus(10), async () => status(await publish(ready), 200));
+    expect(await priceAt(P.past, plus(4))).toBe("16.0000");
+    expect(await priceAt(P.past, plus(6))).toBe("15.0000");
+    expect(await priceAt(P.past, "2031-06-01T00:00:00Z")).toBe("16.0000");
+    expect(await priceAt(P.past, plus(6), target.revisionNo)).toBe("16.0000");
+
+    // An explicit `from` more than 15 minutes in the past is refused; near-now is accepted.
+    const other = await atClock("2029-01-01T00:00:00Z", async () => {
+      await published({ items: [bookPrice(P.publish, "25", "2030-01-01T00:00:00Z")] });
+      return published({ items: [bookPrice(P.publish, "26", "2031-01-01T00:00:00Z")] });
+    });
+    await atClock(plus(60), async () => {
+      refused(await rollback(other.set.header.id, { from: plus(40), reason: "late" }), 422, "rollback_from_past");
+      createdRollback(await rollback(other.set.header.id, { from: plus(50), reason: "near now" }));
+    });
+  });
+
+  it("owner decision: a rollback published more than 15 minutes after its restore start is stale (rollback_from_past); re-validated, it publishes", async () => {
+    if (skip()) return;
+    const T0 = "2033-01-01T00:00:00Z";
+    const plus = (min: number): string => new Date(Date.parse(T0) + min * 60_000).toISOString();
+    const target = await atClock("2029-01-01T00:00:00Z", async () => {
+      await published({ items: [bookPrice(P.late, "35", "2030-01-01T00:00:00Z")] });
+      return published({ items: [bookPrice(P.late, "36", "2031-01-01T00:00:00Z")] });
+    });
+    const ready = await atClock(T0, async () => approvedSet(createdRollback(await rollback(target.set.header.id))));
+    const h = await head();
+    await atClock(plus(20), async () => refused(await publish(ready), 409, "stale_validation"));
+    expect(await head()).toBe(h);
+    const stale = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.stale'`,
+      [ready.header.id],
+    );
+    expect(stale.rows.map((r) => r.metadata["reason"])).toEqual(["rollback_from_past"]);
+    // Re-validated at +20 min: regenerated from now, approved again by a second person, published.
+    const again = await atClock(plus(20), async () => approvedSet({ ...ready, header: { ...ready.header, version: ready.header.version + 1 } }));
+    expect((again.items[0] as { effectiveFrom: string }).effectiveFrom).toBe(`${plus(20).slice(0, 19)}.000000Z`);
+    await atClock(plus(21), async () => status(await publish(again), 200));
+    expect(await priceAt(P.late, plus(19))).toBe("36.0000");
+    expect(await priceAt(P.late, plus(21))).toBe("35.0000");
   });
 
   it("a rollback publish and a publish of the same key serialize: one wins, the other is stale", async () => {
@@ -685,6 +782,169 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     expect(race.map((r) => r.status).sort()).toEqual([200, 409]);
     expect((race.find((r) => r.status === 409)!.body as { error: { code: string } }).error.code).toBe("stale_validation");
     expect(await head()).toBe(start + 1);
+  });
+
+  it("m6: a Zone-scope key and a Store-scope key restore per Store; other Stores are unaffected", async () => {
+    if (skip()) return;
+    const s = await newStore("RBZS", "UTC");
+    try {
+      await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_NORTH, effectiveFrom: "2099-01-01T00:00:00Z" }] });
+      const zone = (price: string, from: string, to?: string) => ({
+        op: "set_price",
+        scope: { kind: "zone", zoneId: ZONE_NORTH },
+        products: items([P.zone]),
+        price,
+        ...at(from),
+        ...(to === undefined ? {} : { effectiveTo: to }),
+      });
+      await published({ items: [zone("40", "2100-01-01T00:00:00Z")] });
+      const zt = await published({ items: [zone("45", "2101-01-01T00:00:00Z", "2102-01-01T00:00:00Z")] });
+      const zr = createdRollback(await rollback(zt.set.header.id, { from: "2101-06-01T00:00:00Z", reason: "Undo" }));
+      expect(zr.items).toEqual([
+        { op: "set_price", scope: { kind: "zone", zoneId: ZONE_NORTH }, products: items([P.zone]), sellUnit: "each", price: "40.0000", timeBasis: "absolute", effectiveFrom: "2101-06-01T00:00:00.000000Z", effectiveTo: "2102-01-01T00:00:00.000000Z" },
+      ]);
+      status(await publish(await approvedSet(zr)), 200);
+      expect(await priceAt(P.zone, "2101-05-31T23:59:59Z", undefined, s.id, "UTC")).toBe("45.0000");
+      expect(await priceAt(P.zone, "2101-06-01T00:00:00Z", undefined, s.id, "UTC")).toBe("40.0000");
+      expect(await priceAt(P.zone, "2101-06-01T00:00:00Z", undefined, STORE_A_X, "UTC")).toBeNull();
+
+      const storeScope = { kind: "stores", storeIds: [STORE_A_X] };
+      const own = (price: string, from: string, to?: string) => ({ op: "set_price", scope: storeScope, products: items([P.store]), price, ...at(from), ...(to === undefined ? {} : { effectiveTo: to }) });
+      await published({ items: [own("50", "2104-01-01T00:00:00Z")] });
+      const st = await published({ items: [own("55", "2105-01-01T00:00:00Z", "2106-01-01T00:00:00Z")] });
+      const sr = createdRollback(await rollback(st.set.header.id, { from: "2105-06-01T00:00:00Z", reason: "Undo" }));
+      expect(sr.items).toEqual([
+        { op: "set_price", scope: storeScope, products: items([P.store]), sellUnit: "each", price: "50.0000", timeBasis: "absolute", effectiveFrom: "2105-06-01T00:00:00.000000Z", effectiveTo: "2106-01-01T00:00:00.000000Z" },
+      ]);
+      status(await publish(await approvedSet(sr)), 200);
+      expect(await priceAt(P.store, "2105-05-31T23:59:59Z", undefined, STORE_A_X, "UTC")).toBe("55.0000");
+      expect(await priceAt(P.store, "2105-06-01T00:00:00Z", undefined, STORE_A_X, "UTC")).toBe("50.0000");
+      expect(await priceAt(P.store, "2105-06-01T00:00:00Z", undefined, STORE_A_Y, "America/New_York")).toBeNull();
+    } finally {
+      await dropStore(s.id);
+    }
+  });
+
+  it("m1/m6: several events per key; an older set's later row is left alone where avoidable, re-written only behind an open end_price", async () => {
+    if (skip()) return;
+    // Avoidable: R re-prices part of an older row; a later row of another older set stays its own.
+    await published({ items: [bookPrice(P.older, "30", "2130-01-01T00:00:00Z", "2131-01-01T00:00:00Z")] });
+    const later = await published({ items: [bookPrice(P.older, "32", "2133-01-01T00:00:00Z")] });
+    const r = await published({
+      items: [bookPrice(P.older, "31", "2130-06-01T00:00:00Z", "2131-01-01T00:00:00Z"), bookPrice(P.older, "33", "2132-01-01T00:00:00Z", "2132-06-01T00:00:00Z")],
+    });
+    const undo = createdRollback(await rollback(r.set.header.id));
+    expect(undo.items).toEqual([
+      { op: "end_price", scope: { kind: "book" }, products: items([P.older]), sellUnit: "each", timeBasis: "absolute", effectiveFrom: "2130-06-01T00:00:00.000000Z" },
+      { op: "set_price", scope: { kind: "book" }, products: items([P.older]), sellUnit: "each", price: "30.0000", timeBasis: "absolute", effectiveFrom: "2130-06-01T00:00:00.000000Z", effectiveTo: "2131-01-01T00:00:00.000000Z" },
+      { op: "set_price", scope: { kind: "book" }, products: items([P.older]), sellUnit: "each", price: "32.0000", timeBasis: "absolute", effectiveFrom: "2133-01-01T00:00:00.000000Z" },
+    ]);
+    // R priced [2132-01, 2132-06), empty before it: an open end_price is unavoidable, so the later
+    // row is re-written at its own price (known v1 limitation) and its set becomes superseded.
+    status(await publish(await approvedSet(undo)), 200);
+    expect(await priceAt(P.older, "2130-03-01T00:00:00Z")).toBe("30.0000");
+    expect(await priceAt(P.older, "2130-09-01T00:00:00Z")).toBe("30.0000");
+    expect(await priceAt(P.older, "2132-03-01T00:00:00Z")).toBeNull();
+    expect(await priceAt(P.older, "2134-01-01T00:00:00Z")).toBe("32.0000");
+    expect(await stateOf(later.set.header.id)).toBe("superseded");
+
+    // Avoidable: no empty interval priced, so only the differing interval is restored.
+    await published({ items: [bookPrice(P.multi, "10", "2110-01-01T00:00:00Z", "2111-01-01T00:00:00Z")] });
+    const keep = await published({ items: [bookPrice(P.multi, "12", "2113-01-01T00:00:00Z")] });
+    const r2 = await published({
+      items: [bookPrice(P.multi, "11", "2110-03-01T00:00:00Z", "2110-06-01T00:00:00Z"), bookPrice(P.multi, "13", "2110-09-01T00:00:00Z", "2111-01-01T00:00:00Z")],
+    });
+    const undo2 = createdRollback(await rollback(r2.set.header.id));
+    expect(undo2.items.map((i) => [(i as { op: string }).op, (i as { effectiveFrom: string }).effectiveFrom, (i as { effectiveTo?: string }).effectiveTo])).toEqual([
+      ["set_price", "2110-03-01T00:00:00.000000Z", "2110-06-01T00:00:00.000000Z"],
+      ["set_price", "2110-09-01T00:00:00.000000Z", "2111-01-01T00:00:00.000000Z"],
+    ]);
+    status(await publish(await approvedSet(undo2)), 200);
+    for (const [instant, price] of [["2110-02-01", "10.0000"], ["2110-04-01", "10.0000"], ["2110-07-01", "10.0000"], ["2110-10-01", "10.0000"], ["2114-01-01", "12.0000"]] as const) {
+      expect({ instant, price: await priceAt(P.multi, `${instant}T00:00:00Z`) }).toEqual({ instant, price });
+    }
+    expect(await stateOf(keep.set.header.id)).toBe("published");
+  });
+
+  it("m1/m6: a membership rollback re-writes only the differing interval (a mid-timeline gap back to the default Zone); a later older membership is left alone", async () => {
+    if (skip()) return;
+    const s = await newStore("RBMG", "UTC");
+    try {
+      const m1 = await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_NORTH, effectiveFrom: "2140-01-01T00:00:00Z", effectiveTo: "2141-01-01T00:00:00Z" }] });
+      await published({ items: [bookPrice(P.mz, "70", "2139-01-01T00:00:00Z"), { op: "set_price", scope: { kind: "zone", zoneId: ZONE_NORTH }, products: items([P.mz]), price: "77", ...at("2139-01-01T00:00:00Z") }] });
+      const m2 = await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_NORTH, effectiveFrom: "2143-01-01T00:00:00Z" }] });
+      const r = await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_NORTH, effectiveFrom: "2141-01-01T00:00:00Z", effectiveTo: "2142-01-01T00:00:00Z" }] });
+      expect(await priceAt(P.mz, "2141-06-01T00:00:00Z", undefined, s.id, "UTC")).toBe("77.0000");
+      const undo = createdRollback(await rollback(r.set.header.id));
+      expect(undo.items).toEqual([
+        { op: "move_store_zone", storeId: s.id, zoneId: ZONE_DEFAULT, effectiveFrom: "2141-01-01T00:00:00.000000Z", effectiveTo: "2142-01-01T00:00:00.000000Z" },
+      ]);
+      status(await publish(await approvedSet(undo)), 200);
+      expect(await priceAt(P.mz, "2140-06-01T00:00:00Z", undefined, s.id, "UTC")).toBe("77.0000");
+      expect(await priceAt(P.mz, "2140-12-31T23:59:59Z", undefined, s.id, "UTC")).toBe("77.0000");
+      expect(await priceAt(P.mz, "2141-01-01T00:00:00Z", undefined, s.id, "UTC")).toBe("70.0000");
+      expect(await priceAt(P.mz, "2142-06-01T00:00:00Z", undefined, s.id, "UTC")).toBe("70.0000");
+      expect(await priceAt(P.mz, "2143-06-01T00:00:00Z", undefined, s.id, "UTC")).toBe("77.0000");
+      expect(await stateOf(m1.set.header.id)).toBe("published");
+      expect(await stateOf(m2.set.header.id)).toBe("published");
+    } finally {
+      await dropStore(s.id);
+    }
+  });
+
+  it("m3: a key the items cannot express exactly is 422 rollback_unsupported; nothing is written", async () => {
+    if (skip()) return;
+    const target = await published({ items: [{ op: "set_price", scope: { kind: "book" }, products: items([P.unsup]), price: "60", timeBasis: "store_local", effectiveFrom: "2150-01-01T00:00" }] });
+    // A sub-second store_local bound (no item can carry one), written with triggers off.
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(`UPDATE price_events SET effective_from_local = '2150-01-01T00:00:00.5' WHERE tenant_id = $1 AND product_id = $2 AND state = 'active'`, [TENANT_A, P.unsup]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+    const sets = await scalar(`SELECT count(*)::text AS v FROM change_sets WHERE tenant_id = $1`, [TENANT_A]);
+    refused(await rollback(target.set.header.id), 422, "rollback_unsupported");
+    expect(await scalar(`SELECT count(*)::text AS v FROM change_sets WHERE tenant_id = $1`, [TENANT_A])).toBe(sets);
+  });
+
+  it("CodeRabbit 4642366466: a Store added after the draft is reached at validate (no activation before `from`); one added after validate stales publish", async () => {
+    if (skip()) return;
+    const local = (price: string, from: string) => ({ op: "set_price", scope: { kind: "book" }, products: items([P.tokyo]), price, timeBasis: "store_local", effectiveFrom: from });
+    await published({ items: [local("80", "2160-01-01T00:00")] });
+    const target = await published({ items: [local("85", "2161-01-01T00:00")] });
+    const from = "2161-06-01T00:00:00Z";
+    const draft = createdRollback(await rollback(target.set.header.id, { from, reason: "Undo" }));
+    const tokyo = await newStore("RBTYO", "Asia/Tokyo");
+    try {
+      const v = ok(await send(op(draft.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 }));
+      // Tokyo is the most eastern live Store now: the items were regenerated against it.
+      expect(v.header.version).toBe(2);
+      const earliest = await scalar(
+        `SELECT to_char(min(effective_from) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS"Z"') AS v FROM price_change_set_preview_lines WHERE change_set_id = $1 AND change_set_version = 2`,
+        [draft.header.id],
+      );
+      expect(Date.parse(earliest!)).toBeGreaterThanOrEqual(Date.parse(from));
+      expect(await scalar(`SELECT count(*)::text AS v FROM price_change_set_preview_lines WHERE change_set_id = $1 AND change_set_version = 2 AND store_id = $2`, [draft.header.id, tokyo.id])).toBe("1");
+    } finally {
+      await dropStore(tokyo.id);
+    }
+
+    // A Store added after validation makes the set stale at publish (Q-B8).
+    await published({ items: [bookPrice(P.added, "90", "2170-01-01T00:00:00Z")] });
+    const t2 = await published({ items: [bookPrice(P.added, "91", "2171-01-01T00:00:00Z")] });
+    const ready = await approvedSet(createdRollback(await rollback(t2.set.header.id)));
+    const added = await newStore("RBADD", "UTC");
+    try {
+      refused(await publish(ready), 409, "stale_validation");
+    } finally {
+      await dropStore(added.id);
+    }
   });
 
   it("the authoring gate, roles and two-tenant RLS (HTTP and direct SQL under a mismatched GUC)", async () => {

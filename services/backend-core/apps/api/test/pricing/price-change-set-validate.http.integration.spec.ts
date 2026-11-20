@@ -899,44 +899,51 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     // objsubid = 1) in this database, not held by the holder's backend.
     const lockKey = `pricing-validate:${TENANT_A}`;
     const holder = await env!.admin.connect();
-    let both: Promise<[ChangeSet, ChangeSet]> | undefined;
-    let failed = false;
+    let requests: [Promise<ChangeSet>, Promise<ChangeSet>] | undefined;
+    let original: unknown;
     try {
-      await holder.query("BEGIN");
-      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockKey]);
-      const holderPid = (await holder.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
-      both = Promise.all([validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)]);
-      const deadline = Date.now() + 20_000;
-      for (;;) {
-        const w = await env!.admin.query<{ n: number }>(
-          `WITH k AS (SELECT hashtextextended($1, 0) AS v)
-           SELECT count(*)::int AS n
-             FROM pg_locks l, k
-            WHERE l.locktype = 'advisory' AND NOT l.granted AND l.pid <> $2
-              AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
-              AND l.objsubid = 1
-              AND l.classid::bigint = (k.v >> 32) & 4294967295
-              AND l.objid::bigint = k.v & 4294967295`,
-          [lockKey, holderPid],
-        );
-        if (w.rows[0]!.n >= 2) break;
-        if (Date.now() > deadline) throw new Error("the two validations never blocked on the validate lock");
-        await new Promise((r) => setTimeout(r, 50));
-      }
-    } catch (err) {
-      failed = true;
-      throw err;
-    } finally {
-      // RT-1484 PR-6 (#750 review nit): the holder is always released, whatever failed.
       try {
-        await holder.query("COMMIT");
+        await holder.query("BEGIN");
+        await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1, 0))`, [lockKey]);
+        const holderPid = (await holder.query<{ pid: number }>(`SELECT pg_backend_pid() AS pid`)).rows[0]!.pid;
+        requests = [validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)];
+        const deadline = Date.now() + 20_000;
+        for (;;) {
+          const w = await env!.admin.query<{ n: number }>(
+            `WITH k AS (SELECT hashtextextended($1, 0) AS v)
+             SELECT count(*)::int AS n
+               FROM pg_locks l, k
+              WHERE l.locktype = 'advisory' AND NOT l.granted AND l.pid <> $2
+                AND l.database = (SELECT oid FROM pg_database WHERE datname = current_database())
+                AND l.objsubid = 1
+                AND l.classid::bigint = (k.v >> 32) & 4294967295
+                AND l.objid::bigint = k.v & 4294967295`,
+            [lockKey, holderPid],
+          );
+          if (w.rows[0]!.n >= 2) break;
+          if (Date.now() > deadline) throw new Error("the two validations never blocked on the validate lock");
+          await new Promise((r) => setTimeout(r, 50));
+        }
+      } catch (err) {
+        original = err;
+        throw err;
       } finally {
-        holder.release();
+        // RT-1484 PR-6 (#750 review nit): the holder is always released, whatever failed; a COMMIT
+        // failure surfaces only when nothing failed before it (CodeRabbit 4642366488).
+        try {
+          await holder.query("COMMIT");
+        } catch (err) {
+          if (original === undefined) throw err;
+        } finally {
+          holder.release();
+        }
       }
-      // Never leave the two requests unobserved when the wait fails.
-      if (failed) await both?.catch(() => undefined);
+    } finally {
+      // CodeRabbit 4642366488: both requests are drained on every path, even when COMMIT failed;
+      // allSettled never throws, so draining cannot mask the original failure.
+      if (requests !== undefined) await Promise.allSettled(requests);
     }
-    const [vx, vy] = await both!;
+    const [vx, vy] = await Promise.all(requests!);
     const pending = [vx, vy].map((v) => (v.summary as { findings: { conflicts_pending: number } }).findings.conflicts_pending).sort();
     expect(pending).toEqual([0, 1]);
   });

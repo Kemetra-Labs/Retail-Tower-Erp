@@ -32,7 +32,7 @@ import {
   missingAcknowledgements,
   requiredAcknowledgements,
 } from "../../src/pricing/change-sets/price-change-set-approval";
-import { instantText, localText, RollbackUnsupportedError } from "../../src/pricing/change-sets/price-change-set-rollback";
+import { instantText, localText } from "../../src/pricing/change-sets/price-change-set-rollback";
 import {
   ApprovePriceChangeSetBodySchema,
   CreatePriceChangeSetBodySchema,
@@ -370,7 +370,7 @@ describe("rollback", () => {
     expect(instantText(1_924_992_000_000_001n)).toBe("2031-01-01T00:00:00.000001Z");
     expect(instantText(-1n)).toBe("1969-12-31T23:59:59.999999Z");
     expect(localText(1_924_992_000_000_000n)).toBe("2031-01-01T00:00:00");
-    expect(() => localText(1_924_992_000_500_000n)).toThrow(RollbackUnsupportedError);
+    expect(() => localText(1_924_992_000_500_000n)).toThrow(/sub-second/);
   });
 });
 

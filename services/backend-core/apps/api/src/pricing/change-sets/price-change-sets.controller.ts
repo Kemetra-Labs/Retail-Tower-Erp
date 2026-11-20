@@ -286,7 +286,7 @@ function mapErrors<T>(work: () => Promise<T>): Promise<T> {
 function httpErrorOf(err: unknown): unknown {
   if (err instanceof PriceChangeSetNotFoundError) return new NotFoundException(NOT_FOUND);
   if (err instanceof PriceChangeSetConflictError) {
-    return new HttpException({ code: err.code, message: CONFLICT_MESSAGES[err.code] }, 409);
+    return new HttpException({ code: err.code, message: err.detail ?? CONFLICT_MESSAGES[err.code] }, 409);
   }
   // RT-1484 PR-6: `RollbackBlocked` carries the blocking revisions beside the error envelope.
   if (err instanceof PriceChangeSetRollbackBlockedError) {

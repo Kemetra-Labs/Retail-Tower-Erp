@@ -71,7 +71,10 @@ function extractEnvelopeFields(
     // (`offers.openapi.yaml` `OfferError.error.conflicts`).
     const conflicts = Array.isArray(r["conflicts"]) ? { conflicts: r["conflicts"] as unknown[] } : {};
     // RT-1484 PR-6: `rollback_blocked` lists the blocking revisions beside the envelope
-    // (`price-change-sets.yaml` `RollbackBlocked.blockingRevisionNos`, a top-level key).
+    // (`price-change-sets.yaml` `RollbackBlocked.blockingRevisionNos`, a top-level key). Like
+    // `conflicts`, `blockingRevisionNos` is a SHARED passthrough key: any HttpException payload
+    // that carries it as an array gets it at the envelope's top level, so no other payload may use
+    // the name for something else.
     const blocking = Array.isArray(r["blockingRevisionNos"]) ? { blockingRevisionNos: r["blockingRevisionNos"] as unknown[] } : {};
     if (typeof msg === "string") {
       return { code, message: msg, details: r["details"], ...conflicts, ...blocking };

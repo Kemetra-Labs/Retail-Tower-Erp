@@ -36,7 +36,11 @@ export type PriceChangeSetConflictCode =
 
 /** A 409 of the contract's `Conflict` list; nothing was written. */
 export class PriceChangeSetConflictError extends Error {
-  constructor(readonly code: PriceChangeSetConflictCode) {
+  /** `detail` replaces the code's standard message when a refusal needs its own (RT-1484 PR-6, t1). */
+  constructor(
+    readonly code: PriceChangeSetConflictCode,
+    readonly detail?: string,
+  ) {
     super(code);
     this.name = "PriceChangeSetConflictError";
   }
@@ -49,7 +53,10 @@ export type PriceChangeSetUnprocessableCode =
   | "lead_time_violation"
   // RT-1484 PR-10b: the contract's `SubmitUnprocessable` (submit, approve).
   | "blocking_findings"
-  | "acknowledgement_required";
+  | "acknowledgement_required"
+  // RT-1484 PR-6 (review round 1, m3): a rollback the generator cannot express exactly.
+  | "rollback_unsupported"
+  | "rollback_from_past";
 
 /** A 422 of the contract's `ValidateUnprocessable` or `SubmitUnprocessable` list; nothing was stored. */
 export class PriceChangeSetUnprocessableError extends Error {

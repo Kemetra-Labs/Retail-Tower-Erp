@@ -80,9 +80,15 @@ info:
     blocking revisions. RT-1484 PR-6 applies this fail closed: any revision
     after the target's that published or ended an event of a price key (Book,
     Zone or Store target, product, sell unit) the target touched, or a Zone
-    membership of a Store it touched, blocks the rollback. Like `emergency`,
-    a rollback is exempt from the lead time and from the past-dated recheck
-    (spec 042 §5, §7): it may restore from an instant already past.
+    membership of a Store it touched, blocks the rollback, and stays a
+    blocker even after that later revision is itself rolled back: author a
+    corrective `standard` set instead of retrying rollbacks. Like
+    `emergency`, a rollback is exempt from the lead time and from the
+    standard past-dated recheck (spec 042 §5, §7); instead (owner decision,
+    RT-1484 PR-6) **a rollback takes effect from publish time**, or from an
+    explicit future or near-now `from` (at most 15 minutes past): the head
+    timeline never shows a restored price for an instant already sold at the
+    old one, and history as known at earlier revisions is preserved.
 
 
     **Money and time.** Prices are exact decimal strings and must be exact at
@@ -612,27 +618,47 @@ paths:
         - cookieAuth: []
       description: >
         Generates a new `kind: rollback` set in `draft` (info **Rollback**)
-        for a `published` target, restoring from `from` (default now) forward.
-        Its items are generated (RT-1484 PR-6): for every price key the
-        target's revision touched, from the first instant at or after `from`
-        where the timeline differs from the one before that revision, a
-        `set_price` per event the revision superseded (clipped to that
-        instant) and, where the revision priced an interval that had no price,
-        an `end_price` at that instant first; for every Store whose Zone
-        membership it touched, `move_store_zone` items restoring the earlier
-        Zone timeline (an interval with no membership becomes a move into the
-        Book's default Zone, which resolves identically). For a `store_local`
-        key, `from` is taken at the latest wall-clock time any of the tenant's
-        live Stores shows then (the key's own Store's for a Store target), rounded up
-        to the second, so no Store sees the rollback before `from`. The target
+        for a `published` target, restoring from `from` forward. **The effect
+        starts at publish** (owner decision, RT-1484 PR-6): an omitted `from`
+        means "effective at publish"; an explicit `from` must be future or
+        near-now (more than 15 minutes in the past is `422
+        rollback_from_past`). `validate` regenerates the items from max(`from`,
+        now), against the Stores live at that moment (a new version when they
+        change), so the preview never starts in the past; a set whose earliest
+        activation is more than 15 minutes past at `publish` is `409
+        stale_validation` (back to draft; validate and approve again). History
+        as known at earlier revisions is preserved.
+        Its items are generated: for every price key the target's revision
+        touched, in each interval at or after `from` where the timeline
+        differs from the one before that revision, a `set_price` per event the
+        revision superseded, clipped to that interval (where the head already
+        equals the earlier timeline nothing is re-written); where the revision
+        priced an interval that had no price, an open `end_price` at the first
+        difference followed by every earlier event from there on (known v1
+        limitation: later rows of older sets on that key are then re-written at
+        their own prices, and those sets may become `superseded`). For every
+        Store whose Zone membership it touched, `move_store_zone` items for
+        each differing interval only (an interval with no membership becomes a
+        move into the Book's default Zone, which resolves identically).
+        Activation: an `absolute` key starts at the exact instant; a
+        `store_local` key takes `from` at the latest wall-clock time any live
+        Store shows then (the key's own Store's for a Store target), rounded
+        up to the second, so a Store in a western time zone may activate it
+        later than `from`, never earlier. A rollback whose lines touch a
+        retired Store, Zone or product validates with blocking findings;
+        author a corrective `standard` set instead. A target that is itself a
+        rollback set is `409 change_set_invalid_state` (author a corrective
+        set). The target
         becomes `rolled_back` only when the rollback set is published. A target
         already rolled back, not published (a draft, a cancelled set), the
         system legacy import, or with a rollback set that is not cancelled is
         `409 change_set_invalid_state`; one whose rows later revisions
         superseded (a `superseded` target always) or whose keys later
-        revisions touched is `409 rollback_blocked` (body `RollbackBlocked`); validating the
-        rollback set repeats that check, and publish treats it as `409
-        stale_validation`. Roles `owner` / `tenant_admin`.
+        revisions touched is `409 rollback_blocked` (body `RollbackBlocked`),
+        even when those later revisions were themselves rolled back (author a
+        corrective `standard` set); validating the rollback set repeats that
+        check, and publish treats it as `409 stale_validation`. Roles `owner`
+        / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1695,9 +1721,13 @@ components:
         authoring allowlist may write Change Sets; reads stay open);
         `idempotency_key_conflict`; `rollback_blocked` (`validate` of a
         `kind: rollback` set whose target's keys a later revision touched;
-        the body carries `blockingRevisionNos` as in `RollbackBlocked`;
+        the body is the `Error` envelope plus a top-level `blockingRevisionNos`
+        array (the blocking revisions, ascending), as in `RollbackBlocked`;
+        the schema stays `Error` because an `anyOf` here is breaking (oasdiff);
         RT-1484 PR-6). On `publish` a rollback set whose target is no longer
-        published or is blocked is `stale_validation`.
+        published or is blocked, or whose earliest activation is more than 15
+        minutes in the past (it takes effect from publish time), is
+        `stale_validation`.
         Nothing is written, except the return to `draft` on
         `stale_validation`.
       content:
@@ -1739,7 +1769,9 @@ components:
         item reaches no live Store, for example a Zone line whose Zone no live
         Store is in at the head revision, names a retired Zone (`zone_not_live`),
         or names a Store, Zone or product the tenant does not have; the message
-        names the item's position and the reason; RT-1484).
+        names the item's position and the reason; RT-1484); for a
+        `kind: rollback` set, whose items `validate` regenerates from
+        max(`from`, now) (RT-1484 PR-6), also `rollback_unsupported`.
         Nothing is stored.
       content:
         application/json:
@@ -1749,8 +1781,13 @@ components:
       description: >
         422, `error.code` one of: `change_set_empty` (nothing the target's
         revision changed differs from `from` on); `change_set_too_large` (the
-        rollback needs more than 500 items; author corrective sets instead).
-        RT-1484 PR-6. Nothing is written.
+        rollback needs more than 500 items; author corrective sets instead);
+        `rollback_unsupported` (the restore cannot be expressed exactly as
+        items, for example a price key that mixes time bases or a
+        sub-second `store_local` bound; author a corrective set);
+        `rollback_from_past` (an explicit `from` more than 15 minutes in the
+        past: a rollback takes effect from publish time). RT-1484 PR-6.
+        Nothing is written.
       content:
         application/json:
           schema:
