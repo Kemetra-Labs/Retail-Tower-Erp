@@ -65,7 +65,8 @@ import { bindPreviewCursor, parsePreviewCursor, readPreviewPage, type PriceChang
 import { lockPricingPublish, lockPricingValidate } from "../pricing-publish-lock";
 import { isSelfApproval, missingAcknowledgements, requiredAcknowledgements, type FindingPresence } from "./price-change-set-approval";
 import { replacedStillActive, writePublication, type PublishResult } from "./price-change-set-publish";
-import { checkStaleness, EARLIEST_ACTIVATION, loadStoredLines, type StalenessInput } from "./price-change-set-staleness";
+import { publicationStatuses } from "./price-change-set-publication-status";
+import { checkStaleness, loadStoredLines, type StalenessInput } from "./price-change-set-staleness";
 import {
   publishableRollbackTarget,
   requireRollbackable,
@@ -146,10 +147,7 @@ const CHANGE_SET_COLUMNS = `c.id::text AS id, c.kind, c.title, c.reason, c.state
        c.published_by_user_id::text AS published_by_user_id, c.published_at,
        c.cancelled_by_user_id::text AS cancelled_by_user_id, c.cancelled_at,
        c.rejected_by_user_id::text AS rejected_by_user_id, c.rejected_at, c.rejection_reason,
-       CASE WHEN c.state = 'published' THEN
-         CASE WHEN COALESCE(${EARLIEST_ACTIVATION("c.tenant_id", "c.id", "c.version")}, '-infinity'::timestamptz) <= now()
-              THEN 'active' ELSE 'scheduled' END
-       END AS publication_status,
+       NULL::text AS publication_status,
        to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_key`;
 
 /** The request id when it is a UUID (the audit row's `request_id` is uuid), else null. */
@@ -264,7 +262,7 @@ export class PriceChangeSetsService {
       const rows = r.rows.slice(0, limit);
       const last = rows[rows.length - 1];
       return {
-        items: rows.map(toHeaderBody),
+        items: (await this.withPublicationStatus(client, input.tenantId, rows)).map(toHeaderBody),
         nextCursor:
           r.rows.length > limit && last !== undefined
             ? encodeChangeSetListCursor({ createdKey: last.created_key, id: last.id, ...filters })
@@ -991,14 +989,27 @@ export class PriceChangeSetsService {
     );
   }
 
+  /**
+   * RT-1530: the rows with `publication_status` filled in. It is computed at read time from the
+   * targeted Stores' live time zones (`price-change-set-publication-status.ts`, spec 042 §3), for
+   * the `published` rows only; every other state reads null.
+   */
+  private async withPublicationStatus(client: PoolClient, tenantId: string, rows: readonly ChangeSetRow[]): Promise<ChangeSetRow[]> {
+    const published = rows.filter((r) => r.state === "published").map((r) => ({ id: r.id, version: r.version }));
+    const statuses = await publicationStatuses(client, tenantId, this.clock(), published);
+    return rows.map((r) => ({ ...r, publication_status: statuses.get(r.id) ?? null }));
+  }
+
   /** The `PriceChangeSet` body: header, the current item list and the stored summary. */
   private async bodyOf(client: PoolClient, tenantId: string, id: string): Promise<PriceChangeSetBody> {
     const r = await client.query<ChangeSetRow>(
       `SELECT ${CHANGE_SET_COLUMNS} FROM change_sets c WHERE c.tenant_id = $1::uuid AND c.id = $2::uuid AND c.domain = 'pricing'`,
       [tenantId, id],
     );
-    const row = r.rows[0];
-    if (!row) throw new PriceChangeSetNotFoundError();
+    const found = r.rows[0];
+    if (!found) throw new PriceChangeSetNotFoundError();
+    const [row] = await this.withPublicationStatus(client, tenantId, [found]);
+    if (row === undefined) throw new PriceChangeSetNotFoundError();
     const items = await client.query<{ item: PriceChangeItem }>(
       `SELECT i.item FROM price_change_set_items i
         WHERE i.tenant_id = $1::uuid AND i.change_set_id = $2::uuid

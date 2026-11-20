@@ -201,9 +201,10 @@ function actor(userId: string | null, at: Date | null): ActorBody | null {
 const toNumber = (v: string | null): number | null => (v === null ? null : Number(v));
 
 /**
- * The header of a row. `publicationStatus` is computed at read time in SQL (spec 042 §3, RT-1484
- * PR-10b): for a `published` set, `scheduled` until the earliest exact per-Store activation instant
- * of its stored preview (its preview rows and membership changes), then `active`; null otherwise.
+ * The header of a row. `publicationStatus` is computed at read time (spec 042 §3, RT-1484 PR-10b,
+ * RT-1530): for a `published` set, `scheduled` until the earliest exact per-Store activation
+ * instant, read in each targeted Store's live time zone, then `active`; null otherwise. The
+ * service fills `publication_status` after the select (`price-change-set-publication-status.ts`).
  */
 export function toHeaderBody(row: ChangeSetRow): PriceChangeSetHeaderBody {
   return {

@@ -93,10 +93,10 @@ export async function loadStoredLines(client: Queryable, tenantId: string, chang
 /**
  * The earliest exact per-Store activation instant of a set's stored preview at a version: its
  * preview rows' and membership changes' `effective_from` (null: none). `t`, `id` and `v` are SQL
- * expressions for the tenant, the set and the version. `publicationStatus` (read time) and rule 3
- * use it. v1 deviation (review round 1, m4): the instants are the ones stored at validation, so a
- * Store time-zone change after publish is not reflected (a follow-up computes them from the live
- * Store zones).
+ * expressions for the tenant, the set and the version. Rule 3 uses it: it judges a VALIDATED set,
+ * whose Store zones `targetStoreSetHash` pins, so the stored instants are right there.
+ * `publicationStatus` does not: it follows the live Store zones (RT-1530,
+ * `price-change-set-publication-status.ts`).
  */
 export const EARLIEST_ACTIVATION = (t: string, id: string, v: string): string =>
   `(SELECT min(q.at) FROM (
