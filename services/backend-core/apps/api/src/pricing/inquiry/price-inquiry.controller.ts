@@ -13,7 +13,6 @@
  * id or query parameter is a 400 before any read.
  */
 import {
-  BadRequestException,
   Controller,
   Get,
   Header,
@@ -21,16 +20,15 @@ import {
   Param,
   Query,
   Req,
-  UnauthorizedException,
   UnprocessableEntityException,
   UseGuards,
 } from "@nestjs/common";
-import { z } from "zod";
 
 import { Roles, RolesGuard, SessionOnlyAdminGuard } from "../../auth";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { ConsoleRateLimit } from "../../console-rate-limit";
 import { TenantContextGuard, type TenantContextRequest } from "../../context";
+import { parsePathId, sessionReader } from "../pricing-query";
 import { PricingRevisionUnknownError } from "../pricing-revision";
 import {
   PriceInquiryQuerySchema,
@@ -44,14 +42,12 @@ import {
   type PriceInquiryBody,
   type PriceTimelineBody,
 } from "./price-inquiry.projections";
-import { PriceInquiryService, type InquiryReadInput, type InquiryTarget } from "./price-inquiry.service";
+import { PriceInquiryService, type InquiryTarget } from "./price-inquiry.service";
 
 const PRODUCT = "api/v1/pricing/stores/:storeId/products/:productId";
 
 /** The one 404 body of this surface, equal to the `RolesGuard` refusal (§II, §XII). */
 const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
-
-const PathIdSchema = z.string().uuid();
 
 @Controller()
 @UseGuards(SessionOnlyAdminGuard, TenantContextGuard, RolesGuard)
@@ -101,19 +97,10 @@ export class PriceInquiryController {
 
 /** Request-shape errors, checked before any read: they disclose nothing. */
 function targetOf(storeId: string, productId: string): InquiryTarget {
-  for (const [name, value] of [["storeId", storeId], ["productId", productId]] as const) {
-    if (!PathIdSchema.safeParse(value).success) {
-      throw new BadRequestException({ code: "validation_error", message: `${name} must be a valid UUID` });
-    }
-  }
-  return { storeId: storeId.toLowerCase(), productId: productId.toLowerCase() };
+  return { storeId: parsePathId(storeId, "storeId"), productId: parsePathId(productId, "productId") };
 }
 
-function reader(request: TenantContextRequest): InquiryReadInput {
-  const ctx = request.context;
-  if (ctx === undefined || ctx.tenantId === null) throw new UnauthorizedException("Unauthorized");
-  return { tenantId: ctx.tenantId, context: ctx };
-}
+const reader = sessionReader;
 
 /** Runs `work`, answering a service refusal with the contract's 4xx; anything else propagates (500). */
 function mapErrors<T>(work: () => Promise<T>): Promise<T> {

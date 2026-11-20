@@ -20,9 +20,10 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { isTenantProduct } from "../../catalog";
-import { callerStoreScope, MembershipRepository, scopeStoreIds, type TenantContextRequest } from "../../context";
+import { callerStoreScope, MembershipRepository, scopeStoreIds } from "../../context";
 import { PG_POOL } from "../../database";
 import { liveStoreTimezone } from "../../stores";
+import type { PricingReadInput } from "../pricing-query";
 import { pricingRevisionAt } from "../pricing-revision";
 import { traceResolution } from "../resolution/resolve";
 import { formatInstantInZone } from "../resolution/store-local-time";
@@ -39,10 +40,7 @@ import {
 import { loadResolutionData, type LoadedResolutionData } from "./price-inquiry.repository";
 
 /** The session tenant and context of a read. */
-export interface InquiryReadInput {
-  readonly tenantId: string;
-  readonly context: NonNullable<TenantContextRequest["context"]>;
-}
+type InquiryReadInput = PricingReadInput;
 
 /** The price key of a request: the Store and product path ids (lower case). */
 export interface InquiryTarget {

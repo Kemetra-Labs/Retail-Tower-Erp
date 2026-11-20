@@ -35,10 +35,8 @@ export type CreatePriceZoneBody = z.infer<typeof CreatePriceZoneBodySchema>;
 export const RetirePriceZoneBodySchema = z.object({ reason: z.string().min(1).max(500) }).strict();
 export type RetirePriceZoneBody = z.infer<typeof RetirePriceZoneBodySchema>;
 
-/** A path id (bookId, zoneId, storeId): a UUID, any case; else 400 before any read. */
-export const PathIdSchema = z.string().uuid();
-
-// The instant and revision rules are shared with price inquiry (RT-1484 PR-08b).
+// The instant and revision rules are shared with price inquiry (RT-1484 PR-08b); so is the path
+// id rule (`parsePathId` in `../pricing-query`).
 export { isRfc3339Instant } from "../pricing-query";
 
 const CursorSchema = z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/);

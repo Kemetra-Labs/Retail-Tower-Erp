@@ -7,6 +7,8 @@
  * Between two such boundaries every interval either contains the whole stretch or none of it, so
  * resolving once at each boundary is exact: no sampling, no clock.
  */
+import { isDeepStrictEqual } from "node:util";
+
 import {
   eventInterval,
   isKeyEvent,
@@ -47,8 +49,8 @@ function boundaries(
   return [...points].sort((x, y) => x - y);
 }
 
-/** Two resolutions are the same when every field is (they are built in one fixed key order). */
-const sameResolution = (x: PriceResolution, y: PriceResolution): boolean => JSON.stringify(x) === JSON.stringify(y);
+/** Two resolutions are the same when every field is, whatever the key order. */
+const sameResolution = (x: PriceResolution, y: PriceResolution): boolean => isDeepStrictEqual(x, y);
 
 /**
  * The ordered, contiguous segments covering exactly `[fromMs, toMs)`, adjacent equal resolutions

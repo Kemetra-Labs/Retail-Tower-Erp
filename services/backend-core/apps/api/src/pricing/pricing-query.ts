@@ -1,8 +1,35 @@
 /**
- * RT-1484 — query-parameter rules shared by the pricing read surfaces (`price-structure.yaml`,
- * `price-inquiry.yaml`): an RFC 3339 instant with an offset, and an `as_of_revision`.
+ * RT-1484 — request rules shared by the pricing surfaces (`price-structure.yaml`,
+ * `price-inquiry.yaml`): a path id, an RFC 3339 instant with an offset, and an `as_of_revision`.
  */
+import { BadRequestException, UnauthorizedException } from "@nestjs/common";
 import { z } from "zod";
+
+import type { TenantContextRequest } from "../context";
+
+/** The session tenant and context of a pricing read. */
+export interface PricingReadInput {
+  readonly tenantId: string;
+  readonly context: NonNullable<TenantContextRequest["context"]>;
+}
+
+/** The session's tenant and context (§XII: never from the request), or 401. */
+export function sessionReader(request: TenantContextRequest): PricingReadInput {
+  const ctx = request.context;
+  if (ctx === undefined || ctx.tenantId === null) throw new UnauthorizedException("Unauthorized");
+  return { tenantId: ctx.tenantId, context: ctx };
+}
+
+/** A path id (bookId, zoneId, storeId, productId): a UUID, any case; else 400 before any read. */
+const PathIdSchema = z.string().uuid();
+
+/** The path id in lower case, or 400 `validation_error` (a request-shape error: it discloses nothing). */
+export function parsePathId(value: string, name: string): string {
+  if (!PathIdSchema.safeParse(value).success) {
+    throw new BadRequestException({ code: "validation_error", message: `${name} must be a valid UUID` });
+  }
+  return value.toLowerCase();
+}
 
 const AT_PATTERN = /^(\d{4})-(\d{2})-(\d{2})T(\d{2}):(\d{2}):(\d{2})(\.\d{1,6})?(Z|[+-](\d{2}):(\d{2}))$/;
 
