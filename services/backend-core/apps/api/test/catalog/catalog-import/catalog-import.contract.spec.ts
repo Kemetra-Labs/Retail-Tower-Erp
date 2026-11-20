@@ -2,9 +2,9 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.2-draft. `[GATED]` contract-first; every
- * operation is `x-runtime-status: contract-only` until RT-1505 (S4) and the
- * S5 slice. Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
+ * `catalog/catalog-import.yaml` 1.0.3-draft. `[GATED]` contract-first; an
+ * operation is `x-runtime-status: contract-only` until its runtime (RT-1505 part A
+ * serves the upload and the batch read; part B and S5 the rest). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
  * Structural / load-only plus AJV fixtures; no app boot and no HTTP. Pins:
  *   1. The twelve operations at their paths and methods, contract-only with a
@@ -65,6 +65,9 @@ const OPERATIONS: ReadonlyArray<{ id: string; method: Method; path: ApiPath; run
   { id: "consoleGetCatalogImportErrorReport", method: "get", path: `${BATCH}/error-report`, runtime: /RT-1505/ },
   { id: "consoleGetCatalogImportTemplate", method: "get", path: "/api/v1/catalog/import-template", runtime: /RT-1505/ },
 ];
+
+/** The operations RT-1505 part A serves (their markers are lifted); the rest stay `contract-only`. */
+const SERVED: ReadonlySet<string> = new Set(["consoleUploadCatalogImport", "consoleGetCatalogImport"]);
 
 const WRITES = OPERATIONS.filter((o) => o.method !== "get");
 const READS = OPERATIONS.filter((o) => o.method === "get");
@@ -188,9 +191,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.2-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.3-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.2-draft");
+    expect(doc.info?.version).toBe("1.0.3-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -202,12 +205,31 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(declared).toEqual(OPERATIONS.map((o) => o.id).sort());
   });
 
-  it.each(OPERATIONS)("$id is $method at its path, contract-only with a note, unique", ({ id, method, path, runtime }) => {
+  it.each(OPERATIONS)("$id is $method at its path, unique, and served or contract-only with a note", ({ id, method, path, runtime }) => {
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
-    expect(operation["x-runtime-status"]).toBe("contract-only");
-    expect(String(operation["x-runtime-note"] ?? "")).toMatch(runtime);
+    if (SERVED.has(id)) {
+      // RT-1505 part A (1.0.3-draft): the runtime lifts only the markers.
+      expect(operation["x-runtime-status"]).toBeUndefined();
+      expect(operation["x-runtime-note"]).toBeUndefined();
+    } else {
+      expect(operation["x-runtime-status"]).toBe("contract-only");
+      expect(String(operation["x-runtime-note"] ?? "")).toMatch(runtime);
+    }
     expect(otherOperationIds.has(id)).toBe(false);
+  });
+
+  it("serves exactly the upload and the batch read (RT-1505 part A); the other ten stay contract-only", () => {
+    expect([...SERVED].sort()).toEqual(["consoleGetCatalogImport", "consoleUploadCatalogImport"]);
+    expect(OPERATIONS.filter((o) => !SERVED.has(o.id))).toHaveLength(10);
+  });
+
+  it("states the RT-1505 part A text in the contract's own version note (1.0.3-draft)", () => {
+    expect(info()).toMatch(/\*\*1\.0\.3-draft \(RT-1505 part A: upload and batch read served\)\.\*\*/);
+    expect(info()).toMatch(/`file_too_many_rows` code is added/);
+    expect(api.responseDescription("FileRejected")).toContain("`file_too_many_rows`");
+    expect(api.responseDescription("FileRejected")).toMatch(/more than 8,000,000 characters of cell text in the batch in total/);
+    expect(info()).toMatch(/`429 rate_limited` with `Retry-After` before its body is read/);
   });
 
   it.each(OPERATIONS)("$id is the human cookieAuth session only", ({ method, path }) => {
@@ -309,6 +331,7 @@ describe("catalog-import contract — upload (spec 049 §8.4, §8.5)", () => {
     "header_missing",
     "no_data_rows",
     "too_many_rows",
+    "file_too_many_rows",
     "too_many_columns",
     "cell_too_long",
   ])("a file refusal is 422 %s", (code) => {

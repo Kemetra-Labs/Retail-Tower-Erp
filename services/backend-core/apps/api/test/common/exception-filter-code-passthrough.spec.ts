@@ -166,4 +166,17 @@ describe("GlobalExceptionFilter — code passthrough (Constitution §IV)", () =>
     filter.catch(new ConflictException({ code: "alias_conflict", message: "m" }), plain.host);
     expect(Object.keys(plain.captured.body as object)).toEqual(["error"]);
   });
+
+  // CP7 — RT-1505: `import_batch_open` names the open batch inside `error` (`UploadConflictError.error.openBatchId`).
+  it("CP7: openBatchId surfaces inside the error envelope when a string; absent otherwise", () => {
+    const { host, captured } = makeMockHost();
+    filter.catch(new ConflictException({ code: "import_batch_open", message: "open", openBatchId: "0192f000-0000-7000-8000-000000000001" }), host);
+    expect(captured.statusCode).toBe(HttpStatus.CONFLICT);
+    expect(captured.body).toEqual({
+      error: { code: "import_batch_open", message: "open", request_id: "test-req-id-passthrough", openBatchId: "0192f000-0000-7000-8000-000000000001" },
+    });
+    const notAString = makeMockHost();
+    filter.catch(new ConflictException({ code: "x", message: "m", openBatchId: 7 }), notAString.host);
+    expect((notAString.captured.body as { error: object }).error).not.toHaveProperty("openBatchId");
+  });
 });

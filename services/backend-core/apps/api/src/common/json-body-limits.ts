@@ -57,6 +57,16 @@
  * There is NO concurrency bound on this route (the contract has no 503): 256
  * kB per request costs about the same as the many concurrent 100 kB bodies any
  * route already accepts, and only an authenticated device gets that far.
+ *
+ * A raw (non-JSON) upload route is NOT sized here (RT-1505, spec 049 §8.5): the
+ * product import `consoleUploadCatalogImport` (`POST /api/v1/catalog/imports`)
+ * takes 5 MiB of file bytes under any `Content-Type`. Like the tenant logo, its
+ * passthrough (`importUploadPassthrough`, registered in main.ts before these
+ * parsers) keeps every body parser off the route, and its own guard reads the
+ * stream (`common/raw-body.ts`) only after the session, tenant and role guards
+ * have passed on headers alone (the RT-1295 rule), with a concurrency bound
+ * of four bodies at once (`import-upload.gate.ts`): one more is a 429 with
+ * `Retry-After` before its body is read.
  */
 import { PayloadTooLargeException } from "@nestjs/common";
 import { errorEnvelope, newId } from "@data-pulse-2/shared";
