@@ -26,8 +26,10 @@
  *
  * Purge (OD-6, spec 049 §10). One transaction per pass: pick up to `limit`
  * closed batches whose window has passed on the database clock
- * (`clock_timestamp()`, in UTC; the arithmetic is import-retention.policy.ts),
- * `FOR UPDATE SKIP LOCKED`, count their rows, delete them, then stamp
+ * (`statement_timestamp()`, one instant for the whole pick, in UTC; the
+ * windows are import-retention.policy.ts, the arithmetic is
+ * `closedRowsCutoffSql` / `publishedRowsCutoffSql` below, pinned at fixed
+ * instants by the integration spec), `FOR UPDATE SKIP LOCKED`, count their rows, delete them, then stamp
  * `rows_purged_at` (the batch header stays). The counts must agree: rows
  * deleted = rows counted, and batches stamped = batches picked; otherwise the
  * transaction rolls back with `ImportPurgeCountMismatchError`. The batch lock
@@ -126,7 +128,24 @@ INSERT INTO audit_events
 VALUES ($1, NULL, 'system', $2, NULL, $3, $4, $5, NULL, $6::jsonb)
 `;
 
-// The windows on the database clock in UTC: (clock AT TIME ZONE 'UTC' - interval) AT TIME ZONE 'UTC'.
+/**
+ * The 30-day cutoff of `instant` (a timestamptz SQL expression), `days` a SQL
+ * integer expression: `instant` minus whole days in UTC, whatever the session
+ * time zone. Exported so the integration spec pins it at fixed instants.
+ */
+export const closedRowsCutoffSql = (instant: string, days: string): string =>
+  `((${instant}) AT TIME ZONE 'UTC' - make_interval(days => ${days})) AT TIME ZONE 'UTC'`;
+
+/**
+ * The 13-month cutoff of `instant`: calendar months in UTC, the day clamped
+ * to the end of a shorter month (2026-03-31 - 13 months = 2025-02-28).
+ */
+export const publishedRowsCutoffSql = (instant: string, months: string): string =>
+  `((${instant}) AT TIME ZONE 'UTC' - make_interval(months => ${months})) AT TIME ZONE 'UTC'`;
+
+// One instant per pass: statement_timestamp() is the same for every row of the
+// pick (clock_timestamp() would be re-read per row and could move a cutoff
+// across UTC midnight, or a month end, part way through the scan).
 const PICK_DUE_PURGE_SQL = `
 SELECT id
   FROM catalog_import_batches
@@ -134,9 +153,9 @@ SELECT id
    AND rows_purged_at IS NULL
    AND (
          (state IN ('cancelled', 'expired')
-          AND closed_at <= (clock_timestamp() AT TIME ZONE 'UTC' - make_interval(days => $3)) AT TIME ZONE 'UTC')
+          AND closed_at <= ${closedRowsCutoffSql("statement_timestamp()", "$3")})
       OR (state = 'published'
-          AND published_at <= (clock_timestamp() AT TIME ZONE 'UTC' - make_interval(months => $4)) AT TIME ZONE 'UTC')
+          AND published_at <= ${publishedRowsCutoffSql("statement_timestamp()", "$4")})
        )
  ORDER BY closed_at, id
  LIMIT $2

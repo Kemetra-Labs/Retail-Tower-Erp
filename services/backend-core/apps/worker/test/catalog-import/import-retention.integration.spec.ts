@@ -13,10 +13,13 @@
  * (the existing sweeps' tenant listing) and INSERT on `audit_events` (the
  * api's in-transaction audits). So the job needs no new grant.
  *
- * Covers: two-tenant isolation; the §8.1 conditional expiry of a draft and
- * of a validated batch (preview_hash cleared, version bumped, closed) with
- * its `catalog.import.expire` audit row; a stale version updates nothing; the
- * 30-day and 13-month purge edges; the header kept; idempotent reruns.
+ * Covers: two-tenant isolation, including RLS itself (tenant B's GUC with
+ * tenant A's predicate sees, expires, deletes and stamps nothing); the §8.1
+ * conditional expiry of a draft and of a validated batch (preview_hash
+ * cleared, version bumped, closed) with its `catalog.import.expire` audit
+ * row; a stale version updates nothing; the 30-day and 13-month cutoff
+ * arithmetic pinned at fixed instants (month clamp, leap year, any session
+ * time zone); the purge windows; the header kept; idempotent reruns.
  *
  * Docker policy: HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1 (RT-123
  * retention-rls precedent), and even then only "no container runtime" skips
@@ -45,8 +48,14 @@ import {
 import {
   IMPORT_EXPIRE_AUDIT_ACTION,
   PgImportRetentionRepository,
+  closedRowsCutoffSql,
   expireBatchIfUnchanged,
+  publishedRowsCutoffSql,
 } from "../../src/catalog-import/import-retention.repository";
+import {
+  CLOSED_ROWS_RETENTION_DAYS,
+  PUBLISHED_ROWS_RETENTION_MONTHS,
+} from "../../src/catalog-import/import-retention.policy";
 
 const id = (n: string): string => `01240000-0000-7000-8000-0000${n}`;
 const TENANT_A = id("15030a01");
@@ -237,6 +246,50 @@ describe("RT-1503 role and RLS posture", () => {
   });
 });
 
+/** Runs `sql` as the probe role under `tenantId`'s GUC (never platform admin) and returns its rowCount. */
+function underGuc(tenantId: string, sql: string, params: unknown[]): Promise<number> {
+  return runWithTenantContext(pg().probe, { tenantId, isPlatformAdmin: false }, async (c) => {
+    return (await c.query(sql, params)).rowCount ?? 0;
+  });
+}
+
+describe("RT-1503 purge cutoff arithmetic, pinned at fixed instants", () => {
+  // The repository's own SQL fragments, evaluated at a fixed instant instead of statement_timestamp().
+  const CUTOFFS_SQL = `SELECT ${closedRowsCutoffSql("$1::timestamptz", "$2")} AS closed,
+                              ${publishedRowsCutoffSql("$1::timestamptz", "$3")} AS published`;
+
+  it.each([
+    // instant, 30-day cutoff, 13-month cutoff
+    ["2026-03-31T10:00:00.000Z", "2026-03-01T10:00:00.000Z", "2025-02-28T10:00:00.000Z"], // month clamp
+    ["2026-03-01T00:00:00.000Z", "2026-01-30T00:00:00.000Z", "2025-02-01T00:00:00.000Z"], // across February
+    ["2029-03-31T12:00:00.000Z", "2029-03-01T12:00:00.000Z", "2028-02-29T12:00:00.000Z"], // leap-year clamp
+    ["2028-03-01T00:00:00.000Z", "2028-01-31T00:00:00.000Z", "2027-02-01T00:00:00.000Z"], // leap day counted
+    ["2026-11-20T10:15:00.000Z", "2026-10-21T10:15:00.000Z", "2025-10-20T10:15:00.000Z"],
+  ])("at %s: 30 days -> %s, 13 months -> %s, in UTC whatever the session time zone", async (instant, closed, published) => {
+    if (skipped()) return;
+    // UTC+14 and UTC-11: a local-time calculation would land on another calendar day or month.
+    for (const zone of ["UTC", "Pacific/Kiritimati", "Pacific/Pago_Pago"]) {
+      const client = await pg().env.admin.connect();
+      try {
+        await client.query(`SET TIME ZONE '${zone}'`);
+        const r = await client.query<{ closed: Date; published: Date }>(CUTOFFS_SQL, [
+          instant,
+          CLOSED_ROWS_RETENTION_DAYS,
+          PUBLISHED_ROWS_RETENTION_MONTHS,
+        ]);
+        expect({ zone, closed: r.rows[0]!.closed.toISOString(), published: r.rows[0]!.published.toISOString() }).toEqual({
+          zone,
+          closed,
+          published,
+        });
+      } finally {
+        await client.query("RESET TIME ZONE");
+        client.release();
+      }
+    }
+  });
+});
+
 describe("RT-1503 expiry (spec 049 §8.1)", () => {
   let draftA = "";
   let validatedB = "";
@@ -259,6 +312,20 @@ describe("RT-1503 expiry (spec 049 §8.1)", () => {
     );
     expect(crossTenant).toBeNull();
     expect(await batch(draftA)).toMatchObject({ state: "draft", version: 1, closed_at: null });
+    expect(await expireAudits()).toEqual([]);
+  });
+
+  it("RLS: under tenant B's GUC, tenant A's predicate expires nothing and deletes none of A's rows", async () => {
+    if (skipped()) return;
+    // GUC and predicate disagree, so only RLS stands between B's transaction and A's batch.
+    const mismatched = await runWithTenantContext(pg().probe, { tenantId: TENANT_B, isPlatformAdmin: false }, (c) =>
+      expireBatchIfUnchanged(c, TENANT_A, { id: draftA, version: 1, state: "draft" }),
+    );
+    expect(mismatched).toBeNull();
+    expect(await underGuc(TENANT_B, `DELETE FROM catalog_import_rows WHERE tenant_id = $1`, [TENANT_A])).toBe(0);
+
+    expect(await batch(draftA)).toMatchObject({ state: "draft", version: 1, closed_at: null });
+    expect(await rowCount(draftA)).toBe(2);
     expect(await expireAudits()).toEqual([]);
   });
 
@@ -323,15 +390,18 @@ describe("RT-1503 retention purge (OD-6)", () => {
 
   beforeAll(async () => {
     if (skipped()) return;
-    // Tenant A at the edges.
+    // Tenant A on either side of each window. The exact edges are pinned at fixed instants above; here
+    // each seed keeps a margin, so a run that crosses UTC midnight or a month end after seeding cannot
+    // move a cutoff past it (13 months back, one day later can move the cutoff by up to 4 days:
+    // 2026-02-28 -> 2025-01-28, but 2026-03-01 -> 2025-02-01).
     seeded["cancelledDue"] = await draft(TENANT_A, 3);
-    await close(seeded["cancelledDue"], "cancelled", UTC_AGO("30 days", "-1 minute"));
+    await close(seeded["cancelledDue"], "cancelled", UTC_AGO("30 days", "-1 day"));
     seeded["expiredKept"] = await draft(TENANT_A, 2);
-    await close(seeded["expiredKept"], "expired", UTC_AGO("30 days", "1 minute"));
+    await close(seeded["expiredKept"], "expired", UTC_AGO("30 days", "1 day"));
     seeded["publishedDue"] = await draft(TENANT_A, 2);
-    await publish(seeded["publishedDue"], UTC_AGO("13 months", "-1 minute"));
+    await publish(seeded["publishedDue"], UTC_AGO("13 months", "-7 days"));
     seeded["publishedKept"] = await draft(TENANT_A, 1);
-    await publish(seeded["publishedKept"], UTC_AGO("13 months", "1 minute"));
+    await publish(seeded["publishedKept"], UTC_AGO("13 months", "7 days"));
     seeded["publishedRecent"] = await draft(TENANT_A, 1);
     await publish(seeded["publishedRecent"], UTC_AGO("31 days", "0 minutes"));
     // Tenants B and C.
@@ -341,7 +411,22 @@ describe("RT-1503 retention purge (OD-6)", () => {
     await close(seeded["expiredC"], "expired", UTC_AGO("60 days", "0 minutes"));
   });
 
-  it("one tenant's pass purges only that tenant's due batches, at the 30-day and 13-month edges", async () => {
+  it("RLS: under tenant B's GUC, tenant A's predicate deletes none of A's rows and stamps none of its batches", async () => {
+    if (skipped()) return;
+    expect(await underGuc(TENANT_B, `DELETE FROM catalog_import_rows WHERE tenant_id = $1`, [TENANT_A])).toBe(0);
+    expect(
+      await underGuc(
+        TENANT_B,
+        `UPDATE catalog_import_batches SET rows_purged_at = clock_timestamp()
+          WHERE tenant_id = $1 AND rows_purged_at IS NULL`,
+        [TENANT_A],
+      ),
+    ).toBe(0);
+    expect(await rowCount(seeded["cancelledDue"]!)).toBe(3);
+    expect((await batch(seeded["cancelledDue"]!)).rows_purged_at).toBeNull();
+  });
+
+  it("one tenant's pass purges only that tenant's due batches, on either side of the 30-day and 13-month windows", async () => {
     if (skipped()) return;
     const pass = await new PgImportRetentionRepository(pg().probe).purgeDueRows(TENANT_A, 10);
     expect(pass).toEqual({ batches: 2, rows: 5 });

@@ -24,8 +24,10 @@ export const MIN_IMPORT_RETENTION_INTERVAL_MS = 60 * 1000;
 export const DEFAULT_EXPIRY_BATCH_LIMIT = 100;
 
 /**
- * Batches whose rows are purged per transaction. A batch holds at most 5,000
- * rows (data_row_count), so one transaction deletes at most 50,000 rows.
+ * Batches whose rows are purged per transaction: at most 10 batches. That is
+ * about 50,000 rows when the runtime respects `data_row_count` (at most 5,000
+ * rows per batch); migration 0124 does not enforce rows <= data_row_count, so
+ * the row count per transaction is not a hard bound.
  */
 export const DEFAULT_PURGE_BATCH_LIMIT = 10;
 
