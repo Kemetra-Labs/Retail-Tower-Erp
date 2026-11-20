@@ -3,7 +3,7 @@
   "knipUnusedFiles": 0,
   "knipUnusedExports": 167,
   "knipUnusedTypes": 152,
-  "knipUnusedDependencies": 0,
+  "knipUnusedDependencies": 2,
   "knipUnlistedDependencies": 1,
   "knipDuplicateExports": 0,
   "jscpdClones": 325,
