@@ -64,7 +64,7 @@ import { bindPreviewCursor, parsePreviewCursor, readPreviewPage, type PriceChang
 import { lockPricingPublish, lockPricingValidate } from "../pricing-publish-lock";
 import { isSelfApproval, missingAcknowledgements, requiredAcknowledgements, type FindingPresence } from "./price-change-set-approval";
 import { replacedStillActive, writePublication } from "./price-change-set-publish";
-import { checkStaleness, loadStoredLines, type StalenessInput } from "./price-change-set-staleness";
+import { checkStaleness, EARLIEST_ACTIVATION, loadStoredLines, type StalenessInput } from "./price-change-set-staleness";
 import { checkBudget, referencedIds, validateChangeSet } from "./price-change-set-validation";
 import {
   headRevision,
@@ -135,13 +135,8 @@ const CHANGE_SET_COLUMNS = `c.id::text AS id, c.kind, c.title, c.reason, c.state
        c.cancelled_by_user_id::text AS cancelled_by_user_id, c.cancelled_at,
        c.rejected_by_user_id::text AS rejected_by_user_id, c.rejected_at, c.rejection_reason,
        CASE WHEN c.state = 'published' THEN
-         CASE WHEN COALESCE((SELECT min(q.at) FROM (
-                SELECT min(p.effective_from) AS at FROM price_change_set_preview_lines p
-                 WHERE p.tenant_id = c.tenant_id AND p.change_set_id = c.id AND p.change_set_version = c.version
-                UNION ALL
-                SELECT min(m.effective_from) FROM price_change_set_preview_memberships m
-                 WHERE m.tenant_id = c.tenant_id AND m.change_set_id = c.id AND m.change_set_version = c.version) q),
-              '-infinity'::timestamptz) <= now() THEN 'active' ELSE 'scheduled' END
+         CASE WHEN COALESCE(${EARLIEST_ACTIVATION("c.tenant_id", "c.id", "c.version")}, '-infinity'::timestamptz) <= now()
+              THEN 'active' ELSE 'scheduled' END
        END AS publication_status,
        to_char(c.created_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS created_key`;
 
@@ -213,6 +208,8 @@ interface LockedSet {
   readonly createdBy: string;
   readonly submittedBy: string | null;
   readonly approvedBy: string | null;
+  /** The stored preview's `summary.earliestEffectiveAt` at the set's version (null: none). */
+  readonly earliestEffectiveAt: string | null;
 }
 
 /** A transition refused as `409 stale_validation` after the set's return to `draft` committed. */
@@ -559,6 +556,9 @@ export class PriceChangeSetsService {
   async publish(input: ChangeSetWriteInput, id: string, body: VersionedBody): Promise<PublishPriceChangeSetBody> {
     let revisionNo = 0;
     const changeSet = await this.staleAware(input, async (client) => {
+      // Lock order (review round 1, t3): the tenant publish lock BEFORE any Change Set row lock.
+      // Rollback (RT-1484 PR-6) publishes through this path and must keep that order too, as must
+      // any later writer that takes both (Store lifecycle writes take the publish lock first).
       await lockPricingPublish(client, input.tenantId);
       const set = await this.lockSet(client, input.tenantId, id, body.expectedVersion);
       if (set.state !== "approved" || set.kind === "rollback" || set.kind === "legacy_import") {
@@ -571,6 +571,9 @@ export class PriceChangeSetsService {
         await this.markStale(client, input, id, set, check.head);
         return STALE;
       }
+      // Review round 1, m1: an exclusion violation (23P01) the staleness check did not foresee is a
+      // stale set, never a 500: roll the writes back to the savepoint and return the set to draft.
+      await client.query("SAVEPOINT publish_write");
       const result = await writePublication(client, {
         tenantId: input.tenantId,
         changeSetId: id,
@@ -582,26 +585,48 @@ export class PriceChangeSetsService {
         lines: stored.staleness.lines,
         targetStoreIds: stored.staleness.targetStoreIds,
         defaultZoneId: stored.staleness.book.defaultZoneId,
+      }).catch(async (err: unknown): Promise<typeof STALE> => {
+        if ((err as { code?: string }).code !== "23P01") throw err;
+        await client.query("ROLLBACK TO SAVEPOINT publish_write");
+        return STALE;
       });
+      if (result === STALE) {
+        await this.markStale(client, input, id, set, check.head);
+        return STALE;
+      }
       revisionNo = result.revisionNo;
       await this.audit(client, input, "published", id, {
         ...this.auditBase(set),
         revision_no: result.revisionNo,
-        earliest_effective_at: stored.earliestEffectiveAt,
         emergency: set.kind === "emergency",
         approved_by_user_id: set.approvedBy,
         fan_out_store_count: result.fanOutStores,
         superseded_change_set_ids: result.superseded.map((s) => s.id),
       });
       for (const s of result.superseded) {
-        await this.audit(client, input, "superseded", s.id, { kind: s.kind, version: s.version, superseded_in_revision: result.revisionNo });
+        await this.audit(client, input, "superseded", s.id, {
+          kind: s.kind,
+          version: s.version,
+          preview_hash: s.previewHash,
+          reason_present: s.reasonPresent,
+          superseded_in_revision: result.revisionNo,
+        });
       }
       return this.bodyOf(client, input.tenantId, id);
     });
     return { revisionNo, changeSet };
   }
 
-  /** Runs a transition that may end stale: a `STALE` result commits its return to draft, then answers 409. */
+  /**
+   * Runs a transition that may end stale: a `STALE` result commits its return to draft, then answers
+   * `409 stale_validation`.
+   *
+   * Replay semantics (review round 1, m2): the shared `IdempotencyInterceptor` stores only a
+   * success; on an error it releases the claim. So a retry with the same `Idempotency-Key` and body
+   * after a `409 stale_validation` runs again, finds the set in `draft` at version + 1, and answers
+   * `409 version_conflict` (its `expectedVersion` is the old one); nothing more is written. The
+   * caller re-validates and continues from the new version.
+   */
   private async staleAware(input: ChangeSetWriteInput, fn: (client: PoolClient) => Promise<PriceChangeSetBody | typeof STALE>): Promise<PriceChangeSetBody> {
     const result = await this.inTenant(input, fn);
     if (result === STALE) throw new PriceChangeSetConflictError("stale_validation");
@@ -658,6 +683,8 @@ export class PriceChangeSetsService {
       earliestEffectiveAt: row.earliest,
       staleness: {
         tenantId: input.tenantId,
+        changeSetId: id,
+        version: set.version,
         kind: set.kind,
         nowMs: this.clock(),
         book,
@@ -689,9 +716,20 @@ export class PriceChangeSetsService {
     return version;
   }
 
-  /** The audit metadata every approval transition carries (ids and flags, never free text). */
+  /**
+   * The audit metadata every approval transition carries (spec 042 §10: ids, flags and instants,
+   * never free text); review round 1, m3: `earliest_effective_at` on submitted, approved, rejected,
+   * stale and published alike.
+   */
   private auditBase(set: LockedSet): Record<string, unknown> {
-    return { kind: set.kind, version: set.version, previous_state: set.state, preview_hash: set.previewHash, reason_present: set.reasonPresent };
+    return {
+      kind: set.kind,
+      version: set.version,
+      previous_state: set.state,
+      preview_hash: set.previewHash,
+      reason_present: set.reasonPresent,
+      earliest_effective_at: set.earliestEffectiveAt,
+    };
   }
 
   // -------------------------------------------------------------------------
@@ -716,10 +754,14 @@ export class PriceChangeSetsService {
       created_by: string;
       submitted_by: string | null;
       approved_by: string | null;
+      earliest: string | null;
     }>(
       `SELECT kind, state, version, preview_hash, reason IS NOT NULL AS reason_present, sensitive,
               validated_at_revision::text AS validated_at_revision, created_by_user_id::text AS created_by,
-              submitted_by_user_id::text AS submitted_by, approved_by_user_id::text AS approved_by
+              submitted_by_user_id::text AS submitted_by, approved_by_user_id::text AS approved_by,
+              (SELECT v.summary ->> 'earliestEffectiveAt' FROM price_change_set_validations v
+                WHERE v.tenant_id = change_sets.tenant_id AND v.change_set_id = change_sets.id
+                  AND v.change_set_version = change_sets.version) AS earliest
          FROM change_sets
         WHERE tenant_id = $1::uuid AND id = $2::uuid AND domain = 'pricing'
         FOR NO KEY UPDATE`,
@@ -739,6 +781,7 @@ export class PriceChangeSetsService {
       createdBy: row.created_by,
       submittedBy: row.submitted_by,
       approvedBy: row.approved_by,
+      earliestEffectiveAt: row.earliest,
     };
   }
 

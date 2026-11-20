@@ -345,12 +345,15 @@ export class StoresService {
       if (timezoneChange !== undefined || next.is_active !== undefined) {
         await lockPricingPublish(client, ctx.tenantId as string);
       }
+      // Review round 1 (m5): only a real activation (inactive → active) bootstraps the Store. The
+      // pre-read runs under the publish lock, which every lifecycle write takes first.
+      const activates = next.is_active === true && (await this.stores.findById(client, storeId))?.isActive === false;
       const row = timezoneChange
         ? await this.updateWithTimezone(client, ctx, storeId, next, timezoneChange, meta)
         : await this.stores.update(client, storeId, { name: next.name, isActive: next.is_active });
       if (!row) throw notFound();
       // An activation starts the Store at the head revision (spec 041 data-model §2.6).
-      if (next.is_active === true) await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
+      if (activates) await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
       return row;
     });
   }

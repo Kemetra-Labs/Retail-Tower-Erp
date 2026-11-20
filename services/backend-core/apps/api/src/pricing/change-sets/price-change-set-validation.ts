@@ -156,6 +156,12 @@ function sameTarget(e: { scope: string; priceZoneId: string | null; storeId: str
   return e.scope === t.scope && (t.scope !== "zone" || e.priceZoneId === t.priceZoneId) && (t.scope !== "store" || e.storeId === t.storeId);
 }
 
+/** Whether an event on `basis` overlaps the raw (same-basis) interval `raw` (review round 1, m1). */
+function rawOverlap(e: ResolutionPriceEvent, basis: Bounds["timeBasis"], raw: Interval | null): boolean {
+  const ei = e.timeBasis === basis ? rawInterval(e) : null;
+  return ei !== null && raw !== null && overlaps(ei, raw);
+}
+
 /** The key that groups lines of one price key (in-set overlaps, pending conflicts). */
 const keyOf = (t: { scope: string; priceZoneId: string | null; storeId: string | null; productId: string | null }): string =>
   `${t.scope}|${t.priceZoneId ?? ""}|${t.storeId ?? ""}|${t.productId ?? ""}`;
@@ -515,12 +521,17 @@ class Validator {
     const events = this.eventsByProduct.get(t.productId) ?? [];
     const lineMessages = new Set<string>(inSet);
     if (!(this.ctx.products.get(t.productId)?.live ?? false)) lineMessages.add("product_not_live");
-    // The same-target events it replaces (priced) or ends (end, reset), in any reached Store.
+    // The same-target events it replaces (priced) or ends (end, reset), in any reached Store, or
+    // (RT-1484 PR-5 review round 1, m1) whose raw interval on the same time basis overlaps the
+    // line's: the DB exclusion compares raw wall-clock ranges, and an event ending in a DST gap
+    // where the line starts maps both bounds to the transition instant in the Store, so only the
+    // raw test sees the overlap publish must supersede.
+    const raw = rawInterval(bounds);
     const replaced = events.filter(
-      (e) => sameTarget(e, t) && reached.some((r) => {
+      (e) => sameTarget(e, t) && (rawOverlap(e, bounds.timeBasis, raw) || reached.some((r) => {
         const ei = eventInterval(e, r.store.timezone);
         return ei !== null && overlaps(ei, r.interval);
-      }),
+      })),
     );
     if (replaced.some((e) => e.timeBasis !== bounds.timeBasis)) lineMessages.add("mixed_time_basis");
     if (!PRICED_OPS.has(t.item.op) && replaced.length === 0) lineMessages.add("nothing_to_end");

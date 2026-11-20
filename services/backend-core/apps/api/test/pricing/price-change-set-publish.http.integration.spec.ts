@@ -53,6 +53,7 @@ import { IDEMPOTENCY_KEY_STORE, IdempotencyInterceptor } from "../../src/idempot
 import { INFLIGHT_REDIS, InProgressMarker } from "../../src/idempotency/in-progress-marker";
 import { PRICING_AUTHORING_CONFIG } from "../../src/pricing/change-sets/price-authoring.config";
 import { PriceChangeSetsModule } from "../../src/pricing/change-sets/price-change-sets.module";
+import { PriceChangeSetsService } from "../../src/pricing/change-sets/price-change-sets.service";
 import { StoresRepository } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
 import { seedConsoleMember } from "../_helpers/console-members";
@@ -84,6 +85,17 @@ const P3 = a("15b5f3");
 const P4 = a("15b5f4");
 const P5 = a("15b5f5");
 const P6 = a("15b5f6");
+/** Review round 1 (m7, m1): one product per case, so each case starts from its own head. */
+const P = {
+  end: a("15b5f7"),
+  reset: a("15b5f8"),
+  cover: a("15b5f9"),
+  two: a("15b5fa"),
+  zone: a("15b5fb"),
+  gone: a("15b5fc"),
+  dst: a("15b5fd"),
+  late: a("15b5fe"),
+};
 const CS_LEGACY = a("15b5c1");
 const E_BOOK_P1 = a("15b5e101");
 const E_BOOK_P4_LOCAL = a("15b5e102");
@@ -170,7 +182,7 @@ async function restrictToPricingGrants(admin: Pool): Promise<void> {
 async function seedPricing(): Promise<void> {
   await env!.admin.query(`UPDATE stores SET timezone = 'UTC' WHERE id = $1`, [STORE_A_X]);
   await env!.admin.query(`UPDATE stores SET timezone = 'America/New_York' WHERE id = $1`, [STORE_A_Y]);
-  for (const [id, name] of [[P3, "P3"], [P4, "P4"], [P5, "P5"], [P6, "P6"]] as const) {
+  for (const [id, name] of [[P3, "P3"], [P4, "P4"], [P5, "P5"], [P6, "P6"], ...Object.entries(P).map(([n, id]) => [id, n] as const)] as const) {
     await env!.admin.query(
       `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by) VALUES ($1, $2, $3, 'standard', $4, $4)`,
       [id, TENANT_A, `RT-1484 publish ${name}`, ACTOR],
@@ -671,7 +683,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
           `INSERT INTO pricing_revision_stores (tenant_id, store_id, revision_no, created_by_user_id, correlation_id) VALUES ($1, $2, $3, $4, $4)`,
           [TENANT_A, STORE_A_X, before, ACTOR],
         ),
-      ).rejects.toMatchObject({ code: expect.stringMatching(/^(42501|23514)$/) });
+      ).rejects.toMatchObject({ code: "42501" });
       await c.query("ROLLBACK TO SAVEPOINT w");
     } finally {
       try {
@@ -682,5 +694,220 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
       c.release(failure);
     }
     status(await publish(set), 200);
+  });
+
+
+  // ---------------------------------------------------------------------------------------------
+  // Review round 1 (lead decisions on 48d6e4361)
+  // ---------------------------------------------------------------------------------------------
+
+  /** Approve and publish `items`; the new revision number. */
+  async function published(body: Record<string, unknown>): Promise<{ revisionNo: number; set: ChangeSet }> {
+    const set = await approved(body);
+    const res = await publish(set);
+    status(res, 200);
+    return { revisionNo: (res.body as { revisionNo: number }).revisionNo, set };
+  }
+
+  /** A line's publish record and what it wrote, as (from, to) UTC text. */
+  async function recordOf(changeSetId: string): Promise<{ line: number; event: boolean; results: number }[]> {
+    const r = await env!.admin.query<{ line: number; event: boolean; results: number }>(
+      `SELECT line_no AS line, new_event_id IS NOT NULL AS event, cardinality(result_ids) AS results
+         FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY line_no`,
+      [changeSetId],
+    );
+    return r.rows;
+  }
+
+  async function activeOf(product: string): Promise<[string, string, boolean, string | null][]> {
+    const r = await env!.admin.query<{ price: string; f: string; t: string | null; carried: boolean }>(
+      `SELECT price::text, carried_forward AS carried,
+              to_char(COALESCE(effective_from AT TIME ZONE 'UTC', effective_from_local), 'YYYY-MM-DD"T"HH24:MI') AS f,
+              to_char(COALESCE(effective_to AT TIME ZONE 'UTC', effective_to_local), 'YYYY-MM-DD"T"HH24:MI') AS t
+         FROM price_events WHERE tenant_id = $1 AND product_id = $2 AND state = 'active'
+        ORDER BY COALESCE(effective_from AT TIME ZONE 'UTC', effective_from_local)`,
+      [TENANT_A, product],
+    );
+    return r.rows.map((e) => [e.price, e.f, e.carried, e.t]);
+  }
+
+  it("M1: a standard set whose earliest activation has passed is stale at approve and at publish; no revision is written", async () => {
+    if (skip()) return;
+    const service = app!.get(PriceChangeSetsService);
+    const real = service.clock;
+    const pending = await submitted({ items: [bookPrice(P.late, "5", "2047-01-01T00:00:00Z")] });
+    const toApprove = await submitted({ items: [bookPrice(P.late, "6", "2047-06-01T00:00:00Z", "2047-09-01T00:00:00Z")] });
+    const ready = await ok(
+      await send(op(pending.header.id, "approve"), SES_ADMIN_SPEC, { expectedVersion: 1, previewHash: pending.header.previewHash, acknowledgedFindings: ALL_ACKS }),
+    );
+    const before = await head();
+    service.clock = () => Date.parse("2047-07-01T00:00:00Z");
+    try {
+      refused(await publish(ready), 409, "stale_validation");
+      refused(
+        await send(op(toApprove.header.id, "approve"), SES_ADMIN_SPEC, { expectedVersion: 1, previewHash: toApprove.header.previewHash, acknowledgedFindings: ALL_ACKS }),
+        409,
+        "stale_validation",
+      );
+      expect(await head()).toBe(before);
+      expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [pending.header.id])).toBe("draft:2");
+      // Re-validated now, the line is past_dated: blocking for a standard set.
+      const again = await ok(await send(op(pending.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 2 }));
+      expect(again.summary).toMatchObject({ blocking: true, findings: { past_dated: 1 } });
+    } finally {
+      service.clock = real;
+    }
+  });
+
+  it("m7: end_price and reset_store_override carry the head forward up to their instant", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.end, "30", "2050-01-01T00:00:00Z")] });
+    const end = await published({ items: [{ op: "end_price", scope: { kind: "book" }, products: items([P.end]), ...at("2052-01-01T00:00:00Z") }] });
+    expect(await activeOf(P.end)).toEqual([["30.0000", "2050-01-01T00:00", true, "2052-01-01T00:00"]]);
+    expect(await recordOf(end.set.header.id)).toEqual([{ line: 1, event: false, results: 1 }]);
+
+    const store = { kind: "stores", storeIds: [STORE_A_X] };
+    await published({ items: [{ op: "set_price", scope: store, products: items([P.reset]), price: "31", ...at("2050-01-01T00:00:00Z") }] });
+    const reset = await published({ items: [{ op: "reset_store_override", scope: store, products: items([P.reset]), ...at("2051-01-01T00:00:00Z") }] });
+    expect(await activeOf(P.reset)).toEqual([["31.0000", "2050-01-01T00:00", true, "2051-01-01T00:00"]]);
+    expect(await recordOf(reset.set.header.id)).toEqual([{ line: 1, event: false, results: 1 }]);
+    const fan = await env!.admin.query<{ store: string }>(`SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`, [TENANT_A, reset.revisionNo]);
+    expect(fan.rows.map((r) => r.store)).toEqual([STORE_A_X]);
+  });
+
+  it("m7: a line covering a head event leaves no remainder; two lines replacing one event split it, the lowest line records it", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.cover, "40", "2050-01-01T00:00:00Z", "2051-01-01T00:00:00Z")] });
+    const cover = await published({ items: [bookPrice(P.cover, "41", "2049-01-01T00:00:00Z")] });
+    expect(await activeOf(P.cover)).toEqual([["41.0000", "2049-01-01T00:00", false, null]]);
+    expect(await recordOf(cover.set.header.id)).toEqual([{ line: 1, event: true, results: 0 }]);
+
+    await published({ items: [bookPrice(P.two, "50", "2050-01-01T00:00:00Z")] });
+    const two = await published({
+      items: [bookPrice(P.two, "51", "2051-01-01T00:00:00Z", "2052-01-01T00:00:00Z"), bookPrice(P.two, "52", "2053-01-01T00:00:00Z", "2054-01-01T00:00:00Z")],
+    });
+    expect(await activeOf(P.two)).toEqual([
+      ["50.0000", "2050-01-01T00:00", true, "2051-01-01T00:00"],
+      ["51.0000", "2051-01-01T00:00", false, "2052-01-01T00:00"],
+      ["50.0000", "2052-01-01T00:00", true, "2053-01-01T00:00"],
+      ["52.0000", "2053-01-01T00:00", false, "2054-01-01T00:00"],
+      ["50.0000", "2054-01-01T00:00", true, null],
+    ]);
+    expect(await recordOf(two.set.header.id)).toEqual([
+      { line: 1, event: true, results: 3 },
+      { line: 2, event: true, results: 0 },
+    ]);
+  });
+
+  it("m7: a replaced event ended outside a revision is refused at publish (replacedStillActive) as stale", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.gone, "60", "2050-01-01T00:00:00Z")] });
+    // An unrelated revision, so the head event's revision is below the head it can be ended in.
+    await published({ items: [bookPrice(P3, "62", "2060-01-01T00:00:00Z")] });
+    const set = await approved({ items: [bookPrice(P.gone, "61", "2051-01-01T00:00:00Z")] });
+    const h = await head();
+    // The head event is ended with no new revision (triggers off): no intersecting revision exists.
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(
+        `UPDATE price_events SET state = 'superseded', ended_in_revision = $3
+          WHERE tenant_id = $1 AND product_id = $2 AND state = 'active' AND published_in_revision < $3`,
+        [TENANT_A, P.gone, h],
+      );
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+    refused(await publish(set), 409, "stale_validation");
+    expect(await head()).toBe(h);
+  });
+
+  it("m7: a time-zone change and a Store deletion each stale a validated set (Q-B8)", async () => {
+    if (skip()) return;
+    const tz = await validated({ items: [bookPrice(P5, "15", "2048-01-01T00:00:00Z")] });
+    await env!.admin.query(`UPDATE stores SET timezone = 'Europe/Paris' WHERE id = $1`, [STORE_A_X]);
+    try {
+      refused(await send(op(tz.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
+    } finally {
+      await env!.admin.query(`UPDATE stores SET timezone = 'UTC' WHERE id = $1`, [STORE_A_X]);
+    }
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const doomed = await stores.create(ctx, { code: "RT1484GONE", name: "RT-1484 doomed store" });
+    const set = await validated({ items: [{ op: "set_price", scope: { kind: "stores", storeIds: [doomed.id, STORE_A_X] }, products: items([P5]), price: "16", ...at("2048-06-01T00:00:00Z") }] });
+    await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [doomed.id]);
+    refused(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
+  });
+
+  it("m5: a no-op activation PATCH takes no bootstrap row; a real activation does", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const s = await stores.create(ctx, { code: "RT1484ACT", name: "RT-1484 activation" });
+    const rows = async (): Promise<string> => (await scalar(`SELECT count(*)::text AS v FROM pricing_revision_stores WHERE store_id = $1`, [s.id]))!;
+    const onX = (price: string, from: string) => ({ items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_A_X] }, products: items([P6]), price, ...at(from) }] });
+    try {
+      expect(await rows()).toBe("1");
+      // A revision that does not reach the Store, then a PATCH that leaves it active: no new row.
+      await published(onX("17", "2049-01-01T00:00:00Z"));
+      await stores.update(ctx, s.id, { is_active: true });
+      expect(await rows()).toBe("1");
+      // Deactivated, a later revision, then activated: one bootstrap row at the head.
+      await stores.update(ctx, s.id, { is_active: false });
+      await published(onX("18", "2049-06-01T00:00:00Z"));
+      await stores.update(ctx, s.id, { is_active: true });
+      expect(await rows()).toBe("2");
+      expect(await scalar(`SELECT max(revision_no)::text AS v FROM pricing_revision_stores WHERE store_id = $1`, [s.id])).toBe(String(await head()));
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [s.id]);
+    }
+  });
+
+  it("m7: a non-default Zone event fans out to that Zone's members; a move that replaces a membership carries it forward", async () => {
+    if (skip()) return;
+    // STORE_A_Y is in NORTH from 2044 (the Zone move case above).
+    const zone = await published({ items: [{ op: "set_price", scope: { kind: "zone", zoneId: ZONE_NORTH }, products: items([P.zone]), price: "70", ...at("2045-01-01T00:00:00Z") }] });
+    const fan = await env!.admin.query<{ store: string }>(`SELECT store_id::text AS store FROM pricing_revision_stores WHERE tenant_id = $1 AND revision_no = $2`, [TENANT_A, zone.revisionNo]);
+    expect(fan.rows.map((r) => r.store)).toEqual([STORE_A_Y]);
+
+    const move = await published({ items: [{ op: "move_store_zone", storeId: STORE_A_Y, zoneId: ZONE_DEFAULT, effectiveFrom: "2046-01-01T00:00:00Z" }] });
+    const m = await env!.admin.query<{ zone: string; carried: boolean; f: string; t: string | null }>(
+      `SELECT price_zone_id::text AS zone, carried_forward AS carried,
+              to_char(effective_from AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS f, to_char(effective_to AT TIME ZONE 'UTC', 'YYYY-MM-DD') AS t
+         FROM price_zone_memberships WHERE tenant_id = $1 AND store_id = $2 AND state = 'active' ORDER BY effective_from`,
+      [TENANT_A, STORE_A_Y],
+    );
+    expect(m.rows).toEqual([
+      { zone: ZONE_NORTH, carried: true, f: "2044-01-01", t: "2046-01-01" },
+      { zone: ZONE_DEFAULT, carried: false, f: "2046-01-01", t: null },
+    ]);
+    expect(await recordOf(move.set.header.id)).toEqual([{ line: 1, event: false, results: 2 }]);
+  });
+
+  it("m1: a store_local line starting in a DST gap where the head event ends publishes (replaced by wall clock, no 23P01)", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const cairo = await stores.create(ctx, { code: "RT1484CAI", name: "RT-1484 Cairo", timezone: "Africa/Cairo" });
+    const scope = { kind: "stores", storeIds: [cairo.id] };
+    const local = (from: string, to?: string) => ({ timeBasis: "store_local", effectiveFrom: from, ...(to === undefined ? {} : { effectiveTo: to }) });
+    try {
+      // Cairo skips 00:00–01:00 on 2031-04-25: the head ends at 00:30 and the line starts at 00:15,
+      // both the 01:00 transition in the Store, yet their wall-clock intervals overlap.
+      await published({ items: [{ op: "set_price", scope, products: items([P.dst]), price: "80", ...local("2030-01-01T00:00", "2031-04-25T00:30") }] });
+      const line = await published({ items: [{ op: "set_price", scope, products: items([P.dst]), price: "81", ...local("2031-04-25T00:15") }] });
+      expect(await activeOf(P.dst)).toEqual([
+        ["80.0000", "2030-01-01T00:00", true, "2031-04-25T00:15"],
+        ["81.0000", "2031-04-25T00:15", false, null],
+      ]);
+      expect(await recordOf(line.set.header.id)).toEqual([{ line: 1, event: true, results: 1 }]);
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [cairo.id]);
+    }
   });
 });
