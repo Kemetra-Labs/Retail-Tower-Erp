@@ -4,15 +4,12 @@
  * A transaction-scoped advisory lock per tenant, the `lockPostingFeedSequence` pattern (RT-456,
  * `packages/db/src/helpers/posting-feed-lock.ts`). It serializes, per tenant: the Price Book
  * create's single-Book check (price-structure.yaml, order of checks (4)), a Zone retirement's
- * in-use check (consoleRetirePriceZone) and, in later RT-1484 slices, a publish's revision
- * allocation and the Store lifecycle writes. Held until COMMIT or ROLLBACK.
+ * in-use check (consoleRetirePriceZone), a publish's staleness re-check and revision allocation
+ * (PR-10b) and the Store lifecycle writes (spec 042 §8). Held until COMMIT or ROLLBACK.
  *
  * Lock order rule: take it as the first statement of the transaction, before any row lock.
  */
 import type { PoolClient } from "pg";
-
-/** Advisory-lock key namespace; the tenant id is appended. */
-const PRICING_PUBLISH_LOCK_NAMESPACE = "pricing-publish";
 
 /** A distinct namespace for Change Set validation (never the publish lock's key). */
 const PRICING_VALIDATE_LOCK_NAMESPACE = "pricing-validate";
@@ -30,10 +27,9 @@ export async function lockPricingValidate(client: Pick<PoolClient, "query">, ten
   ]);
 }
 
-/** Take the tenant's pricing publish lock for the rest of the transaction. */
-export async function lockPricingPublish(client: Pick<PoolClient, "query">, tenantId: string): Promise<void> {
-  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2::text, 0))`, [
-    PRICING_PUBLISH_LOCK_NAMESPACE,
-    tenantId,
-  ]);
-}
+/**
+ * The tenant's pricing publish lock (namespace 'pricing-publish'). RT-1484 PR-10b: defined in
+ * `common/pricing-store-lifecycle.ts`, because the Store lifecycle writes take it too and may not
+ * import Pricing (module cycle); re-exported here so Pricing keeps one import site.
+ */
+export { lockPricingPublish } from "../common/pricing-store-lifecycle";

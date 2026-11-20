@@ -82,6 +82,18 @@ jest.mock("../../src/stores/deletion/store-deletion.write", () => ({
   deleteStoreWithAudit: jest.fn(async () => new Date("2026-11-16T22:45:00Z")),
 }));
 
+// RT-1484 PR-5 (spec 042 §8): Store lifecycle writes take the pricing publish lock and write the
+// bootstrap row; these unit specs run on a bare fake client, so the helpers are recorded instead.
+const mockPricingCalls: string[] = [];
+jest.mock("../../src/common/pricing-store-lifecycle", () => ({
+  lockPricingPublish: jest.fn(async () => {
+    mockPricingCalls.push("lock");
+  }),
+  bootstrapStorePricing: jest.fn(async () => {
+    mockPricingCalls.push("bootstrap");
+  }),
+}));
+
 jest.mock("../../src/offers/offer-pack.rebuild", () => ({
   rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
 }));
@@ -297,10 +309,18 @@ describe("StoresService.create", () => {
     storesRepo.create.mockResolvedValue(row);
     const ctx = makeCtx();
 
+    mockPricingCalls.length = 0;
+    storesRepo.create.mockImplementation(async () => {
+      mockPricingCalls.push("create");
+      return row;
+    });
     const result = await service.create(ctx, { code: "MAIN", name: "Main Store" });
 
     expect(result).toBe(row);
-    expect(mockNewId).toHaveBeenCalledTimes(1);
+    // RT-1484 PR-5: the pricing publish lock first, then the insert, then the bootstrap row
+    // (whose correlation id is the second minted id).
+    expect(mockPricingCalls).toEqual(["lock", "create", "bootstrap"]);
+    expect(mockNewId).toHaveBeenCalledTimes(2);
     expect(storesRepo.create).toHaveBeenCalledTimes(1);
     expect(storesRepo.create).toHaveBeenCalledWith(fakeClient, {
       id: STORE_ID,
@@ -565,6 +585,29 @@ describe("StoresService.update", () => {
       name: "Renamed",
       isActive: false,
     });
+  });
+
+  // RT-1484 PR-5 (spec 042 §8, data-model §2.6): lifecycle writes take the pricing publish lock first.
+  it("UP3: a deactivation takes the pricing lock and writes no bootstrap row; an activation writes one", async () => {
+    const { service, storesRepo } = buildService();
+    storesRepo.update.mockImplementation(async () => {
+      mockPricingCalls.push("update");
+      return makeStoreRecord();
+    });
+    mockPricingCalls.length = 0;
+    await service.update(makeCtx(), STORE_ID, { is_active: false });
+    expect(mockPricingCalls).toEqual(["lock", "update"]);
+    mockPricingCalls.length = 0;
+    await service.update(makeCtx(), STORE_ID, { is_active: true });
+    expect(mockPricingCalls).toEqual(["lock", "update", "bootstrap"]);
+  });
+
+  it("UP4: a rename alone is no lifecycle write: no pricing lock", async () => {
+    const { service, storesRepo } = buildService();
+    storesRepo.update.mockResolvedValue(makeStoreRecord());
+    mockPricingCalls.length = 0;
+    await service.update(makeCtx(), STORE_ID, { name: "Renamed" });
+    expect(mockPricingCalls).toEqual([]);
   });
 });
 

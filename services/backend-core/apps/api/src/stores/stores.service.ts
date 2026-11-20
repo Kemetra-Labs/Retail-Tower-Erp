@@ -55,6 +55,7 @@
  *   - persisted business dates are never rewritten (215).
  */
 import { rebuildOfferPackForStoreChange } from "../offers/offer-pack.rebuild";
+import { bootstrapStorePricing, lockPricingPublish } from "../common/pricing-store-lifecycle";
 import { storeDeletionBlocked } from "./deletion/store-deletion.errors";
 import {
   evaluateStoreDeletionBlockers,
@@ -225,6 +226,9 @@ export class StoresService {
     const storeId = newId();
     try {
       return await this.tx(this.pool, txCtx(ctx), async (client) => {
+        // RT-1484 (spec 042 §8): a Store lifecycle write takes the tenant's pricing publish lock
+        // first, so a Change Set publish's target-Store re-check and this create serialize.
+        await lockPricingPublish(client, ctx.tenantId as string);
         if (input.timezone !== undefined) {
           await this.requireKnownZone(client, input.timezone);
         }
@@ -237,6 +241,8 @@ export class StoresService {
         });
         // RT-1337: an offer with `allStores: true` includes stores added later.
         await rebuildOfferPackForStoreChange(client, ctx.tenantId as string);
+        // The new Store starts at the tenant's head revision (spec 041 data-model §2.6).
+        await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
         return created;
       });
     } catch (err) {
@@ -334,14 +340,17 @@ export class StoresService {
     meta: StoreWriteMeta = NO_REQUEST_META,
   ): Promise<StoreRecord> {
     return await this.tx(this.pool, txCtx(ctx), async (client) => {
-      if (timezoneChange) {
-        return this.updateWithTimezone(client, ctx, storeId, next, timezoneChange, meta);
+      // RT-1484 (spec 042 §8): activation, deactivation and a time-zone change are Store lifecycle
+      // writes: the tenant's pricing publish lock first, before the store row lock.
+      if (timezoneChange !== undefined || next.is_active !== undefined) {
+        await lockPricingPublish(client, ctx.tenantId as string);
       }
-      const row = await this.stores.update(client, storeId, {
-        name: next.name,
-        isActive: next.is_active,
-      });
+      const row = timezoneChange
+        ? await this.updateWithTimezone(client, ctx, storeId, next, timezoneChange, meta)
+        : await this.stores.update(client, storeId, { name: next.name, isActive: next.is_active });
       if (!row) throw notFound();
+      // An activation starts the Store at the head revision (spec 041 data-model §2.6).
+      if (next.is_active === true) await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
       return row;
     });
   }
@@ -491,6 +500,8 @@ export class StoresService {
     meta: StoreWriteMeta = NO_REQUEST_META,
   ): Promise<void> {
     await this.tx(this.pool, txCtx(ctx), async (client) => {
+      // RT-1484 (spec 042 §8): the pricing publish lock first, before the store row lock.
+      await lockPricingPublish(client, ctx.tenantId as string);
       const store = await this.stores.findByIdForUpdate(client, storeId);
       if (!store) throw notFound();
       const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId, { withEligibility: false });
@@ -510,6 +521,17 @@ export class StoresService {
       });
     });
   }
+}
+
+/** Nil UUID: the bootstrap row's actor when the caller is a token principal with no user. */
+const NIL_ACTOR = "00000000-0000-0000-0000-000000000000";
+
+/** The Store bootstrap row's facts: the tenant, the Store, the actor and a fresh correlation id. */
+function pricingBootstrapOf(
+  ctx: ResolvedContext,
+  storeId: string,
+): { tenantId: string; storeId: string; actorUserId: string; correlationId: string } {
+  return { tenantId: ctx.tenantId as string, storeId, actorUserId: ctx.userId ?? NIL_ACTOR, correlationId: newId() };
 }
 
 function notFound(): NotFoundException {

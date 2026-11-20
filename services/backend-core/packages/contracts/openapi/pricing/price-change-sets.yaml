@@ -15,9 +15,9 @@ info:
 
 
     **Posture.** `1.0.0-draft`, `[GATED]` contract-first, authorized by the
-    owner on RT-1151 (D1, comment 17783). Every operation is
-    `x-runtime-status: contract-only` until RT-1484 (RT-282 PR-09/PR-10)
-    ships the runtime. The approval-mode setting (`pricing.change_set_approval`,
+    owner on RT-1151 (D1, comment 17783). RT-1484 (RT-282 PR-09/PR-10)
+    ships the runtime operation by operation; an operation still marked
+    `x-runtime-status: contract-only` (rollback) is not routed yet. The approval-mode setting (`pricing.change_set_approval`,
     v1 default `always`, Q-B1) and the optional lead time are RT-1484's.
 
 
@@ -63,8 +63,9 @@ info:
     **Publish (§3, Q-B4).** One transaction under the tenant's pricing publish
     lock: re-check staleness, allocate the next `revisionNo`, insert events and
     membership rows, supersede what they replace, fan the revision out to the
-    Stores it can change, write audit rows and emit
-    `pricing.revision.published` on the outbox. All-or-nothing (528, 530).
+    Stores it can change and write audit rows. All-or-nothing (528, 530). The
+    `pricing.revision.published` outbox event is deferred to RT-1486 (RT-1484
+    comment 17829); RT-1484 does not emit it.
     Publishing always happens **now**; future effective times live on the
     events ("scheduled" = published ahead of effect), so nothing can fail to
     publish later.
@@ -389,10 +390,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Moves a `validated` set to `pending_approval`, or straight to
         `approved` when it is not sensitive (self-approval of a non-sensitive
@@ -452,10 +449,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Moves a `pending_approval` set to `approved` for the given
         `previewHash` (a different hash is `409 preview_changed`). Approving
@@ -511,10 +504,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Moves a `pending_approval` set back to `draft` with a reason (recorded
         as `lastRejection`). Roles `owner` / `tenant_admin`.
@@ -563,10 +552,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Publishes an `approved` set now, all-or-nothing, under the tenant's
         pricing publish lock (info **Publish**), and answers the new

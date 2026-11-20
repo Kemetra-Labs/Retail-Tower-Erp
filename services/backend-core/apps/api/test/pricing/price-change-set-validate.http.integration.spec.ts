@@ -766,7 +766,7 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
   // Review round 1, m4: RLS at the SQL level, as the NOBYPASSRLS application role.
   // Review round 1, m4, and round 4 (CodeRabbit 4640763267, 4640763278): RLS at the SQL level, as
   // the NOBYPASSRLS application role, with a positive control under tenant B.
-  it("m4: under tenant A's GUC the app role reads none of tenant B's 0123 rows and cannot write them", async () => {
+  it("m4: under tenant A's GUC the app role reads none of tenant B's 0123 rows; its writes of them are refused by tenant context", async () => {
     if (skip()) return;
     const bSet = await createSet(SES_OWNER_B, {
       items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_B_X] }, products: items([PRODUCT_B_ACTIVE]), price: "9", ...at("2034-01-01T00:00:00Z") }],
@@ -891,7 +891,27 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
     const draft = (price: string, from: string) =>
       createSet(SES_OWNER_ALL, { items: [{ op: "set_price", scope: { kind: "book" }, products: items([P3]), price, ...at(from) }] });
     const [x, y] = [await draft("70", "2038-01-01T00:00:00Z"), await draft("71", "2038-06-01T00:00:00Z")];
-    const [vx, vy] = await Promise.all([validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)]);
+    // RT-1484 PR-5 (carry-over from the #748 review): deterministic. An admin transaction holds
+    // tenant A's 'pricing-validate' lock; both validations start and block on it (seen in
+    // pg_locks); releasing it lets them run one after the other.
+    const holder = await env!.admin.connect();
+    let both: Promise<[ChangeSet, ChangeSet]> | undefined;
+    try {
+      await holder.query("BEGIN");
+      await holder.query(`SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2::text, 0))`, ["pricing-validate", TENANT_A]);
+      both = Promise.all([validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)]);
+      const deadline = Date.now() + 20_000;
+      for (;;) {
+        const w = await env!.admin.query<{ n: number }>(`SELECT count(*)::int AS n FROM pg_locks WHERE locktype = 'advisory' AND NOT granted`);
+        if (w.rows[0]!.n >= 2) break;
+        if (Date.now() > deadline) throw new Error("the two validations never blocked on the validate lock");
+        await new Promise((r) => setTimeout(r, 50));
+      }
+    } finally {
+      await holder.query("COMMIT");
+      holder.release();
+    }
+    const [vx, vy] = await both!;
     const pending = [vx, vy].map((v) => (v.summary as { findings: { conflicts_pending: number } }).findings.conflicts_pending).sort();
     expect(pending).toEqual([0, 1]);
   });
