@@ -41,8 +41,8 @@ python -m pgraph evaluate --repo ../.. --base <base> --head <head> --event pull_
 
 The graph decides which jobs **execute**, not only which results `required` counts. Each root product workflow (`pos`, `admin-console`, `backend-core`, `erpnext-connector`, `e2e`) starts with a `plan` job:
 
-1. It checks out history only and extracts `tools/project-graph` from the **trusted** commit with `git archive` (the PR base; the pushed commit on `push` to `main`). Head code is never run; the head tree is read as git data, as in the gate.
-2. It runs `python -m pgraph evaluate` with the PR's base and head SHAs and outputs `needed_jobs` as the JSON output `jobs`. A push to `main` is `FULL_RUN_EVENT` and selects everything. An invalid trusted graph selects nothing, so the plan job fails loudly instead.
+1. It checks out history only and extracts `tools/project-graph` from the **trusted** commit with `git archive` (the PR base; the pushed commit on `push` to `main`; the main commit a nightly or manual full run started on, see "Nightly full CI"). Head code is never run; the head tree is read as git data, as in the gate.
+2. It runs `python -m pgraph evaluate` with the PR's base and head SHAs and outputs `needed_jobs` as the JSON output `jobs`. A push to `main`, a nightly `schedule` and a manual `workflow_dispatch` are `FULL_RUN_EVENT` and select everything. An invalid trusted graph selects nothing, so the plan job fails loudly instead.
 3. Every graph job outside `always_jobs` has `needs: plan` and `if: contains(fromJSON(needs.plan.outputs.jobs), '<key>')`. The jobs it needs are guarded on its key too: the POS shards also run for `pos/test`, and the Schemathesis shards run for `bc/schemathesis`.
 
 `boundary-check` and `dependency-review` are `always_jobs` and stay unguarded.
@@ -58,6 +58,40 @@ Only the canonical guard shape is accepted (see `guard_keys`), so `always() || .
 **Policy paths inside products.** Policy classes are checked before product ownership, and only a `policy_change` class may reach into a product root (rule 2), so a product path matched by `policy` never becomes `AMBIGUOUS_PATH`. The boundary check still treats such paths as product code (`Graph.product_of`). `apps/*/.github/**`, `services/*/.github/**` and `integrations/*/.github/**` are `policy` (root jobs execute scripts from there, e.g. `fetch-pinned-contracts.sh`). They landed in a separate PR after the rule-2 relaxation, because the gate validates a proposed graph with the base validator.
 
 **Semantic edges.** Backend-Core `sales`, `money` and `posting-sync` also select `pos/static` and `pos/test`. Connector `posting-sync` also selects `bc/fast`.
+
+## Nightly full CI (RT-1471 Phase 1)
+
+The six root workflows that define the plan-guarded graph jobs (`backend-core`, `pos`, `admin-console`, `erpnext-connector`, `contracts`, `e2e`: 20 of the 22 graph jobs; the two `always_jobs` live in `project-graph.yml`, which is not scheduled) each run once a night on the tip of `main`, and on demand for one pinned SHA. Both are `FULL_RUN_EVENT`: the same job selection, thresholds and artifacts as the push to `main` that runs today. A push to `main` still runs everything; Phase 1 changes nothing about it, about PR selection, or about `required`.
+
+| Workflow | Cron (UTC, daily) | Cairo, winter (UTC+2) | Cairo, Egyptian DST (UTC+3) |
+|---|---|---|---|
+| `backend-core` | `37 23 * * *` | 01:37 | 02:37 |
+| `pos` | `38 23 * * *` | 01:38 | 02:38 |
+| `admin-console` | `39 23 * * *` | 01:39 | 02:39 |
+| `erpnext-connector` | `40 23 * * *` | 01:40 | 02:40 |
+| `contracts` | `41 23 * * *` | 01:41 | 02:41 |
+| `e2e` | `42 23 * * *` | 01:42 | 02:42 |
+
+Why this slot. The six start within five minutes so they test the same commit (unless a merge lands in that window or GitHub delays one run), at an off-peak minute (GitHub delays runs at `:00` and `:30`) and finish well before the other nightlies: `api-fuzz-nightly` 02:17 UTC, `connector-bench-nightly` 02:23 UTC, `clean-stale-caches` 03:00 UTC (the weekly `trivy-backend-core`, `secrets` and `scorecard` are at 03:17, 04:43 and 05:27 UTC). The six together are the burst a merge to `main` already produces, so they share the runner pool the way a push does. `tests/test_nightly_full.py` fails if a cron stops being daily, leaves the 15-minute window, or comes within an hour of any other schedule.
+
+What a nightly or manual run does differently from a push, and why:
+- **Trust.** The `plan` action treats the run like a push: the evaluator is the commit being run. A `schedule` or `workflow_dispatch` run is accepted only on `refs/heads/main`, and a dispatch must name the SHA to prove (`expected_sha`, 40 lowercase hex). A moved `main`, a wrong SHA or another ref fails in `plan`, before any product job starts. The plan also fails unless it selected every job with a valid graph, so a nightly cannot go green on a subset.
+- **Coverage artifacts.** `sonar-coverage-pos`, `-admin-console`, `-backend-core` and `-erpnext-connector` are uploaded on every non-PR run (they were push-only). The POS source-scope guard pin now runs on every non-PR run too, as the Windows unpacked-build artifact upload already did. Thresholds are unchanged: they run in the same steps.
+- **Backend-Core `bc/oasdiff`.** A push compares with `github.event.before`; a scheduled or manual run has none, so it compares the tip with its first parent (the comparison the tip's own push run made). A commit with no first parent fails; it never compares nothing.
+- **Concurrency.** Non-PR runs are grouped per event and SHA, so a manual run never cancels, or is cancelled by, the push run of the same commit.
+- **Gate.** `gate.yml` ignores `workflow_run` on `main`, so these runs never post or change `required`. They add check-runs for the tip SHA under the same names; the release compat guard reads the latest `github-actions` run per name, so a nightly that is still running or flaky red on the SHA being released makes the guard refuse (fail closed); re-run that nightly workflow and release again.
+- **Sonar.** `sonar.yml` still scans pushes only (it waits for `--event push` runs). Moving it onto the nightly is scope item 4 of RT-1471 (D7), a later change.
+
+**Manual full run for one exact SHA** (the owner-authorized pre-activation proof; a billable trigger: about 156 runner-minutes, authorize each use). It dispatches the same six workflows, with the same selection, thresholds and artifacts as the schedule; it does **not** prove that GitHub fires the schedule, which only the first scheduled run does.
+
+```bash
+SHA="$(git ls-remote origin refs/heads/main | cut -f1)"   # the exact main SHA to prove; write it down
+for wf in backend-core pos admin-console erpnext-connector contracts e2e; do
+  gh workflow run "$wf.yml" --ref main -f expected_sha="$SHA"
+done
+```
+
+Verify, per workflow (`gh run list --workflow "$wf.yml" --event workflow_dispatch --limit 1 --json databaseId,headSha,conclusion`): `headSha` equals `$SHA`; the `plan` job summary says `event: workflow_dispatch`, `select_all: true`; every graph job (`gh run view <id> --json jobs --jq '.jobs[] | "\(.conclusion)\t\(.name)"'`) is `success` and none is `skipped`; the four `sonar-coverage-*` artifacts exist (`gh api repos/<owner>/<repo>/actions/runs/<id>/artifacts --jq '.artifacts[].name'`, or the run page). If a run fails at `plan` with `expected_sha ... is not the commit this run started on`, `main` moved: take the new tip and dispatch again. Record the run IDs, the SHA, the job inventory and the artifacts on the Jira issue.
 
 ## `api_jest_fast` (graph data only)
 
