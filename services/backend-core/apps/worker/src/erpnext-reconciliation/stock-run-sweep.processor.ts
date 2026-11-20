@@ -56,7 +56,7 @@ import {
   setStockRunStranded,
   type StockReconciliationSweepOutcome,
 } from "../observability/metrics/worker.metrics";
-import { errorClassName } from "../common/error-class-name";
+import { errorFields } from "../common/error-class-name";
 import { sweepPeriod, type SweepPeriod } from "./stock-run-sweep.config";
 import type {
   ExpireStaleRunsResult,
@@ -379,18 +379,6 @@ export function scheduledAtFromJobId(jobId: string | undefined): Date | undefine
   return match ? new Date(Number(match[1])) : undefined;
 }
 
-/** Short identifier-like codes only: a SQLSTATE (`40P01`) or a Node code (`ECONNRESET`). */
-const ERROR_CODE = /^[A-Z0-9_]{1,32}$/;
-
-/**
- * Loggable error fields: the class name plus, when present, the error's code.
- * pg's `DatabaseError` names every failure "error", so the SQLSTATE in
- * `err.code` is what makes a failure diagnosable. A code carries no row values;
- * anything that is not a short identifier-like string is dropped.
- */
-export function errorFields(err: unknown): { errorName: string; errorCode?: string } {
-  const code = (err as { code?: unknown } | null)?.code;
-  return typeof code === "string" && ERROR_CODE.test(code)
-    ? { errorName: errorClassName(err), errorCode: code }
-    : { errorName: errorClassName(err) };
-}
+// RT-1503: `errorFields` moved to common/error-class-name.ts (shared by the sweeps without an
+// import cycle through this module); re-exported for its existing importers.
+export { errorFields } from "../common/error-class-name";

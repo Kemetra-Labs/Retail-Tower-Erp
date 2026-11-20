@@ -33,6 +33,7 @@
  * job-name-masked (no Unknown*JobError sets a cause).
  */
 import * as Sentry from "@sentry/node";
+import { QUEUE_NAMES } from "@data-pulse-2/shared";
 import {
   extractTraceContext,
   trace,
@@ -79,6 +80,8 @@ export const DECLARED_JOB_NAMES: ReadonlySet<string> = new Set([
   SALE_REDRIVE_JOB_NAME,
   RESERVATION_SWEEP_JOB_NAME,
   PROVISIONING_SWEEP_JOB_NAME,
+  // RT-1503: the catalogue import retention job is named after its queue (no import: a module cycle).
+  QUEUE_NAMES.catalogImportRetention,
 ]);
 
 const MASKED_JOB_NAME = "[job_name]";

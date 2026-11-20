@@ -49,6 +49,7 @@ import { OutboxRetentionWorker } from "./outbox/retention.worker";
 import { StockRunSweepWorker } from "./erpnext-reconciliation/stock-run-sweep.worker";
 import { ReservationSweepWorker } from "./ai-usage/reservation-sweep.worker";
 import { ReplayPurgeWorker } from "./cashier-admissions/replay-purge.worker";
+import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
 import { SaleRedriveWorker } from "./sales/sale-redrive.worker";
 import { ProvisioningSweepWorker } from "./erp-provisioning/provisioning-sweep.worker";
 import { WorkerModule } from "./worker.module";
@@ -91,15 +92,15 @@ const logger = new Logger("worker.bootstrap");
  * resolved (`emailWorker`, `auditWorker`, `saleWorker`,
  * `auditRetentionWorker`, `outboxRetentionWorker`, `stockRunSweepWorker`,
  * `replayPurgeWorker`, `saleRedriveWorker`, `reservationSweepWorker`,
- * `provisioningSweepWorker`), and a `triggerShutdown`
+ * `provisioningSweepWorker`, `importRetentionWorker`), and a `triggerShutdown`
  * callable that tests can call to simulate a signal without actually
  * emitting one.
  *
- * All ten workers are started by this function. The two retention workers,
+ * All eleven workers are started by this function. The two retention workers,
  * the stock reconciliation sweep worker (RT-179), the cashier-admission
  * replay purge worker (RT-209), the sale re-drive worker (RT-457), the AI
- * usage reservation sweep worker (RT-664) and the ERP provisioning sweep
- * worker (RT-1358) consume
+ * usage reservation sweep worker (RT-664), the ERP provisioning sweep
+ * worker (RT-1358) and the catalogue import retention worker (RT-1503) consume
  * the repeatable jobs their schedulers
  * register at module init (RT-123); without a consumer
  * those jobs accumulate unprocessed. Their shutdown is owned
@@ -121,6 +122,7 @@ export async function bootstrap(
   saleRedriveWorker: SaleRedriveWorker;
   reservationSweepWorker: ReservationSweepWorker;
   provisioningSweepWorker: ProvisioningSweepWorker;
+  importRetentionWorker: ImportRetentionWorker;
   /** Test hook: invoke the registered shutdown sequence. */
   triggerShutdown: (signal: "SIGTERM" | "SIGINT") => Promise<void>;
 }> {
@@ -161,6 +163,8 @@ export async function bootstrap(
   // job at module init; without this start() nothing consumes the queue
   // (RT-1400 found the job waiting on the lab since the v0.14.0 deploy).
   const provisioningSweepWorker = app.get(ProvisioningSweepWorker);
+  // RT-1503: the catalogue import expiry and retention job (same reason).
+  const importRetentionWorker = app.get(ImportRetentionWorker);
   emailWorker.start();
   auditWorker.start();
   saleWorker.start();
@@ -171,6 +175,7 @@ export async function bootstrap(
   saleRedriveWorker.start();
   reservationSweepWorker.start();
   provisioningSweepWorker.start();
+  importRetentionWorker.start();
 
   writeLine(stderr, {
     level: "info",
@@ -223,6 +228,7 @@ export async function bootstrap(
     saleRedriveWorker,
     reservationSweepWorker,
     provisioningSweepWorker,
+    importRetentionWorker,
     triggerShutdown: shutdown,
   };
 }

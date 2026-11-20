@@ -28,7 +28,9 @@
  *     mapping profile exists.
  *
  * Docker policy: missing Docker is a HARD failure unless
- * MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
+ * MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it). Even with the opt-in only
+ * "no container runtime" skips; an image pull or container start failure is
+ * rethrown (`startPgEnvOrSkip`, pinned by the skip-policy tests below).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -38,7 +40,16 @@ import type { PoolClient } from "pg";
 
 import * as schema from "../../src/schema";
 
-import { applyMigrationsBefore, asApp, asMigrationOwner, errorCode, inRolledBackTx, runSqlFile } from "../_helpers/migration-spec";
+import {
+  applyMigrationsBefore,
+  asApp,
+  asMigrationOwner,
+  errorCode,
+  inRolledBackTx,
+  isDockerUnavailable,
+  runSqlFile,
+  startPgEnvOrSkip,
+} from "../_helpers/migration-spec";
 import { startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
@@ -239,29 +250,16 @@ async function seedBaseline(): Promise<void> {
 // Lifecycle
 // -----------------------------------------------------------------------------
 
-/**
- * True only for Testcontainers' "no container runtime" error (testcontainers
- * 11.x, container-runtime/clients/client.js), raised before any container
- * exists. An image pull failure, a container start failure, a file error (a
- * missing SQL fixture read by startPgEnv) or any other setup failure is
- * rethrown, so MIGRATION_TEST_ALLOW_SKIP cannot turn it into a silent skip.
- */
-function isDockerUnavailable(err: unknown): boolean {
-  const message = err instanceof Error ? err.message : String(err);
-  return message.includes("Could not find a working container runtime strategy");
-}
-
 beforeAll(async () => {
   // Read this migration's files first: a missing file fails here, never as "Docker unavailable".
   upSql = readFileSync(UP_PATH, "utf8");
   downSql = readFileSync(DOWN_PATH, "utf8");
-  try {
-    env = await startPgEnv();
-  } catch (err: unknown) {
-    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] !== "1" || !isDockerUnavailable(err)) throw err;
-    dockerSkipReason = String(err);
+  const started = await startPgEnvOrSkip(startPgEnv, process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1");
+  if (started.env === null) {
+    dockerSkipReason = started.skipReason;
     return;
   }
+  env = started.env;
   await applyMigrationsBefore(env, DRIZZLE_DIR, UP_NAME);
   const a = env.admin;
   await a.query(
@@ -294,6 +292,51 @@ beforeAll(async () => {
 
 afterAll(async () => {
   if (env) await stopPgEnv(env);
+});
+
+// -----------------------------------------------------------------------------
+// Docker skip policy (RT-1503 comment 17859; deferred from #735)
+// -----------------------------------------------------------------------------
+
+describe("0124_catalog_import — MIGRATION_TEST_ALLOW_SKIP skips only a missing container runtime", () => {
+  // Runs with or without Docker: the starter is a stub, never a container.
+  const NO_RUNTIME = new Error("Could not find a working container runtime strategy");
+  const IMAGE_PULL = new Error("(HTTP code 404) no such image - postgres:16-alpine: pull access denied");
+  const CONTAINER_START = new Error("(HTTP code 500) server error - failed to start container: port is already allocated");
+  const failingWith = (err: unknown) => (): Promise<PgTestEnv> => Promise.reject(err);
+
+  it("recognises only Testcontainers' no-runtime error, as an Error or a string", () => {
+    expect(isDockerUnavailable(NO_RUNTIME)).toBe(true);
+    expect(isDockerUnavailable(`Error: ${NO_RUNTIME.message}`)).toBe(true);
+    expect(isDockerUnavailable(IMAGE_PULL)).toBe(false);
+    expect(isDockerUnavailable(CONTAINER_START)).toBe(false);
+    expect(isDockerUnavailable(new Error("ENOENT: no such file or directory, open '0000_initial.sql'"))).toBe(false);
+    expect(isDockerUnavailable(undefined)).toBe(false);
+  });
+
+  it.each([
+    ["an image pull", IMAGE_PULL],
+    ["a container start", CONTAINER_START],
+  ])("with the opt-in, %s error is rethrown, never a skip", async (_kind, err) => {
+    await expect(startPgEnvOrSkip(failingWith(err), true)).rejects.toBe(err);
+  });
+
+  it("with the opt-in, a missing container runtime is a skip with its reason", async () => {
+    await expect(startPgEnvOrSkip(failingWith(NO_RUNTIME), true)).resolves.toEqual({
+      env: null,
+      skipReason: String(NO_RUNTIME),
+    });
+  });
+
+  it("without the opt-in, a missing container runtime is rethrown (a hard failure)", async () => {
+    await expect(startPgEnvOrSkip(failingWith(NO_RUNTIME), false)).rejects.toBe(NO_RUNTIME);
+    await expect(startPgEnvOrSkip(failingWith(IMAGE_PULL), false)).rejects.toBe(IMAGE_PULL);
+  });
+
+  it("a started database is returned as is, with no skip reason", async () => {
+    const fake = {} as PgTestEnv;
+    await expect(startPgEnvOrSkip(() => Promise.resolve(fake), true)).resolves.toEqual({ env: fake, skipReason: null });
+  });
 });
 
 // -----------------------------------------------------------------------------

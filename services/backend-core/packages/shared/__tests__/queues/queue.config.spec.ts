@@ -190,6 +190,7 @@ describe("QUEUE_NAMES (RT-125)", () => {
       saleRedrive: "sale-redrive",
       aiUsageReservationSweep: "ai-usage-reservation-sweep",
       erpProvisioningSweep: "erp-provisioning-sweep",
+      catalogImportRetention: "catalog-import-retention",
     });
   });
 
