@@ -205,6 +205,22 @@ describe("production database pool separation", () => {
       await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
     }
 
+    // A column grant held by a role the lookup role inherits from reaches it too.
+    const parent = "rt1520_inherited_parent";
+    await admin.query(`CREATE ROLE ${parent} NOLOGIN`);
+    try {
+      await admin.query(`GRANT ${parent} TO ${LOOKUP_ROLE}`);
+      await admin.query(`GRANT SELECT (cells) ON catalog_import_rows TO ${parent}`);
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(
+        /holds forbidden column grants: SELECT ON catalog_import_rows\(cells\)/,
+      );
+    } finally {
+      await admin.query(`REVOKE ${parent} FROM ${LOOKUP_ROLE}`);
+      await admin.query(`REVOKE ALL ON catalog_import_rows FROM ${parent}`);
+      await admin.query(`DROP ROLE ${parent}`);
+    }
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
     // memberships forbids every privilege except SELECT: a column SELECT there is allowed.
     await admin.query(`GRANT SELECT (role_id) ON memberships TO ${LOOKUP_ROLE}`);
     try {

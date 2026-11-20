@@ -173,8 +173,8 @@ Legitimate deployments never set a role option.
   `store_access` (RT-212). The same boot check also refuses a column-level
   `SELECT`, `INSERT`, `UPDATE` or `REFERENCES` on any column of a forbidden
   table, limited to the privileges the entry lists (RT-1520; for example
-  `GRANT SELECT (cells) ON catalog_import_rows`); the error names the table and
-  column.
+  `GRANT SELECT (cells) ON catalog_import_rows`); a grant to `PUBLIC` or
+  through an inherited role counts. The error names the table and column.
   `TRUNCATE` matters most: it is not subject to row security.
 
   All three lists are in `apps/api/src/auth/database-pools.ts`, with the
