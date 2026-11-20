@@ -93,13 +93,19 @@ export interface NewRow {
   readonly cells: readonly StagedCell[];
 }
 
-/** Inserts every staged row of the batch in one statement (at most 5,000 rows). */
+/** Rows per insert statement: the staged text of a batch is capped (8,000,000 characters), and one statement never carries all of it. */
+const ROWS_PER_STATEMENT = 500;
+
+/** Inserts the staged rows of the batch, {@link ROWS_PER_STATEMENT} to a statement, on the caller's transaction. */
 export async function insertRows(client: PoolClient, tenantId: string, batchId: string, rows: readonly NewRow[]): Promise<void> {
-  await client.query(
-    `INSERT INTO catalog_import_rows (tenant_id, batch_id, row_number, cells)
-     SELECT $1::uuid, $2::uuid, (r->>'n')::int, r->'c' FROM jsonb_array_elements($3::jsonb) AS r`,
-    [tenantId, batchId, JSON.stringify(rows.map((row) => ({ n: row.rowNumber, c: row.cells })))],
-  );
+  for (let from = 0; from < rows.length; from += ROWS_PER_STATEMENT) {
+    const chunk = rows.slice(from, from + ROWS_PER_STATEMENT);
+    await client.query(
+      `INSERT INTO catalog_import_rows (tenant_id, batch_id, row_number, cells)
+       SELECT $1::uuid, $2::uuid, (r->>'n')::int, r->'c' FROM jsonb_array_elements($3::jsonb) AS r`,
+      [tenantId, batchId, JSON.stringify(chunk.map((row) => ({ n: row.rowNumber, c: row.cells })))],
+    );
+  }
 }
 
 /** One batch of the tenant, or null (absent or another tenant's: RLS and the predicate give the same answer). */

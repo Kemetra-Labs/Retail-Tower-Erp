@@ -25,6 +25,7 @@ import {
   MAX_CELL_CHARS,
   MAX_SAMPLES,
   MAX_SOURCE_ROWS,
+  MAX_STAGED_CHARS,
 } from "./catalog-import.limits";
 import { ImportFileRejectedError } from "./import-file-rejected";
 import { charCount, isBlankText, isStorableText, trimImportText } from "./import-text";
@@ -62,18 +63,21 @@ function extentOf(cells: readonly StagedCell[]): number {
   return 0;
 }
 
-function checkCell(cell: StagedCell): void {
+/** Checks one cell and returns the characters it adds to the batch's staged text. */
+function checkCell(cell: StagedCell): number {
   const text = stagedCellText(cell);
-  if (text === null) return;
+  if (text === null) return 0;
   if (!isStorableText(text)) throw new ImportFileRejectedError("file_unreadable");
   // `.length` counts UTF-16 units, an upper bound of the code points: only a long cell is counted exactly.
   if (text.length > MAX_CELL_CHARS && charCount(text) > MAX_CELL_CHARS) throw new ImportFileRejectedError("cell_too_long");
+  return text.length;
 }
 
 export class GridBuilder {
   private header: readonly StagedCell[] | null = null;
   private readonly rows: ParsedRow[] = [];
   private extent = 0;
+  private stagedChars = 0;
 
   /** Adds physical row `rowNumber` (1 is the header). Rows must arrive in order. */
   add(rowNumber: number, cells: readonly StagedCell[]): void {
@@ -82,7 +86,9 @@ export class GridBuilder {
     if (extent === 0) return;
     if (extent > MAX_COLUMNS) throw new ImportFileRejectedError("too_many_columns");
     const kept = cells.slice(0, extent);
-    for (const cell of kept) checkCell(cell);
+    // The total staged text is capped as rows arrive (a shared string reused by every cell would fan out).
+    for (const cell of kept) this.stagedChars += checkCell(cell);
+    if (this.stagedChars > MAX_STAGED_CHARS) throw new ImportFileRejectedError("xlsx_limits_exceeded");
     this.extent = Math.max(this.extent, extent);
     if (rowNumber === 1) {
       this.header = kept;

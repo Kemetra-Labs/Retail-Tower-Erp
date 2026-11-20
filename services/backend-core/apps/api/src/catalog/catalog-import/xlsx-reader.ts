@@ -42,6 +42,7 @@ import { charCount } from "./import-text";
 import type { StagedCell } from "./staged-cell";
 import { buildStoredZip, type StoredPart } from "./stored-zip";
 import { readWorkbookInfo, type WorkbookInfo } from "./xlsx-package";
+import { canonicalSharedStrings, canonicalStyles, type SharedStrings } from "./xlsx-parts-scan";
 import { scanSheet, type SheetScan } from "./xlsx-sheet-scan";
 import { inspectZip, type InspectedZip } from "./zip-guard";
 
@@ -122,30 +123,34 @@ const CONTENT_TYPES =
   '<Default Extension="xml" ContentType="application/xml"/>' +
   '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>';
 
-/**
- * An optional part (shared strings, styles) as the library would read it: only a `.xml` part that exists. These two go
- * to the library as they are (the import does not interpret them), so a DOCTYPE or an entity declaration, which a SAX
- * parser may treat in its own way, is refused.
- */
-async function optionalPart(zip: InspectedZip, path: string | null): Promise<Buffer | null> {
+/** The text of an optional part (shared strings, styles) as the library would read it: only a `.xml` part that exists. */
+async function optionalPart(zip: InspectedZip, path: string | null): Promise<string | null> {
   if (path === null || !path.endsWith(".xml")) return null;
   const part = await zip.read(path);
-  if (part !== null && /<!(?:DOCTYPE|ENTITY)/.test(part.toString("latin1"))) throw unreadable();
-  return part;
+  return part === null ? null : part.toString("utf8");
 }
 
-/** The stored archive the library reads: only parts the guard verified, at the library's own paths. */
-async function rebuild(zip: InspectedZip, info: WorkbookInfo, sheetXml: string): Promise<Buffer> {
-  const strings = await optionalPart(zip, info.sharedStringsPath);
-  const styles = await optionalPart(zip, info.stylesPath);
+/** The workbook's shared strings and styles, canonical (never the uploaded bytes), or null when it has none. */
+async function readTables(zip: InspectedZip, info: WorkbookInfo): Promise<{ strings: SharedStrings | null; styles: string | null }> {
+  const stringsXml = await optionalPart(zip, info.sharedStringsPath);
+  const stylesXml = await optionalPart(zip, info.stylesPath);
+  return {
+    strings: stringsXml === null ? null : canonicalSharedStrings(stringsXml),
+    styles: stylesXml === null ? null : canonicalStyles(stylesXml),
+  };
+}
+
+/** The stored archive the library reads: only XML this code wrote, at the library's own paths. */
+function rebuild(info: WorkbookInfo, sheetXml: string, tables: { strings: SharedStrings | null; styles: string | null }): Buffer {
+  const { strings, styles } = tables;
   const parts: StoredPart[] = [
     { name: "[Content_Types].xml", data: Buffer.from(CONTENT_TYPES) },
     { name: "xl/workbook.xml", data: Buffer.from(workbookXml(info.date1904)) },
     { name: "xl/_rels/workbook.xml.rels", data: Buffer.from(relsXml(strings !== null, styles !== null)) },
     { name: "xl/worksheets/sheet1.xml", data: Buffer.from(sheetXml, "utf8") },
   ];
-  if (strings !== null) parts.push({ name: "xl/sharedStrings.xml", data: strings });
-  if (styles !== null) parts.push({ name: "xl/styles.xml", data: styles });
+  if (strings !== null) parts.push({ name: "xl/sharedStrings.xml", data: Buffer.from(strings.xml, "utf8") });
+  if (styles !== null) parts.push({ name: "xl/styles.xml", data: Buffer.from(styles, "utf8") });
   return buildStoredZip(parts);
 }
 
@@ -175,11 +180,12 @@ export async function readXlsx(bytes: Buffer, sheet: string | null): Promise<Par
   const chosen = chooseSheet(info, sheet);
   const sheetXml = await zip.read(chosen.path);
   if (sheetXml === null) throw unreadable();
-  const scan = scanSheet(sheetXml.toString("utf8"));
+  const tables = await readTables(zip, info);
+  const scan = scanSheet(sheetXml.toString("utf8"), tables.strings?.lengths);
   checkExtent(scan);
   let data: readonly (readonly unknown[])[];
   try {
-    data = await readSheet(await rebuild(zip, info, scan.canonicalXml), 1, {
+    data = await readSheet(rebuild(info, scan.canonicalXml, tables), 1, {
       trim: false,
       parseNumber: (text: string): RawNumber => ({ __num: text }),
     });

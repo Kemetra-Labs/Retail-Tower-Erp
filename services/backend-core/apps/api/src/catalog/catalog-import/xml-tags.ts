@@ -32,6 +32,9 @@ import { ImportFileRejectedError } from "./import-file-rejected";
 /** A start tag longer than this is refused. Real cells and workbook tags are a few hundred bytes. */
 const MAX_TAG_CHARS = 8192;
 
+/** A tag with more attributes than this is refused (the duplicate check is a set lookup, but a flood is never a real file). */
+const MAX_TAG_ATTRIBUTES = 64;
+
 const NAME = /^(\/?)(?:[\w.-]+:)?([\w.-]+)/;
 
 /** One element tag of the document. */
@@ -111,7 +114,7 @@ function tokenizeConstruct(xml: string, lt: number, onToken: (token: XmlToken) =
   const text = xml.slice(lt + 1, end + 1);
   const named = NAME.exec(text);
   if (named === null) return -1;
-  onToken({ kind: "tag", closing: named[1] === "/", name: named[2] as string, text, selfClosing: text.slice(0, -1).trimEnd().endsWith("/") });
+  onToken({ kind: "tag", closing: named[1] === "/", name: named[2] as string, text, selfClosing: text.charCodeAt(text.length - 2) === 0x2f });
   return end + 1;
 }
 
@@ -207,6 +210,7 @@ function readAttribute(t: string, from: number): { attribute: RawAttribute; next
 function scanAttributes(tag: XmlTag): RawAttribute[] {
   const t = tag.text;
   const found: RawAttribute[] = [];
+  const names = new Set<string>();
   let i = afterName(t);
   for (;;) {
     const after = skipSpaces(t, i);
@@ -219,7 +223,8 @@ function scanAttributes(tag: XmlTag): RawAttribute[] {
     // Attributes need whitespace before them (`q="1"r="A1"` is read differently by different parsers).
     if (after === i || after >= t.length) throw unreadable();
     const read = readAttribute(t, after);
-    if (found.some((a) => a.name === read.attribute.name)) throw unreadable();
+    if (names.has(read.attribute.name) || found.length >= MAX_TAG_ATTRIBUTES) throw unreadable();
+    names.add(read.attribute.name);
     found.push(read.attribute);
     i = read.next;
   }
@@ -241,6 +246,16 @@ export function tagAttributes(tag: XmlTag, distinctLocalNames = false): Map<stri
     found.set(local, a.value);
   }
   return found;
+}
+
+/** Text for an element body: `&`, `<` and `>` escaped. */
+export function escapeXmlText(text: string): string {
+  return text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+}
+
+/** Text for a double-quoted attribute value. */
+export function escapeXmlAttribute(text: string): string {
+  return escapeXmlText(text).replace(/"/g, "&quot;");
 }
 
 /** Decodes the `_xHHHH_` escapes of an Excel string (ECMA-376 §22.9.2.19), as the library does for a sheet name. */

@@ -29,6 +29,19 @@ export const MAX_CELL_CHARS = 2000;
 export const MAX_ZIP_ENTRIES = 200;
 export const MAX_UNCOMPRESSED_BYTES = 50 * 1024 * 1024;
 
+/**
+ * The most characters of cell text one batch may stage, in total (header and data). One shared string referenced by
+ * every cell would otherwise fan a few hundred KB of upload out to gigabytes of staged JSON (security review of
+ * PR #761, round 3). 5,000 rows of 50 cells of 32 characters fit; a refusal is `xlsx_limits_exceeded`.
+ */
+export const MAX_STAGED_CHARS = 8_000_000;
+
+/** XLSX style and string tables (Excel's own limits, or the product of the row and column limits): more is refused. */
+export const MAX_STYLE_ENTRIES = 64_000;
+export const MAX_SHARED_STRINGS = 250_000;
+export const MAX_SHARED_STRING_CHARS = 32_767;
+export const MAX_FORMAT_CODE_CHARS = 255;
+
 /** Samples kept per column for the mapping step. */
 export const MAX_SAMPLES = 3;
 

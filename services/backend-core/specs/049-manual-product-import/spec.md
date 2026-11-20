@@ -540,6 +540,20 @@ Definition of Ready, with a contract revision where the wire changes:
   is re-serialized from the pre-scan's own tokens (rows, cells with `r`/`t`/`s`, `<v>`, inline strings), so the library
   reads exactly what the scan understood; anything two XML readers could read differently (a duplicate or unspaced
   attribute, a `<!` declaration, a non-canonical entity, a tag over 8 KiB) is `file_unreadable`.
+- **No uploaded XML reaches the library byte for byte** (security review of PR #761, rounds 1 to 3). The workbook, the
+  relationships and the content types are synthesized; the sheet, the styles and the shared strings are re-serialized
+  from the strict tokenizer's own tokens (`xlsx-sheet-scan.ts`, `xlsx-parts-scan.ts`), keeping only what the library
+  reads, with caps: 64,000 `<xf>` per list and 64,000 `<numFmt>` (a format code at most 255 characters), 250,000 shared
+  strings of at most 32,767 characters, 64 attributes and 8 KiB per tag. The library's own date-format check is
+  quadratic in the format code and it builds an object per `<xf/>`, so they are bounded before it runs.
+- **Staged text cap.** At most 8,000,000 characters of cell text per batch in total (header and data, CSV and XLSX),
+  refused as `xlsx_limits_exceeded`, enforced as the sheet is scanned (a shared string counts once per cell that
+  points at it, before the library runs) and again as rows are built. A shared string used by every cell of 5,000 rows
+  of 50 columns would otherwise stage about 500 million characters from a 500 KB upload. Staged rows are inserted 500
+  to a statement in the same transaction.
+- **For part B: booleans.** LibreOffice writes a boolean as a formula (`=TRUE()`), so it stages as `{t: "f", v: {t: "b",
+  v: "true"}}`; the `is_active` rule must read the cached value of a formula cell, and the "formula in a non-identifier
+  cell" notice (§5) applies to it.
 - **Still open for part B.** The profile selection rule and the suggestion (a new batch stores an empty
   `suggestedMapping` and no profile until then), and the read refusal after the retention purge.
 

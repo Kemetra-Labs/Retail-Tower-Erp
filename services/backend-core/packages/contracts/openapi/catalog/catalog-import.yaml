@@ -2028,7 +2028,10 @@ components:
         content or with each other, a cell that cannot be stored, or a CSV
         quoting error); `xlsx_limits_exceeded` (over 200 ZIP entries or
         50 MiB uncompressed, or a sheet whose cells reach so far down and
-        across that reading it would exceed the import's memory bound);
+        across that reading it would exceed the import's memory bound, or
+        more than 8,000,000 characters of cell text in the batch in total,
+        which a shared string used by every cell would otherwise multiply;
+        any file, CSV included);
         `sheet_not_found`; `header_missing` (no header row); `no_data_rows`;
         `too_many_rows` (over 5,000 data rows); `file_too_many_rows` (over
         1,048,576 physical rows, CSV or XLSX); `too_many_columns` (over 50);

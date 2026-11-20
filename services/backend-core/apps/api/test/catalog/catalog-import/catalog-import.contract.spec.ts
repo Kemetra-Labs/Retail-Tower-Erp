@@ -228,6 +228,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(info()).toMatch(/\*\*1\.0\.3-draft \(RT-1505 part A: upload and batch read served\)\.\*\*/);
     expect(info()).toMatch(/`file_too_many_rows` code is added/);
     expect(api.responseDescription("FileRejected")).toContain("`file_too_many_rows`");
+    expect(api.responseDescription("FileRejected")).toMatch(/more than 8,000,000 characters of cell text in the batch in total/);
     expect(info()).toMatch(/`429 rate_limited` with `Retry-After` before its body is read/);
   });
 

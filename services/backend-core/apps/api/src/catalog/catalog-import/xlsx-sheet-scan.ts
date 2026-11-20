@@ -26,9 +26,9 @@
  * The library handles every `<row>` and `<c>` after `<sheetData>` opens, wherever
  * it nests; so does this scan, in order.
  */
-import { MAX_DATA_ROWS, MAX_SOURCE_ROWS } from "./catalog-import.limits";
+import { MAX_DATA_ROWS, MAX_SOURCE_ROWS, MAX_STAGED_CHARS } from "./catalog-import.limits";
 import { ImportFileRejectedError } from "./import-file-rejected";
-import { decodeXmlText, tagAttributes, tokenizeXml, type XmlTag, type XmlToken } from "./xml-tags";
+import { decodeXmlText, escapeXmlText, tagAttributes, tokenizeXml, type XmlTag, type XmlToken } from "./xml-tags";
 
 /** What the pre-scan learned about one sheet. */
 export interface SheetScan {
@@ -57,10 +57,12 @@ function columnNumber(letters: string): number {
 
 const unreadable = (): ImportFileRejectedError => new ImportFileRejectedError("file_unreadable");
 
-const escapeText = (text: string): string => text.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+const SHARED_INDEX = /^\d{1,9}$/;
 
 /** Where the scan is inside one `<c>`. */
 interface CellState {
+  /** The cell's `t` attribute. */
+  type: string | undefined;
   row: number;
   column: number;
   valued: boolean;
@@ -77,15 +79,20 @@ interface CellState {
 }
 
 class SheetScanner {
+  private stagedChars = 0;
   private readonly out: string[] = [];
   private readonly formulas = new Set<string>();
   private readonly valuedRows = new Set<number>();
   private maxRow = 0;
   private maxColumn = 0;
+  private lastValuedRow = 0;
   private rowsSeen = 0;
   private sheetData = false;
   private rowOpen = false;
   private cell: CellState | null = null;
+
+  /** `sharedLengths`: the length of each shared string, to bound the text a cell that points at one adds to the batch. */
+  constructor(private readonly sharedLengths: readonly number[]) {}
 
   scan(xml: string): SheetScan {
     if (!tokenizeXml(xml, (token) => this.onToken(token))) throw unreadable();
@@ -154,6 +161,7 @@ class SheetScanner {
       return;
     }
     this.cell = {
+      type,
       row,
       column: columnNumber(ref[1] as string),
       valued: false,
@@ -200,9 +208,17 @@ class SheetScanner {
     else throw unreadable();
   }
 
+  /** The characters a value adds to the staged batch: the shared string a `t="s"` cell points at, else the text itself. Bounded as the sheet is read, before the library runs. */
+  private countStaged(cell: CellState, name: string): void {
+    const pointed = name === "v" && cell.type === "s" && SHARED_INDEX.test(cell.buffer);
+    this.stagedChars += pointed ? (this.sharedLengths[Number(cell.buffer)] ?? 0) : cell.buffer.length;
+    if (this.stagedChars > MAX_STAGED_CHARS) throw new ImportFileRejectedError("xlsx_limits_exceeded");
+  }
+
   private endText(cell: CellState): void {
     const name = cell.text as string;
-    this.out.push(`<${name}>${escapeText(cell.buffer)}</${name}>`);
+    this.countStaged(cell, name);
+    this.out.push(`<${name}>${escapeXmlText(cell.buffer)}</${name}>`);
     cell.text = null;
     cell.buffer = "";
   }
@@ -276,13 +292,18 @@ class SheetScanner {
     cell.valued = true;
     this.maxRow = Math.max(this.maxRow, cell.row);
     this.maxColumn = Math.max(this.maxColumn, cell.column);
-    this.valuedRows.add(cell.row);
+    // Rows arrive in order: a row already counted is not looked up again.
+    if (cell.row !== this.lastValuedRow) this.valuedRows.add(cell.row);
+    this.lastValuedRow = cell.row;
     // The header is a row too: more valued rows than the header plus 5,000 data rows can never be accepted.
     if (this.valuedRows.size > MAX_DATA_ROWS + 1) throw new ImportFileRejectedError("too_many_rows");
   }
 }
 
-/** Scans one worksheet's XML. Throws `ImportFileRejectedError` for a sheet the import cannot read or would refuse anyway. */
-export function scanSheet(xml: string): SheetScan {
-  return new SheetScanner().scan(xml);
+/**
+ * Scans one worksheet's XML. `sharedLengths` is the length of each shared string (empty when the workbook has none).
+ * Throws `ImportFileRejectedError` for a sheet the import cannot read or would refuse anyway.
+ */
+export function scanSheet(xml: string, sharedLengths: readonly number[] = []): SheetScan {
+  return new SheetScanner(sharedLengths).scan(xml);
 }

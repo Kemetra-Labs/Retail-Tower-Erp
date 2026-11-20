@@ -273,7 +273,7 @@ describe("round 2: a sheet two XML readers could read differently never reaches 
     const bytes = bookOf(sheet);
     const started = Date.now();
     expect(await outcome(bytes)).toBe("file_unreadable");
-    expect(Date.now() - started).toBeLessThan(200);
+    expect(Date.now() - started).toBeLessThan(1000);
   }
 
   it("N1: a repeated r (the library keeps the first, a last-wins reader the last)", async () => {
@@ -298,16 +298,16 @@ describe("round 2: a sheet two XML readers could read differently never reaches 
       return Date.now() - started;
     };
     const good = sheetXml(rows("A"));
-    expect(await timed(bookOf(good, { workbook: wbXml(`<sheet name="S" ${run}="x" sheetId="1" r:id="rId1"/>`) }))).toBeLessThan(200);
-    expect(await timed(bookOf(good, { rels: relsXml(`<Relationship ${run}="x" Id="rId1" Type="${OFFICE_REL}/worksheet" Target="worksheets/sheet1.xml"/>`) }))).toBeLessThan(200);
-    expect(await timed(bookOf(good, { types: `<Types><Override PartName="/xl/workbook.xml" ${run}="x" ContentType="${MAIN_TYPE}"/></Types>` }))).toBeLessThan(200);
+    expect(await timed(bookOf(good, { workbook: wbXml(`<sheet name="S" ${run}="x" sheetId="1" r:id="rId1"/>`) }))).toBeLessThan(1000);
+    expect(await timed(bookOf(good, { rels: relsXml(`<Relationship ${run}="x" Id="rId1" Type="${OFFICE_REL}/worksheet" Target="worksheets/sheet1.xml"/>`) }))).toBeLessThan(1000);
+    expect(await timed(bookOf(good, { types: `<Types><Override PartName="/xl/workbook.xml" ${run}="x" ContentType="${MAIN_TYPE}"/></Types>` }))).toBeLessThan(1000);
   });
 
   it("an over-long tag in a package part", async () => {
     const started = Date.now();
     const bytes = bookOf(sheetXml(rows("A")), { workbook: wbXml(`<sheet name="${"x".repeat(9000)}" sheetId="1" r:id="rId1"/>`) });
     expect(await outcome(bytes)).toBe("file_unreadable");
-    expect(Date.now() - started).toBeLessThan(200);
+    expect(Date.now() - started).toBeLessThan(1000);
   });
 
   it("the library reads the canonical sheet: what it returns is exactly what the scan understood", async () => {
@@ -329,5 +329,87 @@ describe("round 2: a sheet two XML readers could read differently never reaches 
       });
     expect(await outcome(withStrings('<?xml version="1.0"?><!DOCTYPE sst [<!ENTITY a "b">]><sst xmlns="x"><si><t>&a;</t></si></sst>'))).toBe("file_unreadable");
     expect(await outcome(withStrings('<?xml version="1.0"?><sst xmlns="x"><si><t>fine</t></si></sst>'))).not.toBe("file_unreadable");
+  });
+});
+
+describe("round 3: no uploaded part reaches the library byte for byte", () => {
+  const NS = 'xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"';
+  const stylesXml = (body: string): string => `<?xml version="1.0"?><styleSheet ${NS}>${body}</styleSheet>`;
+  const sstXml = (body: string): string => `<?xml version="1.0"?><sst ${NS}>${body}</sst>`;
+
+  /** A workbook with a sheet, shared strings and styles. */
+  function bookWith(parts: { sheet: string; strings?: string; styles?: string }): Buffer {
+    const rels =
+      rel("rId1", "worksheet", "worksheets/sheet1.xml") +
+      (parts.strings === undefined ? "" : rel("rId2", "sharedStrings", "sharedStrings.xml")) +
+      (parts.styles === undefined ? "" : rel("rId3", "styles", "styles.xml"));
+    return book({
+      workbook: wbXml('<sheet name="S" sheetId="1" r:id="rId1"/>'),
+      rels: relsXml(rels),
+      parts: {
+        "xl/worksheets/sheet1.xml": parts.sheet,
+        ...(parts.strings === undefined ? {} : { "xl/sharedStrings.xml": parts.strings }),
+        ...(parts.styles === undefined ? {} : { "xl/styles.xml": parts.styles }),
+      },
+    });
+  }
+
+  const simpleSheet = (style = ""): string =>
+    `<?xml version="1.0"?><worksheet ${NS}><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>sku</t></is></c></row>` +
+    `<row r="2"><c r="A2"${style}><v>45000</v></c></row></sheetData></worksheet>`;
+
+  /** Refused within `limitMs` (1 s: CI runs the suite under coverage, and the quadratic cases this guards against take seconds to hours; a flood of tens of MiB also pays to inflate the upload, so those allow 4 s). */
+  async function expectRefusedFast(bytes: Buffer, expected: ImportFileRefusalCode = "file_unreadable", limitMs = 1000): Promise<void> {
+    const started = Date.now();
+    expect(await outcome(bytes)).toBe(expected);
+    expect(Date.now() - started).toBeLessThan(limitMs);
+  }
+
+  it("a format code of '[' characters (the library's date check is quadratic on it) is refused before the library runs", async () => {
+    const styles = stylesXml(`<numFmts><numFmt numFmtId="164" formatCode="${"[".repeat(1_000_000)}"/></numFmts><cellXfs><xf numFmtId="164"/></cellXfs>`);
+    await expectRefusedFast(bookWith({ sheet: simpleSheet(' s="0"'), styles }));
+  });
+
+  it("an <xf/> flood (9,000,000) and a <numFmt/> flood are refused before the library runs", async () => {
+    await expectRefusedFast(bookWith({ sheet: simpleSheet(' s="0"'), styles: stylesXml(`<cellXfs>${"<xf/>".repeat(9_000_000)}</cellXfs>`) }), "file_unreadable", 4000);
+    const fmts = Array.from({ length: 64_001 }, (_v, i) => `<numFmt numFmtId="${i + 164}" formatCode="0"/>`).join("");
+    await expectRefusedFast(bookWith({ sheet: simpleSheet(), styles: stylesXml(`<numFmts>${fmts}</numFmts>`) }), "file_unreadable", 4000);
+  });
+
+  it("a shared-string flood (250,001 strings) is refused before the library runs", async () => {
+    await expectRefusedFast(bookWith({ sheet: simpleSheet(), strings: sstXml("<si><t>a</t></si>".repeat(250_001)) }), "file_unreadable", 4000);
+  });
+
+  it("many attributes on a tag are refused: thousands of cells of 1,150 attributes (tens of MiB) do not take 17 s", async () => {
+    const attrs = Array.from({ length: 1150 }, (_v, i) => `a${i}="1"`).join(" ");
+    const cells = Array.from({ length: 3000 },(_v, i) => `<c r="A${i + 2}" ${attrs}><v>1</v></c>`).join("");
+    await expectRefusedFast(bookWith({ sheet: `<?xml version="1.0"?><worksheet ${NS}><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>h</t></is></c></row><row r="2">${cells}</row></sheetData></worksheet>` }), "file_unreadable", 4000);
+  });
+
+  it("shared-string fan-out: one 2,000-character string used by every cell of 5,000 x 50 is over the staged-text cap, refused before the library runs", async () => {
+    const arabic = "\u{627}\u{644}\u{639}\u{631}\u{628}\u{64a}\u{629}".repeat(286).slice(0, 2000);
+    const col = (c: number): string => (c < 26 ? String.fromCharCode(65 + c) : `A${String.fromCharCode(65 + c - 26)}`);
+    const header = Array.from({ length: 50 }, (_v, c) => `<c r="${col(c)}1" t="inlineStr"><is><t>h${c}</t></is></c>`).join("");
+    const rowsXml = Array.from({ length: 5000 }, (_v, r) => `<row r="${r + 2}">${Array.from({ length: 50 }, (_w, c) => `<c r="${col(c)}${r + 2}" t="s"><v>0</v></c>`).join("")}</row>`).join("");
+    const sheet = `<?xml version="1.0"?><worksheet ${NS}><sheetData><row r="1">${header}</row>${rowsXml}</sheetData></worksheet>`;
+    const bytes = bookWith({ sheet, strings: sstXml(`<si><t>${arabic}</t></si>`) });
+    expect(bytes.length).toBeLessThan(600 * 1024);
+    await expectRefusedFast(bytes, "xlsx_limits_exceeded");
+  });
+
+  it("a normal file still imports: shared strings, a date style, an inline string, a formula with a cached value, a leading-zero text", async () => {
+    const strings = sstXml('<si><t>sku</t></si><si><t>name</t></si><si><t>day</t></si><si><t>0012345678905</t></si><si><r><t>Tea </t></r><r><rPr><b/></rPr><t>Bag</t></r></si>');
+    const styles = stylesXml(
+      '<numFmts count="1"><numFmt numFmtId="164" formatCode="yyyy\\-mm\\-dd"/></numFmts><fonts count="1"><font/></fonts>' +
+        '<cellStyleXfs count="1"><xf numFmtId="0" fontId="0"/></cellStyleXfs><cellXfs count="2"><xf numFmtId="0" xfId="0"/><xf numFmtId="164" xfId="0" applyNumberFormat="1"/></cellXfs>',
+    );
+    const sheet =
+      `<?xml version="1.0"?><worksheet ${NS}><dimension ref="A1:D3"/><sheetData>` +
+      '<row r="1"><c r="A1" t="s"><v>0</v></c><c r="B1" t="s"><v>1</v></c><c r="C1" t="s"><v>2</v></c><c r="D1" t="inlineStr"><is><t>note</t></is></c></row>' +
+      '<row r="2"><c r="A2" t="s"><v>3</v></c><c r="B2" t="s"><v>4</v></c><c r="C2" s="1"><v>45000</v></c><c r="D2" t="str"><f>UPPER("x")</f><v>X</v></c></row>' +
+      '</sheetData><pageMargins left="1"/></worksheet>';
+    const parsed = await outcome(bookWith({ sheet, strings, styles }));
+    expect((parsed as ParsedImportFile).grid.columns.map((c) => c.header)).toEqual(["sku", "name", "day", "note"]);
+    expect(cellsOf(parsed)).toEqual([["0012345678905", "Tea Bag", { t: "d", v: "2023-03-15T00:00:00.000Z" }, { t: "f", v: "X" }]]);
   });
 });

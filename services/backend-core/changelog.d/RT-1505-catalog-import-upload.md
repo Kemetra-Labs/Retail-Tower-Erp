@@ -8,7 +8,8 @@
   real sizes, `vbaProject.bin`, `.xlsm`, OLE2, lying and stretched local sizes, hidden entries) runs before
   `read-excel-file`, which never sees the uploaded bytes: it reads a stored-only archive rebuilt from the verified parts
   at its own paths. A fail-closed, linear sheet-XML pre-scan marks formula cells (F1), bounds what the library may allocate and
-  RE-SERIALIZES the sheet, so the library reads only what the scan understood, and the upload holds one slot per tenant (four process-wide) until its parse and write
+  RE-SERIALIZES the sheet, the styles and the shared strings (capped), so no uploaded XML reaches the library byte for
+  byte and it reads only what the scan understood, and the staged text of a batch is capped at 8,000,000 characters, and the upload holds one slot per tenant (four process-wide) until its parse and write
   are done, with a 30 s body deadline; a CSV is strict UTF-8 with no NUL; limits
   are 5,000 data rows, 50 columns, 2,000-character cells and 1,048,576 physical rows (new 422 `file_too_many_rows`).
   Upload is idempotent by key + file SHA-256 + canonical query (replay, `409 idempotency_key_conflict`), allows one open
