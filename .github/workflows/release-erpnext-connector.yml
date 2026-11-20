@@ -7,6 +7,10 @@
 #
 #   resolve   the release SHA (always github.sha) must be on main; a release needs an
 #             erpnext-connector/vX.Y.Z tag ref, a dry-run needs nothing else.
+#   guard     RT-1471: the two mandatory connector/* CI checks (connector/unit-tests-and-lint, connector/bench) must be
+#             completed successes of the erpnext-connector.yml run for this exact SHA (read-only, nothing dispatched).
+#             The manifest and publish wait for it. Refuses on anything missing, pending, red or untrusted. The build
+#             stays independent of it, so a dry-run still proves the build.
 #   build     the distribution is the append-only mirror (RT-712, tools/release/connector-mirror).
 #             The publisher runs against a DISPOSABLE local bare mirror, seeded with a commit
 #             whose tree is the subtree at the first main commit that has it, then `--verify`
@@ -21,6 +25,8 @@
 #   publish   release mode only, behind the `release-erpnext-connector` environment. Pushing to
 #             a Connector GitHub release is not enabled yet (real releases are RT-717), so it refuses
 #             once admitted. The live mirror is fed by mirror-erpnext-connector.yml, not by this job.
+#             When RT-717 enables it, it must also re-check the guard after its environment approval, as the other
+#             release workflows do (it has no privileged step to protect today).
 #   env-probe manual negative probe (input probe_environment): asks for the environment from the
 #             dispatched ref; from anything but an erpnext-connector/v* tag it must never start.
 #
@@ -92,6 +98,82 @@ jobs:
           if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
           { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
           echo "### release-erpnext-connector: $mode ${tag:-(no tag)} at \`$SHA\`" >> "$GITHUB_STEP_SUMMARY"
+
+  guard:
+    name: release/ci-guard (mandatory CI checks of the release SHA, RT-1471)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Read-only: it reads check runs and workflow runs, starts nothing and holds no write scope. A missing or not
+    # yet successful mandatory check REFUSES the release; it never dispatches a workflow to produce one.
+    permissions:
+      contents: read
+      checks: read
+      actions: read # the workflow-run list that proves where each check came from
+    env:
+      REPO: ${{ github.repository }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      REQUIRED_CHECKS: '[{"name":"connector/unit-tests-and-lint","workflow":".github/workflows/erpnext-connector.yml"},{"name":"connector/bench","workflow":".github/workflows/erpnext-connector.yml"}]'
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+    steps:
+      # Only the guard script and .nvmrc are checked out (non-cone mode adds no root file on its own); the SHA is the
+      # one resolve proved is on main, and nothing else from it is executed.
+      - name: Checkout the guard script (only that file)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.github/release/ci-check-gate.cjs
+            /.nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # nothing is installed here, and a release job restores no cache
+
+      - name: Read the check runs and workflow runs of the release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # filter=all: the default (latest) can hide a queued re-run attempt behind an older completed one.
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
+            --jq '.check_runs[] | {id, name, status, conclusion, slug: .app.slug, started_at, head_sha, details_url}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[] | {id, path, event, head_branch, head_sha, repository: .repository.full_name, head_repository: .head_repository.full_name}' | jq -s . > "$RUNNER_TEMP/workflow-runs.json"
+          # The Actions jobs of every run of the required workflow: a check run counts only if it is one of these jobs.
+          RUN_IDS="$(jq -r --argjson req "$REQUIRED_CHECKS" '($req | map(.workflow)) as $wfs | .[] | select(.path as $p | $wfs | index($p)) | .id' "$RUNNER_TEMP/workflow-runs.json" | tr -d '\r')"
+          : > "$RUNNER_TEMP/jobs.stream"
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api --paginate "repos/$REPO/actions/runs/$id/jobs?per_page=100&filter=all" \
+              --jq '.jobs[] | {id, run_id, name, status, conclusion, head_sha, check_run_url}' >> "$RUNNER_TEMP/jobs.stream"
+          done <<<"$RUN_IDS"
+          jq -s . "$RUNNER_TEMP/jobs.stream" > "$RUNNER_TEMP/jobs.json"
+
+      # The two mandatory connector CI checks (tools/project-graph/graph.yaml, RT-1471): each must be a completed
+      # success of the erpnext-connector.yml run for this exact SHA (push, schedule or manual full run on main), by the
+      # GitHub Actions app. The newest run decides; anything missing, pending, red, stale, wrong-SHA, untrusted
+      # or unreadable refuses. The in-workflow gates below (build, mirror verification, environments) are separate and unchanged.
+      - name: Release CI guard
+        id: gate
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/ci-gate.txt"
+          status=0
+          node .github/release/ci-check-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --runs "$RUNNER_TEMP/workflow-runs.json" --jobs "$RUNNER_TEMP/jobs.json" --required "$REQUIRED_CHECKS" --sha "$SHA" --repo "$REPO" > "$out" || status=$?
+          cat "$out"
+          {
+            echo "### Release CI guard (RT-1471)"
+            echo
+            sed 's/^::error:://; s/^/- /' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then verdict=PASS; else verdict=REFUSED; fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          [ "$status" -eq 0 ] || { echo "::error::release CI guard refused $SHA (mandatory connector/* checks)"; exit 1; }
 
   build:
     name: release/build (app tarball + disposable mirror, --verify)
@@ -174,7 +256,7 @@ jobs:
 
   manifest:
     name: release/manifest
-    needs: [resolve, build]
+    needs: [resolve, guard, build]
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     permissions:
@@ -224,7 +306,7 @@ jobs:
 
   publish:
     name: release/publish (disabled until RT-717)
-    needs: [resolve, manifest]
+    needs: [resolve, guard, manifest]
     if: needs.resolve.outputs.mode == 'release'
     runs-on: ubuntu-24.04
     timeout-minutes: 5

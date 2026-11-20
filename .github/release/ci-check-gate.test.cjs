@@ -1,4 +1,4 @@
-// RT-1471 Phase 2 (POS and POS Pilot): spec for .github/release/ci-check-gate.cjs, the read-only,
+// RT-1471 Phase 2 (POS, POS Pilot, Admin Console, ERPNext-Connector): spec for .github/release/ci-check-gate.cjs, the read-only,
 // fail-closed exact-SHA guard for the mandatory CI checks of a release. Run: node --test .github/release/
 "use strict";
 
@@ -424,6 +424,116 @@ test("the pass verdict carries no hint", () => {
   const r = evalGuard(good());
   assert.equal(r.verdict, "PASS");
   assert.ok(!r.notes.some((n) => n.startsWith("To prove")));
+});
+
+// The Admin Console and ERPNext-Connector releases (RT-1471 Phase 2, last slice) use the same guard with their own
+// required lists. The script has no product knowledge; these specs pin that the lists work as policy says.
+const ADMIN_WF = ".github/workflows/admin-console.yml";
+const CONNECTOR_WF = ".github/workflows/erpnext-connector.yml";
+const PRODUCTS = {
+  admin: { wf: ADMIN_WF, names: ["admin/build-test", "admin/e2e"], proof: "admin-console.yml" },
+  connector: { wf: CONNECTOR_WF, names: ["connector/unit-tests-and-lint", "connector/bench"], proof: "erpnext-connector.yml" },
+};
+
+function productInput(p, over = {}) {
+  return {
+    checks: p.names.map((n) => check(n, 100)),
+    runs: [run(100, { path: p.wf, ...over })],
+    required: p.names.map((name) => ({ name, workflow: p.wf })),
+  };
+}
+
+function productJudge(p, input) {
+  return gate.judgeChecks({ ...input, jobs: input.jobs ?? jobsFor(input.checks), sha: SHA, repo: REPO });
+}
+
+for (const [key, p] of Object.entries(PRODUCTS)) {
+  test(`${key}: passes with every mandatory check green from its own workflow run`, () => {
+    assert.deepEqual(productJudge(p, productInput(p)).problems, []);
+  });
+
+  test(`${key}: refuses when any one mandatory check is missing, red, cancelled, skipped or pending`, () => {
+    for (const target of p.names) {
+      const base = productInput(p);
+      const cases = {
+        missing: base.checks.filter((c) => c.name !== target),
+        failure: base.checks.map((c) => (c.name === target ? { ...c, conclusion: "failure" } : c)),
+        cancelled: base.checks.map((c) => (c.name === target ? { ...c, conclusion: "cancelled" } : c)),
+        skipped: base.checks.map((c) => (c.name === target ? { ...c, conclusion: "skipped" } : c)),
+        pending: base.checks.map((c) => (c.name === target ? { ...c, status: "in_progress", conclusion: null } : c)),
+      };
+      for (const [label, checks] of Object.entries(cases)) {
+        const r = productJudge(p, { ...base, checks });
+        assert.ok(r.problems.length > 0, `${key} ${target} ${label} must refuse`);
+        assert.ok(problemText(r).includes(`'${target}'`), `${key} ${target} ${label} must name the check`);
+      }
+    }
+  });
+
+  test(`${key}: a run of another product's workflow cannot satisfy the list`, () => {
+    for (const other of [".github/workflows/pos.yml", ADMIN_WF, CONNECTOR_WF, ".github/workflows/backend-core.yml"].filter((w) => w !== p.wf)) {
+      const input = productInput(p);
+      input.runs = [run(100, { path: other })];
+      assert.match(problemText(productJudge(p, input)), /not \.github\/workflows\//, other);
+    }
+  });
+
+  test(`${key}: a pull_request, fork or feature-branch run of its own workflow is refused`, () => {
+    for (const over of [{ event: "pull_request" }, { head_branch: "claude/x" }, { head_repository: "attacker/repo" }, { head_sha: OTHER_SHA }]) {
+      assert.ok(productJudge(p, productInput(p, over)).problems.length > 0, JSON.stringify(over));
+    }
+  });
+
+  test(`${key}: a missing check prints the proof of its own workflow only`, () => {
+    const input = productInput(p);
+    input.checks = [];
+    const r = gate.evaluateGuard({ ...input, jobs: [], sha: SHA, repo: REPO });
+    const hints = r.notes.filter((n) => n.startsWith("To prove"));
+    assert.equal(hints.length, 1);
+    assert.ok(hints[0].includes(`gh workflow run ${p.proof} --ref main -f expected_sha=${SHA}`), hints[0]);
+    assert.equal((hints[0].match(/gh workflow run /g) ?? []).length, 1, "one command, for this product only");
+  });
+}
+
+test("connector: the name must match exactly, a lane job named connector/bench lane v16 is not connector/bench", () => {
+  const p = PRODUCTS.connector;
+  const input = productInput(p);
+  input.checks = [check(p.names[0], 100), check("connector/bench lane v16", 100)];
+  const r = productJudge(p, input);
+  assert.match(problemText(r), /'connector\/bench' is 'missing'/);
+});
+
+test("connector: a red lane job does not decide the aggregate check, only connector/bench does", () => {
+  const p = PRODUCTS.connector;
+  const input = productInput(p);
+  input.checks.push(check("connector/bench lane v16", 100, { conclusion: "failure" }));
+  assert.deepEqual(productJudge(p, input).problems, [], "the required names are judged exactly");
+  input.checks = input.checks.map((c) => (c.name === "connector/bench" ? { ...c, conclusion: "failure" } : c));
+  assert.ok(productJudge(p, input).problems.length > 0);
+});
+
+// The check runs and the jobs are read at different moments (CodeRabbit on #754): a re-run that starts between the two
+// reads is a job with no check run, and the older green check run must not decide.
+test("a newer job of a required check with no check run in the snapshot refuses", () => {
+  const input = good();
+  input.jobs = [...jobsFor(input.checks), { id: 9001, run_id: 100, name: "pos/test", status: "queued", conclusion: null, head_sha: SHA, check_run_url: "https://api.github.com/repos/" + REPO + "/check-runs/9001" }];
+  const r = judge(input);
+  assert.match(problemText(r), /job 9001 of workflow run 100 is named 'pos\/test' but has no check run/);
+});
+
+test("a job without a check run is ignored when it is not a required name or not from a trusted run", () => {
+  const extra = (over) => ({ id: 9002, run_id: 100, name: "pos/test", status: "queued", conclusion: null, head_sha: SHA, check_run_url: "x", ...over });
+  for (const job of [extra({ name: "pos/docs" }), extra({ run_id: 777 })]) {
+    const input = good();
+    input.jobs = [...jobsFor(input.checks), job];
+    assert.deepEqual(judge(input).problems, [], JSON.stringify(job));
+  }
+  for (const over of [{ event: "pull_request" }, { head_branch: "claude/x" }, { path: ".github/workflows/other.yml" }]) {
+    const input = good();
+    input.runs = [run(100), run(200, over)];
+    input.jobs = [...jobsFor(input.checks), extra({ run_id: 200 })];
+    assert.deepEqual(judge(input).problems, [], JSON.stringify(over));
+  }
 });
 
 // CLI.
