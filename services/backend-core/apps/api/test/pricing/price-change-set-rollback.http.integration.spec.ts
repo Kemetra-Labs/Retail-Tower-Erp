@@ -113,6 +113,10 @@ const P = {
   // RT-1533: validate error precedence.
   precedence: a("16b5f10b"),
   precedenceOk: a("16b5f10c"),
+  // RT-1532: the start is read from the set's columns, not the audit row.
+  columnsExplicit: a("16b5f10d"),
+  columnsDefaulted: a("16b5f10e"),
+  columnsNull: a("16b5f10f"),
 };
 
 /** CodeRabbit 4642366476: the service clock is pinned for the whole suite, before the first fixture. */
@@ -1023,16 +1027,89 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
     }
   });
 
-  it("delta review m-d: an explicit `from` that cannot be read back refuses validate (fail closed, never now)", async () => {
-    if (skip()) return;
-    await published({ items: [bookPrice(P.missing, "20", "2185-01-01T00:00:00Z")] });
-    const target = await published({ items: [bookPrice(P.missing, "21", "2186-01-01T00:00:00Z")] });
-    const rb = createdRollback(await rollback(target.set.header.id, { from: "2186-06-01T00:00:00Z", reason: "Undo" }));
+  /** Deletes a set's audit rows with triggers bypassed (audit rows are append-only for every role). */
+  async function deleteAuditRowsOf(setId: string): Promise<void> {
     const c = await env!.admin.connect();
     try {
       await c.query("BEGIN");
       await c.query("SET LOCAL session_replication_role = replica");
-      await c.query(`UPDATE audit_events SET metadata = metadata - 'rollback_from' WHERE target_id = $1 AND action = 'pricing.change_set.created'`, [rb.header.id]);
+      await c.query(`DELETE FROM audit_events WHERE target_id = $1`, [setId]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+  }
+
+  const columnsOf = async (id: string): Promise<{ from: string | null; defaulted: boolean | null }> => {
+    const r = await env!.admin.query<{ from: string | null; defaulted: boolean | null }>(
+      `SELECT to_char(rollback_from AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"') AS "from", rollback_from_defaulted AS defaulted FROM change_sets WHERE id = $1`,
+      [id],
+    );
+    return r.rows[0]!;
+  };
+
+  it("RT-1532: create stores the requested start in the set's own columns (explicit, and defaulted to the creation instant)", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.columnsExplicit, "20", "2187-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.columnsExplicit, "21", "2188-01-01T00:00:00Z")] });
+    const explicit = createdRollback(await rollback(target.set.header.id, { from: "2188-06-01T00:00:00Z", reason: "Undo" }));
+    expect(await columnsOf(explicit.header.id)).toEqual({ from: "2188-06-01T00:00:00.000000Z", defaulted: false });
+    // A cancelled rollback frees the target; the next one omits `from`: both columns still set, defaulted = true.
+    status(await send(op(explicit.header.id, "cancel"), SES_OWNER_ALL, { expectedVersion: explicit.header.version }), 200);
+    const defaulted = createdRollback(await rollback(target.set.header.id));
+    expect(await columnsOf(defaulted.header.id)).toEqual({ from: `${PINNED.slice(0, 19)}.000000Z`, defaulted: true });
+    // The audit row keeps recording the same facts (provenance); nothing reads them back for validate.
+    const created = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.created'`,
+      [explicit.header.id],
+    );
+    expect(created.rows[0]!.metadata).toMatchObject({ rollback_from: "2188-06-01T00:00:00Z", rollback_from_defaulted: false });
+  });
+
+  it("RT-1532: validate reads an explicit `from` from the columns; with the created audit row deleted it still validates from `from`", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.missing, "20", "2185-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.missing, "21", "2186-01-01T00:00:00Z")] });
+    const rb = createdRollback(await rollback(target.set.header.id, { from: "2186-06-01T00:00:00Z", reason: "Undo" }));
+    await deleteAuditRowsOf(rb.header.id);
+    expect(await scalar(`SELECT count(*)::text AS v FROM audit_events WHERE target_id = $1`, [rb.header.id])).toBe("0");
+    const v = ok(await send(op(rb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 }));
+    expect(v.header.state).toBe("validated");
+    expect(v.header.version).toBe(1);
+    expect((v.items[0] as { effectiveFrom: string }).effectiveFrom).toBe("2186-06-01T00:00:00.000000Z");
+  });
+
+  it("RT-1532: a defaulted `from` validates from now (max(created start, now)) with the created audit row deleted", async () => {
+    if (skip()) return;
+    const T0 = "2034-01-01T00:00:00Z";
+    const plus = (min: number): string => new Date(Date.parse(T0) + min * 60_000).toISOString();
+    const target = await atClock("2029-01-01T00:00:00Z", async () => {
+      await published({ items: [bookPrice(P.columnsDefaulted, "30", "2030-01-01T00:00:00Z")] });
+      return published({ items: [bookPrice(P.columnsDefaulted, "31", "2031-01-01T00:00:00Z")] });
+    });
+    const rb = await atClock(T0, async () => createdRollback(await rollback(target.set.header.id)));
+    expect(await columnsOf(rb.header.id)).toEqual({ from: `${T0.slice(0, 19)}.000000Z`, defaulted: true });
+    await deleteAuditRowsOf(rb.header.id);
+    // Validated 5 minutes later: regenerated from now (a new draft version), exactly as with the audit row present.
+    const v = await atClock(plus(5), async () => ok(await send(op(rb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 })));
+    expect(v.header.version).toBe(2);
+    expect((v.items[0] as { effectiveFrom: string }).effectiveFrom).toBe(`${plus(5).slice(0, 19)}.000000Z`);
+  });
+
+  it("RT-1532 fail closed: a rollback set whose columns are NULL (created before 0127, never backfilled) refuses validate", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.columnsNull, "20", "2189-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.columnsNull, "21", "2190-01-01T00:00:00Z")] });
+    const rb = createdRollback(await rollback(target.set.header.id, { from: "2190-06-01T00:00:00Z", reason: "Undo" }));
+    // The 0127 guard makes the pair immutable once set, so the fixture bypasses triggers (a set created before 0127).
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(`UPDATE change_sets SET rollback_from = NULL, rollback_from_defaulted = NULL WHERE id = $1`, [rb.header.id]);
       await c.query("COMMIT");
     } catch (err) {
       await c.query("ROLLBACK");
