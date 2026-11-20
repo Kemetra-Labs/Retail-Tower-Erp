@@ -876,8 +876,8 @@ transaction. It then deletes the staged rows of `cancelled` and `expired`
 batches 30 days after `closed_at`, and of `published` batches 13 months after
 `published_at`, at most 10 batches per transaction, stamps `rows_purged_at` and
 keeps the batch header. It uses the worker's `DATABASE_URL` (domain) role with
-the grants of `docs/operations/sql/catalog-import-domain-grants.sql`, `SELECT`
-on `tenants` and `INSERT` on `audit_events`, which the api already needs. It
+the catalogue import grants that step 2 applies, `SELECT` on `tenants` and
+`INSERT` on `audit_events`, which the api already needs. It
 logs counts only. `CATALOG_IMPORT_RETENTION_INTERVAL_MS` must be a whole number
 of milliseconds, at least `60000` (1 minute). Any other value stops the worker
 from booting. `docker-compose.prod.yml` does not pass it, so production runs
