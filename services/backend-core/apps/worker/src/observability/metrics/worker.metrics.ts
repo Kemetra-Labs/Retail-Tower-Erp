@@ -91,6 +91,8 @@ export const WORKER_QUEUE_NAMES = [
   QUEUE_NAMES.aiUsageReservationSweep,
   // RT-1358: ERP provisioning sweep.
   QUEUE_NAMES.erpProvisioningSweep,
+  // RT-1503: catalogue import expiry and retention.
+  QUEUE_NAMES.catalogImportRetention,
 ] as const satisfies readonly string[];
 export type WorkerQueueName = (typeof WORKER_QUEUE_NAMES)[number];
 

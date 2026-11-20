@@ -11,7 +11,10 @@
  *     error code (rolled back on failure);
  *   - `asMigrationOwner`: hand the named tables and functions to a NOSUPERUSER,
  *     NOBYPASSRLS role, like the production migration owner (FORCE ROW LEVEL
- *     SECURITY applies to it), run `fn`, then hand them back.
+ *     SECURITY applies to it), run `fn`, then hand them back;
+ *   - `isDockerUnavailable` / `startPgEnvOrSkip` (first used by 0124, RT-1503):
+ *     the MIGRATION_TEST_ALLOW_SKIP opt-in skips ONLY when no container
+ *     runtime is reachable; every other setup failure is rethrown.
  */
 import { readdirSync, readFileSync } from "node:fs";
 import { resolve } from "node:path";
@@ -99,5 +102,35 @@ export async function asMigrationOwner<T>(env: PgTestEnv, owner: MigrationOwner,
       `REVOKE ALL ON SCHEMA public FROM ${owner.role}`,
       `DROP ROLE ${owner.role}`,
     ]);
+  }
+}
+
+/**
+ * True only for Testcontainers' "no container runtime" error (testcontainers
+ * 11.x, container-runtime/clients/client.js), raised before any container
+ * exists. An image pull failure, a container start failure, a file error or
+ * any other setup failure is not "Docker unavailable".
+ */
+export function isDockerUnavailable(err: unknown): boolean {
+  const message = err instanceof Error ? err.message : String(err);
+  return message.includes("Could not find a working container runtime strategy");
+}
+
+export type PgEnvStart =
+  | { readonly env: PgTestEnv; readonly skipReason: null }
+  | { readonly env: null; readonly skipReason: string };
+
+/**
+ * Start the test database. With `allowSkip` (MIGRATION_TEST_ALLOW_SKIP=1) a
+ * missing container runtime becomes a skip reason; any other failure, and
+ * every failure without the opt-in, is rethrown, so the opt-in can never turn
+ * a real setup fault into a silent skip.
+ */
+export async function startPgEnvOrSkip(start: () => Promise<PgTestEnv>, allowSkip: boolean): Promise<PgEnvStart> {
+  try {
+    return { env: await start(), skipReason: null };
+  } catch (err: unknown) {
+    if (!allowSkip || !isDockerUnavailable(err)) throw err;
+    return { env: null, skipReason: String(err) };
   }
 }

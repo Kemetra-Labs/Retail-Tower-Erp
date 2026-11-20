@@ -111,6 +111,7 @@ describe("failedJobTags", () => {
       "auth.password-reset",
       "auth.signup-link",
       "cashier-admission-replay-purge",
+      "catalog-import-retention",
       "erp-provisioning-sweep",
       "erpnext-stock-reconciliation-sweep",
       "memberships.invitation",

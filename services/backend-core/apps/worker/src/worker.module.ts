@@ -175,6 +175,13 @@ import {
 } from "./cashier-admissions/replay-purge.repository";
 import { ReplayPurgeScheduler } from "./cashier-admissions/replay-purge.scheduler";
 import { ReplayPurgeWorker } from "./cashier-admissions/replay-purge.worker";
+import { ImportRetentionProcessor } from "./catalog-import/import-retention.processor";
+import {
+  NoOpImportRetentionRepository,
+  PgImportRetentionRepository,
+} from "./catalog-import/import-retention.repository";
+import { ImportRetentionScheduler } from "./catalog-import/import-retention.scheduler";
+import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
 import { verifyAuditRetentionRole, verifyWorkerDatabaseRole } from "./database-role-verifier";
 import { captureFinalJobFailure } from "./observability/sentry/failed-job";
 
@@ -485,6 +492,21 @@ export function replayPurgeProcessorProviderFactory(wrapper: AuditDbPool): Repla
     (pool) => new PgReplayPurgeRepository(pool),
   );
   return new ReplayPurgeProcessor(repo);
+}
+
+/**
+ * Factory for the `ImportRetentionProcessor` provider (RT-1503, spec 049 S2).
+ *
+ * Reuses the shared `AuditDbPool` wrapper (no second pool). On the no-DB path
+ * the NoOp repository lists no tenants, so a run is an empty pass.
+ */
+export function importRetentionProcessorProviderFactory(wrapper: AuditDbPool): ImportRetentionProcessor {
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpImportRetentionRepository(),
+    (pool) => new PgImportRetentionRepository(pool),
+  );
+  return new ImportRetentionProcessor(repo);
 }
 
 /**
@@ -822,6 +844,20 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     ReplayPurgeWorker,
     ReplayPurgeScheduler,
 
+    // ── Catalogue import expiry and retention (RT-1503, spec 049 S2) ──
+    //
+    // A repeatable job (default hourly): expires open draft / validated
+    // import batches past expires_at (with their audit row) and purges the
+    // rows of closed batches past their OD-6 window, keeping the header.
+    // Same quartet shape as the sweeps above.
+    {
+      provide: ImportRetentionProcessor,
+      useFactory: importRetentionProcessorProviderFactory,
+      inject: [AuditDbPool],
+    },
+    ImportRetentionWorker,
+    ImportRetentionScheduler,
+
     // ── AI usage reservation sweep (RT-664, T17) ─────────────────────
     //
     // A repeatable job (default every 5 minutes) that releases every
@@ -905,6 +941,8 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     SaleRedriveProcessor,
     ReplayPurgeWorker,
     ReplayPurgeProcessor,
+    ImportRetentionWorker,
+    ImportRetentionProcessor,
     ReservationSweepWorker,
     ReservationSweepProcessor,
     ProvisioningSweepWorker,

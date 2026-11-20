@@ -5,7 +5,8 @@
  * FORCE RLS):
  *   - `cashier_admission_requests` (0035) has tenant-only policies and NO
  *     platform-admin branch, so a platform-admin DELETE would see no row.
- *   - `listTenantIds` is therefore the ONLY platform-admin read. It reads
+ *   - `listTenantIds` is therefore the ONLY platform-admin read (the shared
+ *     `listAllTenantIds`, common/all-tenant-ids.ts, since RT-1503). It reads
  *     tenant ids, nothing else, through the `tenants` policy's
  *     is_platform_admin branch (the RT-179 stock sweep's boundary). Every
  *     tenant is listed, whatever its status: a suspended or deleted tenant's
@@ -31,6 +32,8 @@
 import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool } from "pg";
 
+import { listAllTenantIds } from "../common/all-tenant-ids";
+
 export interface ReplayPurgeRepository {
   /** Every tenant id (any status). */
   listTenantIds(): Promise<string[]>;
@@ -55,14 +58,7 @@ export class PgReplayPurgeRepository implements ReplayPurgeRepository {
   constructor(private readonly pool: Pool) {}
 
   listTenantIds(): Promise<string[]> {
-    return runWithTenantContext(
-      this.pool,
-      { tenantId: null, isPlatformAdmin: true },
-      async (client) => {
-        const r = await client.query<{ id: string }>(`SELECT id FROM tenants ORDER BY id`);
-        return r.rows.map((row) => row.id);
-      },
-    );
+    return listAllTenantIds(this.pool);
   }
 
   purgeExpiredBatch(tenantId: string, batchSize: number): Promise<number> {

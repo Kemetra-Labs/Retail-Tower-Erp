@@ -835,6 +835,7 @@ idempotent, so restarts and replicas share one schedule.
 | Outbox retention sweep | 24 h | none |
 | ERPNext stock reconciliation run sweep (RT-179) | 24 h | `ERPNEXT_STOCK_RECONCILIATION_SWEEP_INTERVAL_MS` |
 | Cashier-admission replay purge (RT-209) | 1 h | `CASHIER_ADMISSION_REPLAY_PURGE_INTERVAL_MS` |
+| Catalogue import expiry and retention (RT-1503) | 1 h | `CATALOG_IMPORT_RETENTION_INTERVAL_MS` |
 
 The stock sweep creates one `scheduled` stock reconciliation run for every store
 that has an active `stock` warehouse map. A store is skipped when it already has
@@ -864,6 +865,21 @@ grant beyond those the api already has on that table (`SELECT`, `INSERT`,
 `UPDATE`, `DELETE`) and `SELECT` on `tenants`. It logs counts only.
 `CASHIER_ADMISSION_REPLAY_PURGE_INTERVAL_MS` must be a whole number of
 milliseconds, at least `60000` (1 minute). Any other value stops the worker
+from booting. `docker-compose.prod.yml` does not pass it, so production runs
+the hourly default.
+
+The catalogue import job (spec 049 S2) works every tenant under its own RLS
+context. It expires each open `draft` or `validated` import batch whose
+`expires_at` has passed (the version-checked `UPDATE` of spec 049 §8.1, with one
+`catalog.import.expire` audit row in the same transaction), at most 100 per
+transaction. It then deletes the staged rows of `cancelled` and `expired`
+batches 30 days after `closed_at`, and of `published` batches 13 months after
+`published_at`, at most 10 batches per transaction, stamps `rows_purged_at` and
+keeps the batch header. It uses the worker's `DATABASE_URL` (domain) role with
+the catalogue import grants that step 2 applies, `SELECT` on `tenants` and
+`INSERT` on `audit_events`, which the api already needs. It
+logs counts only. `CATALOG_IMPORT_RETENTION_INTERVAL_MS` must be a whole number
+of milliseconds, at least `60000` (1 minute). Any other value stops the worker
 from booting. `docker-compose.prod.yml` does not pass it, so production runs
 the hourly default.
 
