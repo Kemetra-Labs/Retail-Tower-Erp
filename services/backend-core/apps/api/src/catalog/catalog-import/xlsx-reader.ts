@@ -11,14 +11,16 @@
  *   3. The sheet-XML pre-scan (xlsx-sheet-scan.ts): the formula cells, the
  *      extent and the number of valued rows, so a sheet that would make the
  *      library pad millions of cells, or that has too many rows, is refused
- *      before the library runs.
+ *      before the library runs. It also RE-SERIALIZES the sheet from its own
+ *      tokens (security review of PR #761, round 2), so the library cannot read
+ *      the sheet differently from the scan.
  *   4. The library never sees the uploaded bytes (security review of PR #761:
  *      it re-parses a ZIP by its local headers, reads fixed part paths and finds
  *      sheets with a SAX parser, so what the guard checked and what it read could
- *      differ). It reads a stored-only archive rebuilt from the verified parts at
+ *      differ). It reads a stored-only archive rebuilt from verified parts at
  *      the library's own paths (`stored-zip.ts`): a synthesized workbook that
- *      lists exactly the one chosen sheet, its relationships, the chosen sheet,
- *      and the shared strings and styles. `readSheet(rebuilt, 1, { trim: false,
+ *      lists exactly the one chosen sheet, its relationships, the CANONICAL
+ *      sheet, and the shared strings and styles. `readSheet(rebuilt, 1, { trim: false,
  *      parseNumber })`: `trim: false` because the spec's own whitespace set
  *      applies at validate (NBSP and the bidi marks, OD-10); `parseNumber`
  *      returns the exact digits stored in the file, so a numeric cell stays
@@ -120,21 +122,27 @@ const CONTENT_TYPES =
   '<Default Extension="xml" ContentType="application/xml"/>' +
   '<Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/></Types>';
 
-/** An optional part (shared strings, styles) as the library would read it: only a `.xml` part that exists. */
+/**
+ * An optional part (shared strings, styles) as the library would read it: only a `.xml` part that exists. These two go
+ * to the library as they are (the import does not interpret them), so a DOCTYPE or an entity declaration, which a SAX
+ * parser may treat in its own way, is refused.
+ */
 async function optionalPart(zip: InspectedZip, path: string | null): Promise<Buffer | null> {
   if (path === null || !path.endsWith(".xml")) return null;
-  return zip.read(path);
+  const part = await zip.read(path);
+  if (part !== null && /<!(?:DOCTYPE|ENTITY)/.test(part.toString("latin1"))) throw unreadable();
+  return part;
 }
 
 /** The stored archive the library reads: only parts the guard verified, at the library's own paths. */
-async function rebuild(zip: InspectedZip, info: WorkbookInfo, sheetXml: Buffer): Promise<Buffer> {
+async function rebuild(zip: InspectedZip, info: WorkbookInfo, sheetXml: string): Promise<Buffer> {
   const strings = await optionalPart(zip, info.sharedStringsPath);
   const styles = await optionalPart(zip, info.stylesPath);
   const parts: StoredPart[] = [
     { name: "[Content_Types].xml", data: Buffer.from(CONTENT_TYPES) },
     { name: "xl/workbook.xml", data: Buffer.from(workbookXml(info.date1904)) },
     { name: "xl/_rels/workbook.xml.rels", data: Buffer.from(relsXml(strings !== null, styles !== null)) },
-    { name: "xl/worksheets/sheet1.xml", data: sheetXml },
+    { name: "xl/worksheets/sheet1.xml", data: Buffer.from(sheetXml, "utf8") },
   ];
   if (strings !== null) parts.push({ name: "xl/sharedStrings.xml", data: strings });
   if (styles !== null) parts.push({ name: "xl/styles.xml", data: styles });
@@ -171,7 +179,7 @@ export async function readXlsx(bytes: Buffer, sheet: string | null): Promise<Par
   checkExtent(scan);
   let data: readonly (readonly unknown[])[];
   try {
-    data = await readSheet(await rebuild(zip, info, sheetXml), 1, {
+    data = await readSheet(await rebuild(zip, info, scan.canonicalXml), 1, {
       trim: false,
       parseNumber: (text: string): RawNumber => ({ __num: text }),
     });

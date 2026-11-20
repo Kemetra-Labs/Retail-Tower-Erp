@@ -536,7 +536,10 @@ Definition of Ready, with a contract revision where the wire changes:
   isolation is a recorded follow-up.
 - **The library never sees the upload.** After the zip guard, `read-excel-file` reads a stored-only archive rebuilt from
   the verified parts (a synthesized one-sheet workbook and relationships, the chosen sheet, shared strings and styles),
-  because it re-parses a ZIP with rules of its own (local headers, fixed part paths, a SAX parser).
+  because it re-parses a ZIP with rules of its own (local headers, fixed part paths, a SAX parser). The sheet itself
+  is re-serialized from the pre-scan's own tokens (rows, cells with `r`/`t`/`s`, `<v>`, inline strings), so the library
+  reads exactly what the scan understood; anything two XML readers could read differently (a duplicate or unspaced
+  attribute, a `<!` declaration, a non-canonical entity, a tag over 8 KiB) is `file_unreadable`.
 - **Still open for part B.** The profile selection rule and the suggestion (a new batch stores an empty
   `suggestedMapping` and no profile until then), and the read refusal after the retention purge.
 

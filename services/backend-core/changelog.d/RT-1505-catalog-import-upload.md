@@ -7,8 +7,8 @@
   more is `429 rate_limited`); the type comes from magic bytes only, and an in-house zip guard (entry count, declared and
   real sizes, `vbaProject.bin`, `.xlsm`, OLE2, lying and stretched local sizes, hidden entries) runs before
   `read-excel-file`, which never sees the uploaded bytes: it reads a stored-only archive rebuilt from the verified parts
-  at its own paths. A sheet-XML pre-scan (tokenized like the library's SAX parser) marks formula cells (F1) and bounds
-  what the library may allocate, and the upload holds one slot per tenant (four process-wide) until its parse and write
+  at its own paths. A fail-closed, linear sheet-XML pre-scan marks formula cells (F1), bounds what the library may allocate and
+  RE-SERIALIZES the sheet, so the library reads only what the scan understood, and the upload holds one slot per tenant (four process-wide) until its parse and write
   are done, with a 30 s body deadline; a CSV is strict UTF-8 with no NUL; limits
   are 5,000 data rows, 50 columns, 2,000-character cells and 1,048,576 physical rows (new 422 `file_too_many_rows`).
   Upload is idempotent by key + file SHA-256 + canonical query (replay, `409 idempotency_key_conflict`), allows one open

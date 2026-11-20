@@ -67,9 +67,9 @@ describe("scanSheet reads a cell address like the library's SAX parser (security
     expect(scanSheet(sheet(`<row r="3000"><c q='r="A1"' r="XFD3000"><v>1</v></c></row>`)).maxValuedColumn).toBe(16384);
   });
 
-  it("ignores a namespace prefix, lets the last of a repeated r win and decodes entities", () => {
-    const scan = scanSheet(sheet(`<row r="2"><c x:r="Z9" r="A2"><f>1</f></c><c r="B2" r="C2"><f>1</f></c><c r="&#65;3"><f>1</f></c><c xmlns:r="urn:x" r="D4"><f>1</f></c></row>`));
-    expect([...scan.formulaCells].sort()).toEqual(["2:1", "2:3", "3:1", "4:4"]);
+  it("decodes entities in r, and does not mistake an xmlns declaration for an attribute", () => {
+    const scan = scanSheet(sheet(`<row r="3"><c r="&#65;3"><f>1</f></c><c xmlns:r="urn:x" r="D3"><f>1</f></c></row>`));
+    expect([...scan.formulaCells].sort()).toEqual(["3:1", "3:4"]);
   });
 
   it("refuses an address that is not A1 syntax, or an entity that decodes to nothing", () => {
@@ -125,5 +125,127 @@ describe("scanSheet refusals", () => {
   it("refuses markup that never ends", () => {
     expect(code(() => scanSheet(`<worksheet><!-- never closed`))).toBe("file_unreadable");
     expect(code(() => scanSheet(`<worksheet><row r="1"`))).toBe("file_unreadable");
+  });
+});
+
+describe("scanSheet fails closed where two XML readers could disagree (security review of PR #761, round 2: N1, N2, N3)", () => {
+  const refused = (cells: string): string => code(() => scanSheet(sheet(`<row r="2000">${cells}</row>`)));
+
+  it("N1: refuses a repeated attribute (a SAX parser keeps the first value, this tokenizer would keep the last)", () => {
+    expect(refused(`<c r="XFD2000" r="A1"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" r="XFD2000"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" x:r="XFD2000"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c t="s" t="n" r="A1"><v>1</v></c>`)).toBe("file_unreadable");
+  });
+
+  it("N2: refuses attributes with no whitespace between them, a bare attribute, an unquoted value", () => {
+    expect(refused(`<c r="XFD2000" q="1"r="A1"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" q><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r=A1><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" q="a<b"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r = "A1" ><v>1</v></c>`)).toBe("none");
+  });
+
+  it("N3: refuses a <! declaration (its quoting hides a tag from one reader and not the other), for the extent and for F1", () => {
+    expect(refused(`<c r="XFD2000"><!x '><c r="A1">'><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A2" t="str"><!x '><c r="Z9">'><f>1+1</f><v>FROMFORMULA</v></c>`)).toBe("file_unreadable");
+    expect(code(() => scanSheet(`<!DOCTYPE x [<!ENTITY a "b">]><worksheet><sheetData/></worksheet>`))).toBe("file_unreadable");
+  });
+
+  it("refuses entities that readers decode differently, and a bare ampersand", () => {
+    for (const bad of ["&AMP;", "&#X41;", "&#00000065;", "&#1;", "&#xD800;", "&#0;", "&unknown;", "a & b", "&#65"]) {
+      expect(refused(`<c r="A1" t="inlineStr"><is><t>${bad}</t></is></c>`)).toBe("file_unreadable");
+    }
+    expect(refused(`<c r="A1" t="inlineStr"><is><t>&amp;&lt;&gt;&quot;&apos;&#65;&#x42;&#128512;</t></is></c>`)).toBe("none");
+  });
+
+  it("refuses a comment or a processing instruction inside a value, and unexpected elements in a cell", () => {
+    expect(refused(`<c r="A1"><v>1<!-- x -->2</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1"><v>1<b/>2</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1"><x/></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1"><v>1</v><v>2</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1"><c r="B1"/></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" t="bogus"><v>1</v></c>`)).toBe("file_unreadable");
+    expect(refused(`<c r="A1" s="x"><v>1</v></c>`)).toBe("file_unreadable");
+  });
+
+  it("refuses an unbalanced document and a second sheetData", () => {
+    expect(code(() => scanSheet(`<worksheet><sheetData><row r="1"><c r="A1"><v>1</v>`))).toBe("file_unreadable");
+    expect(code(() => scanSheet(`<worksheet><sheetData><row r="1">`))).toBe("file_unreadable");
+    expect(code(() => scanSheet(`<worksheet><sheetData></sheetData><sheetData></sheetData></worksheet>`))).toBe("file_unreadable");
+  });
+});
+
+describe("scanSheet re-serializes the sheet: the library reads only what the scan understood", () => {
+  it("keeps rows, cells, types, styles, values, inline strings and runs, drops everything else, and escapes text itself", () => {
+    const scan = scanSheet(
+      `<?xml version="1.0"?><worksheet xmlns="x" xmlns:r="y"><dimension ref="A1:XFD9"/><sheetViews><sheetView/></sheetViews>` +
+        `<sheetData><row r="2" spans="1:2" ht="9"><c r="A2" s="3" t="n" cm="1"><v>1.5E3</v></c>` +
+        `<c r="B2" t="str"><f t="shared" si="0">SUM(A1)</f><v>a &amp; b &lt;c&gt;</v></c>` +
+        `<c r="C2" t="inlineStr"><is><r><rPr><b/></rPr><t>one </t></r><r><t><![CDATA[<two>]]></t></r><rPh><t>ignored</t></rPh></is></c><c r="D2"/><c r="E2" t="inlineStr"><is><t/></is></c></row>` +
+        `<row r="3"/></sheetData><mergeCells count="1"><mergeCell ref="A1:B2"/></mergeCells></worksheet>`,
+    );
+    expect(scan.canonicalXml).toBe(
+      `<?xml version="1.0" encoding="UTF-8"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>` +
+        `<row r="2"><c r="A2" t="n" s="3"><v>1.5E3</v></c>` +
+        `<c r="B2" t="str"><v>a &amp; b &lt;c&gt;</v></c>` +
+        `<c r="C2" t="inlineStr"><is><r><t>one </t></r><r><t>&lt;two&gt;</t></r></is></c><c r="D2"></c><c r="E2" t="inlineStr"><is><t></t></is></c></row>` +
+        `<row r="3"></row></sheetData></worksheet>`,
+    );
+    expect([...scan.formulaCells]).toEqual(["2:2"]);
+  });
+
+  it("never lets anything outside a cell reach the canonical sheet", () => {
+    const scan = scanSheet(sheet(`<row r="1"><c r="A1"><v>1</v></c></row><!-- <c r="XFD9"><v>9</v></c> --><extLst><ext><c2 r="XFD9"/></ext></extLst>`));
+    expect(scan.canonicalXml).not.toContain("XFD");
+    expect(scan.maxValuedColumn).toBe(1);
+  });
+
+  it("is idempotent: scanning the canonical sheet gives the same sheet", () => {
+    const first = scanSheet(sheet(`<row r="1"><c r="A1" t="str"><f>1</f><v>x &amp; y</v></c><c r="C1" t="inlineStr"><is><t>z</t></is></c></row>`));
+    expect(scanSheet(first.canonicalXml).canonicalXml).toBe(first.canonicalXml);
+  });
+});
+
+describe("scanSheet and the tokenizer are linear on hostile input (security review of PR #761, blocker 2)", () => {
+  const timed = (fn: () => unknown): number => {
+    const started = process.hrtime.bigint();
+    try {
+      fn();
+    } catch {
+      // A refusal is the expected outcome; only the time matters here.
+    }
+    return Number(process.hrtime.bigint() - started) / 1e6;
+  };
+
+  it("refuses a 1,000,000-character attribute name run in well under a second (an attribute regex took 9 s at 80,000)", () => {
+    const run = "a".repeat(1_000_000);
+    expect(code(() => scanSheet(sheet(`<row r="1"><c ${run} r="A1"><v>1</v></c></row>`)))).toBe("file_unreadable");
+    expect(timed(() => scanSheet(sheet(`<row r="1"><c ${run} r="A1"><v>1</v></c></row>`)))).toBeLessThan(200);
+  });
+
+  it("refuses a start tag over 8 KiB, whatever it is made of, quickly", () => {
+    for (const filler of [`q="${"x".repeat(9000)}"`, "a ".repeat(5000), "a=\"b\" ".repeat(2000), `q='${"\"".repeat(9000)}'`]) {
+      const xml = sheet(`<row r="1"><c r="A1" ${filler}><v>1</v></c></row>`);
+      expect(code(() => scanSheet(xml))).toBe("file_unreadable");
+      expect(timed(() => scanSheet(xml))).toBeLessThan(200);
+    }
+    // A tag just under the cap is fine.
+    expect(code(() => scanSheet(sheet(`<row r="1"><c r="A1" q="${"x".repeat(8000)}"><v>1</v></c></row>`)))).toBe("none");
+  });
+
+  it("refuses a 1,000,000-character run of attributes and of unterminated quotes quickly", () => {
+    const many = " a=\"1\"".repeat(150_000);
+    const quotes = `<c r="A1" q="${"'".repeat(1_000_000)}`;
+    for (const xml of [sheet(`<row r="1"><c r="A1"${many}><v>1</v></c></row>`), sheet(`<row r="1">${quotes}`)]) {
+      expect(code(() => scanSheet(xml))).toBe("file_unreadable");
+      expect(timed(() => scanSheet(xml))).toBeLessThan(200);
+    }
+  });
+
+  it("scans 5,001 normal rows of 50 cells in a few seconds at most", () => {
+    const row = (r: number): string => `<row r="${r}">${Array.from({ length: 50 }, (_v, c) => `<c r="${c < 26 ? String.fromCharCode(65 + c) : `A${String.fromCharCode(65 + c - 26)}`}${r}" t="inlineStr"><is><t>v${r}</t></is></c>`).join("")}</row>`;
+    const xml = sheet(Array.from({ length: 5001 }, (_v, i) => row(i + 1)).join(""));
+    expect(timed(() => scanSheet(xml))).toBeLessThan(3000);
   });
 });

@@ -255,3 +255,79 @@ describe("B3: a cell address is the cell's own r attribute", () => {
     expect(cellsOf(await outcome(bookOf(sheetWith(many(5000))))).length).toBe(5000);
   });
 });
+
+describe("round 2: a sheet two XML readers could read differently never reaches the library (N1, N2, N3, blocker 2)", () => {
+  const sheetWith = (cells: string): string =>
+    `<?xml version="1.0"?><worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>` +
+    `<row r="1"><c r="A1" t="inlineStr"><is><t>sku</t></is></c></row>${cells}</sheetData></worksheet>`;
+  const bookOf = (sheet: string, extra: Partial<BookParts> = {}): Buffer =>
+    book({
+      workbook: wbXml('<sheet name="S" sheetId="1" r:id="rId1"/>'),
+      rels: relsXml(rel("rId1", "worksheet", "worksheets/sheet1.xml")),
+      parts: { "xl/worksheets/sheet1.xml": sheet },
+      ...extra,
+    });
+
+  /** Refused as unreadable, and fast: the library (which would pad 2000 x 16384 cells, 800 ms and hundreds of MiB) never ran. */
+  async function expectRefusedFast(sheet: string): Promise<void> {
+    const bytes = bookOf(sheet);
+    const started = Date.now();
+    expect(await outcome(bytes)).toBe("file_unreadable");
+    expect(Date.now() - started).toBeLessThan(200);
+  }
+
+  it("N1: a repeated r (the library keeps the first, a last-wins reader the last)", async () => {
+    await expectRefusedFast(sheetWith(`<row r="2000"><c r="XFD2000" r="A1"><v>1</v></c></row>`));
+  });
+
+  it("N2: attributes with no whitespace between them", async () => {
+    await expectRefusedFast(sheetWith(`<row r="2000"><c r="XFD2000" q="1"r="A1"><v>1</v></c></row>`));
+  });
+
+  it("N3: a <! declaration, for the extent and for F1", async () => {
+    await expectRefusedFast(sheetWith(`<row r="2000"><c r="XFD2000"><!x '><c r="A1">'><v>1</v></c></row>`));
+    await expectRefusedFast(sheetWith(`<row r="2"><c r="A2" t="str"><!x '><c r="Z9">'><f>1+1</f><v>FROMFORMULA</v></c></row>`));
+  });
+
+  it("a long run of characters in an attribute name, in the sheet, the workbook, the relationships and the content types", async () => {
+    const run = "a".repeat(1_000_000);
+    await expectRefusedFast(sheetWith(`<row r="2"><c ${run} r="A2"><v>1</v></c></row>`));
+    const timed = async (bytes: Buffer): Promise<number> => {
+      const started = Date.now();
+      expect(await outcome(bytes)).toMatch(/^file_/);
+      return Date.now() - started;
+    };
+    const good = sheetXml(rows("A"));
+    expect(await timed(bookOf(good, { workbook: wbXml(`<sheet name="S" ${run}="x" sheetId="1" r:id="rId1"/>`) }))).toBeLessThan(200);
+    expect(await timed(bookOf(good, { rels: relsXml(`<Relationship ${run}="x" Id="rId1" Type="${OFFICE_REL}/worksheet" Target="worksheets/sheet1.xml"/>`) }))).toBeLessThan(200);
+    expect(await timed(bookOf(good, { types: `<Types><Override PartName="/xl/workbook.xml" ${run}="x" ContentType="${MAIN_TYPE}"/></Types>` }))).toBeLessThan(200);
+  });
+
+  it("an over-long tag in a package part", async () => {
+    const started = Date.now();
+    const bytes = bookOf(sheetXml(rows("A")), { workbook: wbXml(`<sheet name="${"x".repeat(9000)}" sheetId="1" r:id="rId1"/>`) });
+    expect(await outcome(bytes)).toBe("file_unreadable");
+    expect(Date.now() - started).toBeLessThan(200);
+  });
+
+  it("the library reads the canonical sheet: what it returns is exactly what the scan understood", async () => {
+    const sheet = sheetWith(
+      `<row r="2" spans="1:2"><c r="A2" t="str" cm="1"><f t="shared" si="0">1+1</f><v>00123 &amp; co</v></c><c r="B2" s="0" t="inlineStr"><is><r><t>a</t></r><r><t> b</t></r></is></c></row>` +
+        `<row r="3"><c r="A3"><v>12345678905</v></c></row>`,
+    );
+    expect(cellsOf(await outcome(bookOf(sheet)))).toEqual([
+      [{ t: "f", v: "00123 & co" }, "a b"],
+      [{ t: "n", v: "12345678905" }, null],
+    ]);
+  });
+
+  it("refuses a DOCTYPE or an entity declaration in the shared strings or the styles, which reach the library as they are", async () => {
+    const withStrings = (xml: string): Buffer =>
+      bookOf(sheetXml(rows("A")), {
+        rels: relsXml(rel("rId1", "worksheet", "worksheets/sheet1.xml") + rel("rId2", "sharedStrings", "sharedStrings.xml")),
+        parts: { "xl/worksheets/sheet1.xml": sheetXml(rows("A")), "xl/sharedStrings.xml": xml },
+      });
+    expect(await outcome(withStrings('<?xml version="1.0"?><!DOCTYPE sst [<!ENTITY a "b">]><sst xmlns="x"><si><t>&a;</t></si></sst>'))).toBe("file_unreadable");
+    expect(await outcome(withStrings('<?xml version="1.0"?><sst xmlns="x"><si><t>fine</t></si></sst>'))).not.toBe("file_unreadable");
+  });
+});
