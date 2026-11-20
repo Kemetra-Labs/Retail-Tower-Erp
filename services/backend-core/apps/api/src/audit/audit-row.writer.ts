@@ -38,10 +38,9 @@ export async function insertAuditRowInTransaction(
 }
 
 /**
- * RT-1484 PR-6 (owner decision on m2): the metadata of the FIRST `action` row about `targetId`,
- * read on the caller's client under its tenant context (RLS), or null. Audit rows are append-only,
- * so this reads back a fact the caller recorded in an earlier transaction of its own (for a
- * rollback Change Set: the instant it restores from), never anything a client can change.
+ * RT-1484 PR-6 (delta review m-d): the metadata of the FIRST `action` row about `targetId` (for a
+ * rollback Change Set, its `created` row), read on the caller's client under its tenant context
+ * (RLS), or null.
  */
 export async function readFirstAuditMetadata(
   client: Pick<PoolClient, "query">,
@@ -52,6 +51,26 @@ export async function readFirstAuditMetadata(
       WHERE tenant_id = $1::uuid AND action = $2 AND target_type = $3 AND target_id = $4::uuid
       ORDER BY occurred_at, id LIMIT 1`,
     [key.tenantId, key.action, key.targetType, key.targetId],
+  );
+  return r.rows[0]?.metadata ?? null;
+}
+
+/**
+ * RT-1484 PR-6 (owner decision on m2): the metadata of the NEWEST row about `targetId` whose
+ * metadata holds `metadataKey`, read on the caller's client under its tenant context (RLS), or
+ * null. Audit rows are append-only, so this reads back a fact the caller recorded in an earlier
+ * transaction of its own (for a rollback Change Set: the instant its items were last generated
+ * from), never anything a client can change.
+ */
+export async function readLatestAuditMetadataWithKey(
+  client: Pick<PoolClient, "query">,
+  key: { readonly tenantId: string; readonly targetType: string; readonly targetId: string; readonly metadataKey: string },
+): Promise<Record<string, unknown> | null> {
+  const r = await client.query<{ metadata: Record<string, unknown> | null }>(
+    `SELECT metadata FROM audit_events
+      WHERE tenant_id = $1::uuid AND target_type = $2 AND target_id = $3::uuid AND metadata ? $4
+      ORDER BY occurred_at DESC, id DESC LIMIT 1`,
+    [key.tenantId, key.targetType, key.targetId, key.metadataKey],
   );
   return r.rows[0]?.metadata ?? null;
 }

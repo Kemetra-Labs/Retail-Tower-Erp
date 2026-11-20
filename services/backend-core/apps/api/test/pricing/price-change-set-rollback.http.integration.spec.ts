@@ -105,6 +105,11 @@ const P = {
   late: a("16b5f104"),
   tokyo: a("16b5f105"),
   added: a("16b5f106"),
+  // Delta review (round 2): B-1, m-d and the publish guard.
+  promo: a("16b5f107"),
+  missing: a("16b5f108"),
+  guard: a("16b5f109"),
+  direct: a("16b5f10a"),
 };
 
 /** CodeRabbit 4642366476: the service clock is pinned for the whole suite, before the first fixture. */
@@ -944,6 +949,115 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
       refused(await publish(ready), 409, "stale_validation");
     } finally {
       await dropStore(added.id);
+    }
+  });
+
+  it("delta review B-1: a bounded R - 1 promo under an open R price: the rollback ends R's price after the promo (fallback, not R)", async () => {
+    if (skip()) return;
+    const store = { kind: "stores", storeIds: [STORE_A_X] };
+    const own = (price: string, from: string, to?: string) => ({ op: "set_price", scope: store, products: items([P.promo]), price, ...at(from), ...(to === undefined ? {} : { effectiveTo: to }) });
+    await published({ items: [bookPrice(P.promo, "10", "2179-01-01T00:00:00Z")] });
+    await published({ items: [own("9", "2180-01-01T00:00:00Z", "2180-02-01T00:00:00Z")] });
+    const r = await published({ items: [own("11", "2180-01-15T00:00:00Z")] });
+    expect(await priceAt(P.promo, "2180-02-05T00:00:00Z")).toBe("11.0000");
+    const undo = createdRollback(await rollback(r.set.header.id, { from: "2180-01-20T00:00:00Z", reason: "Undo" }));
+    expect(undo.items).toEqual([
+      { op: "end_price", scope: store, products: items([P.promo]), sellUnit: "each", timeBasis: "absolute", effectiveFrom: "2180-01-20T00:00:00.000000Z" },
+      { op: "set_price", scope: store, products: items([P.promo]), sellUnit: "each", price: "9.0000", timeBasis: "absolute", effectiveFrom: "2180-01-20T00:00:00.000000Z", effectiveTo: "2180-02-01T00:00:00.000000Z" },
+    ]);
+    status(await publish(await approvedSet(undo)), 200);
+    expect(await priceAt(P.promo, "2180-01-10T00:00:00Z", undefined, STORE_A_X, "UTC")).toBe("9.0000");
+    expect(await priceAt(P.promo, "2180-01-18T00:00:00Z", undefined, STORE_A_X, "UTC")).toBe("11.0000");
+    expect(await priceAt(P.promo, "2180-01-25T00:00:00Z", undefined, STORE_A_X, "UTC")).toBe("9.0000");
+    // After the promo: the Book fallback, NOT R's 11.
+    expect(await priceAt(P.promo, "2180-02-05T00:00:00Z", undefined, STORE_A_X, "UTC")).toBe("10.0000");
+    for (const at2 of ["2180-01-18T00:00:00Z", "2180-02-05T00:00:00Z"]) {
+      expect(await priceAt(P.promo, at2, undefined, STORE_A_Y, "America/New_York")).toBe("10.0000");
+    }
+  });
+
+  it("delta review m-d: an explicit `from` that cannot be read back refuses validate (fail closed, never now)", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.missing, "20", "2185-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.missing, "21", "2186-01-01T00:00:00Z")] });
+    const rb = createdRollback(await rollback(target.set.header.id, { from: "2186-06-01T00:00:00Z", reason: "Undo" }));
+    const c = await env!.admin.connect();
+    try {
+      await c.query("BEGIN");
+      await c.query("SET LOCAL session_replication_role = replica");
+      await c.query(`UPDATE audit_events SET metadata = metadata - 'rollback_from' WHERE target_id = $1 AND action = 'pricing.change_set.created'`, [rb.header.id]);
+      await c.query("COMMIT");
+    } catch (err) {
+      await c.query("ROLLBACK");
+      throw err;
+    } finally {
+      c.release();
+    }
+    const res = await send(op(rb.header.id, "validate"), SES_OWNER_ALL, { expectedVersion: 1 });
+    refused(res, 409, "change_set_invalid_state");
+    expect((res.body as { error: { message: string } }).error.message).toMatch(/start time is unavailable/);
+    expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [rb.header.id])).toBe("draft:1");
+  });
+
+  it("CodeRabbit 4642497268: the publish guard refuses an activation before `from` or a target Store with no preview row (rollback_store_population_changed)", async () => {
+    if (skip()) return;
+    const store = { kind: "stores", storeIds: [STORE_A_X] };
+    const own = (price: string, from: string) => ({ op: "set_price", scope: store, products: items([P.guard]), price, ...at(from) });
+    await published({ items: [own("30", "2190-01-01T00:00:00Z")] });
+    const target = await published({ items: [own("31", "2191-01-01T00:00:00Z")] });
+    // (a) A preview row moved to before the stored `from` (but inside the 15-minute window).
+    const a1 = await approvedSet(createdRollback(await rollback(target.set.header.id, { from: PINNED, reason: "Undo" })));
+    const early = new Date(Date.parse(PINNED) - 5 * 60_000).toISOString();
+    const tamper = async (sql: string, params: unknown[]): Promise<void> => {
+      const c = await env!.admin.connect();
+      try {
+        await c.query("BEGIN");
+        await c.query("SET LOCAL session_replication_role = replica");
+        await c.query(sql, params);
+        await c.query("COMMIT");
+      } catch (err) {
+        await c.query("ROLLBACK");
+        throw err;
+      } finally {
+        c.release();
+      }
+    };
+    const reasons = async (id: string): Promise<unknown[]> =>
+      (await env!.admin.query<{ metadata: Record<string, unknown> }>(`SELECT metadata FROM audit_events WHERE target_id = $1 AND action = 'pricing.change_set.stale' ORDER BY occurred_at, id`, [id])).rows.map((r) => r.metadata["reason"]);
+    // The line itself starts at its own instant; only the stored preview row is moved earlier.
+    const line = await scalar(`SELECT min(effective_from)::text AS v FROM price_change_set_preview_lines WHERE change_set_id = $1`, [a1.header.id]);
+    expect(line).not.toBeNull();
+    await tamper(`UPDATE price_change_set_preview_lines SET effective_from = $2 WHERE change_set_id = $1`, [a1.header.id, early]);
+    const h = await head();
+    refused(await publish(a1), 409, "stale_validation");
+    expect(await head()).toBe(h);
+    expect(await reasons(a1.header.id)).toEqual(["rollback_store_population_changed"]);
+
+    // (b) A Store of the stored target population without a preview row.
+    await send(op(a1.header.id, "cancel"), SES_OWNER_ALL, { expectedVersion: 2 });
+    const b1 = await approvedSet(createdRollback(await rollback(target.set.header.id, { from: PINNED, reason: "Undo" })));
+    await tamper(
+      `UPDATE price_change_set_validations SET target_stores = target_stores || jsonb_build_array(jsonb_build_object('storeId', $2::text, 'timezone', 'UTC'))
+        WHERE change_set_id = $1`,
+      [b1.header.id, STORE_A_Y],
+    );
+    refused(await publish(b1), 409, "stale_validation");
+    expect(await reasons(b1.header.id)).toEqual(["rollback_store_population_changed"]);
+  });
+
+  it("CodeRabbit 4642497268: a Store inserted after validate without the lifecycle API makes publish stale", async () => {
+    if (skip()) return;
+    await published({ items: [bookPrice(P.direct, "40", "2195-01-01T00:00:00Z")] });
+    const target = await published({ items: [bookPrice(P.direct, "41", "2196-01-01T00:00:00Z")] });
+    const ready = await approvedSet(createdRollback(await rollback(target.set.header.id)));
+    const storeId = a("16b5e5f1");
+    await env!.admin.query(`INSERT INTO stores (id, tenant_id, code, name, timezone) VALUES ($1, $2, 'RBDIRECT', 'RT-1484 direct', 'Asia/Tokyo')`, [storeId, TENANT_A]);
+    try {
+      const h = await head();
+      refused(await publish(ready), 409, "stale_validation");
+      expect(await head()).toBe(h);
+    } finally {
+      await dropStore(storeId);
     }
   });
 

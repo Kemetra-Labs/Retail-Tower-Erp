@@ -103,6 +103,8 @@ export async function loadReachContext(
     readonly revision: number;
     readonly book: ResolutionPriceBook;
     readonly ids: { readonly productIds: readonly string[]; readonly categoryIds: readonly string[]; readonly storeIds: readonly string[] };
+    /** RT-1484 PR-6 (CodeRabbit 4642497268): a Store snapshot already read in this transaction. */
+    readonly stores?: Readonly<Awaited<ReturnType<typeof liveAndNamedStores>>> | undefined;
   },
 ): Promise<ValidationContext> {
   const { tenantId, book, revision } = input;
@@ -110,7 +112,7 @@ export async function loadReachContext(
     `SELECT id::text AS id, retired_at IS NULL AS live FROM price_zones WHERE tenant_id = $1::uuid AND price_book_id = $2::uuid`,
     [tenantId, book.id],
   );
-  const stores = await liveAndNamedStores(client, tenantId, input.ids.storeIds);
+  const stores = input.stores ?? (await liveAndNamedStores(client, tenantId, input.ids.storeIds));
   const categoryProducts = await liveProductsOfCategories(client, tenantId, input.ids.categoryIds);
   const allProducts = [...new Set([...input.ids.productIds, ...[...categoryProducts.values()].flat()])];
   const products = await tenantProductLiveness(client, tenantId, allProducts);
