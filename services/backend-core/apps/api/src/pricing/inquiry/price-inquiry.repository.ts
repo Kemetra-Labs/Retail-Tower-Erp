@@ -31,11 +31,11 @@ export interface LoadedResolutionData extends ResolutionData {
 }
 
 /** The 0121 visibility rule for alias `t` at revision `$rev`. */
-const VISIBLE_AT = (t: string, rev: string): string =>
+export const VISIBLE_AT = (t: string, rev: string): string =>
   `${t}.published_in_revision <= ${rev}::bigint AND (${t}.ended_in_revision IS NULL OR ${t}.ended_in_revision > ${rev}::bigint)`;
 
 /** A local wall-clock column as text with milliseconds, e.g. `2026-11-01T00:00:00.000`. */
-const LOCAL_TEXT = (column: string): string => `to_char(${column}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
+export const LOCAL_TEXT = (column: string): string => `to_char(${column}, 'YYYY-MM-DD"T"HH24:MI:SS.MS')`;
 
 interface BookRow {
   id: string;
@@ -78,11 +78,11 @@ interface EventRow {
   change_set_id: string;
 }
 
-const wallClock = (text: string | null): Date | null => (text === null ? null : new Date(`${text}Z`));
+export const wallClock = (text: string | null): Date | null => (text === null ? null : new Date(`${text}Z`));
 const revisionNo = (text: string | null): number | null => (text === null ? null : Number(text));
 
 /** The tenant's retail Book with its default Zone (v1: at most one, never retired), or null. */
-async function loadBook(client: Queryable, tenantId: string): Promise<ResolutionPriceBook | null> {
+export async function loadBook(client: Queryable, tenantId: string): Promise<ResolutionPriceBook | null> {
   const r = await client.query<BookRow>(
     `SELECT b.id::text AS id, b.tenant_id::text AS tenant_id, b.currency_code, b.tax_price_basis,
             z.id::text AS default_zone_id
@@ -102,16 +102,17 @@ async function loadBook(client: Queryable, tenantId: string): Promise<Resolution
   };
 }
 
-async function loadMemberships(
+/** The Book's Zone memberships visible at `revision`: of one Store, or of every Store (`storeId` null). */
+export async function loadMemberships(
   client: Queryable,
-  key: { tenantId: string; bookId: string; storeId: string; revision: number },
+  key: { tenantId: string; bookId: string; storeId: string | null; revision: number },
 ): Promise<ResolutionZoneMembership[]> {
   const r = await client.query<MembershipRow>(
     `SELECT m.id::text AS id, m.tenant_id::text AS tenant_id, m.price_book_id::text AS price_book_id,
             m.price_zone_id::text AS price_zone_id, m.store_id::text AS store_id, m.effective_from, m.effective_to,
             m.published_in_revision::text AS published_in_revision, m.ended_in_revision::text AS ended_in_revision
        FROM price_zone_memberships m
-      WHERE m.tenant_id = $1::uuid AND m.price_book_id = $2::uuid AND m.store_id = $3::uuid
+      WHERE m.tenant_id = $1::uuid AND m.price_book_id = $2::uuid AND ($3::uuid IS NULL OR m.store_id = $3::uuid)
         AND ${VISIBLE_AT("m", "$4")}
       ORDER BY m.effective_from, m.id`,
     [key.tenantId, key.bookId, key.storeId, key.revision],
@@ -129,9 +130,20 @@ async function loadMemberships(
   }));
 }
 
-async function loadEvents(
+/**
+ * The `regular` events of `productIds` in `sellUnit` visible at `revision`; Store-scope ones only of
+ * `storeId` (or of every Store when it is null).
+ */
+export async function loadEvents(
   client: Queryable,
-  key: { tenantId: string; bookId: string; storeId: string; productId: string; sellUnit: string; revision: number },
+  key: {
+    tenantId: string;
+    bookId: string;
+    storeId: string | null;
+    productIds: readonly string[];
+    sellUnit: string;
+    revision: number;
+  },
 ): Promise<{ events: ResolutionPriceEvent[]; changeSetOf: Map<string, string> }> {
   const r = await client.query<EventRow>(
     `SELECT e.id::text AS id, e.tenant_id::text AS tenant_id, e.price_book_id::text AS price_book_id, e.scope,
@@ -142,12 +154,12 @@ async function loadEvents(
             e.published_in_revision::text AS published_in_revision, e.ended_in_revision::text AS ended_in_revision,
             e.change_set_id::text AS change_set_id
        FROM price_events e
-      WHERE e.tenant_id = $1::uuid AND e.price_book_id = $2::uuid AND e.product_id = $3::uuid
+      WHERE e.tenant_id = $1::uuid AND e.price_book_id = $2::uuid AND e.product_id = ANY($3::uuid[])
         AND e.sell_unit = $4 AND e.price_kind = 'regular'
-        AND (e.scope <> 'store' OR e.store_id = $5::uuid)
+        AND (e.scope <> 'store' OR $5::uuid IS NULL OR e.store_id = $5::uuid)
         AND ${VISIBLE_AT("e", "$6")}
       ORDER BY e.id`,
-    [key.tenantId, key.bookId, key.productId, key.sellUnit, key.storeId, key.revision],
+    [key.tenantId, key.bookId, key.productIds, key.sellUnit, key.storeId, key.revision],
   );
   const changeSetOf = new Map<string, string>();
   const events = r.rows.map((row): ResolutionPriceEvent => {
@@ -187,6 +199,6 @@ export async function loadResolutionData(
   if (book === null || key.revision === null) return { book, memberships: [], events: [], changeSetOf: new Map() };
   const scoped = { ...key, bookId: book.id, revision: key.revision };
   const memberships = await loadMemberships(client, scoped);
-  const { events, changeSetOf } = await loadEvents(client, scoped);
+  const { events, changeSetOf } = await loadEvents(client, { ...scoped, productIds: [key.productId] });
   return { book, memberships, events, changeSetOf };
 }

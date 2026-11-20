@@ -453,7 +453,7 @@ describe("RT-1484 price change sets over HTTP", () => {
     expect(await itemLists(draft.header.id)).toEqual([{ v: 1, n: 2 }]);
     const rows = await audits("pricing.change_set.created", draft.header.id);
     expect(rows).toHaveLength(1);
-    expect(rows[0]!.metadata).toEqual({ change_set_id: draft.header.id, kind: "standard", version: 1, item_count: 2 });
+    expect(rows[0]!.metadata).toEqual({ change_set_id: draft.header.id, kind: "standard", version: 1, reason_present: false, item_count: 2 });
     expect(rows[0]!.actor_user_id).toBe(draft.header.created.userId);
   });
 
@@ -552,7 +552,7 @@ describe("RT-1484 price change sets over HTTP", () => {
     expect((pending.body as ChangeSet).summary).toMatchObject({ lines: 1 });
 
     expect((await audits("pricing.change_set.cancelled", id)).map((r) => r.metadata)).toEqual([
-      { change_set_id: id, kind: "standard", version: 4, previous_state: "draft", preview_hash: null },
+      { change_set_id: id, kind: "standard", version: 4, previous_state: "draft", preview_hash: null, reason_present: true },
     ]);
     expect((await audits("pricing.change_set.cancelled", later.pending))[0]!.metadata).toMatchObject({
       previous_state: "pending_approval",

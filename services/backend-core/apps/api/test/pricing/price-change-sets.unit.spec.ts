@@ -5,8 +5,17 @@
  * list cursor. Every accepted item and every projected body is also validated against the
  * contract with AJV. No database, no HTTP.
  */
+import "reflect-metadata";
+
+import { HttpException, RequestMethod, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
+import { GUARDS_METADATA, HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } from "@nestjs/common/constants";
 import Ajv2020, { type ValidateFunction } from "ajv/dist/2020";
 import addFormats from "ajv-formats";
+
+import { RolesGuard } from "../../src/auth";
+import { PricingAuthoringGuard } from "../../src/pricing/change-sets/price-authoring.guard";
+import { decodePreviewCursor, encodePreviewCursor, PreviewCursorError } from "../../src/pricing/change-sets/price-change-set-preview";
+import { PriceChangeSetsController } from "../../src/pricing/change-sets/price-change-sets.controller";
 
 import {
   isPricingAuthoringAllowed,
@@ -228,5 +237,82 @@ describe("header projection and list cursor", () => {
     expect(decodeChangeSetListCursor(raw, filters)).toEqual({ createdKey: "2026-11-20T10:00:00.123456Z", id: ID, ...filters });
     expect(() => decodeChangeSetListCursor(raw, { state: null, kind: null })).toThrow(ChangeSetListCursorError);
     expect(() => decodeChangeSetListCursor("not-a-cursor", filters)).toThrow(ChangeSetListCursorError);
+  });
+
+  // RT-1484 comment 17881, follow-up 1: an impossible date is a 400, never a Postgres 500.
+  it("refuses a cursor whose instant is not a calendar value (02-31)", () => {
+    const filters = { state: null, kind: null };
+    const raw = encodeChangeSetListCursor({ createdKey: "2026-02-31T10:00:00.000000Z", id: ID, ...filters });
+    expect(() => decodeChangeSetListCursor(raw, filters)).toThrow(ChangeSetListCursorError);
+  });
+});
+
+describe("the preview cursor", () => {
+  const HASH_A = `sha256:${"a".repeat(64)}`;
+  it("round-trips and is bound to the class filter and the stored preview", () => {
+    const raw = encodePreviewCursor({ rowNo: 7, cls: "replaces", previewHash: HASH_A });
+    expect(decodePreviewCursor(raw, "replaces", HASH_A)).toBe(7);
+    expect(() => decodePreviewCursor(raw, null, HASH_A)).toThrow(PreviewCursorError);
+    expect(() => decodePreviewCursor(raw, "replaces", `sha256:${"b".repeat(64)}`)).toThrow(PreviewCursorError);
+    expect(() => decodePreviewCursor("bm90", null, HASH_A)).toThrow(PreviewCursorError);
+  });
+});
+
+/**
+ * RT-1484 comment 17881, follow-up 5: the authoring gate is structural. `PricingAuthoringGuard` is
+ * a controller guard after the role check, and every non-GET route of the controller, found by
+ * walking its route metadata (so a new write route is covered without editing this spec), is
+ * refused for a tenant off the allowlist; every GET route stays open.
+ */
+describe("the authoring gate is structural (PricingAuthoringGuard)", () => {
+  const guard = new PricingAuthoringGuard(resolvePricingAuthoringConfig({ PRICING_AUTHORING_TENANT_ALLOWLIST: T1 }));
+  const contextFor = (method: string, tenantId: string | null): ExecutionContext =>
+    ({
+      switchToHttp: () => ({ getRequest: () => ({ method, context: tenantId === null ? undefined : { tenantId } }) }),
+    }) as unknown as ExecutionContext;
+
+  const routes = Object.getOwnPropertyNames(PriceChangeSetsController.prototype)
+    .filter((name) => name !== "constructor")
+    .map((name) => {
+      const handler = (PriceChangeSetsController.prototype as unknown as Record<string, object>)[name]!;
+      const method = Reflect.getMetadata(METHOD_METADATA, handler) as RequestMethod | undefined;
+      return { name, method, path: Reflect.getMetadata(PATH_METADATA, handler) as string | undefined };
+    })
+    .filter((r) => r.method !== undefined);
+
+  it("runs on the controller after the session, tenant and role guards", () => {
+    const guards = Reflect.getMetadata(GUARDS_METADATA, PriceChangeSetsController) as unknown[];
+    expect(guards[guards.length - 1]).toBe(PricingAuthoringGuard);
+    expect(guards.indexOf(PricingAuthoringGuard)).toBeGreaterThan(guards.indexOf(RolesGuard));
+    for (const r of routes) {
+      const own = (Reflect.getMetadata(GUARDS_METADATA, (PriceChangeSetsController.prototype as unknown as Record<string, object>)[r.name]!) ?? []) as unknown[];
+      expect({ route: r.name, ownGuards: own }).toEqual({ route: r.name, ownGuards: [] });
+    }
+  });
+
+  it("refuses every non-GET route of a tenant off the allowlist, and lets every GET through", () => {
+    const writes = routes.filter((r) => r.method !== RequestMethod.GET);
+    expect(writes.map((r) => r.name).sort()).toEqual(["cancel", "create", "update", "validate"]);
+    for (const r of routes) {
+      const verb = RequestMethod[r.method!];
+      if (r.method === RequestMethod.GET) {
+        expect(guard.canActivate(contextFor(verb, T2))).toBe(true);
+        continue;
+      }
+      let refusal: unknown;
+      try {
+        guard.canActivate(contextFor(verb, T2));
+      } catch (err) {
+        refusal = err;
+      }
+      expect({ route: r.name, status: (refusal as HttpException | undefined)?.getStatus() }).toEqual({ route: r.name, status: 409 });
+      expect((refusal as HttpException).getResponse()).toEqual({ code: "pricing_authority_legacy", message: expect.any(String) });
+      expect(guard.canActivate(contextFor(verb, T1.toUpperCase()))).toBe(true);
+    }
+    expect(() => guard.canActivate(contextFor("POST", null))).toThrow(UnauthorizedException);
+  });
+
+  it("validate answers 200 (the contract documents 200 only)", () => {
+    expect(Reflect.getMetadata(HTTP_CODE_METADATA, PriceChangeSetsController.prototype.validate)).toBe(200);
   });
 });

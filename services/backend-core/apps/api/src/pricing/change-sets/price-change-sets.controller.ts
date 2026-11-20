@@ -7,11 +7,15 @@
  *   GET   /api/v1/pricing/change-sets/{changeSetId}          consoleGetPriceChangeSet
  *   PATCH /api/v1/pricing/change-sets/{changeSetId}          consoleUpdatePriceChangeSet
  *   POST  /api/v1/pricing/change-sets/{changeSetId}/cancel   consoleCancelPriceChangeSet
+ *   POST  /api/v1/pricing/change-sets/{changeSetId}/validate consoleValidatePriceChangeSet (PR-4b)
+ *   GET   /api/v1/pricing/change-sets/{changeSetId}/preview  consoleGetPriceChangeSetPreview (PR-4b)
  *
  * Auth: `SessionOnlyAdminGuard` (the human cookie session only; every bearer is 401; a write
  * without a trusted `Origin` is 403 `origin_rejected`, RT-430), then `TenantContextGuard`, then
  * `RolesGuard`: `owner` / `tenant_admin` only, reads included; any other role (a Store Manager
- * too, Q-B2) is the non-disclosing 404. The tenant and the actor are the session's (§XII).
+ * too, Q-B2) is the non-disclosing 404, then `PricingAuthoringGuard`: every non-GET route of a
+ * tenant off the authoring allowlist is `409 pricing_authority_legacy` (structural, RT-1484
+ * comment 17881 follow-up 5). The tenant and the actor are the session's (§XII).
  *
  * Every write is `@Idempotent("required")` and writes its audit row in its own transaction (the
  * service), so no handler carries `@Auditable`. Every response is `Cache-Control: no-store`. A
@@ -41,13 +45,16 @@ import { ConsoleRateLimit } from "../../console-rate-limit";
 import { Idempotent } from "../../idempotency";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { mapPricingErrors, parsePathId, sessionReader, sessionWriter } from "../pricing-query";
+import { PricingAuthoringGuard } from "./price-authoring.guard";
 import {
   CreatePriceChangeSetBodySchema,
   ListChangeSetsQuerySchema,
+  PreviewQuerySchema,
   UpdatePriceChangeSetBodySchema,
   VersionedBodySchema,
   type CreatePriceChangeSetBody,
   type ListChangeSetsQuery,
+  type PreviewQuery,
   type UpdatePriceChangeSetBody,
   type VersionedBody,
 } from "./price-change-sets.dto";
@@ -55,10 +62,12 @@ import {
   ChangeSetListCursorError,
   PriceChangeSetConflictError,
   PriceChangeSetNotFoundError,
+  PriceChangeSetUnprocessableError,
   type PriceChangeSetBody,
   type PriceChangeSetConflictCode,
   type PriceChangeSetPageBody,
 } from "./price-change-sets.projections";
+import type { PriceChangeSetPreviewBody } from "./price-change-set-preview";
 import { PriceChangeSetsService, type ChangeSetWriteInput } from "./price-change-sets.service";
 
 const CHANGE_SETS = "api/v1/pricing/change-sets";
@@ -70,12 +79,13 @@ const NOT_FOUND = { code: "not_found", message: "Not Found" } as const;
 const CONFLICT_MESSAGES: Readonly<Record<PriceChangeSetConflictCode, string>> = {
   version_conflict: "The Change Set has changed; reload it and retry with its current version.",
   change_set_invalid_state: "The Change Set's state does not allow this call.",
+  change_set_not_validated: "The Change Set has no stored preview; validate it first.",
   price_book_missing: "The tenant has no retail Price Book.",
   pricing_authority_legacy: "Price authoring is not enabled for this tenant.",
 };
 
 @Controller()
-@UseGuards(SessionOnlyAdminGuard, TenantContextGuard, RolesGuard)
+@UseGuards(SessionOnlyAdminGuard, TenantContextGuard, RolesGuard, PricingAuthoringGuard)
 @Roles("owner", "tenant_admin")
 export class PriceChangeSetsController {
   constructor(private readonly service: PriceChangeSetsService) {}
@@ -134,8 +144,43 @@ export class PriceChangeSetsController {
     @Param("changeSetId") changeSetId: string,
     @Body(new ZodValidationPipe(VersionedBodySchema)) body: VersionedBody,
   ): Promise<PriceChangeSetBody> {
+    return this.transition("cancel", request, changeSetId, body);
+  }
+
+  @Post(`${CHANGE_SET}/validate`)
+  @HttpCode(200)
+  @Idempotent("required")
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("jobOrPreview")
+  validate(
+    @Req() request: TenantContextRequest,
+    @Param("changeSetId") changeSetId: string,
+    @Body(new ZodValidationPipe(VersionedBodySchema)) body: VersionedBody,
+  ): Promise<PriceChangeSetBody> {
+    return this.transition("validate", request, changeSetId, body);
+  }
+
+  @Get(`${CHANGE_SET}/preview`)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("expensiveRead")
+  preview(
+    @Req() request: TenantContextRequest,
+    @Param("changeSetId") changeSetId: string,
+    @Query(new ZodValidationPipe(PreviewQuerySchema)) query: PreviewQuery,
+  ): Promise<PriceChangeSetPreviewBody> {
     const id = parsePathId(changeSetId, "changeSetId");
-    return mapErrors(() => this.service.cancel(writer(request), id, body));
+    return mapErrors(() => this.service.preview(sessionReader(request), id, query));
+  }
+
+  /** A transition that takes only `expectedVersion` (cancel, validate). Not a route. */
+  private transition(
+    action: "cancel" | "validate",
+    request: TenantContextRequest,
+    changeSetId: string,
+    body: VersionedBody,
+  ): Promise<PriceChangeSetBody> {
+    const id = parsePathId(changeSetId, "changeSetId");
+    return mapErrors(() => this.service[action](writer(request), id, body));
   }
 }
 
@@ -150,6 +195,9 @@ function httpErrorOf(err: unknown): unknown {
   if (err instanceof PriceChangeSetNotFoundError) return new NotFoundException(NOT_FOUND);
   if (err instanceof PriceChangeSetConflictError) {
     return new HttpException({ code: err.code, message: CONFLICT_MESSAGES[err.code] }, 409);
+  }
+  if (err instanceof PriceChangeSetUnprocessableError) {
+    return new HttpException({ code: err.code, message: err.message }, 422);
   }
   if (err instanceof ChangeSetListCursorError) return new BadRequestException({ code: "validation_error", message: err.message });
   return err;

@@ -1,7 +1,7 @@
 /**
  * PriceChangeSetsModule — RT-1484 (RT-282 PR-09b): the authoring runtime of
- * `pricing/price-change-sets.yaml` (list, create, get, update, cancel). See
- * `price-change-sets.controller.ts`.
+ * `pricing/price-change-sets.yaml` (list, create, get, update, cancel; validate and preview,
+ * PR-4b). See `price-change-sets.controller.ts`.
  *
  * Imports:
  *   - `AuthModule`        — `PG_POOL` and the human `SessionOnlyAdminGuard`.
@@ -21,6 +21,7 @@ import {
   resolvePricingAuthoringConfig,
   type PricingAuthoringConfig,
 } from "./price-authoring.config";
+import { PricingAuthoringGuard } from "./price-authoring.guard";
 import { PriceChangeSetsController } from "./price-change-sets.controller";
 import { PriceChangeSetsService } from "./price-change-sets.service";
 
@@ -38,6 +39,10 @@ function bindAuthoringConfig(): PricingAuthoringConfig {
 @Module({
   imports: [AuthModule, ContextModule, IdempotencyModule],
   controllers: [PriceChangeSetsController],
-  providers: [PriceChangeSetsService, { provide: PRICING_AUTHORING_CONFIG, useFactory: bindAuthoringConfig }],
+  providers: [
+    PriceChangeSetsService,
+    PricingAuthoringGuard,
+    { provide: PRICING_AUTHORING_CONFIG, useFactory: bindAuthoringConfig },
+  ],
 })
 export class PriceChangeSetsModule {}

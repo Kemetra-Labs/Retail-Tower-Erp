@@ -344,6 +344,15 @@ describe("price-inquiry contract — AJV fixtures", () => {
     expect(schema.properties.priceZoneId!.description).toMatch(/no_price_book/);
   });
 
+  // RT-1484 comment 17881, follow-up 2: an ambiguous membership is `conflict` only when it decides.
+  it("documents an ambiguous Zone membership below a selected Store layer as outcome none", () => {
+    const schema = (doc as { components: { schemas: Record<string, { properties: Record<string, { description?: string }> }> } })
+      .components.schemas.ZoneLayerTrace!;
+    const text = schema.properties.zoneMembership!.description!.replace(/\s+/g, " ");
+    expect(text).toMatch(/`outcome: conflict` when it decides the result/);
+    expect(text).toMatch(/`outcome: none` below a selected Store layer/);
+  });
+
   it("an error result reports the conflicting layer and stops", () => {
     const v = validator("PriceExplanation");
     const base = explanationFixture();

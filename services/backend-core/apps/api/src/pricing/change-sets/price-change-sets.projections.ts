@@ -9,6 +9,7 @@
 import { z } from "zod";
 
 import { decodeOpaque, encodeOpaque, InvalidCursorError } from "../../common/cursor/opaque-cursor";
+import { isRfc3339Instant } from "../pricing-query";
 import type { PriceChangeItem } from "./price-change-sets.dto";
 
 // ---------------------------------------------------------------------------
@@ -26,6 +27,7 @@ export class PriceChangeSetNotFoundError extends Error {
 export type PriceChangeSetConflictCode =
   | "version_conflict"
   | "change_set_invalid_state"
+  | "change_set_not_validated"
   | "price_book_missing"
   | "pricing_authority_legacy";
 
@@ -34,6 +36,23 @@ export class PriceChangeSetConflictError extends Error {
   constructor(readonly code: PriceChangeSetConflictCode) {
     super(code);
     this.name = "PriceChangeSetConflictError";
+  }
+}
+
+export type PriceChangeSetUnprocessableCode =
+  | "change_set_empty"
+  | "change_set_too_large"
+  | "change_set_no_target_store"
+  | "lead_time_violation";
+
+/** A 422 of the contract's `ValidateUnprocessable` list; nothing was stored. */
+export class PriceChangeSetUnprocessableError extends Error {
+  constructor(
+    readonly code: PriceChangeSetUnprocessableCode,
+    message: string,
+  ) {
+    super(message);
+    this.name = "PriceChangeSetUnprocessableError";
   }
 }
 
@@ -202,7 +221,9 @@ export function decodeChangeSetListCursor(
   filters: { readonly state: ChangeSetState | null; readonly kind: ChangeSetKind | null },
 ): ChangeSetListCursor {
   const p = decodeOpaque(raw, ListCursorSchema, () => new ChangeSetListCursorError());
-  if (p.s !== filters.state || p.n !== filters.kind || Number.isNaN(Date.parse(p.c))) {
+  // A real calendar instant (RT-1484 comment 17881, follow-up 1): `Date.parse` rolls `02-31`
+  // over, Postgres refuses it with a 500.
+  if (p.s !== filters.state || p.n !== filters.kind || !isRfc3339Instant(p.c)) {
     throw new ChangeSetListCursorError("the cursor belongs to another filter");
   }
   return { createdKey: p.c, id: p.k, state: filters.state, kind: filters.kind };

@@ -14,4 +14,4 @@ export {
   trackingModesOfProducts,
   transferWarehouseRefs,
 } from "./erpnext-posting/transfer-posting.port";
-export { isTenantProduct } from "./product-lookups";
+export { isTenantProduct, liveProductsOfCategories, tenantProductLiveness } from "./product-lookups";
