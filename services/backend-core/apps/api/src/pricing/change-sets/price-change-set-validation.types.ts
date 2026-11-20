@@ -222,6 +222,8 @@ export const INVALID_MESSAGES: ReadonlySet<string> = new Set([
   "product_not_live",
   "store_not_live",
   "zone_not_live",
+  // A store_local line whose bounds fall in one DST gap: an empty interval at that Store.
+  "empty_interval",
 ]);
 
 /** A line that blocks submit: `invalid`, or `past_dated` outside the emergency path (0123 also exempts rollback). */

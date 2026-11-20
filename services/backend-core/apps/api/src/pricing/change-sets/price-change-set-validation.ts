@@ -14,13 +14,16 @@
  *     Zone there). The Store's `effectiveFrom` is the later of the line's start and the
  *     membership's start, the line's start converted in the Store's time zone for `store_local`.
  *     A line that reaches no live Store refuses the whole set (`422 change_set_no_target_store`,
- *     naming the item's position), and so does an id the tenant does not have (a Store, Zone or
- *     product): nothing is stored.
+ *     naming the item's position), and so do an id the tenant does not have (a Store, Zone or
+ *     product) and a category with no live product: nothing is stored.
  *   - Classes, most severe first: `invalid` (not representable, `price_not_positive`,
- *     `mixed_time_basis`, an ambiguous Zone membership, a product or Store that is not live),
+ *     `mixed_time_basis`, an ambiguous Zone membership, a product, Store or Zone that is not
+ *     live, an interval that is empty in a Store's time zone),
  *     `past_dated`, `replaces`, `conflicts_pending`, `shadowed`, `invalidates_dependent`, `new`. A
  *     line takes the most severe class any of its Stores gives it; its preview rows carry it (0123
- *     ties a preview row's class to its line's), and each row's `messages` say which apply there.
+ *     ties a preview row's class to its line's), and each row's `messages` hold the line-wide
+ *     findings plus that Store's own. `invalidates_dependent` needs the later helper event to serve
+ *     the Store and its inherited base to change.
  *   - Unchanged. A priced line is unchanged when an active event already holds the same key,
  *     scope target, price and time basis over an interval that covers the line's. It is dropped
  *     and counted in `summary.unchanged`. An `invalid` line is never dropped.
@@ -105,7 +108,10 @@ interface Draft {
   readonly replaced: readonly ResolutionPriceEvent[];
   readonly newPrice: string | null;
   readonly roundedFrom: string | null;
+  /** Every finding of the line (line-wide and per Store): the stored line's `messages`. */
   readonly messages: ReadonlySet<string>;
+  /** The findings that hold at every reached Store. */
+  readonly lineMessages: ReadonlySet<string>;
   readonly invalid: boolean;
 }
 
@@ -177,6 +183,11 @@ function sameTarget(e: { scope: string; priceZoneId: string | null; storeId: str
 }
 
 const unique = (values: readonly string[]): string[] => values.filter((v, k) => values.indexOf(v) === k);
+
+const isEmpty = (i: Interval): boolean => i.to !== null && i.to <= i.from;
+const emptyMessage = (i: Interval): string[] => (isEmpty(i) ? ["empty_interval"] : []);
+const tooLarge = (): RefusalError =>
+  new RefusalError("change_set_too_large", `The Change Set materializes more than ${MAX_LINES} lines; split it.`);
 
 function appendTo<T>(map: Map<string, T[]>, key: string, value: T): void {
   const list = map.get(key);
@@ -272,10 +283,8 @@ class Validator {
     const out: ({ position: number; target: Target } | { position: number; move: MoveItem })[] = [];
     for (const { position, item } of items) {
       if (item.op === "move_store_zone") out.push({ position, move: item });
-      else for (const target of this.targetsOf(position, item)) out.push({ position, target });
-      if (out.length > MAX_LINES) {
-        throw new RefusalError("change_set_too_large", `The Change Set materializes more than ${MAX_LINES} lines; split it.`);
-      }
+      else for (const target of this.targetsOf(position, item, out.length)) out.push({ position, target });
+      if (out.length > MAX_LINES) throw tooLarge();
     }
     return out;
   }
@@ -290,9 +299,14 @@ class Validator {
     return this.membershipsByStore.get(storeId) ?? [];
   }
 
-  /** The (scope target, product) lines of one priced, ended or reset item (§4.3); ids in lower case. */
-  private targetsOf(position: number, item: PricedItem): Target[] {
+  /**
+   * The (scope target, product) lines of one priced, ended or reset item (§4.3); ids in lower case.
+   * Refuses before expanding when the set would pass `MAX_LINES` (`queued` lines so far), and when
+   * the item names no product (an empty or unknown category: it reaches no live Store).
+   */
+  private targetsOf(position: number, item: PricedItem, queued: number): Target[] {
     const products = this.productsOf(position, item.products);
+    if (products.length === 0) throw noTarget(position, "names a category with no live product, so it reaches no live Store");
     const scopes: { scope: PriceScope; priceZoneId: string | null; storeId: string | null }[] = [];
     if (item.scope.kind === "book") scopes.push({ scope: "book", priceZoneId: null, storeId: null });
     else if (item.scope.kind === "zone") {
@@ -305,6 +319,7 @@ class Validator {
         scopes.push({ scope: "store", priceZoneId: null, storeId });
       }
     }
+    if (queued + scopes.length * products.length > MAX_LINES) throw tooLarge();
     return scopes.flatMap((s) => products.map((productId) => ({ position, item, ...s, productId })));
   }
 
@@ -319,19 +334,26 @@ class Validator {
 
   // ---- Store reach ----------------------------------------------------------
 
-  /** The Stores a line reaches, in id order, and its activation instant in each (comment 17882). */
+  /**
+   * The Stores a line reaches, in id order, and its activation instant in each (comment 17882). A
+   * `store_local` line whose bounds fall in one DST gap has an empty interval in that Store: it is
+   * reached, with `empty_interval` (invalid: it could never take effect there).
+   */
   private reach(t: Target, bounds: Bounds): Reach[] {
     if (t.scope === "store") {
       const store = this.store(t.storeId!);
       const interval = intervalIn(bounds, store.timezone)!;
-      return [{ store, fromMs: interval.from, interval, messages: store.live ? [] : ["store_not_live"] }];
+      const messages = [...(store.live ? [] : ["store_not_live"]), ...emptyMessage(interval)];
+      return [{ store, fromMs: interval.from, interval, messages }];
     }
     const out: Reach[] = [];
     for (const store of this.ctx.stores.values()) {
       if (!store.live) continue;
       const interval = intervalIn(bounds, store.timezone)!;
-      const reached = t.scope === "book" ? { store, fromMs: interval.from, interval, messages: [] } : this.zoneReach(store, t.priceZoneId!, interval);
-      if (reached !== null) out.push(reached);
+      // An empty interval is probed over its one instant, so Zone reach still decides membership.
+      const probe = isEmpty(interval) ? { from: interval.from, to: interval.from + 1 } : interval;
+      const reached = t.scope === "book" ? { store, fromMs: interval.from, interval, messages: [] } : this.zoneReach(store, t.priceZoneId!, probe);
+      if (reached !== null) out.push({ ...reached, interval, messages: [...reached.messages, ...emptyMessage(interval)] });
     }
     return out.sort((x, y) => compareCodeUnits(x.store.id, y.store.id));
   }
@@ -397,6 +419,7 @@ class Validator {
     const events = this.eventsByProduct.get(t.productId) ?? [];
     const messages = new Set<string>();
     if (!(this.ctx.products.get(t.productId)?.live ?? false)) messages.add("product_not_live");
+    if (t.scope === "zone" && !(this.ctx.zones.get(t.priceZoneId!)?.live ?? false)) messages.add("zone_not_live");
     const { newPrice, roundedFrom } = this.linePrice(t, events, reached[0]!, messages);
     // The same-target events it replaces (priced) or ends (end, reset), in any reached Store.
     const replaced = events.filter(
@@ -406,10 +429,12 @@ class Validator {
       }),
     );
     if (replaced.some((e) => e.timeBasis !== bounds.timeBasis)) messages.add("mixed_time_basis");
-    for (const r of reached) for (const m of r.messages) messages.add(m);
     if (!PRICED_OPS.has(t.item.op) && replaced.length === 0) messages.add("nothing_to_end");
+    // Line-wide findings go on every row; a Store's own (reach) findings only on its row.
+    const lineMessages = new Set(messages);
+    for (const r of reached) for (const m of r.messages) messages.add(m);
     const invalid = [...messages].some((m) => INVALID_MESSAGES.has(m));
-    return { t, bounds, reached, events, replaced, newPrice, roundedFrom, messages, invalid };
+    return { t, bounds, reached, events, replaced, newPrice, roundedFrom, messages, lineMessages, invalid };
   }
 
   /** The concrete price of a priced line (a helper's from its base, decisions 515–517); adds its findings. */
@@ -455,11 +480,11 @@ class Validator {
     const at = new Date(r.fromMs);
     const data: ResolutionData = { book: this.ctx.book, memberships: this.membershipsOf(r.store.id), events: d.events };
     const old = pricedOf(resolvePrice(d.t.productId, SELL_UNIT, store, at, this.ctx.headRevision, data));
-    const rowMessages = new Set([...d.messages, ...r.messages]);
+    const rowMessages = new Set([...d.lineMessages, ...r.messages]);
     const next = d.invalid ? pricedOf({ status: "unpriced", reason: "no_price" }) : this.simulate(d, store, at, data);
     const found: LineClass[] = [];
     if (!d.invalid && this.isShadowed(d, old.scope, next.eventId)) found.push("shadowed");
-    if (!d.invalid && this.invalidatesDependent(d.t, d.events, r)) found.push("invalidates_dependent");
+    if (!d.invalid && this.invalidatesDependent(d, r)) found.push("invalidates_dependent");
     if (r.fromMs < this.ctx.nowMs) found.push("past_dated");
     for (const f of found) {
       flags.add(f);
@@ -486,10 +511,14 @@ class Validator {
 
   /** What the Store resolves after publish: the replaced events gone, the line's event added. */
   private simulate(d: Draft, store: ResolutionStore, at: Date, data: ResolutionData): ReturnType<typeof pricedOf> {
+    return pricedOf(resolvePrice(d.t.productId, SELL_UNIT, store, at, this.ctx.headRevision, { ...data, events: this.eventsAfter(d) }));
+  }
+
+  /** The product's events after publish (simulated): the replaced ones gone, the line's event added. */
+  private eventsAfter(d: Draft): ResolutionPriceEvent[] {
     const replacedIds = new Set(d.replaced.map((e) => e.id));
     const added = PRICED_OPS.has(d.t.item.op) && d.newPrice !== null ? [this.lineEvent(d, d.newPrice)] : [];
-    const events = [...d.events.filter((e) => !replacedIds.has(e.id)), ...added];
-    return pricedOf(resolvePrice(d.t.productId, SELL_UNIT, store, at, this.ctx.headRevision, { ...data, events }));
+    return [...d.events.filter((e) => !replacedIds.has(e.id)), ...added];
   }
 
   /** A priced line a more specific scope hides; an end a more specific scope already prices past. */
@@ -542,13 +571,42 @@ class Validator {
   }
 
   /** A later, published helper event this line changes the base of (§5, 518). */
-  private invalidatesDependent(t: Target, events: readonly ResolutionPriceEvent[], r: Reach): boolean {
-    return events.some((e) => {
-      if (!this.ctx.helperEventIds.has(e.id) || SCOPE_RANK[e.scope as PriceScope] <= SCOPE_RANK[t.scope]) return false;
-      if ((e.scope === "store" && e.storeId !== r.store.id) || (e.scope === "zone" && t.scope === "zone")) return false;
-      const ei = eventInterval(e, r.store.timezone);
-      return ei !== null && ei.from > r.interval.from && (r.interval.to === null || ei.from < r.interval.to);
-    });
+  private invalidatesDependent(d: Draft, r: Reach): boolean {
+    return d.events.some(
+      (e) => this.ctx.helperEventIds.has(e.id) && SCOPE_RANK[e.scope as PriceScope] > SCOPE_RANK[d.t.scope] && this.changesBaseOf(d, r, e),
+    );
+  }
+
+  /**
+   * Whether the line changes the base of helper event `e` at Store `r` (PR #746 review): `e` serves
+   * the Store (its Store, or a Zone the Store is in at `e`'s start, the default Zone without a
+   * membership), starts after the line takes effect there, and the price it inherits at its start
+   * (the layers less specific than its own) differs before and after the line.
+   */
+  private changesBaseOf(d: Draft, r: Reach, e: ResolutionPriceEvent): boolean {
+    if (e.scope === "store" && e.storeId !== r.store.id) return false;
+    const ei = eventInterval(e, r.store.timezone);
+    if (ei === null || ei.from <= r.fromMs || (r.interval.to !== null && ei.from >= r.interval.to)) return false;
+    if (e.scope === "zone" && this.zoneAt(r.store.id, ei.from) !== e.priceZoneId) return false;
+    const below = (events: readonly ResolutionPriceEvent[]): ResolutionPriceEvent[] =>
+      events.filter((x) => SCOPE_RANK[x.scope as PriceScope] < SCOPE_RANK[e.scope as PriceScope]);
+    const store: ResolutionStore = { id: r.store.id, tenantId: this.ctx.tenantId, timezone: r.store.timezone };
+    const base = (events: ResolutionPriceEvent[]) =>
+      pricedOf(resolvePrice(d.t.productId, SELL_UNIT, store, new Date(ei.from), this.ctx.headRevision, {
+        book: this.ctx.book,
+        memberships: this.membershipsOf(r.store.id),
+        events,
+      }));
+    const before = base(below(d.events));
+    const after = base(below(this.eventsAfter(d)));
+    return before.eventId !== after.eventId || before.price !== after.price;
+  }
+
+  /** The Store's Zone at `ms` at the head: its one membership, else the default Zone; null when ambiguous. */
+  private zoneAt(storeId: string, ms: number): string | null {
+    const live = this.membershipsOf(storeId).filter((m) => overlaps(membershipInterval(m), { from: ms, to: ms + 1 }));
+    if (live.length > 1) return null;
+    return live[0]?.priceZoneId ?? this.ctx.book.defaultZoneId;
   }
 
   /** Whether a line of another validated, pending or approved set overlaps this one (same target and product). */

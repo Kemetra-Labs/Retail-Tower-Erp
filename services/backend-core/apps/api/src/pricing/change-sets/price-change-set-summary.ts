@@ -115,6 +115,7 @@ function rowJson(r: PreviewRow): Json {
     roundedFrom: r.roundedFrom,
     effectiveFromMs: r.effectiveFromMs,
     class: r.class,
+    devices: r.devices,
     messages: [...r.messages],
   };
 }

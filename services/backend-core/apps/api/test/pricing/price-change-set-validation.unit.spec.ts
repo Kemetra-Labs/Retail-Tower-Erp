@@ -282,6 +282,29 @@ describe("validate engine — classes (spec 042 §5, comment 17882)", () => {
     expect(ok(validateChangeSet(context({ events: [helper] }), items(bookPrice("120")))).lines[0]!.class).toBe("new");
   });
 
+  // PR #746 review: a Zone helper event serves only Stores in its Zone; a base that does not change is no finding.
+  it("invalidates_dependent needs the helper to serve the Store and its inherited base to change", () => {
+    const north = membership({ id: id("9f"), storeId: S_NY, priceZoneId: ZONE_NORTH, effectiveFrom: new Date("2030-01-01T00:00:00Z") });
+    const zoneHelper = event({ id: id("f5"), scope: "zone", priceZoneId: ZONE_NORTH, productId: P1, price: "99.0000", effectiveFrom: new Date("2031-06-01T00:00:00Z") });
+    const r = ok(validateChangeSet(context({ events: [zoneHelper], memberships: [north], helperEventIds: new Set([zoneHelper.id]) }), items(bookPrice("120"))));
+    expect(r.lines[0]!.class).toBe("invalidates_dependent");
+    expect(r.previewRows.find((p) => p.storeId === S_NY)!.messages).toContain("invalidates_dependent");
+    expect(r.previewRows.find((p) => p.storeId === S_UTC)!.messages).not.toContain("invalidates_dependent");
+
+    // A Store helper whose base is a Zone price: a Book line does not change that base.
+    const zonePrice = event({ id: id("f6"), scope: "zone", priceZoneId: ZONE_NORTH, productId: P1, price: "80.0000" });
+    const storeHelper = event({ id: id("f7"), scope: "store", storeId: S_NY, productId: P1, price: "85.0000", effectiveFrom: new Date("2031-06-01T00:00:00Z") });
+    const same = ok(
+      validateChangeSet(
+        context({ events: [zonePrice, storeHelper], memberships: [north], helperEventIds: new Set([storeHelper.id]) }),
+        items(bookPrice("120")),
+      ),
+    );
+    // NY's Zone price hides the Book line there (shadowed), and the helper's base stays the Zone price.
+    expect(same.lines[0]!.class).toBe("shadowed");
+    expect(same.previewRows.some((p) => p.messages.includes("invalidates_dependent"))).toBe(false);
+  });
+
   it("a line takes its most severe class (past_dated over replaces)", () => {
     const old = event({ id: id("f1"), scope: "book", productId: P1, price: "100.0000", effectiveFrom: new Date("2019-01-01T00:00:00Z") });
     const r = ok(validateChangeSet(context({ events: [old] }), items(bookPrice("120", "2020-01-01T00:00:00Z"))));
@@ -317,11 +340,36 @@ describe("validate engine — Store reach (comment 17882, decisions 2 and 3)", (
     expect(r).toEqual({ ok: false, code: "change_set_no_target_store", message: "Item 1 reaches no live Store." });
   });
 
-  it("an ambiguous membership makes the line invalid", () => {
+  it("an ambiguous membership makes the line invalid; only that Store's row carries the finding", () => {
     const a = membership({ id: id("9d"), storeId: S_UTC, priceZoneId: ZONE_NORTH, effectiveFrom: new Date("2030-01-01T00:00:00Z") });
     const b = membership({ id: id("9e"), storeId: S_UTC, priceZoneId: ZONE_DEFAULT, effectiveFrom: new Date("2030-06-01T00:00:00Z") });
     const r = ok(validateChangeSet(context({ memberships: [a, b] }), items(zoneLine(ZONE_NORTH))));
     expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["ambiguous_zone_membership"] });
+    const fallback = ok(validateChangeSet(context({ memberships: [a, b] }), items(zoneLine(ZONE_DEFAULT))));
+    expect(fallback.lines[0]!.class).toBe("invalid");
+    expect(fallback.previewRows.find((p) => p.storeId === S_UTC)!.messages).toEqual(["ambiguous_zone_membership"]);
+    expect(fallback.previewRows.find((p) => p.storeId === S_NY)!.messages).toEqual([]);
+    expect(fallback.previewRows.every((p) => p.class === "invalid")).toBe(true);
+  });
+
+  it("a retired Zone makes a price line invalid (zone_not_live)", () => {
+    const m = membership({ id: id("9a"), storeId: S_UTC, priceZoneId: ZONE_NORTH, effectiveFrom: new Date("2030-01-01T00:00:00Z") });
+    const r = ok(validateChangeSet(context({ memberships: [m], zones: new Map([[ZONE_DEFAULT, { live: true }], [ZONE_NORTH, { live: false }]]) }), items(zoneLine(ZONE_NORTH))));
+    expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["zone_not_live"] });
+  });
+
+  it("a store_local interval inside one DST gap is empty at that Store: invalid there only", () => {
+    const gap = { ...bookPrice("1"), timeBasis: "store_local", effectiveFrom: "2031-03-09T02:15", effectiveTo: "2031-03-09T02:45" } as PriceChangeItem;
+    const r = ok(validateChangeSet(context(), items(gap)));
+    expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["empty_interval"] });
+    expect(r.previewRows.find((p) => p.storeId === S_NY)!.messages).toEqual(["empty_interval"]);
+    expect(r.previewRows.find((p) => p.storeId === S_UTC)!.messages).toEqual([]);
+  });
+
+  it("a category with no live product refuses the set (it reaches no live Store)", () => {
+    const cat = id("cb");
+    const r = validateChangeSet(context({ categoryProducts: new Map([[cat, []]]) }), items({ ...bookPrice("5"), products: { kind: "category", categoryId: cat } } as PriceChangeItem));
+    expect(r).toEqual({ ok: false, code: "change_set_no_target_store", message: "Item 1 names a category with no live product, so it reaches no live Store." });
   });
 
   it("422 change_set_no_target_store names the item's position; unknown ids refuse too", () => {
@@ -415,5 +463,7 @@ describe("validate engine — helpers, ends, moves and hashes", () => {
     expect(a.targetStoreSetHash).toBe(b.targetStoreSetHash);
     expect(ok(validateChangeSet(context({ events: [old] }), items(bookPrice("13")))).previewHash).not.toBe(a.previewHash);
     expect(ok(validateChangeSet(context({ events: [old], headRevision: 3 }), items(bookPrice("12")))).previewHash).not.toBe(a.previewHash);
+    // The approver sees each row's device count: it is part of the hash (PR #746 review).
+    expect(ok(validateChangeSet(context({ events: [old], devices: new Map([[S_UTC, 5]]) }), items(bookPrice("12")))).previewHash).not.toBe(a.previewHash);
   });
 });
