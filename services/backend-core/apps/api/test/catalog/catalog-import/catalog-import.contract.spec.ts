@@ -2,9 +2,9 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.4-draft. `[GATED]` contract-first; an
+ * `catalog/catalog-import.yaml` 1.0.5-draft. `[GATED]` contract-first; an
  * operation is `x-runtime-status: contract-only` until its runtime (RT-1505 part A
- * serves the upload and the batch read; part B and S5 the rest). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
+ * serves the upload and the batch read; part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
  * Structural / load-only plus AJV fixtures; no app boot and no HTTP. Pins:
  *   1. The twelve operations at their paths and methods, contract-only with a
@@ -66,13 +66,17 @@ const OPERATIONS: ReadonlyArray<{ id: string; method: Method; path: ApiPath; run
   { id: "consoleGetCatalogImportTemplate", method: "get", path: "/api/v1/catalog/import-template", runtime: /RT-1505/ },
 ];
 
-/** The operations RT-1505 serves (their markers are lifted: part A the upload and the read, part B the mapping, validate and the row list); the rest stay `contract-only`. */
+/** The operations RT-1505 and RT-1507 serve (their markers are lifted: RT-1505 part A the upload and the read, part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel); the rest stay `contract-only`. */
 const SERVED: ReadonlySet<string> = new Set([
   "consoleUploadCatalogImport",
   "consoleGetCatalogImport",
   "consoleSetCatalogImportMapping",
   "consoleValidateCatalogImport",
   "consoleListCatalogImportRows",
+  "consoleResolveCatalogImportRow",
+  "consoleGetCatalogImportPreview",
+  "consolePublishCatalogImport",
+  "consoleCancelCatalogImport",
 ]);
 
 const WRITES = OPERATIONS.filter((o) => o.method !== "get");
@@ -197,9 +201,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.4-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.5-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.4-draft");
+    expect(doc.info?.version).toBe("1.0.5-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -215,7 +219,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
     if (SERVED.has(id)) {
-      // RT-1505 (1.0.3-draft and 1.0.4-draft): the runtime lifts only the markers.
+      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.5-draft): the runtime lifts only the markers.
       expect(operation["x-runtime-status"]).toBeUndefined();
       expect(operation["x-runtime-note"]).toBeUndefined();
     } else {
@@ -225,15 +229,30 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(otherOperationIds.has(id)).toBe(false);
   });
 
-  it("serves exactly the upload, the batch read, the mapping, validate and the row list (RT-1505); the other seven stay contract-only", () => {
+  it("serves exactly nine operations (RT-1505, RT-1507); the file replace, the error report and the template stay contract-only", () => {
     expect([...SERVED].sort()).toEqual([
+      "consoleCancelCatalogImport",
       "consoleGetCatalogImport",
+      "consoleGetCatalogImportPreview",
       "consoleListCatalogImportRows",
+      "consolePublishCatalogImport",
+      "consoleResolveCatalogImportRow",
       "consoleSetCatalogImportMapping",
       "consoleUploadCatalogImport",
       "consoleValidateCatalogImport",
     ]);
-    expect(OPERATIONS.filter((o) => !SERVED.has(o.id))).toHaveLength(7);
+    expect(OPERATIONS.filter((o) => !SERVED.has(o.id)).map((o) => o.id).sort()).toEqual([
+      "consoleGetCatalogImportErrorReport",
+      "consoleGetCatalogImportTemplate",
+      "consoleReplaceCatalogImportFile",
+    ]);
+  });
+
+  it("states the RT-1507 text in the contract's own version note (1.0.5-draft)", () => {
+    expect(info()).toMatch(/\*\*1\.0\.5-draft \(RT-1507 spec 049 S5: review, preview, publish and cancel\s+served\)\.\*\*/);
+    expect(info()).toMatch(/two rows that would change one product differently make the\s+batch `import_not_publishable`/);
+    expect(String(op("post", `${BATCH}/publish`).description)).toMatch(/never a 500/);
+    expect(String(op("put", `${BATCH}/rows/{rowNumber}/resolution`).description)).toMatch(/`ambiguous` row there takes only\s+`exclude`/);
   });
 
   it("states the RT-1505 part B text in the contract's own version note (1.0.4-draft)", () => {

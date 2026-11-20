@@ -12,6 +12,7 @@ import { z } from "zod";
 import { decodeOpaque, encodeOpaque } from "../../common/cursor/opaque-cursor";
 import { InvalidImportCursorError } from "./import-batch-refusal";
 import type { RowIssue } from "./import-issues";
+import { publicOutcome, type StoredOutcome } from "./import-resolution";
 import { trimmedCellText } from "./import-row-parse";
 import type { StoredRow } from "./catalog-import.validate-repository";
 
@@ -82,7 +83,7 @@ export function toRowBody(row: StoredRow): CatalogImportRowBody {
     rowNumber: row.row_number,
     status: row.status,
     cells: row.cells.map((cell) => trimmedCellText(cell)),
-    outcome: row.outcome,
+    outcome: publicOutcome(row.outcome as StoredOutcome),
     issues: row.issues,
     reviewReason: row.review_reason,
     resolution: resolved ? { action: row.resolution as string, productId: row.resolution_product_id, decidedAt: (row.resolved_at as Date).toISOString() } : null,

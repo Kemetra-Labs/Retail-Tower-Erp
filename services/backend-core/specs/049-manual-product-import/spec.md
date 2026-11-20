@@ -624,6 +624,59 @@ the owner's acknowledgement. Contract 1.0.4-draft states each in its description
   purged (`rows_purged_at`), is `409 import_batch_not_validated` (the interim answer to the open item of 12.1: never an
   empty page).
 
+### 12.4 Settled in S5 (RT-1507: review, preview, publish and cancel)
+
+Settled by the implementation; where a rule goes beyond spec 049 sections 7 to 8 it is marked and awaits the lead's or the
+owner's acknowledgement. Contract 1.0.5-draft states each in its description text; no schema shape changes, no migration.
+
+- **Served.** `consoleResolveCatalogImportRow`, `consoleGetCatalogImportPreview`, `consolePublishCatalogImport` and
+  `consoleCancelCatalogImport`. The file replace, the error report and the template stay contract-only (RT-1507's issue
+  lists none of them; their markers still name RT-1505, which did not serve them).
+- **What a decision does** (`import-resolution.ts`). `create_new`: only while no identifier on the row is active on a
+  product (`match` is `no_match`) and never in an `update` batch; the identifiers validation kept out (a store-scoped
+  conflict) become `identifiersNotAdded`. `update_product P`: only a product among the row's candidates, never a retired one,
+  never in a `create` batch; the outcome is recomputed against P (field changes; per identifier of the row: already P's is
+  nothing, active on another product is never moved and is not added, a second SKU on a product that has one is not added,
+  a value another product holds at a store is not added, any other is added) and P's `updated_at` is captured for the
+  stale re-check (a row validation had matched to P keeps validation's value). `exclude`: any `needs_review` or `error`
+  row. `clear`: only a row with a decision. A new decision replaces the old one, decided from the validated state.
+- **Where the validated state lives** (lead decision needed only if the schema is to change). The stored `outcome` of a row
+  with a decision carries the validated outcome under an internal key `_validated`, so `clear` and a new validation restore
+  it exactly (the 0124 row has no other column for it). The wire, the hash and the plan never show the key.
+- **`previewHash`.** The review-decision slot is now `[action, productId]` (or `null`); the outcome fields are the decided
+  ones, so a decision always changes the hash and a clear restores the validated hash.
+- **A new validation keeps a decision** while the row's review reason and candidate set are unchanged (for an excluded
+  `error` row: while its error codes are unchanged), applied again to the fresh outcome and catalogue facts, with its
+  original actor and time; otherwise the row returns to the status validation gave it.
+- **One plan** (`import-publish-plan.ts`) feeds the preview and the publish, so the counts are the effect. A decided
+  `ready_update` row that changes nothing and adds nothing writes nothing and is not counted as an update. A brand named by
+  several rows is created once (the first row is its provenance). Two rows that update one product are one update of it
+  when they agree; if they disagree on a field the publish is `409 import_not_publishable`, and if they were validated
+  against different states of the product it is `409 stale_validation` (lead decision 2026-11-20, pending
+  acknowledgement: validate does not flag two rows that reach one product through different identifiers).
+- **Publish** (`catalog-import.publish.service.ts`): one transaction, a per-tenant advisory lock, the contract's order of
+  checks (404; a published batch replays for its own `previewHash` and is `import_batch_closed` for another, whatever the
+  key; closed or lapsed; `version_conflict`; `import_batch_not_validated`; `preview_changed`; `import_not_publishable`;
+  the stale re-check), then every write through `console-catalog.domain.ts` (set-based; the single-product writes call the
+  same functions with one item). The re-check reads, set-based: every matched product's `updated_at` (microseconds) and
+  that it is not retired, every identifier to add still free tenant-wide, every referenced category and existing brand
+  still active, every brand to create still absent. The writes are conditional (`expectedUpdatedAt` in milliseconds as the
+  console writes, the unique indexes); a `stale_write`, `product_retired`, `alias_conflict`, `category_unavailable`,
+  `brand_unavailable`, `brand_name_conflict`, a vanished product or a millisecond rerun inside the transaction rolls it back
+  and is `409 stale_validation`; a second transaction then returns the batch to `draft` at the next version (only if it
+  still is the `validated` batch at that version). No audit row is written for the stale transition. Any other failure rolls
+  back and is a 500; the batch is untouched and the same publish can be retried.
+- **Audit.** `catalog.import.review` (row number, action, chosen product id, new status), `catalog.import.publish` (the
+  summary), `catalog.import.cancel`; per product `catalog.product.create` / `.update`, per identifier
+  `catalog.product_identifier.add`, per brand `catalog.brand.create`, each with `import_batch_id` and the source row number
+  (the first row of a merged update). `catalog.import.expire` is the retention worker's (RT-1503, `0d2a337af`), unchanged.
+- **Cancel.** An open batch, including one past its `expires_at` that the expiry job has not reached (it frees the tenant's
+  one open batch): closed, no expiry, no preview hash, the counts of its last validation stay, next version.
+- **Preview.** Available for a `validated` or a `published` batch; `rowsWithPriceNotImported` counts every row that carried
+  a price value; `newProductsWithoutPrice` is every created product.
+- **Measured.** Publish of 5,000 new products with a SKU and a barcode each, a category and one of 50 new brands
+  (about 15,000 audit rows), in one transaction on a Testcontainers Postgres: see the PR body.
+
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 
 - [x] Field contract, identifiers and collisions (§5, §7.1), modes (§7.2), validation and review queue (§7.3), preview,

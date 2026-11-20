@@ -118,6 +118,26 @@ export async function rebuildOfferPackForCatalogChange(
   tenantId: string,
   change: { readonly productId: string; readonly categoryIds: ReadonlyArray<string | null>; readonly brandIds: ReadonlyArray<string | null> },
 ): Promise<RebuildResult> {
+  return rebuildOfferPackForCatalogChanges(client, tenantId, {
+    productIds: [change.productId],
+    categoryIds: change.categoryIds,
+    brandIds: change.brandIds,
+  });
+}
+
+/**
+ * RT-1507: the same hook for a write that creates or changes many products in one transaction (the product import's
+ * publish): one tenant lock and one gate for the whole set, then at most one rebuild. One product is the case above.
+ */
+export async function rebuildOfferPackForCatalogChanges(
+  client: PoolClient,
+  tenantId: string,
+  change: {
+    readonly productIds: ReadonlyArray<string>;
+    readonly categoryIds: ReadonlyArray<string | null>;
+    readonly brandIds: ReadonlyArray<string | null>;
+  },
+): Promise<RebuildResult> {
   // The tenant lock first: a concurrent publish holds it while it reads the catalog, so the gate below must see
   // that publish's committed rules (and the publish, if it comes after us, sees our committed product).
   await lockTenantOffers(client, tenantId);
@@ -125,8 +145,13 @@ export async function rebuildOfferPackForCatalogChange(
     `SELECT EXISTS (
        SELECT 1 FROM offer_version_rules
         WHERE tenant_id = $1::uuid
-          AND (product_id = $2::uuid OR category_id = ANY($3::uuid[]) OR brand_id = ANY($4::uuid[]))) AS affected`,
-    [tenantId, change.productId, change.categoryIds.filter((x): x is string => x !== null), change.brandIds.filter((x): x is string => x !== null)],
+          AND (product_id = ANY($2::uuid[]) OR category_id = ANY($3::uuid[]) OR brand_id = ANY($4::uuid[]))) AS affected`,
+    [
+      tenantId,
+      [...new Set(change.productIds)],
+      [...new Set(change.categoryIds.filter((x): x is string => x !== null))],
+      [...new Set(change.brandIds.filter((x): x is string => x !== null))],
+    ],
   );
   if (!r.rows[0]?.affected) return { revision: null, changedStoreIds: [] };
   return rebuildOfferPack(client, tenantId);

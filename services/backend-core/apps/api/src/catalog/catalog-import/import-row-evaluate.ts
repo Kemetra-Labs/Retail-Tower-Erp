@@ -20,19 +20,19 @@ import { identifierKey, type ParsedRow, type RowIdentifier } from "./import-row-
 
 export type RowStatus = "ready_create" | "ready_update" | "unchanged" | "needs_review" | "error" | "excluded";
 
-interface FieldChange {
+export interface FieldChange {
   readonly field: "name" | "description" | "category" | "brand" | "tax_category" | "is_active";
   readonly before: string | null;
   readonly after: string | null;
 }
 
-interface IdentifierRef {
+export interface IdentifierRef {
   readonly type: "sku" | "barcode" | "plu";
   readonly value: string;
 }
 
 /** The contract's `RowOutcome`. */
-interface RowOutcome {
+export interface RowOutcome {
   readonly match: "no_match" | "match" | "ambiguous";
   readonly matchedProduct: ProductRef | null;
   readonly candidates: ProductRef[];
@@ -232,18 +232,7 @@ class Evaluator {
   }
 
   private fieldChanges(row: ParsedRow, product: ProductFacts, brandToCreate: string | null): FieldChange[] {
-    const changes: FieldChange[] = [];
-    const consider = (field: FieldChange["field"], after: string | null, before: string | null): void => {
-      if (after !== null && after !== before) changes.push({ field, before, after });
-    };
-    consider("name", row.name?.value ?? null, product.name);
-    consider("description", row.description?.value ?? null, product.description);
-    // An absent category (not found) is an error elsewhere and is not a change.
-    consider("category", row.category !== null && this.lookups.categories.has(row.category.value) ? row.category.value : null, product.categoryName);
-    consider("brand", brandToCreate ?? row.brand?.value ?? null, product.brandName);
-    consider("tax_category", row.taxCategory?.value ?? null, product.taxCategory);
-    consider("is_active", row.isActive === null ? null : String(row.isActive.value), String(product.isActive));
-    return changes;
+    return computeFieldChanges(row, product, this.lookups.categories, brandToCreate);
   }
 
   /** No identifier is active tenant-wide: a create (modes create and upsert) or the error `not_found` (update). */
@@ -306,6 +295,25 @@ class Evaluator {
       },
     };
   }
+}
+
+/**
+ * The field changes an update of `product` makes from the row's values (a blank or absent mapped value is unchanged, an
+ * absent category is not a change). Exported for the review decision, which recomputes it for the product it chose.
+ */
+export function computeFieldChanges(row: ParsedRow, product: ProductFacts, categories: ReadonlySet<string>, brandToCreate: string | null): FieldChange[] {
+  const changes: FieldChange[] = [];
+  const consider = (field: FieldChange["field"], after: string | null, before: string | null): void => {
+    if (after !== null && after !== before) changes.push({ field, before, after });
+  };
+  consider("name", row.name?.value ?? null, product.name);
+  consider("description", row.description?.value ?? null, product.description);
+  // An absent category (not found) is an error elsewhere and is not a change.
+  consider("category", row.category !== null && categories.has(row.category.value) ? row.category.value : null, product.categoryName);
+  consider("brand", brandToCreate ?? row.brand?.value ?? null, product.brandName);
+  consider("tax_category", row.taxCategory?.value ?? null, product.taxCategory);
+  consider("is_active", row.isActive === null ? null : String(row.isActive.value), String(product.isActive));
+  return changes;
 }
 
 /** The one status of a row: an error, a review, a create, an update, or unchanged. */

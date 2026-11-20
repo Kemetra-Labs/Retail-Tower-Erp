@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.4-draft"
+  version: "1.0.5-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,12 +11,13 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.4-draft`, `[GATED]` contract-first. An operation
+    **Posture.** `1.0.5-draft`, `[GATED]` contract-first. An operation
     without a runtime carries `x-runtime-status: contract-only`: the batch
     tables ship in RT-1503 (S2) and the routes in RT-1505 (S4: the upload and
     the batch read are served since part A; the mapping, validate and the row
-    list since part B) and the S5 slice (review / preview / publish), which
-    remove the markers. The Admin Console repins to this file in RT-1506
+    list since part B) and RT-1507 (S5: the review decision, the preview, the
+    publish and the cancel), which remove the markers. The file replace, the
+    error report and the template stay contract-only. The Admin Console repins to this file in RT-1506
     (S6).
 
 
@@ -64,6 +65,23 @@ info:
     selection rule and its tie-break, the validation rules below, the answer
     of the row list to a batch whose rows were purged, and the 422
     `mapping_invalid` of a `saveProfileName` that no column can carry.
+
+
+    **1.0.5-draft (RT-1507 spec 049 S5: review, preview, publish and cancel
+    served).** No new operation and no schema shape change.
+    `consoleResolveCatalogImportRow`, `consoleGetCatalogImportPreview`,
+    `consolePublishCatalogImport` and `consoleCancelCatalogImport` lose their
+    `contract-only` markers. Description text only: in a `create` batch
+    `update_product` is not offered (and an `ambiguous` row there takes only
+    `exclude`); `update_product` captures the chosen product's `updatedAt` for
+    the publish re-check and refuses a retired candidate; a decision fills
+    `identifiersNotAdded` (identifiers the chosen product leaves out: active
+    on another product, a second SKU, a store-scoped conflict); a validate
+    keeps a decision while the row's candidate set and review reason are
+    unchanged; the preview and the published effect come from one plan, so the
+    counts match; two rows that would change one product differently make the
+    batch `import_not_publishable`; and a cancel may close a lapsed batch the
+    expiry job has not reached.
 
 
     **Change Set: interim batch (spec 049 §9, OD-14 A).** The OD-14
@@ -674,10 +692,6 @@ paths:
       security:
         - cookieAuth: []
       x-audit-action: catalog.import.review
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
-        049 S5 slice (review, preview, publish), which removes the marker.
       description: >
         On a `validated` batch, for a row whose validated status is
         `needs_review` or `error`. Actions (spec 049 §7.3): `create_new`,
@@ -697,6 +711,19 @@ paths:
         recomputed; the validation generation is unchanged, so a row-list
         walk in progress continues.
         Audited as `catalog.import.review` with the row number and action.
+        In a `create` batch `update_product` is not offered, so an
+        `ambiguous` row there takes only `exclude` (and `clear`); in an
+        `update` batch `create_new` is not offered. `update_product` is
+        offered for a product among the row's candidates only, never a
+        retired one; it recomputes the row's `fieldChanges` and
+        `identifierAdds` for that product, lists in `identifiersNotAdded`
+        every identifier of the row that product leaves out (active on
+        another product, never moved; a second SKU on a product that has one;
+        a value another product holds at a store), and captures the
+        product's `updatedAt` for the publish stale re-check. `create_new`
+        lists in `identifiersNotAdded` the identifiers validation kept out
+        (a store-scoped conflict). A new decision on a row replaces the
+        previous one; `clear` returns the row to the state validate gave it.
       requestBody:
         required: true
         content:
@@ -739,17 +766,16 @@ paths:
       tags: [catalog-import-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
-        049 S5 slice, which removes the marker.
       description: >
         What publish would do, for exactly `previewHash`: brands to create,
         products to create and update, identifiers to add, rows excluded and
         unchanged, the products taken off the tills by `is_active = false`
         (OD-17 A) and the new products that will have no price (spec 049 §6).
         The field-level before → after of each row is on its row
-        (`consoleListCatalogImportRows`). Not audited per request.
+        (`consoleListCatalogImportRows`). Not audited per request. The counts
+        come from the same plan the publish writes from (a product two rows
+        update is one update), so they are the published effect. Available
+        for a `validated` or a `published` batch.
       responses:
         "200":
           description: The preview.
@@ -784,10 +810,6 @@ paths:
         - cookieAuth: []
       x-idempotency: required
       x-audit-action: catalog.import.publish
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in the spec
-        049 S5 slice, which removes the marker.
       description: >
         Under the per-tenant import publish lock: checks `expectedVersion`
         and `previewHash` (`409 version_conflict` / `409 preview_changed`),
@@ -798,7 +820,17 @@ paths:
         the `published` transition in one transaction. A publish of an
         already `published` batch with its `previewHash` replays the stored
         result. Audited as `catalog.import.publish`, plus the per-product and
-        per-identifier actions (OD-13 A).
+        per-identifier actions (OD-13 A), each carrying `import_batch_id` and
+        the source row number. The writes go through the same domain
+        functions as the single-product console writes, conditionally
+        (`expectedUpdatedAt`, the unique indexes), so a concurrent
+        single-product edit or identifier claim is `409 stale_validation`,
+        never a 500. Two rows that would change one product differently are
+        `import_not_publishable`. A publish serialises per tenant. A publish of
+        an already `published` batch whose `previewHash` is the batch's is a
+        replay (`200`, `Idempotent-Replayed: true`) even under a new key; with
+        another `previewHash` it is `409 import_batch_closed`. The same key
+        with another body is `409 idempotency_key_conflict`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -848,14 +880,13 @@ paths:
       security:
         - cookieAuth: []
       x-audit-action: catalog.import.cancel
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         Moves a `draft` or `validated` batch to `cancelled` (version + 1),
         which frees the tenant's one open batch. Writes nothing to the
-        catalogue. Audited as `catalog.import.cancel`.
+        catalogue. Allowed for a batch past its `expiresAt` that the expiry job
+        has not closed yet. Closing clears `expiresAt` and `previewHash`; the
+        counts of the last validation stay. Audited as
+        `catalog.import.cancel`.
       requestBody:
         required: true
         content:
