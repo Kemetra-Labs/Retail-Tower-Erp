@@ -19,9 +19,9 @@ export type IdentifierType = (typeof IDENTIFIER_TYPES)[number];
 
 /** At least one character that is not whitespace. */
 const NOT_BLANK = /[^\s]/;
-/** The contract's identifier value pattern: no control character, no leading or trailing whitespace. */
+/** The contract's identifier value pattern: no control character, no leading or trailing whitespace. Exported for the import's validate (RT-1505 part B), so it never diverges from the single-product write. */
 // eslint-disable-next-line no-control-regex -- the contract pattern refuses control characters by range.
-const IDENTIFIER_VALUE = /^[^\s\u0000-\u001F\u007F]([^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F])?$/;
+export const IDENTIFIER_VALUE = /^[^\s\u0000-\u001F\u007F]([^\u0000-\u001F\u007F]*[^\s\u0000-\u001F\u007F])?$/;
 
 /** Well-formed text of 1..`max` code points with no NUL, stored as sent. */
 function text(max: number): z.ZodType<string, z.ZodTypeDef, string> {

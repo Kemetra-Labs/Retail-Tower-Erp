@@ -2,7 +2,7 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.3-draft. `[GATED]` contract-first; an
+ * `catalog/catalog-import.yaml` 1.0.4-draft. `[GATED]` contract-first; an
  * operation is `x-runtime-status: contract-only` until its runtime (RT-1505 part A
  * serves the upload and the batch read; part B and S5 the rest). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
@@ -66,8 +66,14 @@ const OPERATIONS: ReadonlyArray<{ id: string; method: Method; path: ApiPath; run
   { id: "consoleGetCatalogImportTemplate", method: "get", path: "/api/v1/catalog/import-template", runtime: /RT-1505/ },
 ];
 
-/** The operations RT-1505 part A serves (their markers are lifted); the rest stay `contract-only`. */
-const SERVED: ReadonlySet<string> = new Set(["consoleUploadCatalogImport", "consoleGetCatalogImport"]);
+/** The operations RT-1505 serves (their markers are lifted: part A the upload and the read, part B the mapping, validate and the row list); the rest stay `contract-only`. */
+const SERVED: ReadonlySet<string> = new Set([
+  "consoleUploadCatalogImport",
+  "consoleGetCatalogImport",
+  "consoleSetCatalogImportMapping",
+  "consoleValidateCatalogImport",
+  "consoleListCatalogImportRows",
+]);
 
 const WRITES = OPERATIONS.filter((o) => o.method !== "get");
 const READS = OPERATIONS.filter((o) => o.method === "get");
@@ -191,9 +197,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.3-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.4-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.3-draft");
+    expect(doc.info?.version).toBe("1.0.4-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -209,7 +215,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
     if (SERVED.has(id)) {
-      // RT-1505 part A (1.0.3-draft): the runtime lifts only the markers.
+      // RT-1505 (1.0.3-draft and 1.0.4-draft): the runtime lifts only the markers.
       expect(operation["x-runtime-status"]).toBeUndefined();
       expect(operation["x-runtime-note"]).toBeUndefined();
     } else {
@@ -219,9 +225,24 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(otherOperationIds.has(id)).toBe(false);
   });
 
-  it("serves exactly the upload and the batch read (RT-1505 part A); the other ten stay contract-only", () => {
-    expect([...SERVED].sort()).toEqual(["consoleGetCatalogImport", "consoleUploadCatalogImport"]);
-    expect(OPERATIONS.filter((o) => !SERVED.has(o.id))).toHaveLength(10);
+  it("serves exactly the upload, the batch read, the mapping, validate and the row list (RT-1505); the other seven stay contract-only", () => {
+    expect([...SERVED].sort()).toEqual([
+      "consoleGetCatalogImport",
+      "consoleListCatalogImportRows",
+      "consoleSetCatalogImportMapping",
+      "consoleUploadCatalogImport",
+      "consoleValidateCatalogImport",
+    ]);
+    expect(OPERATIONS.filter((o) => !SERVED.has(o.id))).toHaveLength(7);
+  });
+
+  it("states the RT-1505 part B text in the contract's own version note (1.0.4-draft)", () => {
+    expect(info()).toMatch(/\*\*1\.0\.4-draft \(RT-1505 part B: map, validate and the row list served\)\.\*\*/);
+    expect(info()).toMatch(/\*\*Mapping suggestion and profile selection \(RT-1505 part B\)\.\*\*/);
+    expect(info()).toMatch(/a tie goes to the most recently updated profile, then to the smaller\s+name, then to the smaller id/);
+    expect(info()).toMatch(/\*\*Validation rules \(RT-1505 part B, spec 049 §5, §7\)\.\*\*/);
+    expect(api.responseDescription("MappingRejected")).toMatch(/`saveProfileName` with\s+no column that can be saved/);
+    expect(api.responseDescription("NotValidated")).toMatch(/deleted by\s+the retention purge/);
   });
 
   it("states the RT-1505 part A text in the contract's own version note (1.0.3-draft)", () => {

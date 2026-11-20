@@ -1,6 +1,6 @@
 /**
  * CatalogImportModule — RT-1505 (spec 049 slice S4): the manual product import
- * runtime (upload and batch read in part A). See `catalog-import.controller.ts`.
+ * runtime (upload and batch read in part A; mapping, validate and the row list in part B). See `catalog-import.controller.ts`.
  *
  * Imports:
  *   - `AuthModule`        — `PG_POOL` and the human `SessionOnlyAdminGuard`.

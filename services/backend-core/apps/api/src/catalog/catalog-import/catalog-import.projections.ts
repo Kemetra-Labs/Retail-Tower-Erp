@@ -5,7 +5,7 @@
  */
 
 /** The contract's `ColumnMapping`. */
-interface ColumnMappingBody {
+export interface ColumnMappingBody {
   readonly columnNumber: number;
   readonly target: string;
 }
@@ -56,6 +56,8 @@ export interface BatchRow {
   readonly warnings: BatchWarningBody[];
   readonly preview_hash: string | null;
   readonly counts: StatusCountsBody | null;
+  readonly validation_generation: number;
+  readonly rows_purged_at: Date | null;
   readonly created_at: Date;
   readonly updated_at: Date;
   readonly expires_at: Date | null;
@@ -96,7 +98,7 @@ export interface CatalogImportBatchBody {
 /** The columns every batch read selects, in the order `BatchRow` names them. */
 export const BATCH_COLUMNS = `id, state, version, mode, file_name, file_size, file_sha256, file_kind, sheet_name, csv_delimiter,
   data_row_count, column_count, parser_version, columns, mapping, suggested_mapping, mapping_profile_id, warnings,
-  preview_hash, counts, created_at, updated_at, expires_at, published_at`;
+  preview_hash, counts, validation_generation, rows_purged_at, created_at, updated_at, expires_at, published_at`;
 
 const iso = (value: Date | null): string | null => (value === null ? null : value.toISOString());
 

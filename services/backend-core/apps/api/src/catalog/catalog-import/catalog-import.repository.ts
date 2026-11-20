@@ -8,7 +8,7 @@
 import type { PoolClient } from "pg";
 
 import { BATCH_TTL_DAYS, PREVIOUSLY_PUBLISHED_DAYS } from "./catalog-import.limits";
-import { BATCH_COLUMNS, type BatchRow, type BatchWarningBody, type ImportColumnBody } from "./catalog-import.projections";
+import { BATCH_COLUMNS, type BatchRow, type BatchWarningBody, type ColumnMappingBody, type ImportColumnBody } from "./catalog-import.projections";
 import type { StagedCell } from "./staged-cell";
 
 /** The partial unique index that allows one open batch per tenant (0124). */
@@ -53,6 +53,9 @@ export interface NewBatch {
   readonly columns: readonly ImportColumnBody[];
   readonly parserVersion: string;
   readonly warnings: readonly BatchWarningBody[];
+  /** The mapping suggestion shown to the merchant (stored, never recomputed on read) and the profile it drew on. */
+  readonly suggestedMapping: readonly ColumnMappingBody[];
+  readonly mappingProfileId: string | null;
 }
 
 /** Inserts the `draft` batch at version 1, expiring {@link BATCH_TTL_DAYS} days after now. A second open batch of the tenant is the 23505 of {@link ONE_OPEN_BATCH_INDEX}. */
@@ -62,8 +65,8 @@ export async function insertBatch(client: PoolClient, batch: NewBatch): Promise<
        (id, tenant_id, mode, file_name, file_size, file_sha256, file_kind, sheet_name, csv_delimiter,
         data_row_count, column_count, parser_version, columns, suggested_mapping, mapping_profile_id, warnings,
         created_by, expires_at)
-     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, '[]'::jsonb, NULL, $14::jsonb,
-             $15, now() + make_interval(days => $16))
+     VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13::jsonb, $14::jsonb, $15, $16::jsonb,
+             $17, now() + make_interval(days => $18))
      RETURNING ${BATCH_COLUMNS}`,
     [
       batch.id,
@@ -79,6 +82,8 @@ export async function insertBatch(client: PoolClient, batch: NewBatch): Promise<
       batch.columns.length,
       batch.parserVersion,
       JSON.stringify(batch.columns),
+      JSON.stringify(batch.suggestedMapping),
+      batch.mappingProfileId,
       JSON.stringify(batch.warnings),
       batch.actorUserId,
       BATCH_TTL_DAYS,
