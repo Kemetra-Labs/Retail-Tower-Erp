@@ -515,10 +515,20 @@ describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", (
       timeBasis: "store_local", effectiveFrom: "2031-01-01T00:00",
     };
     const r = ok(validateChangeSet(context({ events: [early, late] }), items(helper)));
-    expect(r.lines[0]).toMatchObject({ class: "invalid", messages: ["helper_base_varies_by_store"] });
+    expect(r.lines[0]).toMatchObject({ class: "invalid", newPrice: null, messages: ["helper_base_varies_by_store"] });
     expect(r.previewRows.map((p) => [p.storeId, p.oldPrice, p.class])).toEqual([
       [S_UTC, "10.0000", "invalid"],
       [S_NY, "20.0000", "invalid"],
+    ]);
+    // Equal after rounding, from different exact values: valid; each row keeps its own roundedFrom
+    // and the line keeps its first Store's (delta review, minor-2).
+    const odd = event({ ...late, price: "10.0040" });
+    const zero = { ...helper, percent: "0" } as PriceChangeItem;
+    const rounded = ok(validateChangeSet(context({ events: [early, odd] }), items(zero)));
+    expect(rounded.lines[0]).toMatchObject({ class: "new", newPrice: "10.0000", roundedFrom: null });
+    expect(rounded.previewRows.map((p) => [p.storeId, p.newPrice, p.roundedFrom])).toEqual([
+      [S_UTC, "10.0000", null],
+      [S_NY, "10.0000", "10.00400000"],
     ]);
     // The same helper over one base is one price, shown on every row.
     const flat = ok(validateChangeSet(context({ events: [event({ ...early, effectiveTo: null })] }), items(helper)));
@@ -539,6 +549,24 @@ describe("validate engine — review round 1 (lead decisions M1, M2, m2, m3)", (
     // An end inside a price of the same set that is still in effect conflicts with it.
     const inside = ok(validateChangeSet(context({ events: [old] }), items(bookPrice("12", "2034-01-01T00:00:00Z"), end("2035-01-01T00:00:00Z"))));
     expect(inside.lines.map((l) => l.class)).toEqual(["invalid", "invalid"]);
+  });
+
+  // Round 4 (CodeRabbit 4640763235): an end in the set before a re-price keeps that re-price.
+  it("a price equal to the head is kept when the same set ends the head event first", () => {
+    const head = event({ id: id("f1"), scope: "book", productId: P1, price: "10.0000" });
+    const end: PriceChangeItem = { op: "end_price", scope: { kind: "book" }, products: { kind: "items", productIds: [P1] }, timeBasis: "absolute", effectiveFrom: "2035-01-01T00:00:00Z" };
+    const kept = ok(validateChangeSet(context({ events: [head] }), items(end, bookPrice("10", "2035-02-01T00:00:00Z"))));
+    expect(kept.lines.map((l) => [l.op, l.newPrice])).toEqual([["end_price", null], ["set_price", "10.0000"]]);
+    expect(kept.summary.unchanged).toBe(0);
+    // Equal to the head and from the end's own instant: kept too.
+    const atEnd = ok(validateChangeSet(context({ events: [head] }), items(end, bookPrice("10", "2035-01-01T00:00:00Z"))));
+    expect(atEnd.lines.map((l) => l.op)).toEqual(["end_price", "set_price"]);
+    expect(atEnd.summary.unchanged).toBe(0);
+    // Without the end, the same price is unchanged and dropped.
+    expect(ok(validateChangeSet(context({ events: [head] }), items(bookPrice("10", "2035-02-01T00:00:00Z")))).summary.unchanged).toBe(1);
+    // An end after the line's start does not save it.
+    const afterwards = ok(validateChangeSet(context({ events: [head] }), items(bookPrice("10", "2035-02-01T00:00:00Z", { effectiveTo: "2035-03-01T00:00:00Z" } as Partial<PriceChangeItem>), { ...end, effectiveFrom: "2036-01-01T00:00:00Z" } as PriceChangeItem)));
+    expect(afterwards.summary.unchanged).toBe(1);
   });
 
   // Round 3, minor 2: an in-set overlap is judged in the zones of the Stores the lines reach.

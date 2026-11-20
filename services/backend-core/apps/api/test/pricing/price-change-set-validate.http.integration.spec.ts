@@ -764,65 +764,144 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
   });
 
   // Review round 1, m4: RLS at the SQL level, as the NOBYPASSRLS application role.
+  // Review round 1, m4, and round 4 (CodeRabbit 4640763267, 4640763278): RLS at the SQL level, as
+  // the NOBYPASSRLS application role, with a positive control under tenant B.
   it("m4: under tenant A's GUC the app role reads none of tenant B's 0123 rows and cannot write them", async () => {
     if (skip()) return;
     const bSet = await createSet(SES_OWNER_B, {
       items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_B_X] }, products: items([PRODUCT_B_ACTIVE]), price: "9", ...at("2034-01-01T00:00:00Z") }],
     });
-    const bValidated = await validated(SES_OWNER_B, bSet);
-    expect(bValidated.header.state).toBe("validated");
+    expect((await validated(SES_OWNER_B, bSet)).header.state).toBe("validated");
     const tables = ["price_change_set_validations", "price_change_set_lines", "price_change_set_preview_lines"];
     for (const table of tables) expect(await count(table, bSet.header.id)).toBe(1);
-    const c = await env!.app.connect();
-    try {
-      await c.query("BEGIN");
-      await c.query(`SELECT set_config('app.current_tenant', $1, true), set_config('app.is_platform_admin', 'false', true)`, [TENANT_A]);
+    // A tenant B draft at version 2 (a header-only edit): its current item list is version 1.
+    const bDraft = await createSet(SES_OWNER_B, {
+      items: [{ op: "set_price", scope: { kind: "stores", storeIds: [STORE_B_X] }, products: items([PRODUCT_B_ACTIVE]), price: "7", ...at("2035-01-01T00:00:00Z") }],
+    });
+    status(await send("patch", csPath(bDraft.header.id), SES_OWNER_B, { expectedVersion: 1, title: "B v2" }), 200);
+    const summary = {
+      lines: 0, stores: 0, devices: 0, products: 0, increases: 0, decreases: 0, unchanged: 0, maxIncreasePct: null, maxDecreasePct: null,
+      earliestEffectiveAt: null, findings: { replaces: 0, shadowed: 0, invalidates_dependent: 0, conflicts_pending: 0, past_dated: 0, invalid: 0 }, blocking: false,
+    };
+    const writes = [
+      {
+        table: "price_change_set_validations",
+        sql: `INSERT INTO price_change_set_validations (tenant_id, change_set_id, change_set_version, item_list_version, validated_at_revision,
+                preview_hash, target_store_set_hash, sensitive, summary, target_stores, line_count, preview_line_count, membership_change_count,
+                created_by_user_id, correlation_id)
+              VALUES ($1, $2, 2, 1, 0, $3, $3, true, $4::jsonb, '[]'::jsonb, 0, 0, 0, $5, $2)`,
+        params: [TENANT_B, bDraft.header.id, `sha256:${"c".repeat(64)}`, JSON.stringify(summary), ACTOR],
+      },
+      {
+        table: "price_change_set_item_lists",
+        sql: `INSERT INTO price_change_set_item_lists (tenant_id, change_set_id, change_set_version, item_count, created_by_user_id, correlation_id)
+              VALUES ($1, $2, 2, 0, $3, $2)`,
+        params: [TENANT_B, bDraft.header.id, ACTOR],
+      },
+    ];
+    type Outcome = { code: string; message: string };
+    /** Each write in its own savepoint of one transaction as the app role under `tenant`; always rolled back. */
+    const attempt = async (tenant: string, fn: (run: (sql: string, params: unknown[]) => Promise<Outcome>, c: PoolClient) => Promise<void>) => {
+      const c = await env!.app.connect();
+      let failure: Error | undefined;
+      try {
+        await c.query("BEGIN");
+        await c.query(`SELECT set_config('app.current_tenant', $1, true), set_config('app.is_platform_admin', 'false', true)`, [tenant]);
+        const run = async (sql: string, params: unknown[]): Promise<Outcome> => {
+          await c.query("SAVEPOINT w");
+          try {
+            await c.query(sql, params);
+            return { code: "ok", message: "" };
+          } catch (err) {
+            return { code: (err as { code: string }).code, message: (err as Error).message };
+          } finally {
+            await c.query("ROLLBACK TO SAVEPOINT w");
+          }
+        };
+        await fn(run, c);
+      } finally {
+        try {
+          await c.query("ROLLBACK");
+        } catch (err) {
+          failure = err as Error;
+        }
+        // A client whose rollback failed is discarded, never returned to the pool.
+        c.release(failure);
+      }
+    };
+    // Positive control: under tenant B both child writes are accepted (and rolled back).
+    await attempt(TENANT_B, async (run) => {
+      for (const w of writes) expect({ table: w.table, ...(await run(w.sql, w.params)) }).toEqual({ table: w.table, code: "ok", message: "" });
+    });
+    // Under tenant A: B's rows are invisible, and the same writes are refused because of it.
+    await attempt(TENANT_A, async (run, c) => {
       for (const table of tables) {
         const r = await c.query(`SELECT count(*)::int AS n FROM ${table} WHERE change_set_id = $1`, [bSet.header.id]);
         expect({ table, n: r.rows[0].n }).toEqual({ table, n: 0 });
       }
       const upd = await c.query(`UPDATE price_change_set_lines SET result_ids = result_ids WHERE change_set_id = $1`, [bSet.header.id]);
       expect(upd.rowCount).toBe(0);
-      // Round 3, minor 4: a write of tenant B's row under A's GUC is refused by RLS (42501).
-      const sqlstate = async (sql: string, params: unknown[]): Promise<{ code: string; message: string }> => {
-        await c.query("SAVEPOINT w");
-        try {
-          await c.query(sql, params);
-          return { code: "none", message: "" };
-        } catch (err) {
-          return { code: (err as { code: string }).code, message: (err as Error).message };
-        } finally {
-          await c.query("ROLLBACK TO SAVEPOINT w");
-        }
-      };
-      const header = await sqlstate(
+      const header = await run(
         `INSERT INTO change_sets (id, tenant_id, domain, kind, title, created_by_user_id, correlation_id)
          VALUES (gen_random_uuid(), $1, 'pricing', 'standard', 'cross-tenant', $2, gen_random_uuid())`,
         [TENANT_B, ACTOR],
       );
       expect(header.code).toBe("42501");
       expect(header.message).toMatch(/violates row-level security policy/);
-      // The 0123 tables refuse too. Their BEFORE INSERT triggers run before the RLS WITH CHECK and,
-      // reading through RLS, cannot see B's set or validation, so the trigger's own refusal (23514)
-      // comes first; either way nothing of tenant B is written under tenant A.
-      const validationRow = await sqlstate(
-        `INSERT INTO price_change_set_validations (tenant_id, change_set_id, change_set_version, item_list_version,
-            validated_at_revision, preview_hash, target_store_set_hash, sensitive, summary, target_stores, line_count, preview_line_count,
-            membership_change_count, created_by_user_id, correlation_id)
-          VALUES ($1, $2, 9, 1, 0, $3, $3, true, '{}'::jsonb, '[]'::jsonb, 0, 0, 0, $4, $2)`,
-        [TENANT_B, bSet.header.id, `sha256:${"c".repeat(64)}`, ACTOR],
+      // The 0123 tables' BEFORE INSERT triggers run before PostgreSQL applies the RLS WITH CHECK. They
+      // read B's set through RLS and find no row (`is <NULL> at version <NULL>`), so the
+      // tenant-visibility refusal is theirs (23514) for the exact writes tenant B may make.
+      for (const w of writes) {
+        const refusal = await run(w.sql, w.params);
+        expect({ table: w.table, code: refusal.code }).toEqual({ table: w.table, code: "23514" });
+        expect(refusal.message).toMatch(/is <NULL> at version <NULL>/);
+      }
+    });
+    // Nothing was written: the draft still has only its version-1 list (the header-only edit wrote none).
+    expect(await count("price_change_set_item_lists", bDraft.header.id)).toBe(1);
+    expect(await count("price_change_set_validations", bDraft.header.id)).toBe(0);
+  });
+
+  // Review round 4 (CodeRabbit 4640763235): a re-price after the set's own end is not "unchanged".
+  it("round 4: a price equal to the head is kept when the same set ends the head first (from T and later)", async () => {
+    if (skip()) return;
+    // The head holds X's P3 at 40 from 2030; each set ends it on 2037-01-01 and sets 40 again.
+    for (const from of ["2037-01-01T00:00:00Z", "2037-02-01T00:00:00Z"]) {
+      const body = await validated(
+        SES_OWNER_ALL,
+        await createSet(SES_OWNER_ALL, {
+          items: [
+            { op: "end_price", scope: { kind: "stores", storeIds: [STORE_A_X] }, products: items([P3]), ...at("2037-01-01T00:00:00Z") },
+            { op: "set_price", scope: { kind: "stores", storeIds: [STORE_A_X] }, products: items([P3]), price: "40", ...at(from) },
+          ],
+        }),
       );
-      const listRow = await sqlstate(
-        `INSERT INTO price_change_set_item_lists (tenant_id, change_set_id, change_set_version, item_count, created_by_user_id, correlation_id)
-         VALUES ($1, $2, 9, 0, $3, $2)`,
-        [TENANT_B, bSet.header.id, ACTOR],
+      expect({ from, ...(body.summary as { lines: number; unchanged: number }) }).toMatchObject({ from, lines: 2, unchanged: 0 });
+      const lines = await env!.admin.query<{ op: string; new_price: string | null }>(
+        `SELECT op, new_price::text AS new_price FROM price_change_set_lines WHERE change_set_id = $1 ORDER BY line_no`,
+        [body.header.id],
       );
-      for (const refusal of [validationRow, listRow]) expect(["42501", "23514"]).toContain(refusal.code);
-      await c.query("ROLLBACK");
-    } finally {
-      c.release();
+      expect(lines.rows).toEqual([{ op: "end_price", new_price: null }, { op: "set_price", new_price: "40.0000" }]);
     }
-    expect(await count("price_change_set_item_lists", bSet.header.id)).toBe(1);
+  });
+
+  // Review round 4 (CodeRabbit 4640763243): validations of one tenant serialize.
+  it("round 4: two overlapping drafts validated in parallel: the second sees the first as conflicts_pending", async () => {
+    if (skip()) return;
+    const draft = (price: string, from: string) =>
+      createSet(SES_OWNER_ALL, { items: [{ op: "set_price", scope: { kind: "book" }, products: items([P3]), price, ...at(from) }] });
+    const [x, y] = [await draft("70", "2038-01-01T00:00:00Z"), await draft("71", "2038-06-01T00:00:00Z")];
+    const [vx, vy] = await Promise.all([validated(SES_OWNER_ALL, x), validated(SES_OWNER_ALL, y)]);
+    const pending = [vx, vy].map((v) => (v.summary as { findings: { conflicts_pending: number } }).findings.conflicts_pending).sort();
+    expect(pending).toEqual([0, 1]);
+  });
+
+  // Review round 4 (outside-diff comment): a malformed cursor is 400 before the set is read.
+  it("round 4: a malformed preview cursor is 400 even on a draft; no cursor on a draft stays 409", async () => {
+    if (skip()) return;
+    const draft = await createSet(SES_OWNER_ALL, {});
+    refused(await get(previewPath(draft.header.id, "?cursor=bm90LWEtY3Vyc29y"), SES_OWNER_ALL), 400, "validation_error");
+    refused(await get(previewPath(draft.header.id), SES_OWNER_ALL), 409, "change_set_not_validated");
   });
 
   // Review round 1, m5: the audit row names the set's one target Store (spec 042 §10).
@@ -887,6 +966,12 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
       [STORE_A_Y, "20.0000", "invalid"],
     ]);
     for (const l of preview.lines) expect(l.messages).toContain("helper_base_varies_by_store");
+    // Delta review, minor-1: no one price to publish, so none is stored on the line.
+    const line = await env!.admin.query<{ new_price: string | null; class: string }>(
+      `SELECT new_price::text AS new_price, class FROM price_change_set_lines WHERE change_set_id = $1`,
+      [draft.header.id],
+    );
+    expect(line.rows).toEqual([{ new_price: null, class: "invalid" }]);
   });
 
   // Review round 3, minor 1: a retired Zone (retired through the structure service) is a 422.
@@ -933,20 +1018,25 @@ describe("RT-1484 price Change Set validate and preview over HTTP", () => {
   // Review round 3, minor 5: one audit rule, from the items: a Book set is null even with one Store.
   it("round 3: a Book set in a one-Store tenant audits store_id null", async () => {
     if (skip()) return;
+    // B has one live Store for this case only; the deletion is undone whatever happens (nit).
     await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [STORE_B_Y]);
-    const set = await createSet(SES_OWNER_B, {
-      items: [{ op: "set_price", scope: { kind: "book" }, products: items([PRODUCT_B_ACTIVE]), price: "8", ...at("2034-01-01T00:00:00Z") }],
-    });
-    const body = await validated(SES_OWNER_B, set);
-    expect(body.summary).toMatchObject({ stores: 1 });
-    const rows = await env!.admin.query<{ action: string; store_id: string | null }>(
-      `SELECT action, store_id::text AS store_id FROM audit_events WHERE target_id = $1 ORDER BY id`,
-      [set.header.id],
-    );
-    expect(rows.rows).toEqual([
-      { action: "pricing.change_set.created", store_id: null },
-      { action: "pricing.change_set.validated", store_id: null },
-    ]);
+    try {
+      const set = await createSet(SES_OWNER_B, {
+        items: [{ op: "set_price", scope: { kind: "book" }, products: items([PRODUCT_B_ACTIVE]), price: "8", ...at("2034-01-01T00:00:00Z") }],
+      });
+      const body = await validated(SES_OWNER_B, set);
+      expect(body.summary).toMatchObject({ stores: 1 });
+      const rows = await env!.admin.query<{ action: string; store_id: string | null }>(
+        `SELECT action, store_id::text AS store_id FROM audit_events WHERE target_id = $1 ORDER BY id`,
+        [set.header.id],
+      );
+      expect(rows.rows).toEqual([
+        { action: "pricing.change_set.created", store_id: null },
+        { action: "pricing.change_set.validated", store_id: null },
+      ]);
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = NULL WHERE id = $1`, [STORE_B_Y]);
+    }
   });
 
   it("a legacy_import set is never edited or cancelled here (409, comment 17881 follow-up 3)", async () => {

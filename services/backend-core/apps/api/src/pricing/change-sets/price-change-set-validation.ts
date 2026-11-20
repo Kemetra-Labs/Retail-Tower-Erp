@@ -190,6 +190,8 @@ class Validator {
   private readonly reachCache = new Map<string, Reach[]>();
   /** How many distinct targets reach was computed for (the unit spec's complexity guard). */
   reachComputations = 0;
+  /** The bounds of the set's own ends and resets, by key (round 4: they defeat "unchanged"). */
+  private readonly endsByKey = new Map<string, Bounds[]>();
   private readonly minorUnit: number;
 
   constructor(private readonly ctx: ValidationContext) {
@@ -236,6 +238,9 @@ class Validator {
   validate(items: readonly PositionedItem[]): ValidationResult {
     const entries = this.materialize(items);
     const inSet = inSetFindings(entries.map((e) => this.inSetLine(e)));
+    for (const e of entries) {
+      if (!("move" in e) && !PRICED_OPS.has(e.target.item.op)) appendTo(this.endsByKey, keyOf(e.target), boundsOf(e.target.item).bounds);
+    }
     const lines: MaterializedLine[] = [];
     const rows: Omit<PreviewRow, "rowNo">[] = [];
     const membershipChanges: MembershipChange[] = [];
@@ -462,7 +467,11 @@ class Validator {
       sellUnit: SELL_UNIT,
       ...text,
       // 0123: an invalid priced line may carry no price; a carried one is > 0.
-      newPrice: PRICED_OPS.has(t.item.op) ? first.price : null,
+      // A helper whose Stores disagree has no one price to publish: none is stored (0123 allows
+      // an invalid priced line without a price; delta review, minor-1).
+      newPrice: PRICED_OPS.has(t.item.op) && !draft.messages.has("helper_base_varies_by_store") ? first.price : null,
+      // The line's rounded_from is the representative value (its first Store by id); each preview
+      // row carries its own Store's (delta review, minor-2).
       roundedFrom: draft.invalid ? null : first.roundedFrom,
       class: cls,
       messages: sorted(draft.messages),
@@ -541,7 +550,7 @@ class Validator {
 
   /** Unchanged: at every Store, an active event of the same target, price and basis already covers the line. */
   private isUnchanged(d: Draft): boolean {
-    if (d.invalid || !PRICED_OPS.has(d.t.item.op)) return false;
+    if (d.invalid || !PRICED_OPS.has(d.t.item.op) || this.endedFirstInSet(d)) return false;
     const prices = new Set([...d.prices.values()].map((p) => p.price));
     const price = [...prices][0];
     if (prices.size !== 1 || price === null || price === undefined) return false;
@@ -550,6 +559,20 @@ class Validator {
       const ei = rawInterval(e);
       return e.timeBasis === d.bounds.timeBasis && ei !== null && covers(ei, raw) && comparePrices(e.price, price) === 0;
     });
+  }
+
+  /**
+   * Review round 4 (CodeRabbit 4640763235): an end or reset of the same key in this set, at or
+   * before the line's start in a reached Store, ends the head event the line would match, so the
+   * line is a re-price, never "unchanged" (the simplest correct rule, lead decision).
+   */
+  private endedFirstInSet(d: Draft): boolean {
+    return (this.endsByKey.get(keyOf(d.t)) ?? []).some((end) =>
+      d.reached.some((r) => {
+        const at = intervalIn(end, r.store.timezone);
+        return at !== null && at.from <= r.fromMs;
+      }),
+    );
   }
 
   /** One Store's preview row: old and new resolution, shadowing, dependents and past dating. */
@@ -580,7 +603,7 @@ class Validator {
       newPrice: next.price,
       newSourceScope: next.scope,
       deltaPct: old.price !== null && next.price !== null ? deltaPercent(old.price, next.price) : null,
-      roundedFrom: linePriceOf(d).roundedFrom,
+      roundedFrom: (d.prices.get(r.store.id) ?? NO_PRICE).roundedFrom,
       effectiveFromMs: r.fromMs,
       effectiveFrom: formatInstantInZone(at, r.store.timezone),
       class: "new",

@@ -14,7 +14,13 @@ import addFormats from "ajv-formats";
 
 import { RolesGuard } from "../../src/auth";
 import { PricingAuthoringGuard } from "../../src/pricing/change-sets/price-authoring.guard";
-import { decodePreviewCursor, encodePreviewCursor, PreviewCursorError } from "../../src/pricing/change-sets/price-change-set-preview";
+import {
+  bindPreviewCursor,
+  decodePreviewCursor,
+  encodePreviewCursor,
+  parsePreviewCursor,
+  PreviewCursorError,
+} from "../../src/pricing/change-sets/price-change-set-preview";
 import { PriceChangeSetsController } from "../../src/pricing/change-sets/price-change-sets.controller";
 
 import {
@@ -255,6 +261,16 @@ describe("the preview cursor", () => {
     expect(() => decodePreviewCursor(raw, null, HASH_A)).toThrow(PreviewCursorError);
     expect(() => decodePreviewCursor(raw, "replaces", `sha256:${"b".repeat(64)}`)).toThrow(PreviewCursorError);
     expect(() => decodePreviewCursor("bm90", null, HASH_A)).toThrow(PreviewCursorError);
+  });
+
+  // Round 4: the structure is checked before any read; the binding after the stored preview is known.
+  it("parses the structure first and binds to the preview second", () => {
+    const raw = encodePreviewCursor({ rowNo: 3, cls: null, previewHash: HASH_A });
+    const parsed = parsePreviewCursor(raw);
+    expect(parsed).toEqual({ rowNo: 3, cls: null, previewHash: HASH_A });
+    expect(bindPreviewCursor(parsed, null, HASH_A)).toBe(3);
+    expect(() => bindPreviewCursor(parsed, "new", HASH_A)).toThrow(PreviewCursorError);
+    expect(() => parsePreviewCursor("not-a-cursor")).toThrow(PreviewCursorError);
   });
 });
 
