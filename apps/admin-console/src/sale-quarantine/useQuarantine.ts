@@ -1,9 +1,9 @@
 /**
- * RT-1312 query hooks for the sale quarantine queue: the keyset-paged list, one item, and the one
- * guarded write (write-off). Every read takes an `enabled` gate: a role the API refuses requests
- * nothing. Keys carry the active tenant and store, so a scope change never shows another scope's
- * rows. Errors are typed, never raw. No read retries on its own and the write-off is sent once per
- * confirmation: never auto-retried, no bulk close.
+ * RT-1312 query hooks for the sale quarantine queue: the keyset-paged list, one item, and the two
+ * guarded writes (write-off, repair). Every read takes an `enabled` gate: a role the API refuses
+ * requests nothing. Keys carry the active tenant and store, so a scope change never shows another
+ * scope's rows. Errors are typed, never raw. No read retries on its own and each write is sent
+ * once per confirmation: never auto-retried, no bulk action.
  */
 import {
   type QuarantineListQuery,
@@ -11,6 +11,7 @@ import {
   type QuarantinedSalePage,
   consoleGetQuarantinedSale,
   consoleListQuarantinedSales,
+  consoleRepairQuarantinedSale,
   consoleWriteOffQuarantinedSale,
 } from "@/lib/sale-quarantine-queries";
 import { KeyedAttempt } from "@/lib/write-outcome";
@@ -23,7 +24,12 @@ import {
   readState,
 } from "@/sale-sync/useSaleSync";
 import type { SaleScope } from "@/sales/useSales";
-import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
+import {
+  type QueryClient,
+  useInfiniteQuery,
+  useQuery,
+  useQueryClient,
+} from "@tanstack/react-query";
 import { useRef, useState } from "react";
 import {
   type WriteOffOutcome,
@@ -31,6 +37,7 @@ import {
   keepsKey,
   nextQuarantineCursor,
 } from "./quarantineLogic";
+import { type RepairOutcome, classifyRepair, keepsRepairKey } from "./repairLogic";
 
 type ScopeKey = Pick<SaleScope, "tenantId" | "activeStoreId">;
 
@@ -100,6 +107,29 @@ export function useQuarantinedSale(target: QuarantineTarget): ReadState<Quaranti
 
 // --- Write-off (the one write) ------------------------------------------------------------
 
+/**
+ * What a write's answer changes on screen. The item the server returned replaces the cached one
+ * and the queue is read again; a 409 reads the queue again; a 409, a 404 or an unconfirmed answer
+ * reads the item again, because it may no longer be open or reachable, or the write may have applied.
+ */
+function refreshAfter(
+  queryClient: QueryClient,
+  target: Omit<QuarantineTarget, "enabled">,
+  item: QuarantinedSale | undefined,
+  kind: string,
+): void {
+  if (item) {
+    queryClient.setQueryData<QuarantinedSale>(quarantineQueryKeys.item(target), item);
+  } else if (kind === "conflict" || kind === "unconfirmed" || kind === "not-found") {
+    void queryClient.invalidateQueries({ queryKey: quarantineQueryKeys.item(target) });
+  }
+  if (item || kind === "conflict") {
+    void queryClient.invalidateQueries({
+      queryKey: [...quarantineQueryKeys.all(target.scope), "list"],
+    });
+  }
+}
+
 export interface WriteOffState {
   note: string;
   setNote: (note: string) => void;
@@ -150,25 +180,57 @@ export function useWriteOff(target: Omit<QuarantineTarget, "enabled">): WriteOff
       next = classifyWriteOff({ status: 0 });
     }
     if (!keepsKey(next)) attempt.current.settle();
-    if (next.kind === "written-off") {
-      queryClient.setQueryData<QuarantinedSale>(quarantineQueryKeys.item(target), next.item);
-    } else if (
-      next.kind === "conflict" ||
-      next.kind === "unconfirmed" ||
-      next.kind === "not-found"
-    ) {
-      // The item may no longer be open or reachable: read it again so the page shows the server's state.
-      void queryClient.invalidateQueries({ queryKey: quarantineQueryKeys.item(target) });
-    }
-    if (next.kind === "written-off" || next.kind === "conflict") {
-      void queryClient.invalidateQueries({
-        queryKey: [...quarantineQueryKeys.all(target.scope), "list"],
-      });
-    }
+    refreshAfter(
+      queryClient,
+      target,
+      next.kind === "written-off" ? next.item : undefined,
+      next.kind,
+    );
     setOutcome(next);
     setPending(false);
     busy.current = false;
   };
 
   return { note, setNote, pending, outcome, commit };
+}
+
+// --- Repair (the other write) ---------------------------------------------------------------
+
+export interface RepairState {
+  pending: boolean;
+  outcome?: RepairOutcome;
+  /** Sends one repair. Called only from the operator's confirmation. */
+  commit: () => Promise<void>;
+}
+
+export function useRepair(target: Omit<QuarantineTarget, "enabled">): RepairState {
+  const queryClient = useQueryClient();
+  const attempt = useRef(new KeyedAttempt());
+  const busy = useRef(false);
+  const [pending, setPending] = useState(false);
+  const [outcome, setOutcome] = useState<RepairOutcome | undefined>(undefined);
+
+  const commit = async () => {
+    // A ref, not state: a second click before the re-render must not send twice.
+    if (busy.current) return;
+    busy.current = true;
+    setPending(true);
+    setOutcome(undefined);
+    // No body: the key follows the item. A retry after an unconfirmed answer replays the stored one.
+    const key = attempt.current.keyFor(target.quarantineRef);
+    let next: RepairOutcome;
+    try {
+      next = classifyRepair(await consoleRepairQuarantinedSale(target.quarantineRef, key));
+    } catch {
+      // No response at all: the server may or may not have acted.
+      next = classifyRepair({ status: 0 });
+    }
+    if (!keepsRepairKey(next)) attempt.current.settle();
+    refreshAfter(queryClient, target, "item" in next ? next.item : undefined, next.kind);
+    setOutcome(next);
+    setPending(false);
+    busy.current = false;
+  };
+
+  return { pending, outcome, commit };
 }

@@ -2,11 +2,13 @@ import { expectNoAxeViolations } from "./axe";
 import { type Page, expect, overviewHeading, test } from "./fixtures";
 
 /**
- * RT-1312 (Phase 3(b) slice B) sale quarantine queue E2E against mocked Backend-Core (C-5).
+ * RT-1312 (Phase 3(b) slices B and C) sale quarantine queue E2E against mocked Backend-Core (C-5).
  * S1 (happy path): owner → "Sales the till could not send" → the item row → the item page → Close
  * without recording → note → confirm → exactly one POST with an Idempotency-Key and the note → the
  * item reads as closed. Only Backend-Core console routes are requested, and the repair route is
- * never touched (slice C).
+ * not touched by a write-off.
+ * S3: the same item → Record the sale → confirm → exactly one POST with an Idempotency-Key and no
+ * body → the item reads as recorded, with a link to the sale.
  * S2: store_manager has no nav entry, no quarantine request, and the list URL reads as no access.
  * RT-399: runs in both locales; copy comes from the catalog (`t`).
  */
@@ -149,7 +151,7 @@ test("S1: owner → queue → item → confirmed write-off → closed", async ({
   await expect(p.getByText(NOTE)).toBeVisible();
 
   // Only Backend-Core console routes on the app's own origin: no POS route, ERPNext, Frappe or
-  // Connector request, and the repair route (slice C) is never touched.
+  // Connector request, and the repair route is not touched by a write-off.
   const origin = new URL(p.url()).origin;
   expect(requested.filter((url) => url.origin !== origin)).toEqual([]);
   const api = [
@@ -179,4 +181,56 @@ test("S2: store_manager has no entry and the list is no access", async ({ page: 
     p.getByRole("heading", { level: 1, name: t("saleQuarantine.list.title") }),
   ).toHaveCount(0);
   expect(syncCalls).toEqual([]);
+});
+
+test("S3: owner → item → confirmed repair → recorded", async ({ page: p, t }) => {
+  await mockBase(p, "owner");
+  const SALE = "0190f000-0000-7000-8000-0000000009b1";
+  const recorded = {
+    ...open,
+    state: "captured",
+    saleRef: SALE,
+    repairCount: 1,
+    lastRepair: {
+      at: "2026-11-19T11:00:00Z",
+      outcome: "captured",
+      httpStatus: null,
+      errorCode: null,
+    },
+  };
+  let repaired = false;
+  const writes: { key: string | null; method: string; body: string | null }[] = [];
+  await p.route(`**${SYNC}/quarantined-sales/${ITEM}`, (r) =>
+    r.fulfill(json(repaired ? recorded : open)),
+  );
+  await p.route(`**${SYNC}/quarantined-sales/${ITEM}/repair`, (r) => {
+    writes.push({
+      key: r.request().headers()["idempotency-key"] ?? null,
+      method: r.request().method(),
+      body: r.request().postData(),
+    });
+    repaired = true;
+    return r.fulfill(json(recorded));
+  });
+
+  await p.goto(`/quarantined-sales/${ITEM}`);
+  await p.getByRole("button", { name: t("saleQuarantine.repair.action") }).click();
+  const dialog = p.getByRole("dialog", { name: t("saleQuarantine.repair.dialogTitle") });
+  await expect(dialog).toContainText("POS-CAI-0042");
+  await expectNoAxeViolations(p, "quarantine repair dialog");
+  expect(writes).toHaveLength(0);
+  await dialog.getByRole("button", { name: t("saleQuarantine.repair.commit") }).click();
+
+  await expect(dialog.getByText(t("saleQuarantine.repair.success.captured"))).toBeVisible();
+  expect(writes).toHaveLength(1);
+  expect(writes[0].method).toBe("POST");
+  expect(writes[0].key).toMatch(/^[0-9a-f-]{36}$/);
+  expect(writes[0].body).toBeNull();
+  await dialog.getByRole("button", { name: t("saleQuarantine.repair.done") }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(p.getByRole("button", { name: t("saleQuarantine.repair.action") })).toHaveCount(0);
+  await expect(p.getByRole("link", { name: t("saleQuarantine.value.openSale") })).toHaveAttribute(
+    "href",
+    `/sales/${SALE}`,
+  );
 });

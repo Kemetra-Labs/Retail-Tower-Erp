@@ -110,6 +110,7 @@ export const saleQuarantine = {
   "saleQuarantine.field.sale": "البيع المسجّل",
   "saleQuarantine.field.writtenOffAt": "وقت الإغلاق",
   "saleQuarantine.field.writeOffNote": "ملاحظة الإغلاق",
+  "saleQuarantine.field.lastRefusal": "آخر رفض (الحالة والرمز)",
   "saleQuarantine.value.notRecorded": "غير مسجّل",
   "saleQuarantine.value.openSale": "فتح البيع",
   "saleQuarantine.lastRepair": "{at}: {outcome}",
@@ -119,11 +120,54 @@ export const saleQuarantine = {
   "saleQuarantine.lastRepair.unknown": "نتيجة غير معروفة",
   "saleQuarantine.summary.hint":
     "ملخص مقروء من بيانات البيع المحفوظة. لا يُعرض نص البيع ولا بنوده. كل حقل يظهر «غير مسجّل» إن لم تحمله البيانات بصيغة صالحة.",
-  "saleQuarantine.handling.repairLater":
-    "إعادة تسجيل البيع من هنا غير متاحة بعد. إن عولج هذا البيع خارج Retail Tower يمكنك إغلاق العنصر دون تسجيل.",
   "saleQuarantine.handling.closed": "هذا العنصر لم يعد مفتوحًا، فلا إجراء متاح عليه.",
   "saleQuarantine.handling.unknownState":
     "حالة هذا العنصر غير معروفة لهذا الإصدار، فلا يُعرض عليه إجراء.",
+
+  // --- Repair (slice C) ---------------------------------------------------------------------
+  "saleQuarantine.repair.title": "تسجيل البيع",
+  "saleQuarantine.repair.explain":
+    "يسجّل هذا البيع من نسخته المحفوظة مرة واحدة، بالفحوص نفسها التي يخضع لها بيع أرسلته الصندوق. لا يُسجَّل بيع مسجّل من قبل مرتين. إن رفضه الخادم فلا يُسجَّل شيء ويبقى العنصر مفتوحًا.",
+  "saleQuarantine.repair.action": "تسجيل البيع",
+  "saleQuarantine.repair.dialogTitle": "تسجيل هذا البيع",
+  "saleQuarantine.repair.consequence":
+    "سيُسجَّل البيع {ref} في مبيعات المتجر من نسخته المحفوظة مرة واحدة، ثم يتبع الترحيل المعتاد إلى ERPNext. إن كان مسجّلًا من قبل يُغلق العنصر ولا يُنشأ بيع ثانٍ. وإن رفضه الخادم مرة أخرى فلا يُسجَّل شيء ويبقى العنصر مفتوحًا.",
+  "saleQuarantine.repair.commit": "تسجيل البيع",
+  "saleQuarantine.repair.committing": "جارٍ التسجيل…",
+  "saleQuarantine.repair.cancel": "إلغاء",
+  "saleQuarantine.repair.done": "تم",
+  "saleQuarantine.repair.success.captured":
+    "سُجّل البيع وأُغلق العنصر. يمكنك فتح البيع من صفحة العنصر.",
+  "saleQuarantine.repair.success.alreadyCaptured":
+    "كان هذا البيع مسجّلًا من قبل، فلم يُنشأ بيع ثانٍ. أُغلق العنصر.",
+  "saleQuarantine.repair.refused.generic":
+    "رفض الخادم تسجيل هذا البيع مرة أخرى، فلم يُسجَّل شيء. يبقى العنصر مفتوحًا. إن عولج البيع خارج Retail Tower يمكنك إغلاق العنصر دون تسجيل.",
+  "saleQuarantine.repair.refused.operator":
+    "تعذّر التأكد من أن الكاشير في هذا البيع كان عضوًا في النشاط وقت البيع، فلم يُسجَّل شيء. يبقى العنصر مفتوحًا ولا يمكن إلا إغلاقه دون تسجيل.",
+  "saleQuarantine.repair.refused.diverged":
+    "يوجد بيع مسجّل بهذا المرجع لكن ببيانات مختلفة، فلم يُسجَّل شيء. يبقى العنصر مفتوحًا ولا يمكن إلا إغلاقه دون تسجيل.",
+  "saleQuarantine.repair.refused.otherStore":
+    "مرجع هذا البيع مسجّل في متجر آخر، فلم يُسجَّل شيء. يبقى العنصر مفتوحًا ولا يمكن إلا إغلاقه دون تسجيل.",
+  "saleQuarantine.repair.error.conflict":
+    "العنصر لم يعد مفتوحًا، ولم يتغيّر شيء بهذا الطلب. حُدّثت حالة العنصر.",
+  "saleQuarantine.repair.error.keyConflict":
+    "رفض الخادم الطلب لأنه لا يطابق طلبًا سابقًا بالمفتاح نفسه. لم يتغيّر شيء، ويمكنك تسجيل البيع من جديد.",
+  "saleQuarantine.repair.error.notFound": "هذا العنصر غير موجود أو غير متاح لك. لم يتغيّر شيء.",
+  "saleQuarantine.repair.error.forbidden": "دورك لا يسمح بتسجيل هذا البيع. لم يتغيّر شيء.",
+  "saleQuarantine.repair.error.originRejected":
+    "رفض الخادم مصدر هذا الطلب، ولم يتغيّر شيء. أبلغ فريق الدعم برقم الطلب.",
+  "saleQuarantine.repair.error.rejected": "رفض الخادم الطلب. لم يتغيّر شيء.",
+  "saleQuarantine.repair.error.rateLimited": "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع.",
+  "saleQuarantine.repair.error.rateLimitedFor": {
+    zero: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد {count} ثانية.",
+    one: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد ثانية واحدة.",
+    two: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد ثانيتين.",
+    few: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد {count} ثوانٍ.",
+    many: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد {count} ثانية.",
+    other: "طلبات كثيرة في وقت قصير. لم يُسجَّل البيع؛ يمكنك الطلب بعد {count} ثانية.",
+  },
+  "saleQuarantine.repair.error.unconfirmed":
+    "لم يؤكد الخادم نتيجة الطلب، وربما نفّذه. حدّث الصفحة وراجع حالة العنصر قبل الطلب مرة أخرى؛ الطلب التالي يُرسل بالمفتاح نفسه فلا يُسجَّل البيع مرتين.",
 
   // --- Write-off (the one write) -----------------------------------------------------------
   "saleQuarantine.writeOff.title": "إغلاق العنصر دون تسجيل",

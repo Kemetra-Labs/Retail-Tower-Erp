@@ -96,13 +96,6 @@ export function nextQuarantineCursor(page: { nextCursor: string | null }): strin
 
 // --- Write-off outcome ----------------------------------------------------------------
 
-export interface WriteOffResult {
-  status: number;
-  data?: QuarantinedSale;
-  error?: unknown;
-  retryAfter?: number;
-}
-
 type RefusalKind =
   | "conflict"
   | "key-conflict"
@@ -119,38 +112,101 @@ export type WriteOffOutcome =
 
 type RefusalView = { kind: RefusalKind; messageKey: MessageKey };
 
-/** Refusals by status, or by `status:code` where the code changes the meaning. */
-const REFUSALS: Record<string, RefusalView> = {
-  "400": { kind: "rejected", messageKey: "saleQuarantine.writeOff.error.rejected" },
-  "401": { kind: "session", messageKey: "saleSync.error.session" },
-  "403": { kind: "forbidden", messageKey: "saleQuarantine.writeOff.error.forbidden" },
-  "403:origin_rejected": {
-    kind: "forbidden",
-    messageKey: "saleQuarantine.writeOff.error.originRejected",
-  },
-  "404": { kind: "not-found", messageKey: "saleQuarantine.writeOff.error.notFound" },
-  "409": { kind: "conflict", messageKey: "saleQuarantine.writeOff.error.conflict" },
-  "409:idempotency_key_conflict": {
-    kind: "key-conflict",
-    messageKey: "saleQuarantine.writeOff.error.keyConflict",
-  },
-};
+/**
+ * One write's catalog of answers: refusals by status, or by `status:code` where the code changes
+ * the meaning; the "may have applied" answer; and the two 429 messages. The write-off and the
+ * repair share the classifier below and differ only in their words.
+ */
+interface RefusalTable {
+  byStatus: Record<string, RefusalView>;
+  /** Anything unlisted (a 5xx, no response, a 200 without the item) may have been applied. */
+  unconfirmed: RefusalView;
+  rateLimited: MessageKey;
+  rateLimitedFor: MessageKey;
+}
 
-/** Anything unlisted (a 5xx, no response, a 200 without the item) may have been applied. */
-const UNCONFIRMED: RefusalView = {
-  kind: "unconfirmed",
-  messageKey: "saleQuarantine.writeOff.error.unconfirmed",
-};
+export interface WriteResult {
+  status: number;
+  error?: unknown;
+  retryAfter?: number;
+}
 
 /**
  * A status the contract does not list: a definite 4xx is a refusal (nothing was applied); 408 and
  * 425 say the server did not finish, and a 5xx, no response or a 200 without the item may have
  * been applied.
  */
-function fallbackView(status: number): RefusalView {
+function fallbackView(status: number, table: RefusalTable): RefusalView {
   const definite = status >= 400 && status < 500 && status !== 408 && status !== 425;
-  return definite ? (REFUSALS["400"] as RefusalView) : UNCONFIRMED;
+  return definite ? (table.byStatus["400"] as RefusalView) : table.unconfirmed;
 }
+
+/** Maps any answer that is not the write's success to what the operator sees. Nothing here retries. */
+export function classifyRefusal(
+  result: WriteResult,
+  table: RefusalTable,
+): Exclude<WriteOffOutcome, { kind: "written-off" }> {
+  const requestId = errorRequestIdOf(result.error);
+  if (result.status === 429) {
+    const { retryAfter } = result;
+    return {
+      kind: "rate-limited",
+      messageKey: retryAfter ? table.rateLimitedFor : table.rateLimited,
+      requestId,
+      retryAfter,
+    };
+  }
+  const code = errorCodeOf(result.error);
+  const view = table.byStatus[`${result.status}:${code}`] ?? table.byStatus[String(result.status)];
+  return { ...(view ?? fallbackView(result.status, table)), requestId };
+}
+
+export interface WriteOffResult extends WriteResult {
+  data?: QuarantinedSale;
+}
+
+/** The messages one write has for each answer; `refusalTable` fixes which status and code each one answers. */
+interface RefusalMessages {
+  rejected: MessageKey;
+  forbidden: MessageKey;
+  originRejected: MessageKey;
+  notFound: MessageKey;
+  conflict: MessageKey;
+  keyConflict: MessageKey;
+  unconfirmed: MessageKey;
+  rateLimited: MessageKey;
+  rateLimitedFor: MessageKey;
+}
+
+export function refusalTable(m: RefusalMessages): RefusalTable {
+  const view = (kind: RefusalKind, messageKey: MessageKey): RefusalView => ({ kind, messageKey });
+  return {
+    byStatus: {
+      "400": view("rejected", m.rejected),
+      "401": view("session", "saleSync.error.session"),
+      "403": view("forbidden", m.forbidden),
+      "403:origin_rejected": view("forbidden", m.originRejected),
+      "404": view("not-found", m.notFound),
+      "409": view("conflict", m.conflict),
+      "409:idempotency_key_conflict": view("key-conflict", m.keyConflict),
+    },
+    unconfirmed: view("unconfirmed", m.unconfirmed),
+    rateLimited: m.rateLimited,
+    rateLimitedFor: m.rateLimitedFor,
+  };
+}
+
+const WRITE_OFF_TABLE = refusalTable({
+  rejected: "saleQuarantine.writeOff.error.rejected",
+  forbidden: "saleQuarantine.writeOff.error.forbidden",
+  originRejected: "saleQuarantine.writeOff.error.originRejected",
+  notFound: "saleQuarantine.writeOff.error.notFound",
+  conflict: "saleQuarantine.writeOff.error.conflict",
+  keyConflict: "saleQuarantine.writeOff.error.keyConflict",
+  unconfirmed: "saleQuarantine.writeOff.error.unconfirmed",
+  rateLimited: "saleQuarantine.writeOff.error.rateLimited",
+  rateLimitedFor: "saleQuarantine.writeOff.error.rateLimitedFor",
+});
 
 /**
  * Maps the server's answer to what the operator sees. Only a 200 with the item is a write-off; a
@@ -159,21 +215,7 @@ function fallbackView(status: number): RefusalView {
  */
 export function classifyWriteOff(result: WriteOffResult): WriteOffOutcome {
   if (result.status === 200 && result.data) return { kind: "written-off", item: result.data };
-  const requestId = errorRequestIdOf(result.error);
-  if (result.status === 429) {
-    const { retryAfter } = result;
-    return {
-      kind: "rate-limited",
-      messageKey: retryAfter
-        ? "saleQuarantine.writeOff.error.rateLimitedFor"
-        : "saleQuarantine.writeOff.error.rateLimited",
-      requestId,
-      retryAfter,
-    };
-  }
-  const code = errorCodeOf(result.error);
-  const view = REFUSALS[`${result.status}:${code}`] ?? REFUSALS[String(result.status)];
-  return { ...(view ?? fallbackView(result.status)), requestId };
+  return classifyRefusal(result, WRITE_OFF_TABLE);
 }
 
 /**

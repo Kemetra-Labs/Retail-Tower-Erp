@@ -18,11 +18,13 @@ const api = {
   consoleListQuarantinedSales: vi.fn(),
   consoleGetQuarantinedSale: vi.fn(),
   consoleWriteOffQuarantinedSale: vi.fn(),
+  consoleRepairQuarantinedSale: vi.fn(),
 };
 vi.mock("@/lib/sale-quarantine-queries", () => ({
   consoleListQuarantinedSales: (...a: unknown[]) => api.consoleListQuarantinedSales(...a),
   consoleGetQuarantinedSale: (...a: unknown[]) => api.consoleGetQuarantinedSale(...a),
   consoleWriteOffQuarantinedSale: (...a: unknown[]) => api.consoleWriteOffQuarantinedSale(...a),
+  consoleRepairQuarantinedSale: (...a: unknown[]) => api.consoleRepairQuarantinedSale(...a),
 }));
 const readStore = vi.fn();
 vi.mock("@/lib/rf2-queries", async (importOriginal) => {
@@ -58,6 +60,7 @@ function field(scope: HTMLElement, label: string): HTMLElement {
 
 const region = (name: string) => screen.getByRole("region", { name });
 const OPEN_BUTTON = { name: "Close without recording" };
+const REPAIR_OPEN = { name: "Record the sale" };
 
 async function loaded(): Promise<void> {
   await screen.findByRole("heading", { level: 1, name: /POS-CAI-0042/ });
@@ -71,6 +74,30 @@ async function openDialog(): Promise<HTMLElement> {
   fireEvent.click(opener);
   return screen.findByRole("dialog", { name: "Close the item without recording the sale" });
 }
+
+async function openRepair(): Promise<HTMLElement> {
+  await loaded();
+  const opener = screen.getByRole("button", REPAIR_OPEN);
+  opener.focus();
+  fireEvent.click(opener);
+  return screen.findByRole("dialog", { name: "Record this sale" });
+}
+
+/** The item as the server returns it after a repair that resolved it. */
+const repaired = (outcome: "captured" | "already-captured") =>
+  quarantined({
+    state: outcome,
+    saleRef: SALE,
+    repairCount: 1,
+    lastRepair: { at: "2026-11-19T11:00:00Z", outcome, httpStatus: null, errorCode: null },
+  });
+
+/** The item as the server returns it after a repair the capture rules refused. */
+const refusedRepair = (errorCode: string, httpStatus: number | null) =>
+  quarantined({
+    repairCount: 1,
+    lastRepair: { at: "2026-11-19T11:00:00Z", outcome: "refused", httpStatus, errorCode },
+  });
 
 function typeNote(dialog: HTMLElement, value: string): void {
   fireEvent.change(within(dialog).getByLabelText(/Reason for closing/), { target: { value } });
@@ -264,11 +291,167 @@ describe("QuarantineDetail (RT-1312)", () => {
     expect(screen.getByText(/state is not known to this version/)).toBeDefined();
   });
 
-  test("repair is not offered and not called: the page says it is not available yet", async () => {
+  // --- Repair (slice C) --------------------------------------------------------------------
+
+  test("an open item offers both actions; nothing is called until a confirmation", async () => {
     renderDetail();
     await loaded();
-    expect(screen.queryByRole("button", { name: /repair|re-?ingest|record the sale/i })).toBeNull();
-    expect(screen.getByText(/Recording the sale from here is not available yet/)).toBeDefined();
+    expect(screen.getByRole("button", REPAIR_OPEN)).toBeDefined();
+    expect(screen.getByRole("button", OPEN_BUTTON)).toBeDefined();
+    expect(api.consoleRepairQuarantinedSale).not.toHaveBeenCalled();
+    expect(api.consoleWriteOffQuarantinedSale).not.toHaveBeenCalled();
+  });
+
+  test("a closed item offers neither action", async () => {
+    api.consoleGetQuarantinedSale.mockResolvedValue(ok(repaired("captured")));
+    renderDetail();
+    await loaded();
+    expect(screen.queryByRole("button", REPAIR_OPEN)).toBeNull();
+    expect(screen.queryByRole("button", OPEN_BUTTON)).toBeNull();
+  });
+
+  test("the repair dialog opens on the safe choice and names the item and the consequence", async () => {
+    renderDetail();
+    const dialog = await openRepair();
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Cancel" }));
+    expect(dialog.textContent).toContain("POS-CAI-0042");
+    expect(dialog.textContent).toContain("no second sale is created");
+    expect(api.consoleRepairQuarantinedSale).not.toHaveBeenCalled();
+  });
+
+  test("Escape leaves nothing sent and focus returns to the opener", async () => {
+    renderDetail();
+    const dialog = await openRepair();
+    fireEvent.keyDown(dialog, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(api.consoleRepairQuarantinedSale).not.toHaveBeenCalled();
+    expect(document.activeElement).toBe(screen.getByRole("button", REPAIR_OPEN));
+  });
+
+  test("a confirmed repair sends one POST with a key of its own, and the page shows the recorded sale", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(ok(repaired("captured")));
+    renderDetail();
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    await within(dialog).findByText(/The sale was recorded and the item is closed/);
+    expect(api.consoleRepairQuarantinedSale).toHaveBeenCalledTimes(1);
+    const [ref, key] = api.consoleRepairQuarantinedSale.mock.calls[0];
+    expect(ref).toBe(QUARANTINE_REF);
+    expect(key).toMatch(/^[\x21-\x7E]{16,128}$/);
+    expect(api.consoleWriteOffQuarantinedSale).not.toHaveBeenCalled();
+    expect(within(dialog).queryByRole("button", { name: "Record the sale" })).toBeNull();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+    expect(within(region("Item")).getByText("Recorded by a repair")).toBeDefined();
+    expect(screen.getByRole("link", { name: "Open the sale" }).getAttribute("href")).toBe(
+      `/sales/${SALE}`,
+    );
+    expect(screen.queryByRole("button", REPAIR_OPEN)).toBeNull();
+  });
+
+  test("the list is read again after a repair", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(ok(repaired("captured")));
+    const client = createQueryClient();
+    const spy = vi.spyOn(client, "invalidateQueries");
+    renderDetail(QUARANTINE_REF, client);
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    await within(dialog).findByText(/The sale was recorded/);
+    expect(spy).toHaveBeenCalledWith(
+      expect.objectContaining({ queryKey: expect.arrayContaining(["sale-quarantine", "list"]) }),
+    );
+  });
+
+  test("an already recorded sale says no second sale was created", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(ok(repaired("already-captured")));
+    renderDetail();
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    await within(dialog).findByText(/already recorded, so no second sale was created/);
+  });
+
+  test.each([
+    ["repair_operator_unproven", null, /could not be confirmed as a member/],
+    ["idempotency_key_conflict", 409, /already recorded with different details/],
+    ["not_found", 404, /already recorded in another store/],
+    ["sale_line_pricing_invalid", 422, /refused to record this sale again/],
+  ])(
+    "a refused repair (%s) says nothing was recorded, and the item stays open",
+    async (code, status, text) => {
+      api.consoleRepairQuarantinedSale.mockResolvedValue(ok(refusedRepair(code, status)));
+      renderDetail();
+      const dialog = await openRepair();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+      const alert = await within(dialog).findByRole("alert");
+      expect(alert.textContent).toMatch(text);
+      expect(alert.textContent).toContain("nothing was recorded");
+      // The commit is gone for this answer; the item is still open, with the refusal on the page.
+      expect(within(dialog).queryByRole("button", { name: "Record the sale" })).toBeNull();
+      fireEvent.click(within(dialog).getByRole("button", { name: "Done" }));
+      await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull());
+      expect(screen.getByRole("button", REPAIR_OPEN)).toBeDefined();
+      expect(within(region("Handling")).getByText("Last refusal (status and code)")).toBeDefined();
+      expect(within(region("Handling")).getByText(new RegExp(code))).toBeDefined();
+    },
+  );
+
+  test("a 409 says the item is no longer open, refreshes it and offers no resend", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(failure(409, "repair_conflict"));
+    renderDetail();
+    const dialog = await openRepair();
+    api.consoleGetQuarantinedSale.mockResolvedValue(ok(repaired("captured")));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain("The item is no longer open");
+    expect(alert.textContent).toContain(REQUEST_ID);
+    expect(within(dialog).queryByRole("button", { name: "Record the sale" })).toBeNull();
+    await waitFor(() => expect(api.consoleGetQuarantinedSale).toHaveBeenCalledTimes(2));
+  });
+
+  test("a 404 says it is not available and changed nothing", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(failure(404, "not_found"));
+    renderDetail();
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    const alert = await within(dialog).findByRole("alert");
+    expect(alert.textContent).toContain("not found or is not available to you. Nothing changed.");
+  });
+
+  test("an unconfirmed answer keeps the key for the retry; an answered refusal ends it", async () => {
+    api.consoleRepairQuarantinedSale
+      .mockResolvedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({ status: 0 })
+      .mockResolvedValueOnce(failure(400, "validation_error"))
+      .mockResolvedValue(ok(repaired("captured")));
+    renderDetail();
+    const dialog = await openRepair();
+    const commit = () =>
+      fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    commit();
+    await within(dialog).findByText(/did not confirm the result and may have acted/);
+    commit();
+    await waitFor(() => expect(api.consoleRepairQuarantinedSale).toHaveBeenCalledTimes(2));
+    const keys = () => api.consoleRepairQuarantinedSale.mock.calls.map((c) => c[1]);
+    // An unconfirmed attempt replays under the same key: the sale is never recorded twice.
+    expect(keys()[1]).toBe(keys()[0]);
+    await within(dialog).findByText(/did not confirm the result/);
+    commit();
+    await waitFor(() => expect(api.consoleRepairQuarantinedSale).toHaveBeenCalledTimes(3));
+    expect(keys()[2]).toBe(keys()[0]);
+    await within(dialog).findByText(/The server rejected the request. Nothing changed./);
+    // The 400 was an answer: the next confirmation is a new request with a new key.
+    commit();
+    await waitFor(() => expect(api.consoleRepairQuarantinedSale).toHaveBeenCalledTimes(4));
+    expect(keys()[3]).not.toBe(keys()[0]);
+  });
+
+  test("a 200 with no readable outcome is not confirmed, never recorded", async () => {
+    api.consoleRepairQuarantinedSale.mockResolvedValue(ok(quarantined({ lastRepair: null })));
+    renderDetail();
+    const dialog = await openRepair();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Record the sale" }));
+    await within(dialog).findByText(/did not confirm the result and may have acted/);
+    expect(within(dialog).queryByText(/The sale was recorded/)).toBeNull();
   });
 
   // --- Write-off ---------------------------------------------------------------------------

@@ -33,7 +33,8 @@ export class CaptureSaleRequestPipe implements PipeTransform<unknown, CaptureSal
   }
 }
 
-function captureSchema() {
+/** The schema `captureSale` validates a body with, chosen by the same gates (a Console repair re-uses it, RT-1312 slice C). */
+export function captureSchema() {
   if (!isPosSaleTendersEnabled()) return CaptureSaleRequestSchema;
   const sameMethod = isPosSaleTendersSameMethodEnabled();
   if (isPosSaleVoucherTenderEnabled()) {

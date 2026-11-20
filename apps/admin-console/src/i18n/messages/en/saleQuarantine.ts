@@ -97,6 +97,7 @@ export const saleQuarantine: MessagesOf<typeof ar> = {
   "saleQuarantine.field.sale": "Recorded sale",
   "saleQuarantine.field.writtenOffAt": "Closed",
   "saleQuarantine.field.writeOffNote": "Closing note",
+  "saleQuarantine.field.lastRefusal": "Last refusal (status and code)",
   "saleQuarantine.value.notRecorded": "Not recorded",
   "saleQuarantine.value.openSale": "Open the sale",
   "saleQuarantine.lastRepair": "{at}: {outcome}",
@@ -106,11 +107,53 @@ export const saleQuarantine: MessagesOf<typeof ar> = {
   "saleQuarantine.lastRepair.unknown": "Unknown result",
   "saleQuarantine.summary.hint":
     "A summary read from the stored sale. The sale body and its lines are not shown. A field reads Not recorded when the stored sale does not carry it in a valid form.",
-  "saleQuarantine.handling.repairLater":
-    "Recording the sale from here is not available yet. If this sale was handled outside Retail Tower, you can close the item without recording it.",
   "saleQuarantine.handling.closed": "This item is no longer open, so no action is offered on it.",
   "saleQuarantine.handling.unknownState":
     "This item's state is not known to this version, so no action is offered on it.",
+
+  // --- Repair (slice C) ---------------------------------------------------------------------
+  "saleQuarantine.repair.title": "Record the sale",
+  "saleQuarantine.repair.explain":
+    "Records this sale from its stored copy, once, with the same checks as a sale sent by the till. A sale that is already recorded is never recorded twice. If the server refuses it, nothing is recorded and the item stays open.",
+  "saleQuarantine.repair.action": "Record the sale",
+  "saleQuarantine.repair.dialogTitle": "Record this sale",
+  "saleQuarantine.repair.consequence":
+    "Sale {ref} will be recorded in the store's sales from its stored copy, once, and then follows the normal ERPNext posting. If it was already recorded, the item closes and no second sale is created. If the server refuses it again, nothing is recorded and the item stays open.",
+  "saleQuarantine.repair.commit": "Record the sale",
+  "saleQuarantine.repair.committing": "Recording…",
+  "saleQuarantine.repair.cancel": "Cancel",
+  "saleQuarantine.repair.done": "Done",
+  "saleQuarantine.repair.success.captured":
+    "The sale was recorded and the item is closed. You can open the sale from the item page.",
+  "saleQuarantine.repair.success.alreadyCaptured":
+    "This sale was already recorded, so no second sale was created. The item is closed.",
+  "saleQuarantine.repair.refused.generic":
+    "The server refused to record this sale again, so nothing was recorded. The item stays open. If the sale was handled outside Retail Tower, you can close the item without recording it.",
+  "saleQuarantine.repair.refused.operator":
+    "The cashier on this sale could not be confirmed as a member of the business at the time of the sale, so nothing was recorded. The item stays open and can only be closed without recording.",
+  "saleQuarantine.repair.refused.diverged":
+    "A sale with this reference is already recorded with different details, so nothing was recorded. The item stays open and can only be closed without recording.",
+  "saleQuarantine.repair.refused.otherStore":
+    "This sale reference is already recorded in another store, so nothing was recorded. The item stays open and can only be closed without recording.",
+  "saleQuarantine.repair.error.conflict":
+    "The item is no longer open, and this request changed nothing. The item has been refreshed.",
+  "saleQuarantine.repair.error.keyConflict":
+    "The server refused the request because it does not match an earlier request with the same key. Nothing changed; you can record the sale again.",
+  "saleQuarantine.repair.error.notFound":
+    "This item was not found or is not available to you. Nothing changed.",
+  "saleQuarantine.repair.error.forbidden": "Your role cannot record this sale. Nothing changed.",
+  "saleQuarantine.repair.error.originRejected":
+    "The server refused where this request came from, and nothing changed. Report it to support with the request ID.",
+  "saleQuarantine.repair.error.rejected": "The server rejected the request. Nothing changed.",
+  "saleQuarantine.repair.error.rateLimited":
+    "Too many requests in a short time. The sale was not recorded.",
+  "saleQuarantine.repair.error.rateLimitedFor": {
+    one: "Too many requests in a short time. The sale was not recorded; you can ask again in 1 second.",
+    other:
+      "Too many requests in a short time. The sale was not recorded; you can ask again in {count} seconds.",
+  },
+  "saleQuarantine.repair.error.unconfirmed":
+    "The server did not confirm the result and may have acted. Refresh the page and check the item's state before asking again; the next request reuses the same key, so the sale is never recorded twice.",
 
   // --- Write-off (the one write) -----------------------------------------------------------
   "saleQuarantine.writeOff.title": "Close without recording",

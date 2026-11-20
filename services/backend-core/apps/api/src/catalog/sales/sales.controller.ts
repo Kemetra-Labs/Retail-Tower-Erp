@@ -134,7 +134,7 @@ const SALE_REPLAY_MISMATCH_AUDIT_ACTION = "sale.replay_payload_mismatch_rejected
  * Map a capture service error to its contract response (RT-77). The filter's
  * status fallback has no 422 case, so the code is passed explicitly.
  */
-function toCaptureHttpError(err: unknown): unknown {
+export function toCaptureHttpError(err: unknown): unknown {
   const responsibility = toResponsibilityHttpError(err);
   if (responsibility !== null) return responsibility;
   if (err instanceof SaleTenderMismatchError) {

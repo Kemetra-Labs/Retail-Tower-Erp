@@ -2,8 +2,9 @@
  * SaleQuarantineOpsService — RT-1312 Phase 3(b), slice B: the Console half of
  * the sale quarantine (`sale-sync-ops/sale-sync-ops.yaml` 1.3.0-draft):
  * `consoleListQuarantinedSales`, `consoleGetQuarantinedSale` and
- * `consoleWriteOffQuarantinedSale`. The repair (`consoleRepairQuarantinedSale`)
- * is slice C.
+ * `consoleWriteOffQuarantinedSale`. The repair (`consoleRepairQuarantinedSale`,
+ * slice C) is `SaleQuarantineRepairService`, which locks the item through
+ * `withLockedItem`.
  *
  * Reads and writes `sale_quarantine_items` (migration 0093) in place, tenant-
  * scoped under `runWithTenantContext` (RLS, FORCE). Raw parameterized SQL, as
@@ -96,14 +97,14 @@ interface ListQuarantinedInput extends ScopedReadInput {
 }
 
 /** The columns of the projection, and no `sale_body` (never read by the Console, decision C5). */
-const ITEM_COLUMNS = `id, store_id, device_id, source_system, external_id, reason_kind,
+export const ITEM_COLUMNS = `id, store_id, device_id, source_system, external_id, reason_kind,
        till_http_status, till_error_code, state, received_at, till_recorded_at,
        previous_terminal_id, repair_count, last_repair_at, last_repair_outcome,
        last_repair_http_status, last_repair_error_code, upload_conflict_count,
        sale_id, summary_occurred_at, summary_pos_total, summary_currency_code,
        summary_line_count, resolved_at, write_off_note`;
 
-interface ItemRow {
+export interface ItemRow {
   id: string;
   store_id: string;
   device_id: string;
@@ -239,6 +240,21 @@ export class SaleQuarantineOpsService {
       if (!row) throw new RepairConflictError();
       return toQuarantinedSaleBody(row);
     });
+  }
+
+  /**
+   * RT-1312 slice C: run `fn` in ONE transaction with the item locked (`FOR
+   * UPDATE`), read within the caller's store scope: absent or out of scope is
+   * `QuarantineNotFoundError`, before `fn` runs. A repair and a write-off of
+   * one item therefore run one at a time; `fn` decides what a non-`open` item
+   * means.
+   */
+  withLockedItem<T>(
+    input: ScopedReadInput,
+    quarantineRef: string,
+    fn: (client: PoolClient, item: ItemRow) => Promise<T>,
+  ): Promise<T> {
+    return this.inTenant(input, async (client) => fn(client, await this.readScoped(client, input, quarantineRef, true)));
   }
 
   /** One transaction under the caller's tenant (RLS, FORCE). */

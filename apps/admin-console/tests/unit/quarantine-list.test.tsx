@@ -18,11 +18,13 @@ const api = {
   consoleListQuarantinedSales: vi.fn(),
   consoleGetQuarantinedSale: vi.fn(),
   consoleWriteOffQuarantinedSale: vi.fn(),
+  consoleRepairQuarantinedSale: vi.fn(),
 };
 vi.mock("@/lib/sale-quarantine-queries", () => ({
   consoleListQuarantinedSales: (...a: unknown[]) => api.consoleListQuarantinedSales(...a),
   consoleGetQuarantinedSale: (...a: unknown[]) => api.consoleGetQuarantinedSale(...a),
   consoleWriteOffQuarantinedSale: (...a: unknown[]) => api.consoleWriteOffQuarantinedSale(...a),
+  consoleRepairQuarantinedSale: (...a: unknown[]) => api.consoleRepairQuarantinedSale(...a),
 }));
 const listStores = vi.fn();
 vi.mock("@/lib/rf2-queries", async (importOriginal) => {

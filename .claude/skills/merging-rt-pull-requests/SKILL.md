@@ -198,6 +198,8 @@ Electron for the POS jobs). When GitHub's release downloads fail, all of them go
   `curl` check succeeds (200, or 206 because it asks for a byte range); a push or a re-run during the outage just fails again.
 - Never merge past the red `required` because "it is only infra": the bypass is the owner's.
 
+A re-run reuses the original `pull_request` event, including its base SHA. When the red job is caused by something on `main` that another PR has since fixed (RT-1312 #739: `bc/oasdiff` failed with "inherited entries in breaking-ignore.txt are no longer applied" until a later `main` commit removed them), a re-run fails again with the same old `base <sha>` in its log. Merge `origin/main` into the branch normally (no rebase, no force-push) to get a new event and base; do not re-run twice.
+
 ## After the merge
 
 1. `gh pr view <n> --json headRefOid,mergeCommit`: the merged head must equal the last SHA you

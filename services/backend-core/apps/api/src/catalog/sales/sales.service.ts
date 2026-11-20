@@ -328,60 +328,10 @@ export class SalesService {
    * tenant_id, so a cross-tenant externalId collision is isolated (SI-001).
    */
   async captureSale(input: CaptureSaleInput): Promise<CaptureSaleResult> {
-    const { tenantId, storeId, actorUserId, body } = input;
-    const payloadHash = sha256CanonicalHex(body);
-    const tenders = body.tenders ?? [];
-    const responsibilities = body.responsibilities ?? [];
-
-    const result = await runWithTenantContext(
-      this.pool,
-      { tenantId, isPlatformAdmin: false },
-      async (client): Promise<{ saleId: string; created: boolean }> => {
-        const mismatchFlag = await validateSaleTotals(client, body);
-        // UUIDv7 (time-ordered) via the shared id policy — fact tables are
-        // high-write, so v7 B-tree locality matters; matches reconciliation.
-        const saleId = newId();
-        const storeTimezone = await resolveStoreTimezone(client, storeId);
-        // RT-451 S3: tracked selling (gate AND tenant switch), the per-product
-        // capture/profile lock, and the G7-9 classification, all before the
-        // header so the sale's tracking status is written with it.
-        const tracking = await prepareCaptureTracking(client, { tenantId, storeId, storeTimezone, body });
-        const header = { saleId, payloadHash, mismatchFlag, storeTimezone, trackingStatus: tracking.status };
-        const inserted = await insertSaleHeader(client, input, header);
-
-        if (!inserted) {
-          return resolveReplay(client, { tenantId, storeId, body, payloadHash, tenders, responsibilities });
-        }
-
-        // A FIRST capture from here: every refusal throws and rolls the
-        // transaction back, so the sales row is not kept and nothing is
-        // recorded.
-        const promotions = await assertFirstCaptureAccepted(client, {
-          scope: { tenantId, storeId },
-          actorUserId,
-          authPath: input.authPath,
-          body,
-          tenders,
-          responsibilities,
-        });
-        await insertCaptureRows(client, {
-          saleId,
-          tenantId,
-          storeId,
-          actorUserId,
-          body,
-          tenders,
-          responsibilities,
-          tracking,
-          promotions,
-        });
-        // ONLY the created path emits: a replay returned above, so a
-        // re-delivery does NOT double-emit.
-        await emitSaleCaptured(client, { saleId, tenantId, storeId });
-        return { saleId, created: true };
-      },
+    const { tenantId, storeId } = input;
+    const result = await runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, (client) =>
+      captureSaleInTransaction(client, input),
     );
-
     const projection = await this.readSaleProjection(tenantId, storeId, result.saleId);
     return { projection, created: result.created };
   }
@@ -826,6 +776,66 @@ function lineTrackingField(l: SaleLineRow): { tracking?: SaleLineTrackingProject
   };
 }
 
+
+/**
+ * The capture as ONE step on the caller's transaction client (`captureSale`
+ * opens the transaction; RT-1312 slice C, the Console repair of a quarantined
+ * sale, runs it inside its own so the capture and the item's resolution commit
+ * together). A refusal throws; the caller decides what rolls back. Returns the
+ * sale's id and whether this call created it (false: a provenance replay).
+ */
+export async function captureSaleInTransaction(
+  client: PoolClient,
+  input: CaptureSaleInput,
+): Promise<{ saleId: string; created: boolean }> {
+  const { tenantId, storeId, actorUserId, body } = input;
+  const payloadHash = sha256CanonicalHex(body);
+  const tenders = body.tenders ?? [];
+  const responsibilities = body.responsibilities ?? [];
+
+  const mismatchFlag = await validateSaleTotals(client, body);
+  // UUIDv7 (time-ordered) via the shared id policy — fact tables are
+  // high-write, so v7 B-tree locality matters; matches reconciliation.
+  const saleId = newId();
+  const storeTimezone = await resolveStoreTimezone(client, storeId);
+  // RT-451 S3: tracked selling (gate AND tenant switch), the per-product
+  // capture/profile lock, and the G7-9 classification, all before the
+  // header so the sale's tracking status is written with it.
+  const tracking = await prepareCaptureTracking(client, { tenantId, storeId, storeTimezone, body });
+  const header = { saleId, payloadHash, mismatchFlag, storeTimezone, trackingStatus: tracking.status };
+  const inserted = await insertSaleHeader(client, input, header);
+
+  if (!inserted) {
+    return resolveReplay(client, { tenantId, storeId, body, payloadHash, tenders, responsibilities });
+  }
+
+  // A FIRST capture from here: every refusal throws and rolls the
+  // transaction back, so the sales row is not kept and nothing is
+  // recorded.
+  const promotions = await assertFirstCaptureAccepted(client, {
+    scope: { tenantId, storeId },
+    actorUserId,
+    authPath: input.authPath,
+    body,
+    tenders,
+    responsibilities,
+  });
+  await insertCaptureRows(client, {
+    saleId,
+    tenantId,
+    storeId,
+    actorUserId,
+    body,
+    tenders,
+    responsibilities,
+    tracking,
+    promotions,
+  });
+  // ONLY the created path emits: a replay returned above, so a
+  // re-delivery does NOT double-emit.
+  await emitSaleCaptured(client, { saleId, tenantId, storeId });
+  return { saleId, created: true };
+}
 
 /**
  * RT-1224: the advisory comparison total (gate A.3/A.4) — the half-up sum of
