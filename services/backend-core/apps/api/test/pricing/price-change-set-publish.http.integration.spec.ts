@@ -109,6 +109,10 @@ const P = {
   pEmergency: a("15b5f102"),
   pLocal: a("15b5f103"),
   m3: a("15b5f104"),
+  // RT-1530: publicationStatus follows the live Store time zones.
+  tzLive: a("15b5f105"),
+  tzGone: a("15b5f106"),
+  tzZone: a("15b5f107"),
 };
 const CS_LEGACY = a("15b5c1");
 const E_BOOK_P1 = a("15b5e101");
@@ -1165,6 +1169,138 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
       expect(await recordOf(line.set.header.id)).toEqual([{ line: 1, event: true, results: 1 }]);
     } finally {
       await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [cairo.id]);
+    }
+  });
+
+  /** RT-1530: the header of a published set as the Console reads it, by id (GET) and in the list. */
+  async function statusOf(id: string): Promise<[string | null, string | null]> {
+    const one = (await request(app!.getHttpServer()).get(`${CS}/${id}`).set("x-test-session", SES_OWNER_ALL)).body as ChangeSet;
+    const list = await request(app!.getHttpServer()).get(`${CS}?state=published&page_size=100`).set("x-test-session", SES_OWNER_ALL);
+    status(list, 200);
+    const row = (list.body as { items: Header[] }).items.find((h) => h.id === id);
+    expect(row).toBeDefined();
+    return [one.header.publicationStatus, row!.publicationStatus];
+  }
+
+  const setZone = (store: string, zone: string): Promise<unknown> => env!.admin.query(`UPDATE stores SET timezone = $2 WHERE id = $1`, [store, zone]);
+
+  it("RT-1530: publicationStatus follows a Store's live time zone for store_local lines (spec 042 §3)", async () => {
+    if (skip()) return;
+    // 2090-06-01T12:00 wall clock at X (UTC) is 12:00Z; at Y (America/New_York, EDT) it is 16:00Z.
+    const { set } = await published({
+      items: [
+        {
+          op: "set_price",
+          scope: { kind: "stores", storeIds: [STORE_A_X, STORE_A_Y] },
+          products: items([P.tzLive]),
+          price: "31",
+          timeBasis: "store_local",
+          effectiveFrom: "2090-06-01T12:00",
+        },
+      ],
+    });
+    const id = set.header.id;
+    try {
+      // 13:00Z: X (UTC) is live since 12:00Z.
+      await at2("2090-06-01T13:00:00Z", async () => {
+        expect(await statusOf(id)).toEqual(["active", "active"]);
+        // X moves to Honolulu (22:00Z): only Y (16:00Z) is left ahead, so the set is scheduled again.
+        await setZone(STORE_A_X, "Pacific/Honolulu");
+        expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]);
+        // Y moves to Tokyo (03:00Z): active again.
+        await setZone(STORE_A_Y, "Asia/Tokyo");
+        expect(await statusOf(id)).toEqual(["active", "active"]);
+      });
+      // The earliest is now Y at 03:00Z.
+      await at2("2090-06-01T02:59:59Z", async () => expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]));
+      await at2("2090-06-01T03:00:00Z", async () => expect(await statusOf(id)).toEqual(["active", "active"]));
+    } finally {
+      await setZone(STORE_A_X, "UTC");
+      await setZone(STORE_A_Y, "America/New_York");
+    }
+    // Back to the zones it was published under.
+    await at2("2090-06-01T11:59:59Z", async () => expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]));
+    await at2("2090-06-01T12:00:00Z", async () => expect(await statusOf(id)).toEqual(["active", "active"]));
+  });
+
+  it("RT-1530: an absolute line ignores the zone; a deleted Store keeps its stored instant", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const tokyo = await stores.create(ctx, { code: "RT1530TYO", name: "RT-1530 Tokyo", timezone: "Asia/Tokyo" });
+    try {
+      // At X (UTC) 12:00Z; at the Tokyo Store 03:00Z.
+      const { set } = await published({
+        items: [
+          {
+            op: "set_price",
+            scope: { kind: "stores", storeIds: [STORE_A_X, tokyo.id] },
+            products: items([P.tzGone]),
+            price: "32",
+            timeBasis: "store_local",
+            effectiveFrom: "2091-06-01T12:00",
+          },
+        ],
+      });
+      await at2("2091-06-01T06:00:00Z", async () => {
+        expect(await statusOf(set.header.id)).toEqual(["active", "active"]);
+        // The Tokyo Store is deleted: it keeps its stored instant (03:00Z, as validated), so the set
+        // never flips back to scheduled because a Store was deleted, even if its zone is edited after.
+        await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [tokyo.id]);
+        expect(await statusOf(set.header.id)).toEqual(["active", "active"]);
+        await setZone(tokyo.id, "Pacific/Honolulu");
+        expect(await statusOf(set.header.id)).toEqual(["active", "active"]);
+      });
+      await at2("2091-06-01T02:00:00Z", async () => expect(await statusOf(set.header.id)).toEqual(["scheduled", "scheduled"]));
+      // An absolute line is zone free: its status never moves with a zone.
+      const abs = await published({ items: [bookPrice(P.tzGone, "33", "2092-06-01T12:00:00Z")] });
+      await at2("2092-06-01T11:00:00Z", async () => {
+        expect(await statusOf(abs.set.header.id)).toEqual(["scheduled", "scheduled"]);
+        await setZone(STORE_A_X, "Asia/Tokyo");
+        try {
+          expect(await statusOf(abs.set.header.id)).toEqual(["scheduled", "scheduled"]);
+        } finally {
+          await setZone(STORE_A_X, "UTC");
+        }
+      });
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1 AND deleted_at IS NULL`, [tokyo.id]);
+    }
+  });
+
+  it("RT-1530 m1: a Zone line keeps the Store's membership start as a floor when a zone change moves the line earlier", async () => {
+    if (skip()) return;
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
+    const s = await stores.create(ctx, { code: "RT1530ZON", name: "RT-1530 zone floor" });
+    try {
+      // The Store joins the SOUTH Zone at 10:00Z, before the line's 12:00 wall clock in UTC.
+      await published({ items: [{ op: "move_store_zone", storeId: s.id, zoneId: ZONE_SOUTH, effectiveFrom: "2093-06-01T10:00:00Z" }] });
+      const { set } = await published({
+        items: [
+          {
+            op: "set_price",
+            scope: { kind: "zone", zoneId: ZONE_SOUTH },
+            products: items([P.tzZone]),
+            price: "34",
+            timeBasis: "store_local",
+            effectiveFrom: "2093-06-01T12:00",
+          },
+        ],
+      });
+      const id = set.header.id;
+      await at2("2093-06-01T11:00:00Z", async () => expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]));
+      await at2("2093-06-01T12:00:00Z", async () => expect(await statusOf(id)).toEqual(["active", "active"]));
+      // Tokyo: the line starts 03:00Z, but the Store is not in the Zone before 10:00Z.
+      await setZone(s.id, "Asia/Tokyo");
+      await at2("2093-06-01T09:00:00Z", async () => expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]));
+      await at2("2093-06-01T10:00:00Z", async () => expect(await statusOf(id)).toEqual(["active", "active"]));
+      // Honolulu: the line starts 22:00Z, after the membership start.
+      await setZone(s.id, "Pacific/Honolulu");
+      await at2("2093-06-01T21:59:59Z", async () => expect(await statusOf(id)).toEqual(["scheduled", "scheduled"]));
+      await at2("2093-06-01T22:00:00Z", async () => expect(await statusOf(id)).toEqual(["active", "active"]));
+    } finally {
+      await env!.admin.query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [s.id]);
     }
   });
 });
