@@ -17,10 +17,14 @@ info:
     approved short-close of what is still in transit). The states are
     `draft`, `approved`, `in_transit`, `partially_received`, `received`,
     `closed` and `cancelled`. In Transit is a transfer-owned quantity on each
-    line, never a Stock Location or an inventory status (G4-1, 736). Each
-    operation is `x-runtime-status: contract-only` until the Backend-Core
-    runtime issue RT-1513, which also owns the per-tenant activation; until a
-    tenant is activated each operation answers the non-disclosing 404. Typed
+    line, never a Stock Location or an inventory status (G4-1, 736). The
+    Backend-Core runtime (RT-1513) serves each operation, so the
+    `x-runtime-status: contract-only` marker is lifted with no wire change;
+    until a tenant is activated each operation answers the non-disclosing 404
+    (the activation switch has no HTTP operation: RT-1517 exposes it). In V1
+    a short-close stays in Backend-Core: its quantity is recorded as an
+    approved discrepancy and no ERP work item is emitted (the ERP leg of a
+    write-off in transit is not decided). Typed
     refusals are 409 codes of the existing error envelope
     (`ShipmentTransferConflict`). No ERPNext field appears in this contract
     (873): the ERP legs are the reserved `transfer_dispatch` and
@@ -1779,10 +1783,6 @@ paths:
       operationId: createShipmentTransfer
       tags: [inventory]
       summary: Create a shipment Transfer in Draft.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime and the per-tenant activation ship
-        in RT-1513. Until then no route serves this operation.
       description: >
         RT-1512 (RT-291 Gate 5; decisions 800–802, 962, 963; G7-4). Creates a
         shipment Transfer in state `draft` from the source store to the
@@ -1829,9 +1829,6 @@ paths:
       operationId: listShipmentTransfers
       tags: [inventory]
       summary: List shipment Transfers, newest first, in keyset pages.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512. The tenant's shipment Transfers newest first
         (`createdAt DESC, id DESC`), optionally filtered by `storeId` (as source
@@ -1882,9 +1879,6 @@ paths:
       operationId: getShipmentTransfer
       tags: [inventory]
       summary: Read one shipment Transfer.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512. One shipment Transfer with its state, lines (ordered,
         dispatched, received, short-closed and in-transit quantities per line),
@@ -1913,9 +1907,6 @@ paths:
       operationId: approveShipmentTransfer
       tags: [inventory]
       summary: Approve a Draft; approval reserves the source stock.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512 (805, 806, 794–798; owner ruling O1, O2). Moves a `draft` to
         `approved`. Approval reserves the source stock of every line (item,
@@ -1969,9 +1960,6 @@ paths:
       operationId: cancelShipmentTransfer
       tags: [inventory]
       summary: Cancel a Transfer before dispatch.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512. Moves a `draft` or `approved` Transfer to the terminal
         `cancelled` state with a recorded reason; an approved Transfer's
@@ -2013,9 +2001,6 @@ paths:
       operationId: dispatchShipmentTransfer
       tags: [inventory]
       summary: Dispatch an approved Transfer; its goods go In Transit.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512 (807, 808; 876, 888). Moves an `approved` Transfer to
         `in_transit`. One Inventory Business Event writes one `transfer_out`
@@ -2063,9 +2048,6 @@ paths:
       operationId: recordShipmentTransferReceipt
       tags: [inventory]
       summary: Record a (possibly partial) receipt at the destination.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512 (803, 804, 809–813; 877, 889; owner ruling O5). Records one
         receipt event for an `in_transit` or `partially_received` Transfer. A
@@ -2116,9 +2098,6 @@ paths:
       operationId: listShipmentTransferReceipts
       tags: [inventory]
       summary: List a Transfer's receipts, oldest first.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512. The receipts of one shipment Transfer, oldest first
         (`receivedAt ASC, id ASC`), in keyset pages bound to the Transfer.
@@ -2148,17 +2127,15 @@ paths:
       operationId: closeShipmentTransfer
       tags: [inventory]
       summary: Close a Transfer, short-closing what is still in transit.
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1512 contract-first; the runtime ships in RT-1513.
       description: >
         RT-1512 (812). Moves a `received` Transfer to `closed`
         (`shortCloseReason` null). A `partially_received` Transfer, or an
         `in_transit` one, can be closed only as an approved short-close: the
         caller gives `shortCloseReason`, each line's remaining
         `inTransitQuantity` becomes its `shortClosedQuantity` and is written
-        off as a loss (its ERP leg is decided with RT-1513 and RT-1514, see
-        `posting-feed.yaml` 1.16.0-draft), and the Transfer is `closed`.
+        off as a loss (V1 keeps it in Backend-Core: an approved discrepancy,
+        no ERP work item, see `posting-feed.yaml` 1.17.0-draft), and the
+        Transfer is `closed`.
         Without a reason while any quantity is in transit the close is refused
         with 409 `short_close_reason_required`. A short-close needs the
         discrepancy approval capability: owner or tenant_admin. Closing a fully
@@ -5528,7 +5505,10 @@ components:
         date (G7-4). `serial_transfer_not_supported`: serial products cannot be
         transferred until the serial gate. `transfer_warehouse_unmapped`: the
         source, destination or tenant transit warehouse has no ERP mapping, so
-        the Transfer fails closed (O2). `over_receipt_requires_approval`: a
+        the Transfer fails closed (O2). `transfer_item_unmapped`: a line's
+        product has no confirmed ERP item mapping (or its tracking identity no
+        ERP batch mapping), so it could never be posted (886).
+        `over_receipt_requires_approval`: a
         receipt line exceeds the line's in-transit quantity (813).
         `short_close_reason_required`: a close while quantity is still in
         transit has no short-close reason (812). `idempotency_key_conflict`:

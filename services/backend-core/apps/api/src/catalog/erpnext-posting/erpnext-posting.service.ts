@@ -31,6 +31,7 @@ import {
   type AckLine,
 } from "../../inventory/count-sessions/count-posting-ack";
 import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";
+import { releaseTransferReceiptLegs } from "../../inventory";
 import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
 import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
 import {
@@ -40,6 +41,7 @@ import {
   TrackedLineNotPostableError,
   buildWorkItem,
   buildCountWorkItem,
+  buildTransferWorkItem,
   type FeedWorkItem,
   type PostingWorkItem,
 } from "./posting-work-item.projection";
@@ -274,7 +276,7 @@ interface FeedRowReport {
 /** A feed row as the pull query returns it. */
 interface FeedRow {
   readonly id: string;
-  readonly kind: "sale_post" | "reversal" | "inventory_count";
+  readonly kind: "sale_post" | "reversal" | "inventory_count" | "transfer_dispatch" | "transfer_receive";
   readonly sale_id: string | null;
   readonly source_ref_id: string;
   readonly source_system: string;
@@ -516,6 +518,21 @@ export class ErpnextPostingService {
           else omitted.push({ kind: "omitted", id: row.id, detail: row.kind, retryCount: 0 });
           continue;
         }
+        if (row.kind === "transfer_dispatch" || row.kind === "transfer_receive") {
+          // RT-1513: a transfer leg is built from its frozen rows only, never from a sale. A receipt leg exists only
+          // once its dispatch is confirmed, so nothing here can offer it early.
+          const leg = await buildTransferWorkItem(client, {
+            id: row.id,
+            kind: row.kind,
+            sourceSystem: row.source_system,
+            externalId: row.external_id,
+            payloadHash: row.payload_hash,
+            sequence: row.sequence,
+          });
+          if (leg) items.push(leg);
+          else omitted.push({ kind: "omitted", id: row.id, detail: row.kind, retryCount: 0 });
+          continue;
+        }
         if (row.sale_id === null) throw new Error("a sale or reversal posting row without a sale");
         const item = await buildWorkItem(client, {
           id: row.id,
@@ -666,6 +683,11 @@ export class ErpnextPostingService {
         const recorded = await this.transition(client, input, row);
         // RT-1423: a count chunk ack also moves its session (posting to confirmed or needs_attention).
         if (row.kind === "inventory_count") await recomputeCountSession(client, input.workItemRef);
+        // RT-1513: a confirmed dispatch releases the receipt legs that waited for it, in this same transaction (the
+        // tenant's feed sequence lock is held), so a new leg's sequence is past the Connector's cursor.
+        if (row.kind === "transfer_dispatch" && recorded.outcome === "posted") {
+          await releaseTransferReceiptLegs(client, input.tenantId, input.workItemRef);
+        }
         return { replayed: false, outcome: recorded };
       },
     );

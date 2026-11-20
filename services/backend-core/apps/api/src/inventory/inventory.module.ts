@@ -42,6 +42,9 @@ import { InventoryController } from "./inventory.controller";
 import { InventoryService } from "./inventory.service";
 import { InventoryPositionEventsController } from "./position-events/position-events.controller";
 import { InventoryPositionEventsService } from "./position-events/position-events.service";
+import { ShipmentTransferActivationService } from "./shipment-transfers/shipment-transfer-activation.service";
+import { ShipmentTransfersController } from "./shipment-transfers/shipment-transfers.controller";
+import { ShipmentTransfersService } from "./shipment-transfers/shipment-transfers.service";
 import { IdentityExpiryService } from "./safety/identity-expiry.service";
 import { InventoryRecallsService } from "./safety/inventory-recalls.service";
 import { InventorySafetyFeedController } from "./safety/inventory-safety-feed.controller";
@@ -105,6 +108,9 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // tenant's count_sessions_enabled is on).
     CountSessionsController,
     CountSessionsSettingController,
+    // RT-1513: the shipment Transfer lifecycle (cookieAuth, RolesGuard; dark until the tenant's
+    // shipment_transfers_enabled is on).
+    ShipmentTransfersController,
   ],
   providers: [
     InventoryService,
@@ -126,6 +132,9 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     CountSessionsService,
     CountLateCompensationService,
     CountSessionsSettingService,
+    // RT-1513: the shipment Transfer service and its activation switch (the switch has no HTTP surface yet, RT-1517).
+    ShipmentTransfersService,
+    ShipmentTransferActivationService,
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
     // row: the device on the pre-tenant lookup pool, its tenant's status on

@@ -141,7 +141,13 @@
         "inventory_identity_anchors",
         "inventory_position_events",
         "inventory_recalls",
+        "inventory_reservations",
         "inventory_safety_changes",
+        "shipment_transfer_discrepancies",
+        "shipment_transfer_lines",
+        "shipment_transfer_receipt_lines",
+        "shipment_transfer_receipts",
+        "shipment_transfers",
         "stock_counts",
         "stock_locations",
         "stock_movements",
@@ -152,7 +158,9 @@
         "tracking_identity_births",
         "tracking_identity_expiry_corrections",
         "tracking_resolution_lines",
-        "tracking_resolutions"
+        "tracking_resolutions",
+        "transfer_posting_lines",
+        "transfer_postings"
       ]
     },
     "memberships": {

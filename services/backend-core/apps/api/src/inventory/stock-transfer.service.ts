@@ -5,10 +5,10 @@
  * context, the single transaction, the audit row and the outbox event are
  * unchanged. Not a Nest provider: the module wiring is unchanged.
  */
-import { BadRequestException } from '@nestjs/common';
+import { BadRequestException, ConflictException } from '@nestjs/common';
 import { runWithTenantContext } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
-import type { Pool } from 'pg';
+import type { Pool, PoolClient } from 'pg';
 
 import { formatQuantity, parseQuantity } from '../common/quantity/decimal-quantity';
 import { asNotPosted, toMovementBody } from './inventory.mappers';
@@ -28,7 +28,30 @@ import {
 } from './inventory-write.helpers';
 
 const AUDIT_ACTION_TRANSFER_CREATE = 'inventory.transfer.create';
+/** RT-1513 (976): the stable code of the legacy refusal once a tenant runs the shipment workflow. */
+const TRANSFER_WORKFLOW_REQUIRED = 'transfer_workflow_required';
 const AUDIT_TARGET_TYPE_TRANSFER = 'stock_transfer';
+
+/**
+ * One writable transfer workflow (976, RT-1513): a tenant that switched shipment transfers on may no longer create an
+ * instant transfer. Read under the shared settings lock the switch writer takes exclusively, so a switch-on cannot commit
+ * between this read and the writes that follow. History is kept (970).
+ */
+async function assertLegacyTransferAllowed(client: PoolClient, tenantId: string): Promise<void> {
+  await client.query(`SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`, [
+    tenantId,
+  ]);
+  const switched = await client.query<{ on: boolean }>(
+    `SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
+    [tenantId],
+  );
+  if (switched.rows[0]?.on === true) {
+    throw new ConflictException({
+      code: TRANSFER_WORKFLOW_REQUIRED,
+      message: 'Shipment transfers are active for this tenant; use the shipment transfer workflow.',
+    });
+  }
+}
 
 export class StockTransferService {
   constructor(private readonly pool: Pool) {}
@@ -82,6 +105,7 @@ export class StockTransferService {
       this.pool,
       { tenantId: input.tenantId, isPlatformAdmin: false },
       async (client): Promise<StockTransferBody> => {
+        await assertLegacyTransferAllowed(client, input.tenantId);
         // ---- Both stores and the product must resolve within the tenant ----
         // (FR-051 / RT-61): a cross-tenant or unknown reference → 404.
         await assertReferencesInTenant(client, {
