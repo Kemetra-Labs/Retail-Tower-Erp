@@ -166,6 +166,54 @@ describe("production database pool separation", () => {
     await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
   });
 
+  it("RT-1520: a clean lookup role boots, and a column-only privilege on a forbidden table is refused, naming it", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    // has_table_privilege is false for every one of these; only the column check sees them.
+    for (const [grant, undo, message] of [
+      [
+        `GRANT SELECT (cells) ON catalog_import_rows TO ${LOOKUP_ROLE}`,
+        `REVOKE SELECT (cells) ON catalog_import_rows FROM ${LOOKUP_ROLE}`,
+        /AUTH_LOOKUP_DATABASE_URL role holds forbidden column grants: SELECT ON catalog_import_rows\(cells\)/,
+      ],
+      [
+        `GRANT UPDATE (id) ON sales TO ${LOOKUP_ROLE}`,
+        `REVOKE UPDATE (id) ON sales FROM ${LOOKUP_ROLE}`,
+        /holds forbidden column grants: UPDATE ON sales\(id\)/,
+      ],
+      [
+        `GRANT INSERT (id), REFERENCES (id) ON tenants TO ${LOOKUP_ROLE}`,
+        `REVOKE INSERT (id), REFERENCES (id) ON tenants FROM ${LOOKUP_ROLE}`,
+        /holds forbidden column grants: INSERT ON tenants\(id\), REFERENCES ON tenants\(id\)/,
+      ],
+      [
+        // A column grant to PUBLIC reaches the lookup role too.
+        "GRANT SELECT (cells) ON catalog_import_rows TO PUBLIC",
+        "REVOKE SELECT (cells) ON catalog_import_rows FROM PUBLIC",
+        /holds forbidden column grants: SELECT ON catalog_import_rows\(cells\)/,
+      ],
+    ] as const) {
+      await admin.query(grant);
+      try {
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(message);
+      } finally {
+        await admin.query(undo);
+      }
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+    }
+
+    // memberships forbids every privilege except SELECT: a column SELECT there is allowed.
+    await admin.query(`GRANT SELECT (role_id) ON memberships TO ${LOOKUP_ROLE}`);
+    try {
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+    } finally {
+      await admin.query(`REVOKE SELECT (role_id) ON memberships FROM ${LOOKUP_ROLE}`);
+    }
+  });
+
   it("RT-212 / RT-213: a domain role missing a cashier-admissions or tenants grant fails boot verification", async () => {
     if (dockerSkipped) return;
     const { app, admin } = env!;

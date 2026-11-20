@@ -49,6 +49,21 @@ function rolePool(input: {
   const columnGrants = input.columnGrants ?? (input.bypassRls ? new Set<string>() : DOMAIN_COLUMN_GRANTS);
   return {
     query: jest.fn(async (sql: string, params?: string[][]) => {
+      if (sql.includes("attacl")) {
+        // RT-1520: the columns of the given tables that carry a column ACL entry.
+        const tables = new Set(params![0]);
+        const seen = new Set<string>();
+        for (const key of columnGrants) {
+          const m = /^(.+)\((.+)\):[A-Z]+$/.exec(key);
+          if (m && tables.has(m[1]!)) seen.add(`${m[1]}(${m[2]})`);
+        }
+        return {
+          rows: [...seen].map((k) => {
+            const [table_name, column_name] = k.slice(0, -1).split("(");
+            return { table_name, column_name };
+          }),
+        };
+      }
       if (sql.includes("has_column_privilege")) {
         const [tables, columns, privileges] = params!;
         return {
@@ -239,6 +254,65 @@ describe("database pool boundary", () => {
         rolePool({ roleName: "app_auth_lookup", bypassRls: true, grants }),
       ),
     ).rejects.toThrow(new RegExp(`forbidden grants on: ${table}`));
+  });
+
+  // RT-1520 — has_table_privilege ignores column grants, so a BYPASSRLS role
+  // with `GRANT SELECT (cells) ON catalog_import_rows` passed the boot check.
+  describe("RT-1520: column-level privileges of the lookup role on forbidden tables", () => {
+    const lookupWith = (columnGrants: ReadonlySet<string>): Pool =>
+      rolePool({ roleName: "app_auth_lookup", bypassRls: true, columnGrants });
+    const boot = (lookup: Pool): Promise<void> =>
+      verifyDatabasePoolBoundary(rolePool({ roleName: "app_domain" }), lookup);
+
+    it("boots a lookup role with no column privilege on a forbidden table", async () => {
+      await expect(boot(lookupWith(new Set()))).resolves.toBeUndefined();
+    });
+
+    it.each([
+      ["catalog_import_rows", "cells", "SELECT"],
+      ["catalog_import_rows", "cells", "UPDATE"],
+      ["catalog_import_batches", "id", "INSERT"],
+      ["sales", "id", "REFERENCES"],
+      ["tenants", "name", "SELECT"],
+      ["memberships", "role_id", "UPDATE"],
+    ])("refuses a single-column grant on %s(%s): %s, naming the table and column", async (table, column, privilege) => {
+      await expect(boot(lookupWith(new Set([`${table}(${column}):${privilege}`])))).rejects.toThrow(
+        new RegExp(
+          `AUTH_LOOKUP_DATABASE_URL role holds forbidden column grants: ${privilege} ON ${table}\\(${column}\\)`,
+        ),
+      );
+    });
+
+    it("names every table and column held", async () => {
+      const grants = new Set(["catalog_import_rows(cells):SELECT", "catalog_import_rows(id):UPDATE", "sales(id):SELECT"]);
+      const error = await boot(lookupWith(grants)).then(
+        () => "",
+        (e: Error) => e.message,
+      );
+      for (const held of ["SELECT ON catalog_import_rows(cells)", "UPDATE ON catalog_import_rows(id)", "SELECT ON sales(id)"]) {
+        expect(error).toContain(held);
+      }
+    });
+
+    it("checks only the privileges an entry lists: a column SELECT on a membership table is not forbidden", async () => {
+      // memberships forbids ALL_PRIVILEGES_EXCEPT_SELECT: membership reads are allowed.
+      await expect(boot(lookupWith(new Set(["memberships(role_id):SELECT"])))).resolves.toBeUndefined();
+    });
+
+    it("ignores column privileges on tables that are not forbidden", async () => {
+      await expect(boot(lookupWith(new Set(["users(display_name):SELECT"])))).resolves.toBeUndefined();
+    });
+
+    it("keeps the table-level message when the table itself is granted", async () => {
+      const grants = new Set([...REQUIRED, "sales:SELECT"]);
+      const lookup = rolePool({
+        roleName: "app_auth_lookup",
+        bypassRls: true,
+        grants,
+        columnGrants: new Set(["sales(id):SELECT"]),
+      });
+      await expect(boot(lookup)).rejects.toThrow(/forbidden grants on: sales/);
+    });
   });
 
   it("RT-212: forbids every table privilege on each fully forbidden table", () => {

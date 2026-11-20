@@ -61,6 +61,15 @@ function fakePool(
   columnGrants: ReadonlySet<string> = new Set(),
 ): Pool {
   const query = async (sql: string, params?: string[][]) => {
+    if (sql.includes("attacl")) {
+      // RT-1520: the columns of the given tables that carry a column ACL entry.
+      const tables = new Set(params![0]);
+      const rows = [...columnGrants].flatMap((key) => {
+        const m = /^(.+)\((.+)\):[A-Z]+$/.exec(key);
+        return m && tables.has(m[1]!) ? [{ table_name: m[1], column_name: m[2] }] : [];
+      });
+      return { rows };
+    }
     if (sql.includes("has_column_privilege")) {
       const [tables, columns, privileges] = params!;
       return {
@@ -150,6 +159,12 @@ describe("compiled grants registry (dist layout)", () => {
     const leaking = new Set([...SCRIPT_COLUMN_GRANTS, "users(password_hash):SELECT"]);
     await expect(compiled.pools.verifyDatabasePoolBoundary(domain(SCRIPT_GRANTS, leaking), lookup)).rejects.toThrow(
       /holds forbidden column grants: SELECT ON users\(password_hash\)/,
+    );
+
+    // RT-1520: and a lookup role holding a column privilege on a forbidden table.
+    const columnLookup = fakePool({ name: "app_auth_lookup", bypassRls: true }, lookupGrants, new Set(["catalog_import_rows(cells):SELECT"]));
+    await expect(compiled.pools.verifyDatabasePoolBoundary(domain(SCRIPT_GRANTS), columnLookup)).rejects.toThrow(
+      /AUTH_LOOKUP_DATABASE_URL role holds forbidden column grants: SELECT ON catalog_import_rows\(cells\)/,
     );
   });
 
