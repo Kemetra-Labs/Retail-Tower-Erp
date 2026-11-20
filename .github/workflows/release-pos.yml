@@ -6,6 +6,9 @@
 #
 #   resolve       the release SHA (always github.sha) must be on main; a release needs a pos/vX.Y.Z tag
 #                 ref whose version equals apps/pos/package.json, a dry-run needs nothing else.
+#   guard         RT-1471: the four mandatory pos/* CI checks must be completed successes of the pos.yml run for this
+#                 exact SHA (read-only, nothing dispatched). Signing, the manifest and publish wait for it, and publish
+#                 checks again after its environment approval. Refuses on anything missing, pending, red or untrusted.
 #   build         the Windows package (win-unpacked), unsigned: the same steps as pos/package-windows,
 #                 including the RT-830 fuse readback and native-load smoke. The win-unpacked directory is
 #                 uploaded for the signing jobs, and zipped as POS-Pulse-X.Y.Z-win-x64.zip: the unsigned
@@ -119,6 +122,82 @@ jobs:
           if [ "$mode" = release ]; then tag="${REF#refs/tags/}"; fi
           { echo "sha=$SHA"; echo "mode=$mode"; echo "tag=$tag"; } >> "$GITHUB_OUTPUT"
           echo "### release-pos: $mode ${tag:-(no tag)} at \`$SHA\` (apps/pos version $PKG_VERSION)" >> "$GITHUB_STEP_SUMMARY"
+
+  guard:
+    name: release/ci-guard (mandatory CI checks of the release SHA, RT-1471)
+    needs: resolve
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Read-only: it reads check runs and workflow runs, starts nothing and holds no write scope. A missing or not
+    # yet successful mandatory check REFUSES the release; it never dispatches a workflow to produce one.
+    permissions:
+      contents: read
+      checks: read
+      actions: read # the workflow-run list that proves where each check came from
+    env:
+      REPO: ${{ github.repository }}
+      SHA: ${{ needs.resolve.outputs.sha }}
+      REQUIRED_CHECKS: '[{"name":"pos/static","workflow":".github/workflows/pos.yml"},{"name":"pos/test","workflow":".github/workflows/pos.yml"},{"name":"pos/package-windows","workflow":".github/workflows/pos.yml"},{"name":"pos/e2e-electron","workflow":".github/workflows/pos.yml"}]'
+    outputs:
+      verdict: ${{ steps.gate.outputs.verdict }}
+    steps:
+      # Only the guard script and .nvmrc are checked out (non-cone mode adds no root file on its own); the SHA is the
+      # one resolve proved is on main, and nothing else from it is executed.
+      - name: Checkout the guard script (only that file)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.github/release/ci-check-gate.cjs
+            /.nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # nothing is installed here, and a release job restores no cache
+
+      - name: Read the check runs and workflow runs of the release SHA
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # filter=all: the default (latest) can hide a queued re-run attempt behind an older completed one.
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
+            --jq '.check_runs[] | {id, name, status, conclusion, slug: .app.slug, started_at, head_sha, details_url}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[] | {id, path, event, head_branch, head_sha, repository: .repository.full_name, head_repository: .head_repository.full_name}' | jq -s . > "$RUNNER_TEMP/workflow-runs.json"
+          # The Actions jobs of every run of the required workflow: a check run counts only if it is one of these jobs.
+          RUN_IDS="$(jq -r --argjson req "$REQUIRED_CHECKS" '($req | map(.workflow)) as $wfs | .[] | select(.path as $p | $wfs | index($p)) | .id' "$RUNNER_TEMP/workflow-runs.json" | tr -d '\r')"
+          : > "$RUNNER_TEMP/jobs.stream"
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api --paginate "repos/$REPO/actions/runs/$id/jobs?per_page=100&filter=all" \
+              --jq '.jobs[] | {id, run_id, name, status, conclusion, head_sha, check_run_url}' >> "$RUNNER_TEMP/jobs.stream"
+          done <<<"$RUN_IDS"
+          jq -s . "$RUNNER_TEMP/jobs.stream" > "$RUNNER_TEMP/jobs.json"
+
+      # The four mandatory POS CI checks (tools/project-graph/graph.yaml, RT-1471): each must be a completed
+      # success of the pos.yml run for this exact SHA (push, schedule or manual full run on main), by the
+      # GitHub Actions app. The newest run decides; anything missing, pending, red, stale, wrong-SHA, untrusted
+      # or unreadable refuses. The in-workflow gates below (build, signing, environments) are separate and unchanged.
+      - name: Release CI guard
+        id: gate
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/ci-gate.txt"
+          status=0
+          node .github/release/ci-check-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --runs "$RUNNER_TEMP/workflow-runs.json" --jobs "$RUNNER_TEMP/jobs.json" --required "$REQUIRED_CHECKS" --sha "$SHA" --repo "$REPO" > "$out" || status=$?
+          cat "$out"
+          {
+            echo "### Release CI guard (RT-1471)"
+            echo
+            sed 's/^::error:://; s/^/- /' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then verdict=PASS; else verdict=REFUSED; fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          [ "$status" -eq 0 ] || { echo "::error::release CI guard refused $SHA (mandatory pos/* checks)"; exit 1; }
 
   build:
     name: release/build (Windows package, unsigned)
@@ -256,7 +335,7 @@ jobs:
 
   sign-release:
     name: release/sign (lab certificate, release-pos-sign environment)
-    needs: [resolve, build]
+    needs: [resolve, guard, build]
     if: needs.resolve.outputs.mode == 'release'
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
@@ -318,12 +397,13 @@ jobs:
 
   manifest:
     name: release/manifest
-    needs: [resolve, build, sign-dry-run, sign-release]
+    needs: [resolve, guard, build, sign-dry-run, sign-release]
     # !cancelled(): sign-dry-run or sign-release is skipped in every run, and a skipped need would skip this
     # job under the implicit success(); unlike always(), cancelling the run still stops it. The sign job of
     # this run's mode must have succeeded.
     if: >-
-      !cancelled() && needs.resolve.result == 'success' && needs.build.result == 'success'
+      !cancelled() && needs.resolve.result == 'success' && needs.guard.result == 'success'
+      && needs.build.result == 'success'
       && ((needs.resolve.outputs.mode == 'dry-run' && needs.sign-dry-run.result == 'success')
       || (needs.resolve.outputs.mode == 'release' && needs.sign-release.result == 'success'))
     runs-on: ubuntu-24.04
@@ -397,13 +477,14 @@ jobs:
 
   publish:
     name: release/publish (attestation + GitHub release)
-    needs: [resolve, sign-release, manifest]
+    needs: [resolve, guard, sign-release, manifest]
     # !cancelled(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would
     # skip this job under the implicit success(). Every need is checked explicitly instead. Unlike always(),
     # cancelling the run stops an approved publish.
     if: >-
       !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
-      && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
+      && needs.guard.result == 'success' && needs.sign-release.result == 'success'
+      && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: release-pos
@@ -415,12 +496,15 @@ jobs:
       contents: write # the GitHub release
       id-token: write # attestation signing (Sigstore)
       attestations: write
-      actions: read # the environment and deployment-policy reads in the first step
+      actions: read # the environment and deployment-policy reads in the first step, and the CI guard re-check
+      checks: read # the CI guard re-check (RT-1471)
     env:
       SHA: ${{ needs.resolve.outputs.sha }}
       TAG: ${{ needs.resolve.outputs.tag }}
       REPO: ${{ github.repository }}
-    # No checkout: this job runs no repository code. GH_TOKEN is set per step, only where gh needs it.
+      REQUIRED_CHECKS: '[{"name":"pos/static","workflow":".github/workflows/pos.yml"},{"name":"pos/test","workflow":".github/workflows/pos.yml"},{"name":"pos/package-windows","workflow":".github/workflows/pos.yml"},{"name":"pos/e2e-electron","workflow":".github/workflows/pos.yml"}]'
+    # No repository code runs here except the one CI guard script, checked out alone (RT-1471). GH_TOKEN is set per
+    # step, only where gh needs it.
     steps:
       # A job that names a missing environment creates it unprotected. Refuse unless release-pos has a
       # required reviewer and admits only pos/v* tags, and release-pos-sign (the only holder of the lab
@@ -456,6 +540,39 @@ jobs:
           fail() { echo "::error::$*"; exit 1; }
           [[ "$TAG" =~ ^pos/v[0-9]+\.[0-9]+\.[0-9]+$ ]] || fail "release tag '$TAG' is not pos/vX.Y.Z"
           [ "$SHA" = "$GITHUB_SHA" ] || fail "resolved SHA $SHA != workflow SHA $GITHUB_SHA"
+
+      # Environment approval can wait for days: the checks the guard job judged are judged again after it, before
+      # anything is downloaded, attested or published. Only the guard script is checked out; it runs without the token
+      # (it reads three JSON files), in an empty environment: the job's OIDC and token variables never reach it.
+      # Nothing else from the repository runs in this job.
+      - name: Checkout the guard script (only that file)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          persist-credentials: false
+          sparse-checkout: |
+            /.github/release/ci-check-gate.cjs
+          sparse-checkout-cone-mode: false
+
+      - name: Re-check the release CI guard before publishing
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          # filter=all: the default (latest) can hide a queued re-run attempt behind an older completed one.
+          gh api --paginate "repos/$REPO/commits/$SHA/check-runs?per_page=100&filter=all" \
+            --jq '.check_runs[] | {id, name, status, conclusion, slug: .app.slug, started_at, head_sha, details_url}' | jq -s . > "$RUNNER_TEMP/check-runs.json"
+          gh api --paginate "repos/$REPO/actions/runs?head_sha=$SHA&per_page=100" \
+            --jq '.workflow_runs[] | {id, path, event, head_branch, head_sha, repository: .repository.full_name, head_repository: .head_repository.full_name}' | jq -s . > "$RUNNER_TEMP/workflow-runs.json"
+          # The Actions jobs of every run of the required workflow: a check run counts only if it is one of these jobs.
+          RUN_IDS="$(jq -r --argjson req "$REQUIRED_CHECKS" '($req | map(.workflow)) as $wfs | .[] | select(.path as $p | $wfs | index($p)) | .id' "$RUNNER_TEMP/workflow-runs.json" | tr -d '\r')"
+          : > "$RUNNER_TEMP/jobs.stream"
+          while IFS= read -r id; do
+            [ -n "$id" ] || continue
+            gh api --paginate "repos/$REPO/actions/runs/$id/jobs?per_page=100&filter=all" \
+              --jq '.jobs[] | {id, run_id, name, status, conclusion, head_sha, check_run_url}' >> "$RUNNER_TEMP/jobs.stream"
+          done <<<"$RUN_IDS"
+          jq -s . "$RUNNER_TEMP/jobs.stream" > "$RUNNER_TEMP/jobs.json"
+          env -i PATH="$PATH" node .github/release/ci-check-gate.cjs --checks "$RUNNER_TEMP/check-runs.json" --runs "$RUNNER_TEMP/workflow-runs.json" --jobs "$RUNNER_TEMP/jobs.json" --required "$REQUIRED_CHECKS" --sha "$SHA" --repo "$REPO"
 
       - name: Download the installer
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
