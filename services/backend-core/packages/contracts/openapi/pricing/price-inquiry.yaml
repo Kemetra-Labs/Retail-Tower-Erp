@@ -752,7 +752,9 @@ components:
           description: >
             `explicit`: the Store has one membership at the instant.
             `default`: it has none and falls back to the Book's default Zone.
-            `ambiguous`: more than one (a data defect, `outcome: conflict`).
+            `ambiguous`: more than one (a data defect): `outcome: conflict`
+            when it decides the result; reported with `outcome: none` below a
+            selected Store layer.
         priceEventId:
           $ref: "#/components/schemas/Uuid"
         price:

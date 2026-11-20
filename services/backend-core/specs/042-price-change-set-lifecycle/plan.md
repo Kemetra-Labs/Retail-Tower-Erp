@@ -240,8 +240,11 @@ prefers independent lifecycles (OD-4 B), only the "shared" column moves into Pri
 ## 10. Audit (707)
 
 Every transition writes one `audit_events` row: `action = pricing.change_set.<transition>`, `target_type = price_change_set`,
-`target_id`, actor, `store_id` (for single-store sets), and metadata: `reason`, `version`, `revisionNo`,
-`previewHash`, `kind`, `earliestEffectiveAt`. Publish additionally writes a per-line before/after record
+`target_id`, actor, `store_id` (for single-store sets), and metadata: `reason_present` (a boolean), `version`,
+`revisionNo`, `previewHash`, `kind`, `earliestEffectiveAt`. The operator's free-text reason stays on the set row
+(`change_sets.reason`) and is never copied into audit metadata (FR-AUDIT-3 forbids free text there; amended by
+RT-1484, comment 17881 follow-up 4; the runtime writes these keys in snake_case, e.g. `reason_present`,
+`preview_hash`, `earliest_effective_at`). Publish additionally writes a per-line before/after record
 (`oldEventId/oldPrice → newEventId/newPrice`, effective time). Volume rule: the per-line record lives in the change-set
 lines table (immutable after publish) and the audit row references it, so audit stays one row per transition (Q-B5).
 

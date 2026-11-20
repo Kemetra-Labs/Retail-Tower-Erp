@@ -184,3 +184,11 @@ export const ListChangeSetsQuerySchema = z.object({
   page_size: PageSize.optional(),
 });
 export type ListChangeSetsQuery = z.infer<typeof ListChangeSetsQuerySchema>;
+
+/** `consoleGetPriceChangeSetPreview` query: an optional `class` filter, the cursor and the page size. */
+export const PreviewQuerySchema = z.object({
+  class: z.enum(["new", "replaces", "conflicts_pending", "shadowed", "invalidates_dependent", "past_dated", "invalid"]).optional(),
+  cursor: z.string().min(1).max(512).regex(/^[A-Za-z0-9_-]+$/).optional(),
+  page_size: PageSize.optional(),
+});
+export type PreviewQuery = z.infer<typeof PreviewQuerySchema>;

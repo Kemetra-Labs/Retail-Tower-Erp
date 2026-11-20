@@ -26,6 +26,32 @@ export async function liveStoreTimezone(client: Queryable, tenantId: string, sto
   return r.rows[0]?.timezone ?? null;
 }
 
+/** A store as Pricing validation sees it: its IANA time zone and whether it is live. */
+interface StoreForPricing {
+  readonly id: string;
+  readonly timezone: string;
+  readonly live: boolean;
+}
+
+/**
+ * Every live store of `tenantId`, plus the stores in `named` that are the tenant's but deleted
+ * (`live: false`), each with its time zone. A named id the tenant does not have is absent.
+ */
+export async function liveAndNamedStores(
+  client: Queryable,
+  tenantId: string,
+  named: readonly string[],
+): Promise<StoreForPricing[]> {
+  const r = await client.query<StoreForPricing>(
+    `SELECT id::text AS id, timezone, deleted_at IS NULL AS live
+       FROM stores
+      WHERE tenant_id = $1::uuid AND (deleted_at IS NULL OR id = ANY($2::uuid[]))
+      ORDER BY id`,
+    [tenantId, named],
+  );
+  return r.rows;
+}
+
 /**
  * Up to `limit` live store ids of `tenantId`, ascending, strictly after `after` (keyset), limited
  * to `storeIds` when that is not null (an empty list reads nothing: fail closed).

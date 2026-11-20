@@ -288,10 +288,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Materializes the selectors into concrete lines at the head revision
         (categories frozen now), computes helper prices, classifies every line
@@ -347,10 +343,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         The preview stored by the last `validate` (spec 042 §6): summary,
         Zone-membership changes and a page of lines ordered by (`storeId`,
@@ -1731,7 +1723,11 @@ components:
         `change_set_too_large` (more than 50 000 materialized lines, Q-B6;
         split the set); `lead_time_violation` (a `standard` set whose earliest
         effective instant is inside the tenant's `pricing.min_lead_time`, spec
-        042 §7; emergency sets are exempt). Nothing is stored.
+        042 §7; emergency sets are exempt); `change_set_no_target_store` (an
+        item reaches no live Store, for example a Zone line whose Zone no live
+        Store is in at the head revision, or names a Store, Zone or product the
+        tenant does not have; the message names the item's position; RT-1484).
+        Nothing is stored.
       content:
         application/json:
           schema:

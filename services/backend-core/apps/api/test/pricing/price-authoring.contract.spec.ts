@@ -82,6 +82,9 @@ const CHANGE_SET_RUNTIME = new Set([
   "consoleGetPriceChangeSet",
   "consoleUpdatePriceChangeSet",
   "consoleCancelPriceChangeSet",
+  // RT-1484 PR-4b (RT-282 PR-10a): validate and preview.
+  "consoleValidatePriceChangeSet",
+  "consoleGetPriceChangeSetPreview",
 ]);
 
 /** The request body schema of every write (spec 042 §12: every transition carries expectedVersion). */
@@ -258,6 +261,8 @@ describe("price-change-sets — spec 042 rules", () => {
     const responses = (docs["price-change-sets"] as unknown as { components: { responses: Record<string, { description: string }> } })
       .components.responses;
     expect(responses["ValidateUnprocessable"]!.description).toMatch(/lead_time_violation/);
+    // RT-1484 comment 17882, decision 1: a line that reaches no live Store refuses the set.
+    expect(responses["ValidateUnprocessable"]!.description).toMatch(/`change_set_no_target_store` \(an item reaches no live Store[^)]*item's position/);
     expect(responses["SubmitUnprocessable"]!.description).toMatch(/acknowledgement_required/);
     const structure = (docs["price-structure"] as unknown as { components: { responses: Record<string, { description: string }> } })
       .components.responses;
