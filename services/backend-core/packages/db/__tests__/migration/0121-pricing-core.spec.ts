@@ -368,6 +368,8 @@ afterAll(async () => {
 // Shape: tables, Drizzle, RLS
 // -----------------------------------------------------------------------------
 
+const LATER_CHANGE_SET_COLUMNS: readonly string[] = ["rollback_from", "rollback_from_defaulted"];
+
 describe("0121_pricing_core — shape", () => {
   it("creates the seven tables and the Drizzle schema declares exactly their columns", async () => {
     if (skip()) return;
@@ -383,6 +385,8 @@ describe("0121_pricing_core — shape", () => {
     for (const t of drizzle) {
       const name = getTableName(t);
       const declared = Object.values(getTableColumns(t) as Record<string, { name: string; notNull: boolean }>)
+        // Columns a LATER migration adds (the schema file is the current shape): 0127 (RT-1532) on change_sets.
+        .filter((c) => !(name === "change_sets" && LATER_CHANGE_SET_COLUMNS.includes(c.name)))
         .map((c) => `${c.name}:${c.notNull ? "NO" : "YES"}`)
         .sort();
       const actual = await e.admin.query<{ c: string }>(

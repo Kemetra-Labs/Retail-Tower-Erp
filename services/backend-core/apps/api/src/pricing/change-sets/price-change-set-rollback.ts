@@ -36,7 +36,7 @@
  */
 import type { PoolClient } from "pg";
 
-import { readFirstAuditMetadata, readLatestAuditMetadataWithKey } from "../../audit";
+import { readLatestAuditMetadataWithKey } from "../../audit";
 import { liveAndNamedStores } from "../../stores";
 import type { PriceChangeItem } from "./price-change-sets.dto";
 import {
@@ -586,16 +586,21 @@ export function sameItems(a: readonly PriceChangeItem[], b: readonly PriceChange
 }
 
 /**
- * Delta review m-d: the start a rollback was requested with. An omitted `from` ("at publish") is
- * `-Infinity`, so validation uses now and no recorded instant is needed; an explicit one is the
- * `created` row's `rollback_from`. Fail closed: an explicit (or unknown) `from` that cannot be read
- * back is `409 change_set_invalid_state`, never now. (A `rollback_from` column is a follow-up.)
+ * Delta review m-d, RT-1532: the start a rollback was requested with, read from the set's own
+ * `rollback_from` / `rollback_from_defaulted` columns (0127), never from an audit row. An omitted
+ * `from` ("at publish") is `-Infinity`, so validation uses now; an explicit one is `rollback_from`.
+ * Fail closed: a rollback set whose columns are NULL (created before 0127 and not filled by its
+ * backfill, 0128) or an absent set is `409 change_set_invalid_state`, never now.
  */
 async function requestedFromMs(client: Queryable, tenantId: string, setId: string): Promise<number> {
-  const created = await readFirstAuditMetadata(client, { tenantId, action: "pricing.change_set.created", targetType: "price_change_set", targetId: setId });
-  if (created?.["rollback_from_defaulted"] === true) return Number.NEGATIVE_INFINITY;
-  const at = typeof created?.["rollback_from"] === "string" ? Date.parse(created["rollback_from"]) : Number.NaN;
-  if (Number.isNaN(at)) {
+  const r = await client.query<{ rollback_from: Date | null; rollback_from_defaulted: boolean | null }>(
+    `SELECT rollback_from, rollback_from_defaulted FROM change_sets WHERE tenant_id = $1::uuid AND id = $2::uuid`,
+    [tenantId, setId],
+  );
+  const row = r.rows[0];
+  if (row?.rollback_from_defaulted === true) return Number.NEGATIVE_INFINITY;
+  const at = row?.rollback_from instanceof Date ? row.rollback_from.getTime() : Number.NaN;
+  if (row?.rollback_from_defaulted !== false || Number.isNaN(at)) {
     throw new PriceChangeSetConflictError("change_set_invalid_state", "The rollback start time is unavailable; cancel and recreate the rollback.");
   }
   return at;

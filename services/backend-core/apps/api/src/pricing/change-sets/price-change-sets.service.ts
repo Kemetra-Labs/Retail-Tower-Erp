@@ -761,9 +761,10 @@ export class PriceChangeSetsService {
       const id = newId();
       const correlationId = correlationOf(input);
       await client.query(
-        `INSERT INTO change_sets (id, tenant_id, domain, kind, title, reason, rolls_back_change_set_id, created_by_user_id, correlation_id)
-         VALUES ($1, $2, 'pricing', 'rollback', $3, $4, $5, $6, $7)`,
-        [id, input.tenantId, `Rollback of revision ${target.revisionNo}`, body.reason, targetId, input.actorUserId, correlationId],
+        `INSERT INTO change_sets (id, tenant_id, domain, kind, title, reason, rolls_back_change_set_id, rollback_from, rollback_from_defaulted,
+                                  created_by_user_id, correlation_id)
+         VALUES ($1, $2, 'pricing', 'rollback', $3, $4, $5, $6::timestamptz, $7, $8, $9)`,
+        [id, input.tenantId, `Rollback of revision ${target.revisionNo}`, body.reason, targetId, from, body.from === undefined, input.actorUserId, correlationId],
       );
       await this.writeItemList(client, input, id, 1, items, correlationId);
       await this.audit(client, input, "created", id, {

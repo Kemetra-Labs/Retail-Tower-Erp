@@ -75,6 +75,9 @@ export const changeSets = pgTable(
       .default(sql`'{}'`),
     revisionNo: bigint("revision_no", { mode: "number" }),
     rollsBackChangeSetId: uuid("rolls_back_change_set_id"),
+    // 0127 (RT-1532): the restore start a rollback was created with, and whether `from` was omitted.
+    rollbackFrom: timestamp("rollback_from", { withTimezone: true }),
+    rollbackFromDefaulted: boolean("rollback_from_defaulted"),
     ...pricingAuthorshipColumns(),
     submittedByUserId: uuid("submitted_by_user_id"),
     submittedAt: timestamp("submitted_at", { withTimezone: true }),
@@ -94,6 +97,12 @@ export const changeSets = pgTable(
     check("change_sets_domain", sql`${t.domain} IN ('pricing')`),
     check("change_sets_kind", sql`${t.kind} IN ('standard', 'emergency', 'rollback', 'legacy_import')`),
     check("change_sets_version_positive", sql`${t.version} >= 1`),
+    // 0127: only a rollback carries them, and both or neither.
+    check(
+      "change_sets_rollback_from_kind",
+      sql`${t.kind} = 'rollback' OR (${t.rollbackFrom} IS NULL AND ${t.rollbackFromDefaulted} IS NULL)`,
+    ),
+    check("change_sets_rollback_from_whole", sql`(${t.rollbackFrom} IS NULL) = (${t.rollbackFromDefaulted} IS NULL)`),
     index("ix_change_sets_tenant_state").on(t.tenantId, t.domain, t.state),
     // 0123: one live legacy import per tenant.
     uniqueIndex("ux_change_sets_one_legacy_import")
