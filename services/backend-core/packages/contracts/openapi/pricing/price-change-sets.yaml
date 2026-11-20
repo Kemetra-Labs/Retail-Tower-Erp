@@ -118,10 +118,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Newest first by (`createdAt`, `id`), keyset paginated, optionally
         filtered by `state` and `kind`. Items are headers without `items`.
@@ -163,10 +159,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Creates a `draft` at `version` 1 with the given items (possibly none).
         `kind` is `standard` or `emergency`; `rollback` sets are created only by
@@ -218,10 +210,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: Roles `owner` / `tenant_admin`.
       responses:
         "200":
@@ -247,10 +235,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Replaces the given fields (`items` is replaced as a whole) of a set in
         `draft` or `validated`, increments `version` and leaves it in `draft`;
@@ -701,10 +685,6 @@ paths:
       tags: [pricing-change-sets-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1151 PR-04 contract-first. The runtime ships in RT-1484 (RT-282
-        PR-10), which removes the marker.
       description: >
         Moves a `draft`, `validated`, `pending_approval` or `approved` set to
         `cancelled`, kept for audit. Roles `owner` / `tenant_admin`.
@@ -1714,7 +1694,11 @@ components:
         intersects the set, or its target Store set changed; the set is now
         `draft` and its `version` is incremented); `preview_changed` (`previewHash` is not the stored one);
         `change_set_not_validated` (no stored preview); `price_book_missing`
-        (the tenant has no retail Price Book); `idempotency_key_conflict`.
+        (the tenant has no retail Price Book); `pricing_authority_legacy`
+        (price authoring is not enabled for the tenant: until its legacy
+        cutover, RT-1485 and spec 044 §6.1, only tenants on the operator's
+        authoring allowlist may write Change Sets; reads stay open);
+        `idempotency_key_conflict`.
         Nothing is written, except the return to `draft` on
         `stale_validation`.
       content:

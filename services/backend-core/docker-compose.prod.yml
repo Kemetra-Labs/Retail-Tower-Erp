@@ -156,6 +156,9 @@ services:
       CASHIER_TAKEOVER_RATE_LIMIT: ${CASHIER_TAKEOVER_RATE_LIMIT:-}
       CASHIER_TAKEOVER_RATE_WINDOW_SECONDS: ${CASHIER_TAKEOVER_RATE_WINDOW_SECONDS:-}
       CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS: ${CASHIER_TAKEOVER_LIMITER_TIMEOUT_MS:-}
+      # RT-1484: tenant UUIDs (comma-separated) that may write Price Change Sets until their
+      # legacy cutover (RT-1485). Empty = nobody: every write is 409 pricing_authority_legacy.
+      PRICING_AUTHORING_TENANT_ALLOWLIST: ${PRICING_AUTHORING_TENANT_ALLOWLIST:-}
       # RT-1292 / RT-1297 POS pilot release lane. Off while any of the pin, the bucket or the
       # S3 key below is empty: the Console then gets { available: false }. No `:?` on purpose:
       # a missing value never stops the api. The three S3 values go to THIS service only, under

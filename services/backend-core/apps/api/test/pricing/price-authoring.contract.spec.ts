@@ -4,9 +4,10 @@
  * RT-1151 (RT-282 PR-04, authoring half): the Retail Pricing authoring
  * contracts, `pricing/price-structure.yaml` and `pricing/price-change-sets.yaml`
  * 1.0.0-draft. `[GATED]` contract-first. RT-1484 (RT-282 PR-09a) ships the
- * runtime of every `price-structure` operation, which loses its markers; the
- * `price-change-sets` operations stay `x-runtime-status: contract-only` until
- * their RT-1484 slices.
+ * runtime of every `price-structure` operation, which loses its markers; RT-1484 PR-4a
+ * (RT-282 PR-09b) routes list, create, get, update and cancel of `price-change-sets`; the
+ * other `price-change-sets` operations stay `x-runtime-status: contract-only` until their
+ * RT-1484 slices.
  *
  * Structural / load-only plus AJV 2020-12 fixtures; no app boot, no HTTP.
  * Pins:
@@ -74,6 +75,14 @@ const OPERATIONS: readonly Op[] = [
   { contract: "price-change-sets", id: "consoleCancelPriceChangeSet", method: "post", path: `${CS_ID}/cancel` },
 ];
 const WRITES = OPERATIONS.filter((op) => op.method !== "get");
+/** The Change Set operations RT-1484 PR-4a (RT-282 PR-09b) routes: authoring, read and cancel. */
+const CHANGE_SET_RUNTIME = new Set([
+  "consoleListPriceChangeSets",
+  "consoleCreatePriceChangeSet",
+  "consoleGetPriceChangeSet",
+  "consoleUpdatePriceChangeSet",
+  "consoleCancelPriceChangeSet",
+]);
 
 /** The request body schema of every write (spec 042 §12: every transition carries expectedVersion). */
 const REQUEST_BODIES: Record<string, string> = {
@@ -167,7 +176,7 @@ describe("pricing authoring contracts — operations (RT-1151 PR-04)", () => {
     expect(others[op.contract].has(op.id)).toBe(false);
   });
 
-  it.each(OPERATIONS.filter((op) => op.contract === "price-change-sets"))(
+  it.each(OPERATIONS.filter((op) => op.contract === "price-change-sets" && !CHANGE_SET_RUNTIME.has(op.id)))(
     "$id is contract-only with an RT-1484 note",
     (op) => {
       const o = operation(op);
@@ -176,8 +185,8 @@ describe("pricing authoring contracts — operations (RT-1151 PR-04)", () => {
     },
   );
 
-  it.each(OPERATIONS.filter((op) => op.contract === "price-structure"))(
-    "$id is implemented (RT-1484 PR-09a): no contract-only marker, no note",
+  it.each(OPERATIONS.filter((op) => op.contract === "price-structure" || CHANGE_SET_RUNTIME.has(op.id)))(
+    "$id is implemented (RT-1484 PR-09a, PR-09b): no contract-only marker, no note",
     (op) => {
       const o = operation(op);
       expect(o["x-runtime-status"]).toBeUndefined();
@@ -253,6 +262,12 @@ describe("price-change-sets — spec 042 rules", () => {
     const structure = (docs["price-structure"] as unknown as { components: { responses: Record<string, { description: string }> } })
       .components.responses;
     expect(structure["RetireZoneConflict"]!.description).toMatch(/Change Set targets it/);
+  });
+
+  it("documents the authoring gate: 409 pricing_authority_legacy (RT-1484 owner decision 1, spec 044 §6.1)", () => {
+    const responses = (docs["price-change-sets"] as unknown as { components: { responses: Record<string, { description: string }> } })
+      .components.responses;
+    expect(responses["Conflict"]!.description).toMatch(/`pricing_authority_legacy`/);
   });
 
   it("approve is bound to a previewHash; reject needs a reason", () => {

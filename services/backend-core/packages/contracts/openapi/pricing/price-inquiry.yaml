@@ -743,8 +743,9 @@ components:
           type: [string, "null"]
           format: uuid
           description: >
-            The Zone the Store resolves to at the instant; null only when the
-            membership is `ambiguous`.
+            The Zone the Store resolves to at the instant; null when the
+            membership is `ambiguous`, or when the tenant has no retail Price
+            Book (result `no_price_book`, with `zoneMembership: default`).
         zoneMembership:
           type: string
           enum: [explicit, default, ambiguous]

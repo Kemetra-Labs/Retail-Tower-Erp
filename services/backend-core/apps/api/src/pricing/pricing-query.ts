@@ -20,6 +20,33 @@ export function sessionReader(request: TenantContextRequest): PricingReadInput {
   return { tenantId: ctx.tenantId, context: ctx };
 }
 
+/** A pricing write adds the session's actor and the request id (for the audit row). */
+export interface PricingWriteInput extends PricingReadInput {
+  readonly actorUserId: string;
+  readonly requestId: string | null;
+}
+
+/** The session's tenant, context and actor (§XII), or 401 when the session has no user. */
+export function sessionWriter(request: TenantContextRequest): PricingWriteInput {
+  const read = sessionReader(request);
+  const userId = read.context.userId;
+  if (userId === null) throw new UnauthorizedException("Unauthorized");
+  return { ...read, actorUserId: userId, requestId: request.requestId ?? null };
+}
+
+/**
+ * Runs `work`, answering a service refusal with `toHttp(err)` (the contract's 4xx); anything
+ * `toHttp` returns unchanged propagates (500). `then(work)` also catches a refusal `work` throws
+ * synchronously (a gate, a cursor it cannot decode).
+ */
+export function mapPricingErrors<T>(work: () => Promise<T>, toHttp: (err: unknown) => unknown): Promise<T> {
+  return Promise.resolve()
+    .then(work)
+    .catch((err: unknown) => {
+      throw toHttp(err);
+    });
+}
+
 /** A path id (bookId, zoneId, storeId, productId): a UUID, any case; else 400 before any read. */
 const PathIdSchema = z.string().uuid();
 

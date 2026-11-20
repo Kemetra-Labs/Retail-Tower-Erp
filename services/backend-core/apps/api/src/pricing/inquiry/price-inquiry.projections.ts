@@ -7,8 +7,9 @@
  * would be but for representability) or `conflict` (the defect of a `status: error` result).
  * Layers above it held nothing (`none`). Below a `selected` layer, a layer with one event is
  * `shadowed` (what a reset would leave); below a `conflict`, every layer is `none` because
- * resolution stops at a defect. A layer below the selected one that itself holds an overlap is
- * `none`: resolution never reaches it, and `conflict` belongs to an error result only.
+ * resolution stops at a defect. Below the selected layer, the first defective layer (an overlap,
+ * or an ambiguous Zone membership) and every layer after it are `none`: resolution never reaches
+ * them, and `conflict` belongs to an error result only (RT-1484 comment 17874).
  */
 import { formatInstantInZone } from "../resolution/store-local-time";
 import type { LayerEval, ResolutionTrace } from "../resolution/resolve";
@@ -62,10 +63,14 @@ function stepOf(layer: LayerEval, ambiguous = false): Step {
 
 function outcomes(steps: readonly Step[]): Outcome[] {
   const decider = steps.findIndex((s) => s.decisive);
+  // Below the decider, the first defective layer and every layer after it are `none`: a reset of
+  // the layers above would stop at that defect, so nothing below it is "what a reset would leave".
+  const firstDefectBelow = steps.findIndex((s, i) => i > decider && s.defect);
   return steps.map((step, i) => {
     if (decider === -1 || i < decider) return "none";
     if (i === decider) return step.defect ? "conflict" : "selected";
     if (steps[decider]!.defect) return "none";
+    if (firstDefectBelow !== -1 && i >= firstDefectBelow) return "none";
     return step.layer.kind === "one" ? "shadowed" : "none";
   });
 }

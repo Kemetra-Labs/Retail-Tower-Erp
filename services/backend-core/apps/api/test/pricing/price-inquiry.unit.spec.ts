@@ -118,6 +118,34 @@ describe("explainLayers (spec 041 §8; decisions 491, 699)", () => {
     const d = data({ events: [storeEvent(), bookEvent(), bookEvent()] });
     expect(layersOf(d).map((l) => l.outcome)).toEqual(["selected", "none", "none"]);
   });
+
+  // RT-1484 comment 17874, follow-up 1: below a selected layer, the first defective layer and
+  // every layer after it are `none` (resolution never reaches them), never `shadowed`.
+  it("a Zone overlap below the selected Store hides the Book too (none, not shadowed)", () => {
+    const d = data({
+      events: [storeEvent(), zoneEvent(ZONE_A), zoneEvent(ZONE_A), bookEvent()],
+      memberships: [membership(ZONE_A)],
+    });
+    expect(layersOf(d).map((l) => l.outcome)).toEqual(["selected", "none", "none"]);
+  });
+
+  it("an ambiguous membership below the selected Store: the Zone and Book are none, the Zone reports it", () => {
+    const d = data({
+      events: [storeEvent({ price: "119.9900" }), zoneEvent(ZONE_A), bookEvent()],
+      memberships: [
+        membership(ZONE_A, { id: "00000000-0000-7000-8000-0000000000f1" }),
+        membership(DEFAULT_ZONE, { id: "00000000-0000-7000-8000-0000000000f2" }),
+      ],
+    });
+    expect(layersOf(d).map((l) => l.outcome)).toEqual(["selected", "none", "none"]);
+    const trace = traceResolution(PRODUCT, "each", store(), at("2026-06-01T00:00:00Z"), 10, d);
+    expect(explainLayers(trace, "Africa/Cairo", () => CHANGE_SET)[1]).toEqual({
+      scope: "zone",
+      outcome: "none",
+      priceZoneId: null,
+      zoneMembership: "ambiguous",
+    });
+  });
 });
 
 describe("price-inquiry query DTOs", () => {
