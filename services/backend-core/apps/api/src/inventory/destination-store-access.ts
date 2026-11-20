@@ -6,7 +6,10 @@
  */
 import { NotFoundException } from '@nestjs/common';
 
-import type { ResolvedContext } from '../context/types';
+import type { TenantContextRequest } from '../context';
+
+/** The resolved request context (the `context` module's port exposes it through the request type). */
+type ResolvedContext = NonNullable<TenantContextRequest['context']>;
 
 export function authorizeDestinationStoreAccess(ctx: ResolvedContext, storeId: string): void {
   if (ctx.source !== 'session') return;
