@@ -5,6 +5,12 @@
 // deploy/release-compat-gate.cjs (RT-863, merged as fd95ef8), owner decision MR-3
 // (RT-863 comment 13811), option (b) with automatic tightening:
 //
+//   - RT-1471 Phase 2 (owner decision, option C: no dispatch). The guard stays read-only and
+//     starts no workflow. Each required run must also report head_sha == the release SHA
+//     (--sha, 40 lowercase hex); a run for another commit, or with no head_sha, refuses. When a
+//     required check is missing or still running, the refusal names the one exact-SHA
+//     verification that exists (the main-pinned workflow_dispatch of RT-1471 Phase 1) as the way
+//     to prove the SHA before re-running the release; it never runs it.
 //   - The release SHA's own compat check run must be green, together with the other required
 //     checks. The product reads them in release-images.yml with jq; here the same rule
 //     (latest github-actions run per name must be `success`) is judged in judgeChecks so the
@@ -28,8 +34,9 @@
 // parseYamlSubset + validateStructure + snapshotId + PROVENANCE run in a child node process.
 //
 // CLI:
-//   node .github/release/compat-gate.cjs --checks FILE --required JSON --source DIR --lib DIR [--now ISO]
-// --checks: JSON array of {name, conclusion, slug, started_at} for the release SHA.
+//   node .github/release/compat-gate.cjs --checks FILE --required JSON --source DIR --lib DIR --sha SHA [--now ISO]
+// --checks: JSON array of {name, conclusion, slug, started_at, head_sha} for the release SHA.
+// --sha: the 40-character release SHA; every required run must report it as head_sha.
 // Prints the decision; exit 0 = pass, 1 = refused, 2 = usage error.
 "use strict";
 
@@ -41,6 +48,7 @@ const { pathToFileURL } = require("node:url");
 const COMPAT_CHECK = "bc/contracts-compat";
 const TRUSTED_SLUG = "github-actions";
 const MAX_CLOCK_SKEW_DAYS = 1 / 24;
+const SHA_RE = /^[0-9a-f]{40}$/;
 const MATRIX = path.join("contracts-compat", "pos-supported.yaml");
 const REPLAY = path.join("contracts-compat", "replay");
 const MAX_FILE_BYTES = 1024 * 1024;
@@ -64,25 +72,43 @@ function isRealDir(dir) {
 }
 
 /**
- * The latest run per required name, from the trusted app only, must be `success`.
- * @returns {{ problems: string[], notes: string[] }}
+ * The latest run per required name, from the trusted app only, must be `success`, and must belong
+ * to the release SHA: a run that reports another head_sha (or none) is a refusal, never a pass and
+ * never silently ignored.
+ * @returns {{ problems: string[], notes: string[], needsProof: boolean }} needsProof: some required
+ *   check is missing or still running, so a full exact-SHA run could settle it (a red one could not).
  */
-function judgeChecks(runs, required) {
+function judgeChecks(runs, required, sha) {
   const problems = [];
   const notes = [];
-  if (!Array.isArray(runs)) return { problems: ["check runs for the release SHA are unreadable"], notes };
-  if (!Array.isArray(required) || required.length === 0) return { problems: ["no required checks configured"], notes };
+  let sawMissing = false; // a required check is missing or still running
+  let blocked = false; // something a dispatch cannot clear: a red check or a foreign head SHA
+  if (typeof sha !== "string" || !SHA_RE.test(sha)) problems.push("release SHA is not a 40-character lowercase hex SHA");
+  if (!Array.isArray(runs)) return { problems: [...problems, "check runs for the release SHA are unreadable"], notes, needsProof: false };
+  if (!Array.isArray(required) || required.length === 0) return { problems: [...problems, "no required checks configured"], notes, needsProof: false };
   if (!required.includes(COMPAT_CHECK)) problems.push(`required checks do not include ${COMPAT_CHECK} (MR-3)`);
+  const valid = runs.filter((r) => r && typeof r === "object");
   for (const name of required) {
-    const latest = runs
-      .filter((r) => r && r.name === name && r.slug === TRUSTED_SLUG)
-      .sort((a, b) => String(a.started_at ?? "").localeCompare(String(b.started_at ?? "")))
-      .at(-1);
-    const result = latest ? (latest.conclusion ?? "pending") : "missing";
+    const trusted = valid.filter((r) => r.name === name && r.slug === TRUSTED_SLUG);
+    const foreign = trusted.filter((r) => r.head_sha !== sha);
+    for (const r of foreign) {
+      problems.push(`check '${name}' reports head SHA '${r.head_sha ?? "none"}', not the release SHA ${sha}`);
+      blocked = true;
+    }
+    // The newest run decides. A run with no started_at is the newest (a queued re-run), and every run
+    // that ties for the newest time must be green: the answer never depends on the API's array order.
+    const own = trusted.filter((r) => r.head_sha === sha);
+    const when = (r) => (typeof r.started_at === "string" && r.started_at !== "" ? r.started_at : "\uffff");
+    const newest = own.reduce((max, r) => (when(r) > max ? when(r) : max), "");
+    const deciding = own.filter((r) => when(r) === newest);
+    const bad = deciding.find((r) => r.conclusion !== "success");
+    const result = own.length === 0 ? "missing" : bad ? (bad.conclusion ?? "pending") : "success";
     notes.push(`check '${name}': ${result}`);
     if (result !== "success") problems.push(`required check '${name}' is '${result}' on the release SHA`);
+    if (result === "missing" || result === "pending") sawMissing = true;
+    else if (result !== "success") blocked = true;
   }
-  return { problems, notes };
+  return { problems, notes, needsProof: sawMissing && !blocked };
 }
 
 /** replay/<dir>/*.yaml texts by directory name; a dir maps to null when anything in it is unreadable. */
@@ -205,24 +231,30 @@ function evaluateCompat(sourceDir, libDir, now = new Date()) {
 }
 
 /** Both halves: the check runs and the release commit's compat files. */
-function evaluateGuard({ runs, required, sourceDir, libDir, now = new Date() }) {
-  const checks = judgeChecks(runs, required);
+function evaluateGuard({ runs, sha, required, sourceDir, libDir, now = new Date() }) {
+  const checks = judgeChecks(runs, required, sha);
   const compat = evaluateCompat(sourceDir, libDir, now);
   const problems = [...checks.problems, ...compat.problems];
-  return {
-    verdict: problems.length ? "REFUSED" : "PASS",
-    mode: compat.mode,
-    problems,
-    notes: [...checks.notes, ...compat.notes],
-  };
+  const notes = [...checks.notes, ...compat.notes];
+  if (checks.needsProof && SHA_RE.test(sha)) notes.push(proofHint(sha));
+  return { verdict: problems.length ? "REFUSED" : "PASS", mode: compat.mode, problems, notes };
+}
+
+/** RT-1471 Phase 2 (option C): the only exact-SHA proof there is. The guard prints it and runs nothing. */
+function proofHint(sha) {
+  return (
+    `To prove ${sha}: while it is still the tip of main, run \`gh workflow run backend-core.yml --ref main -f expected_sha=${sha}\` ` +
+    "(RT-1471 Phase 1, owner-authorized), wait for it to pass, then re-run this release. If main has moved, cut the release " +
+    "from a commit that a nightly or a manual full run has already proven. The guard dispatches nothing."
+  );
 }
 
 function main(argv) {
   const get = (flag) => (argv.includes(flag) ? argv[argv.indexOf(flag) + 1] : undefined);
-  const [checksFile, requiredJson, source, lib] = ["--checks", "--required", "--source", "--lib"].map(get);
+  const [checksFile, requiredJson, source, lib, sha] = ["--checks", "--required", "--source", "--lib", "--sha"].map(get);
   const now = get("--now") ? new Date(get("--now")) : new Date();
-  if (!checksFile || !requiredJson || !source || !lib || Number.isNaN(now.getTime()) || argv.length % 2 !== 0) {
-    console.error("usage: compat-gate.cjs --checks FILE --required JSON --source DIR --lib DIR [--now ISO]");
+  if (!checksFile || !requiredJson || !source || !lib || !sha || Number.isNaN(now.getTime()) || argv.length % 2 !== 0) {
+    console.error("usage: compat-gate.cjs --checks FILE --required JSON --source DIR --lib DIR --sha SHA [--now ISO]");
     return 2;
   }
   let runs = null;
@@ -237,7 +269,7 @@ function main(argv) {
   } catch {
     required = null;
   }
-  const result = evaluateGuard({ runs, required, sourceDir: source, libDir: lib, now });
+  const result = evaluateGuard({ runs, sha, required, sourceDir: source, libDir: lib, now });
   result.notes.forEach((n) => console.log(n));
   result.problems.forEach((p) => console.log(`::error::${p}`));
   console.log(`POS compat gate: ${result.verdict} (mode ${result.mode ?? "unknown"})`);
@@ -246,4 +278,4 @@ function main(argv) {
 
 if (require.main === module) process.exitCode = main(process.argv.slice(2));
 
-module.exports = { COMPAT_CHECK, MAX_CLOCK_SKEW_DAYS, judgeChecks, evaluateCompat, evaluateGuard, main };
+module.exports = { SHA_RE, proofHint, COMPAT_CHECK, MAX_CLOCK_SKEW_DAYS, judgeChecks, evaluateCompat, evaluateGuard, main };
