@@ -102,7 +102,7 @@ const CONFLICT_MESSAGES: Readonly<Record<PriceChangeSetConflictCode, string>> = 
   preview_changed: "The Change Set's preview is not the one approved; reload it.",
 };
 
-const ROLLBACK_BLOCKED_MESSAGE = "Later revisions changed what this rollback would restore; roll back newest first or author a corrective Change Set.";
+const ROLLBACK_BLOCKED_MESSAGE = "Later revisions changed what this rollback would restore; author a corrective standard Change Set instead.";
 
 const FORBIDDEN_MESSAGE = "A sensitive Change Set needs an approver other than its author and submitter.";
 

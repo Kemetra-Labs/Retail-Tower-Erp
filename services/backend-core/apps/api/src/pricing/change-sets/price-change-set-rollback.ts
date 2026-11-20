@@ -29,13 +29,14 @@
  * superseded; this module refuses, fail closed, whenever a revision after R published or ended
  * any event of a key R touched or any membership of a Store R touched. That covers the spec's
  * case and also a later revision that priced an interval R had ended (restoring R − 1 there
- * would silently override it). The author rolls back newest-first or authors a corrective set.
+ * would silently override it). The remedy is a corrective standard set (a blocker stays one even after the later revision is rolled back).
  *
  * Every statement runs on the caller's client inside its tenant transaction (RLS, FORCE) with an
  * explicit `tenant_id` predicate. Time arithmetic is exact: bounds are epoch microseconds.
  */
 import type { PoolClient } from "pg";
 
+import { readFirstAuditMetadata, readLatestAuditMetadataWithKey } from "../../audit";
 import { liveAndNamedStores } from "../../stores";
 import type { PriceChangeItem } from "./price-change-sets.dto";
 import {
@@ -154,19 +155,23 @@ export interface PublishingRollback {
   readonly tenantId: string;
   readonly changeSetId: string;
   readonly version: number;
-  readonly targetId: string;
+  /** The set it rolls back; null for any other set. */
+  readonly targetId: string | null;
   readonly nowMs: number;
 }
 
 /**
- * At publish (under the publish lock): the target while it is still `published` and unblocked and
- * the set's earliest exact activation is within `ROLLBACK_FROM_SKEW_MS` of now; else the stale
- * reason (`rollback_blocked` or `rollback_from_past`).
+ * At publish, under the publish lock (lock order: the publish lock, the set's row, then the
+ * target's row, which the publish UPDATEs to `rolled_back`): null for a set that is no rollback;
+ * else the target while it is still `published` and unblocked, the set's earliest exact activation
+ * is within `ROLLBACK_FROM_SKEW_MS` of now and its preview covers its Store population; else the
+ * stale reason (`rollback_blocked`, `rollback_from_past`, `rollback_store_population_changed`).
  */
 export async function publishableRollbackTarget(
   client: Queryable,
   p: PublishingRollback,
-): Promise<{ readonly target: RollbackTarget } | { readonly stale: "rollback_blocked" | "rollback_from_past" }> {
+): Promise<RollbackTarget | null | { readonly stale: "rollback_blocked" | "rollback_from_past" | "rollback_store_population_changed" }> {
+  if (p.targetId === null) return null;
   const target = await rollbackTarget(client, p.tenantId, p.targetId, ["published"]);
   if (target === null || (await blockingRevisions(client, p.tenantId, target.revisionNo)).length > 0) return { stale: "rollback_blocked" };
   const r = await client.query<{ at: Date | null }>(`SELECT ${EARLIEST_ACTIVATION("$1::uuid", "$2::uuid", "$3")} AS at`, [
@@ -176,7 +181,34 @@ export async function publishableRollbackTarget(
   ]);
   const at = r.rows[0]?.at ?? null;
   if (at !== null && at.getTime() < p.nowMs - ROLLBACK_FROM_SKEW_MS) return { stale: "rollback_from_past" };
-  return { target };
+  if (!(await previewCoversPopulation(client, p, await generatedFromMs(client, p.tenantId, p.changeSetId)))) return { stale: "rollback_store_population_changed" };
+  return target;
+}
+
+/**
+ * CodeRabbit 4642497268 (belt and braces, under the publish lock that every Store lifecycle write
+ * also takes): no preview row or membership change of the set activates before the instant its
+ * items were generated from (unknown: fail closed), and every Store of its stored target
+ * population has a preview row or membership change.
+ */
+async function previewCoversPopulation(client: Queryable, p: PublishingRollback, fromMs: number | null): Promise<boolean> {
+  if (fromMs === null) return false;
+  const r = await client.query<{ ok: boolean }>(
+    `SELECT NOT EXISTS (SELECT 1 FROM price_change_set_preview_lines l
+                         WHERE l.tenant_id = $1::uuid AND l.change_set_id = $2::uuid AND l.change_set_version = $3 AND l.effective_from < $4)
+        AND NOT EXISTS (SELECT 1 FROM price_change_set_preview_memberships m
+                         WHERE m.tenant_id = $1::uuid AND m.change_set_id = $2::uuid AND m.change_set_version = $3 AND m.effective_from < $4)
+        AND NOT EXISTS (SELECT 1 FROM price_change_set_validations v, jsonb_array_elements(v.target_stores) AS t(store)
+                         WHERE v.tenant_id = $1::uuid AND v.change_set_id = $2::uuid AND v.change_set_version = $3
+                           AND NOT EXISTS (SELECT 1 FROM price_change_set_preview_lines l
+                                            WHERE l.tenant_id = $1::uuid AND l.change_set_id = $2::uuid AND l.change_set_version = $3
+                                              AND l.store_id = (t.store ->> 'storeId')::uuid)
+                           AND NOT EXISTS (SELECT 1 FROM price_change_set_preview_memberships m
+                                            WHERE m.tenant_id = $1::uuid AND m.change_set_id = $2::uuid AND m.change_set_version = $3
+                                              AND m.store_id = (t.store ->> 'storeId')::uuid)) AS ok`,
+    [p.tenantId, p.changeSetId, p.version, new Date(fromMs).toISOString()],
+  );
+  return r.rows[0]?.ok ?? false;
 }
 
 /** One row of a timeline: `[from, to)` in epoch microseconds (wall clock for `store_local`), and its value. */
@@ -278,6 +310,31 @@ export interface RollbackInput {
   /** The rollback instant (RFC 3339). */
   readonly from: string;
   readonly defaultZoneId: string;
+  /**
+   * CodeRabbit 4642497268: the Store snapshot to take time zones from (live Stores plus the named
+   * ones). `validate` passes the one list it also reaches and hashes with, so a Store created
+   * between two reads can never be counted in the target Store set without bounding `from`.
+   * Omitted (create, under the publish lock): read here.
+   */
+  readonly stores?: readonly StoreForPricing[] | undefined;
+}
+
+type StoreForPricing = Awaited<ReturnType<typeof liveAndNamedStores>>[number];
+
+/**
+ * The Store ids a rollback of `revision` can name: the Store targets of the price events and the
+ * Stores of the memberships it published or ended (the snapshot `validate` reads must hold them).
+ */
+async function rollbackStoreIds(client: Queryable, tenantId: string, revision: number): Promise<string[]> {
+  const r = await client.query<{ id: string }>(
+    `SELECT DISTINCT store_id::text AS id FROM price_events
+      WHERE tenant_id = $1::uuid AND (published_in_revision = $2 OR ended_in_revision = $2) AND store_id IS NOT NULL
+     UNION
+     SELECT DISTINCT store_id::text FROM price_zone_memberships
+      WHERE tenant_id = $1::uuid AND (published_in_revision = $2 OR ended_in_revision = $2)`,
+    [tenantId, revision],
+  );
+  return r.rows.map((row) => row.id);
 }
 
 /** Visible at revision R − 1 (`$2` is R): published before R, not ended before R. */
@@ -294,8 +351,14 @@ const TENANT_WIDE = "*";
  * latest wall clock any live Store of the tenant shows then (`*`; UTC when it has none), each
  * rounded up to the second. The Stores and their zones come from the stores module's port.
  */
-async function fromBounds(client: Queryable, tenantId: string, from: string, named: readonly string[]): Promise<{ absolute: bigint; local: Map<string, bigint> }> {
-  const stores = await liveAndNamedStores(client, tenantId, named);
+async function fromBounds(
+  client: Queryable,
+  tenantId: string,
+  from: string,
+  named: readonly string[],
+  snapshot: readonly StoreForPricing[] | undefined,
+): Promise<{ absolute: bigint; local: Map<string, bigint> }> {
+  const stores = snapshot ?? (await liveAndNamedStores(client, tenantId, named));
   const r = await client.query<{ store: string; us: string }>(
     `WITH f AS (SELECT $1::timestamptz AS at),
           w AS (SELECT z.store, f.at AT TIME ZONE z.tz AS wall FROM unnest($2::text[], $3::text[]) AS z(store, tz) CROSS JOIN f
@@ -337,7 +400,9 @@ function keyItems(rows: readonly EventRow[], start: bigint): PriceChangeItem[] {
   const before = rows.filter((e) => e.prior).map(toRow).sort((x, y) => (x.from < y.from ? -1 : 1));
   const segments = differingSegments(head, before, start, (r) => r?.value ?? null);
   if (segments.length === 0) return [];
-  const needsEnd = segments.some((seg) => covering(before, seg.from) === undefined);
+  // Delta review B-1: judged at EVERY elementary point from the start (R − 1 coverage may end
+  // inside a merged differing interval, e.g. a bounded R − 1 promo under an open R price).
+  const needsEnd = pointsFrom(start, head, before).some((p) => covering(head, p) !== undefined && covering(before, p) === undefined);
   const text = basis === "absolute" ? instantText : localText;
   const sample = rows[0]!;
   const scope =
@@ -479,7 +544,7 @@ async function generatedItems(client: Queryable, input: RollbackInput): Promise<
     [input.tenantId, input.revision],
   );
   const storeTargets = [...new Set(events.rows.flatMap((e) => (e.scope === "store" && e.basis === "store_local" && e.store !== null ? [e.store] : [])))];
-  const from = await fromBounds(client, input.tenantId, input.from, storeTargets);
+  const from = await fromBounds(client, input.tenantId, input.from, storeTargets, input.stores);
   const byKey = new Map<string, EventRow[]>();
   for (const e of events.rows) {
     const key = `${e.scope}|${e.zone ?? ""}|${e.store ?? ""}|${e.product}`;
@@ -518,4 +583,54 @@ function canonicalJson(value: unknown): string {
 /** Whether two item lists are equal, key order aside (stored items come back from jsonb, which reorders keys). */
 export function sameItems(a: readonly PriceChangeItem[], b: readonly PriceChangeItem[]): boolean {
   return canonicalJson(a) === canonicalJson(b);
+}
+
+/**
+ * Delta review m-d: the start a rollback was requested with. An omitted `from` ("at publish") is
+ * `-Infinity`, so validation uses now and no recorded instant is needed; an explicit one is the
+ * `created` row's `rollback_from`. Fail closed: an explicit (or unknown) `from` that cannot be read
+ * back is `409 change_set_invalid_state`, never now. (A `rollback_from` column is a follow-up.)
+ */
+async function requestedFromMs(client: Queryable, tenantId: string, setId: string): Promise<number> {
+  const created = await readFirstAuditMetadata(client, { tenantId, action: "pricing.change_set.created", targetType: "price_change_set", targetId: setId });
+  if (created?.["rollback_from_defaulted"] === true) return Number.NEGATIVE_INFINITY;
+  const at = typeof created?.["rollback_from"] === "string" ? Date.parse(created["rollback_from"]) : Number.NaN;
+  if (Number.isNaN(at)) {
+    throw new PriceChangeSetConflictError("change_set_invalid_state", "The rollback start time is unavailable; cancel and recreate the rollback.");
+  }
+  return at;
+}
+
+/** The instant a rollback set's items were last generated from (its newest audit record of it), or null. */
+async function generatedFromMs(client: Queryable, tenantId: string, setId: string): Promise<number | null> {
+  const meta = await readLatestAuditMetadataWithKey(client, { tenantId, targetType: "price_change_set", targetId: setId, metadataKey: "rollback_from" });
+  const at = typeof meta?.["rollback_from"] === "string" ? Date.parse(meta["rollback_from"]) : Number.NaN;
+  return Number.isNaN(at) ? null : at;
+}
+
+/**
+ * RT-1484 PR-6 (owner decision on m2): a rollback set's items regenerated at validate from
+ * max(requested `from`, now), against ONE Store snapshot that validation also reaches and hashes
+ * with (CodeRabbit 4642497268), after re-checking its target.
+ */
+export async function regeneratedRollback(
+  client: Queryable,
+  input: { readonly tenantId: string; readonly setId: string; readonly targetId: string; readonly nowMs: number; readonly defaultZoneId: string },
+): Promise<{ readonly items: PriceChangeItem[]; readonly stores: readonly StoreForPricing[]; readonly fromMs: number; readonly from: string }> {
+  const target = await requireRollbackable(client, input.tenantId, input.targetId);
+  const fromMs = Math.max(await requestedFromMs(client, input.tenantId, input.setId), input.nowMs);
+  const from = new Date(fromMs).toISOString();
+  const stores = await liveAndNamedStores(client, input.tenantId, await rollbackStoreIds(client, input.tenantId, target.revisionNo));
+  const items = await rollbackItems(client, { tenantId: input.tenantId, revision: target.revisionNo, from, defaultZoneId: input.defaultZoneId, stores });
+  return { items, stores, fromMs, from };
+}
+
+/**
+ * Delta review m-a (fail closed): no activation of a rollback's validation (every preview row's and
+ * membership change's exact instant) starts before the `from` its items were regenerated from.
+ */
+export function refuseActivationBefore(fromMs: number | null, effectiveMs: readonly number[]): void {
+  if (fromMs !== null && effectiveMs.some((ms) => ms < fromMs)) {
+    throw new PriceChangeSetConflictError("change_set_invalid_state", "A rollback activation would start before its start time; validate again.");
+  }
 }

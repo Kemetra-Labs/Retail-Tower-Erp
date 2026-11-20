@@ -87,8 +87,9 @@ info:
     standard past-dated recheck (spec 042 §5, §7); instead (owner decision,
     RT-1484 PR-6) **a rollback takes effect from publish time**, or from an
     explicit future or near-now `from` (at most 15 minutes past): the head
-    timeline never shows a restored price for an instant already sold at the
-    old one, and history as known at earlier revisions is preserved.
+    timeline shows a restored price for an instant already sold at the old
+    one only within at most 15 minutes before publish, and history as known
+    at earlier revisions is preserved.
 
 
     **Money and time.** Prices are exact decimal strings and must be exact at
@@ -307,8 +308,10 @@ paths:
         `previewHash` and moves the set to `validated`, even when some lines
         are blocking (`invalid`, or `past_dated` outside the emergency path):
         those block `submit`. An empty set is `422 change_set_empty`; more than
-        50 000 lines is `422 change_set_too_large` (Q-B6). Roles `owner` /
-        `tenant_admin`.
+        50 000 lines is `422 change_set_too_large` (Q-B6). A `kind: rollback`
+        set may come back at `version` + 1, because its items are regenerated
+        from max(`from`, now) before it validates (RT-1484 PR-6). Roles
+        `owner` / `tenant_admin`.
       parameters:
         - $ref: "#/components/parameters/IdempotencyKey"
       requestBody:
@@ -1598,7 +1601,7 @@ components:
     RollbackBlocked:
       type: object
       required: [error, blockingRevisionNos]
-      description: The `409 rollback_blocked` body; roll back newest-first or author a corrective set.
+      description: The `409 rollback_blocked` body; author a corrective `standard` set instead (the blocker stays even after the later revision is rolled back).
       properties:
         error:
           type: object
