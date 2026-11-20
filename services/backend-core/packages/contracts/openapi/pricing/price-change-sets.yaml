@@ -1723,8 +1723,10 @@ components:
         `change_set_too_large` (more than 50 000 materialized lines, Q-B6,
         or more than 200 000 preview rows, the Stores each line reaches
         summed over its lines, RT-1484; split the set); `lead_time_violation` (a `standard` set whose earliest
-        effective instant is inside the tenant's `pricing.min_lead_time`, spec
-        042 §7; emergency sets are exempt); `change_set_no_target_store` (an
+        effective instant is inside the minimum lead time, spec 042 §7;
+        emergency sets are exempt; v1 applies a fixed minimum of 0; the
+        tenant-configured pricing.min_lead_time is not yet applied);
+        `change_set_no_target_store` (an
         item reaches no live Store, for example a Zone line whose Zone no live
         Store is in at the head revision, names a retired Zone (`zone_not_live`),
         or names a Store, Zone or product the tenant does not have; the message

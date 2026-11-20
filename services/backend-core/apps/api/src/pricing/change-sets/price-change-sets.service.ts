@@ -55,7 +55,8 @@ import type {
   VersionedBody,
 } from "./price-change-sets.dto";
 import { DEFAULT_MIN_LEAD_TIME_MS, violatesLeadTime } from "./price-change-set-lead-time";
-import { decodePreviewCursor, readPreviewPage, type PriceChangeSetPreviewBody } from "./price-change-set-preview";
+import { bindPreviewCursor, parsePreviewCursor, readPreviewPage, type PriceChangeSetPreviewBody } from "./price-change-set-preview";
+import { lockPricingValidate } from "../pricing-publish-lock";
 import { checkBudget, referencedIds, validateChangeSet } from "./price-change-set-validation";
 import {
   headRevision,
@@ -301,6 +302,9 @@ export class PriceChangeSetsService {
     return this.inTenant(input, async (client) => {
       const set = await this.lockSet(client, input.tenantId, id, body.expectedVersion);
       if (set.state !== "draft" || set.kind === "legacy_import") throw new PriceChangeSetConflictError("change_set_invalid_state");
+      // Review round 4: validations of one tenant serialize (lock order: this set's row, then the
+      // tenant validate lock), so this one reads every earlier validation's lines as pending.
+      await lockPricingValidate(client, input.tenantId);
       const { listVersion, items } = await loadCurrentItems(client, input.tenantId, id, set.version);
       if (listVersion === null || items.length === 0) {
         throw new PriceChangeSetUnprocessableError("change_set_empty", "The Change Set has no items.");
@@ -356,6 +360,8 @@ export class PriceChangeSetsService {
 
   /** consoleGetPriceChangeSetPreview — a page of the stored preview; `409 change_set_not_validated` without one. */
   preview(input: ChangeSetReadInput, id: string, query: PreviewQuery): Promise<PriceChangeSetPreviewBody> {
+    // Review round 4: a malformed cursor is 400 before any read, even on a set with no preview.
+    const cursor = query.cursor === undefined ? null : parsePreviewCursor(query.cursor);
     return this.inTenant(input, async (client) => {
       const r = await client.query<{ version: number; preview_hash: string | null }>(
         `SELECT version, preview_hash FROM change_sets WHERE tenant_id = $1::uuid AND id = $2::uuid AND domain = 'pricing'`,
@@ -365,7 +371,7 @@ export class PriceChangeSetsService {
       if (!row) throw new PriceChangeSetNotFoundError();
       if (row.preview_hash === null) throw new PriceChangeSetConflictError("change_set_not_validated");
       const cls = query.class ?? null;
-      const after = query.cursor === undefined ? 0 : decodePreviewCursor(query.cursor, cls, row.preview_hash);
+      const after = cursor === null ? 0 : bindPreviewCursor(cursor, cls, row.preview_hash);
       const page = await readPreviewPage(client, {
         tenantId: input.tenantId,
         changeSetId: id,

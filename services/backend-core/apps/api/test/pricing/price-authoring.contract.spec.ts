@@ -267,7 +267,10 @@ describe("price-change-sets — spec 042 rules", () => {
     // Review round 3, minor 1: a retired Zone is one of its reasons (description only).
     expect(unprocessable).toMatch(/retired Zone \(`zone_not_live`\)/);
     // Review round 1, M2: the preview-row budget shares `change_set_too_large`.
-    expect(responses["ValidateUnprocessable"]!.description.replace(/\s+/g, " ")).toMatch(/200 000 preview rows/);
+    // Round 4 nit: inside the `change_set_too_large` clause itself.
+    expect(unprocessable).toMatch(/`change_set_too_large` \([^;]*200 000 preview rows/);
+    // Round 4: v1 applies a fixed lead time of 0 (description only).
+    expect(unprocessable).toMatch(/`lead_time_violation` \([^)]*spec 042 §7;[^)]*v1 applies a fixed minimum of 0; the tenant-configured pricing\.min_lead_time is not yet applied\)/);
     expect(responses["SubmitUnprocessable"]!.description).toMatch(/acknowledgement_required/);
     const structure = (docs["price-structure"] as unknown as { components: { responses: Record<string, { description: string }> } })
       .components.responses;

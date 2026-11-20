@@ -37,9 +37,29 @@ export function encodePreviewCursor(c: { rowNo: number; cls: LineClass | null; p
 
 /** The last row served, bound to the request's `class` filter and the stored preview's hash. */
 export function decodePreviewCursor(raw: string, cls: LineClass | null, previewHash: string): number {
+  return bindPreviewCursor(parsePreviewCursor(raw), cls, previewHash);
+}
+
+/** A decoded preview cursor, before it is bound to the stored preview. */
+export interface ParsedPreviewCursor {
+  readonly rowNo: number;
+  readonly cls: string | null;
+  readonly previewHash: string;
+}
+
+/**
+ * The cursor's structure only (review round 4): checked before any read, so a malformed cursor is
+ * 400 even on a set that has no preview; `bindPreviewCursor` then checks it against that preview.
+ */
+export function parsePreviewCursor(raw: string): ParsedPreviewCursor {
   const p = decodeOpaque(raw, PreviewCursorSchema, () => new PreviewCursorError());
-  if (p.k !== cls || p.h !== previewHash) throw new PreviewCursorError("the cursor belongs to another preview or filter");
-  return p.r;
+  return { rowNo: p.r, cls: p.k, previewHash: p.h };
+}
+
+/** The last row served, when the cursor was issued for this filter and this stored preview. */
+export function bindPreviewCursor(cursor: ParsedPreviewCursor, cls: LineClass | null, previewHash: string): number {
+  if (cursor.cls !== cls || cursor.previewHash !== previewHash) throw new PreviewCursorError("the cursor belongs to another preview or filter");
+  return cursor.rowNo;
 }
 
 interface ValidationRow {
