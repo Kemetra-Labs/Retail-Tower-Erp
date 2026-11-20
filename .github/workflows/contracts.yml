@@ -154,6 +154,7 @@ jobs:
       - name: Release tooling specs
         run: |
           node --test .github/release/compat-gate.test.cjs
+          node --test .github/release/ci-check-gate.test.cjs
           python -m unittest discover -s .github/release -p 'test_*.py' -v
 
       # RT-1173: the CircleCI scripts' offline specs (the RT-1075 TIA risk guard, including its
