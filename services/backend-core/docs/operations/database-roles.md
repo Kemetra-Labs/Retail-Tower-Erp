@@ -170,7 +170,11 @@ Legitimate deployments never set a role option.
   `DELETE`, `TRUNCATE`, `REFERENCES`, `TRIGGER`) on the sales, receivables,
   cashier-admission, shift cash-up (RT-17), tenants (RT-213), inventory, audit,
   idempotency and outbox tables, and every privilege except `SELECT` on `memberships` and
-  `store_access` (RT-212).
+  `store_access` (RT-212). The same boot check also refuses a column-level
+  `SELECT`, `INSERT`, `UPDATE` or `REFERENCES` on any column of a forbidden
+  table, limited to the privileges the entry lists (RT-1520; for example
+  `GRANT SELECT (cells) ON catalog_import_rows`); a grant to `PUBLIC` or
+  through an inherited role counts. The error names the table and column.
   `TRUNCATE` matters most: it is not subject to row security.
 
   All three lists are in `apps/api/src/auth/database-pools.ts`, with the
