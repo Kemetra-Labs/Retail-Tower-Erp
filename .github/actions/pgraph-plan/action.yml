@@ -3,7 +3,8 @@
 # `run:` steps, so a fix to the planner is made here once.
 #
 # Trust model, unchanged from the six inline copies it replaces (RT-867, MR-4): the evaluator and
-# graph.yaml are the TRUSTED commit (the PR base; the pushed main commit on push; the main commit a
+# graph.yaml are the TRUSTED commit (the PR base; on push the first parent of the pushed main commit,
+# or the pushed commit itself when the push is not one first-parent commit, RT-1471 Phase 3; the main commit a
 # nightly `schedule` or a manual `workflow_dispatch` full run started on, RT-1471), extracted with
 # `git archive`; the PR head is read as git data only, never executed. This action file itself is read
 # from the same ref as the calling workflow (a pull_request run uses the merge ref, as it does for the
@@ -40,11 +41,26 @@ runs:
         REF: ${{ github.ref }}
         # RT-1471: only a workflow_dispatch run has an input. It reaches the script through env, never inline.
         EXPECTED_SHA: ${{ github.event.inputs.expected_sha }}
+        # RT-1471 Phase 3: only a push has these. They reach the script through env, never inline.
+        BEFORE: ${{ github.event.before }}
+        FORCED: ${{ github.event.forced }}
       run: |
         set -euo pipefail
         case "$EVENT" in
           pull_request) base="$PR_BASE"; head="$PR_HEAD" ;;
-          push) base="$SHA"; head="$SHA" ;;   # main itself is trusted; push selects all
+          # RT-1471 Phase 3 (affected-only main): a push is classified on its first-parent diff, with the
+          # parent as the trusted commit. Only a non-forced push to main that added exactly one commit on
+          # top of `before` qualifies; anything else (several commits, a new or forced ref, a root commit,
+          # an unreadable before) passes base == head, which the evaluator turns into a FULL selection.
+          push)
+            head="$SHA"; base="$SHA"
+            before="${BEFORE:-}"; forced="${FORCED:-}"
+            if [ "$REF" = "refs/heads/main" ] && [ "$forced" = "false" ] && [[ "$before" =~ ^[0-9a-f]{40}$ ]] \
+              && parent="$(git rev-parse --verify --quiet "$SHA^1^{commit}")" && [ "$parent" = "$before" ]; then
+              base="$parent"
+            else
+              echo "::notice::push of $SHA is not one first-parent commit on main (before '$before', forced '$forced'): FULL selection"
+            fi ;;
           # RT-1471 (nightly full CI): the schedule and a manual dispatch are full runs of the main tip, trusted
           # exactly like a push (the evaluator comes from the commit being run, which is main's own). Fail
           # closed on anything else: a dispatch from another ref would run that ref's code as the trusted

@@ -27,6 +27,20 @@ def _commit_exists(repo, rev):
     return _git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}").returncode == 0
 
 
+def resolve(repo, rev):
+    """The 40-hex commit SHA of `rev`, or None."""
+    proc = _git(repo, "rev-parse", "--verify", "--quiet", f"{rev}^{{commit}}")
+    sha = proc.stdout.decode("ascii", "replace").strip()
+    if proc.returncode != 0 or len(sha) != 40 or any(c not in "0123456789abcdef" for c in sha):
+        return None
+    return sha
+
+
+def first_parent(repo, rev):
+    """RT-1471 Phase 3: the first parent of `rev`, or None (root commit, unknown rev)."""
+    return resolve(repo, f"{rev}^1") if resolve(repo, rev) else None
+
+
 def merge_base(repo, base, head):
     """RT-1173: the commit a PR branched from. `merge_base..head` is exactly what the PR adds
     to `main` (what `refs/pull/N/merge` tests on top of current `main`), so a branch behind

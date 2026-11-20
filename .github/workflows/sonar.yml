@@ -15,7 +15,8 @@
 # workflows' runs on this commit; each scan job then downloads its product's artifact, rewrites
 # its paths to be relative to the project base directory (failing if any file is missing), and
 # scans. A product whose run produced no coverage artifact fails its job instead of posting an
-# analysis without coverage.
+# analysis without coverage, except when the push's plan did not select its coverage job at all
+# (affected-only main CI, RT-1471 Phase 3): that product's scan is skipped with a notice.
 #
 # RT-946: one runner polls for all four runs. Four matrix jobs each polling their own product kept
 # four runners asleep per push (298 runner-minutes over 15 merges, RT-946 c14890). Trade-off:
@@ -115,6 +116,7 @@ jobs:
         include:
           - product: pos
             workflow: pos.yml
+            coverage_job: pos/test
             project_key: kemetra-labs_Retail-Tower-Erp_pos
             token_secret: SONAR_TOKEN_POS
             base_dir: apps/pos
@@ -125,6 +127,7 @@ jobs:
             source_subdir: ""
           - product: admin-console
             workflow: admin-console.yml
+            coverage_job: admin/build-test
             project_key: kemetra-labs_Retail-Tower-Erp_admin-console
             token_secret: SONAR_TOKEN_ADMIN_CONSOLE
             base_dir: apps/admin-console
@@ -135,6 +138,7 @@ jobs:
             source_subdir: ""
           - product: backend-core
             workflow: backend-core.yml
+            coverage_job: bc/db-integration
             project_key: kemetra-labs_Retail-Tower-Erp_backend-core
             token_secret: SONAR_TOKEN_BACKEND
             base_dir: services/backend-core
@@ -146,6 +150,7 @@ jobs:
             source_subdir: ""
           - product: erpnext-connector
             workflow: erpnext-connector.yml
+            coverage_job: connector/unit-tests-and-lint
             project_key: kemetra-labs_Retail-Tower-Erp_erpnext-connector
             token_secret: SONAR_TOKEN_CONNECTOR
             base_dir: integrations/erpnext-connector
@@ -192,7 +197,37 @@ jobs:
           fi
           echo "run_id=$RUN_ID" >> "$GITHUB_OUTPUT"
 
+      # RT-1471 Phase 3 (owner decision 2026-11-20): a push to main runs only the jobs its first-parent
+      # diff selects, so a product the push did not touch has no coverage artifact. Skip that product's
+      # scan (green, with a notice) only when the run's `plan` job succeeded, the coverage job was
+      # skipped, and no job of the run ended other than success or skipped: a failed upstream job (a POS
+      # test shard) also leaves the coverage job skipped, and must not read as "not selected". Anything
+      # else scans, so a missing artifact still fails the job.
+      # The nightly full run is unaffected by this: Sonar does not read schedule runs (D7 is RT-904's).
+      - name: Did the plan select the coverage job on this push?
+        id: selected
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          RUN_ID: ${{ steps.run.outputs.run_id }}
+          COVERAGE_JOB: ${{ matrix.coverage_job }}
+        run: |
+          set -euo pipefail
+          jobs="$(gh api --paginate "repos/$REPO/actions/runs/$RUN_ID/jobs?filter=latest&per_page=100" \
+            --jq '.jobs[] | [.name, (.conclusion // "none")] | @tsv')"
+          plan="$(awk -F'\t' '$1 == "plan" { print $2 }' <<<"$jobs")"
+          coverage="$(awk -F'\t' -v job="$COVERAGE_JOB" '$1 == job { print $2 }' <<<"$jobs")"
+          others="$(awk -F'\t' '$2 != "success" && $2 != "skipped" { print $1 ": " $2 }' <<<"$jobs")"
+          if [ "$plan" = success ] && [ "$coverage" = skipped ] && [ -z "$others" ]; then
+            echo "::notice::$COVERAGE_JOB was not selected on this push (affected-only main CI): no scan for this product"
+            echo "scan=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "plan: '${plan}', $COVERAGE_JOB: '${coverage}', other jobs not success/skipped: '${others//$'\n'/; }': scanning"
+            echo "scan=true" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Download the coverage artifact
+        if: steps.selected.outputs.scan == 'true'
         uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
         with:
           name: ${{ matrix.artifact }}
@@ -203,6 +238,7 @@ jobs:
       # Rewrites paths to be relative to the base directory and FAILS if a file is missing, so the
       # scanner cannot import "successfully" while dropping every coverage line.
       - name: Make the coverage importable (path check)
+        if: steps.selected.outputs.scan == 'true'
         env:
           BASE_DIR: ${{ matrix.base_dir }}
           KIND: ${{ matrix.kind }}
@@ -224,12 +260,14 @@ jobs:
       # cannot be used instead: Sonar documents it as incompatible with sonar.projectBaseDir, which
       # the scan action always sets. The copy exists only in this job's workspace, never in git.
       - name: Place the product scanner settings in its base directory
+        if: steps.selected.outputs.scan == 'true'
         env:
           BASE_DIR: ${{ matrix.base_dir }}
           PRODUCT: ${{ matrix.product }}
         run: cp ".github/sonar/$PRODUCT.properties" "$BASE_DIR/sonar-project.properties"
 
       - name: SonarQube Cloud scan
+        if: steps.selected.outputs.scan == 'true'
         uses: SonarSource/sonarqube-scan-action@d209202bc7d53ff1cc128f7f907dac145c9d6ae9 # v8.3.0
         env:
           SONAR_TOKEN: ${{ secrets[matrix.token_secret] }}

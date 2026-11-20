@@ -29,7 +29,7 @@ ACTION = REPO_ROOT / ".github/actions/pgraph-plan/action.yml"
 BASH = shutil.which("bash")
 GIT = shutil.which("git")
 JQ = shutil.which("jq")
-FULL_EVENTS = ("push", "schedule", "workflow_dispatch")
+FULL_EVENTS = ("schedule", "workflow_dispatch")   # RT-1471 Phase 3: push is affected-only (test_affected_push)
 GRAPH = load_graph(support.trusted_text())
 # every workflow that defines a plan-guarded (non-always) graph job is a product workflow
 NIGHTLY = sorted({path for key, path in GRAPH["jobs"].items() if key not in GRAPH["always_jobs"]})
@@ -161,7 +161,7 @@ class FullSelectionTests(unittest.TestCase):
         case = {"event": event, "changes": list(changes)}
         return ev.evaluate(support.eval_input(case))
 
-    def test_schedule_and_dispatch_select_every_graph_job_like_a_push(self):
+    def test_schedule_and_dispatch_select_every_graph_job(self):
         every = sorted(GRAPH["jobs"])
         for event in FULL_EVENTS:
             plan = self._plan(event)
@@ -247,6 +247,8 @@ class PlanActionRefsTests(unittest.TestCase):
                     self.assertEqual(out, "")
 
     def test_push_and_pull_request_are_unchanged(self):
+        # a one-commit repository has no parent, so a push falls back to FULL (base == head); the
+        # first-parent cases are in test_affected_push
         proc, out = self._run(EVENT="push", REF="refs/heads/main")
         self.assertEqual(proc.returncode, 0, proc.stderr)
         self.assertIn(f"base={self.sha}", out)
@@ -299,6 +301,14 @@ class PlanActionEvaluateTests(unittest.TestCase):
                "EVENT": event, "BASE_SHA": self.head, "HEAD_SHA": self.head}
         proc = subprocess.run([BASH, "-c", self.script], cwd=self.tmp, env=env, capture_output=True, text=True)
         return proc, out.read_text(encoding="utf-8"), summary.read_text(encoding="utf-8")
+
+    def test_a_push_the_action_could_not_prove_still_selects_every_graph_job(self):
+        # RT-1471 Phase 3: base == head is the refs step's "not one first-parent commit" signal
+        import json
+        proc, out, summary = self._run("push")
+        self.assertEqual(proc.returncode, 0, proc.stderr + proc.stdout)
+        jobs = json.loads(re.search(r"^jobs=(.*)$", out, re.M).group(1))
+        self.assertEqual(sorted(jobs), sorted(GRAPH["jobs"]))
 
     def test_every_full_event_selects_every_graph_job(self):
         import json
