@@ -16,6 +16,7 @@
  *     confirmed return).
  */
 import type { ReturnPayoutMethod } from '../../shared/returns/types.js';
+import type { ShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 import {
   EXECUTION_EXTERNAL_ID_PREFIX,
   buildExecutionBody,
@@ -40,6 +41,16 @@ export type EnqueueExecutions = (
   method: ReturnPayoutMethod,
   paidAt: string,
 ) => void;
+
+/**
+ * The terminal's open shift id from the shift cash-up repository, or null when none is open (or
+ * shift cash-up is off, so none can be). Kept here, apart from the composition root, so it is tested.
+ */
+export function openShiftRefOf(
+  shifts: Pick<ShiftCashupRepo, 'findOpenShift'>,
+): (scope: ReturnScope) => string | null {
+  return (scope) => shifts.findOpenShift(scope)?.shiftId ?? null;
+}
 
 /**
  * The open shift, or null. A failed shift read must not roll back a payout whose drawer already
