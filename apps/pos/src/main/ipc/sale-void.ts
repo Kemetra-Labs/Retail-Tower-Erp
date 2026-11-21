@@ -11,6 +11,8 @@ import type { Logger } from 'pino';
 
 import {
   SALE_VOID_IPC_CHANNELS,
+  SALE_VOID_PAYOUT_ACTIONS,
+  type SaleVoidPayoutAction,
   type SaleVoidAcknowledgeRequest,
   type SaleVoidCashExceptionRequest,
   type SaleVoidLookupRequest,
@@ -56,10 +58,16 @@ export function readAcknowledge(value: unknown): SaleVoidAcknowledgeRequest | nu
   return isId(value['void_id']) ? { void_id: value['void_id'] } : null;
 }
 
-/** RT-1403 S2: a payout names the void only: the amount is the journal's, the shift is main's. */
+const isPayoutAction = (v: unknown): v is SaleVoidPayoutAction =>
+  typeof v === 'string' && (SALE_VOID_PAYOUT_ACTIONS as readonly string[]).includes(v);
+
+/**
+ * RT-1403 S2: a payout names the void and its step; the amount is the journal's, the shift is main's.
+ */
 export function readPayOut(value: unknown): SaleVoidPayOutRequest | null {
-  if (!closed(value, ['void_id'])) return null;
-  return isId(value['void_id']) ? { void_id: value['void_id'] } : null;
+  if (!closed(value, ['void_id', 'action'])) return null;
+  const { void_id, action } = value;
+  return isId(void_id) && isPayoutAction(action) ? { void_id, action } : null;
 }
 
 /** RT-1403 S2: a cash exception names the void and its single-use approval, nothing else. */

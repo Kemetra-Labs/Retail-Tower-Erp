@@ -10,6 +10,7 @@ import { randomUUID } from 'node:crypto';
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
+import type { DrawerSlot } from '../drawer/drawer-slot.js';
 import type { PrintPipeline } from '../receipts/print-pipeline.js';
 import { bindSalesRepository } from '../sales/repositories/sales.repository.js';
 import { createSaleVoidRepository } from '../sale-void/sale-void-repository.js';
@@ -73,6 +74,11 @@ export interface ComposeReturnsDeps {
   readonly captureCurrencyCode?: string;
   /** RT-15 S4: the sale drawer's hardware port (the same instance sales use). */
   readonly drawer: DrawerKickTransport;
+  /**
+   * RT-1403 S2 (M1): the terminal's one drawer slot, shared with the void payout. Production passes
+   * the terminal's; absent, the payout holds one of its own.
+   */
+  readonly drawerSlot?: DrawerSlot;
   /** RT-15 S4: the receipt print pipeline (the same instance sales use). */
   readonly printer: Pick<PrintPipeline, 'printRendered'>;
   /**
@@ -193,6 +199,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     sales,
     audit,
     drawer: deps.drawer,
+    ...(deps.drawerSlot === undefined ? {} : { drawerSlot: deps.drawerSlot }),
     printer: deps.printer,
     transaction,
     isStopped,

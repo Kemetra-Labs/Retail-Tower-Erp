@@ -24,6 +24,7 @@ import {
   GateRefused,
   SALE_VOID_CASH_EXCEPTION_ACTION_KIND,
   cashExceptionSubjectOf,
+  claimActionRefusal,
   mismatchOf,
   refuse,
   type PayoutContext,
@@ -42,9 +43,18 @@ export interface CashException {
 const sameUser = (a: string, b: string): boolean => a.toLowerCase() === b.toLowerCase();
 
 export function createCashException(deps: SaleVoidPayoutDeps, ctx: PayoutContext): CashException {
-  /** Why no exception can be recorded for `entry` now, or null (before any approval is spent). */
-  function preRefusal(entry: VoidEntry): GateRefused | null {
+  /**
+   * Why no exception can be recorded for `entry` now, or null (before any approval is spent). An
+   * exception may settle a claimed payout (a manager's way out when the window has passed), but not
+   * while its drawer kick is still in flight.
+   */
+  function preRefusal(entry: VoidEntry, now: string): GateRefused | null {
     if (ctx.existingFor(entry) !== null) return new GateRefused('payout_already_recorded');
+    const claim = deps.payouts.readClaim(entry.voidId);
+    if (claim !== null) {
+      const held = claimActionRefusal({ claim, action: 'manual', now });
+      if (held !== null) return new GateRefused(held);
+    }
     if (entry.cashMinor === 0) return new GateRefused('payout_no_cash');
     if (ctx.shiftNow(entry.scope) === null) return new GateRefused('payout_no_open_shift');
     return null;
@@ -86,14 +96,15 @@ export function createCashException(deps: SaleVoidPayoutDeps, ctx: PayoutContext
     userId: string,
     req: SaleVoidCashExceptionRequest,
   ): NewPayout {
+    // ONE clock read: the payment day, the window check and `paid_at` agree (M2).
+    const paidAt = deps.now();
     const entry = ctx.voidOf(session, req.void_id);
     if (entry === null) throw new GateRefused('invalid_input');
-    const refusal = preRefusal(entry);
+    const refusal = preRefusal(entry, paidAt);
     if (refusal !== null) throw refusal;
     const shift = ctx.shiftNow(entry.scope);
     if (shift === null) throw new GateRefused('payout_no_open_shift');
     const approval = spendApproval(session, userId, entry, req.approval_id);
-    const paidAt = deps.now();
     return {
       payoutId: deps.newPayoutId(),
       voidId: entry.voidId,
@@ -106,7 +117,10 @@ export function createCashException(deps: SaleVoidPayoutDeps, ctx: PayoutContext
       amountMinor: entry.cashMinor,
       currencyCode: entry.currencyCode,
       voidState: entry.state,
-      mismatchReason: mismatchOf(entry, ctx.blockNow(entry)),
+      mismatchReason: mismatchOf(
+        entry,
+        ctx.blockAt(entry, paidAt, deps.payouts.readClaim(entry.voidId)),
+      ),
       paidAt,
       paidBy: {
         operatorId: session.operatorId,

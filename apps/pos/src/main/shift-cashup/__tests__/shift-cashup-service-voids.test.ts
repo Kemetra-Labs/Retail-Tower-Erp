@@ -17,8 +17,10 @@ import {
   initSalesSyncSql,
 } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import { createSaleVoidPayoutRepository } from '../../sale-void/sale-void-payout-repository.js';
+import { createShiftCashupSources } from '../shift-cashup-sources.js';
 import { createSaleVoidRepository } from '../../sale-void/sale-void-repository.js';
 import { newVoidEntry } from '../../sale-void/__tests__/__helpers__/sale-void-fixture.js';
+import { seedApproval } from '../../sale-void/__tests__/__helpers__/sale-void-payout-fixture.js';
 import { computeCashup } from '../shift-cashup-calculator.js';
 import type { ShiftCashupService } from '../shift-cashup-service.js';
 import {
@@ -102,6 +104,19 @@ function payOut(input: { n: number; saleId: string; cash: number; paidAt?: strin
     `SELECT state FROM sale_void_journal WHERE void_id = 'v${String(input.n)}'`,
   )[0]?.values[0]?.[0];
   const confirmed = voidState === 'confirmed';
+  const claimed = db.exec(
+    `SELECT 1 FROM sale_void_payout_claims WHERE void_id = 'v${String(input.n)}'`,
+  )[0];
+  // A payout completes its claim (the drawer opened first); an exception cites its spent approval.
+  if (confirmed && claimed === undefined) claimPayout(input.n, input.saleId, 'opened');
+  if (!confirmed) {
+    seedApproval(db, {
+      approvalId: EXCEPTION_APPROVAL(input.n),
+      voidId: `v${String(input.n)}`,
+      approver: APPROVER,
+      requester: REQUESTER,
+    });
+  }
   createSaleVoidPayoutRepository(handleFor(db)).insertFrom(() => ({
     payoutId: PAYOUT_N(input.n),
     voidId: `v${String(input.n)}`,
@@ -190,9 +205,9 @@ describe('computeCashup with void payouts', () => {
   });
 
   it.each([
-    ['an amount that is not a safe non-negative integer', paid(-1), 'invalid_refund'],
-    ['a fractional amount', paid(1.5), 'invalid_refund'],
-    ['another currency than the shift', paid(100, 'USD'), 'refund_currency_mismatch'],
+    ['an amount that is not a safe non-negative integer', paid(-1), 'invalid_void_payout'],
+    ['a fractional amount', paid(1.5), 'invalid_void_payout'],
+    ['another currency than the shift', paid(100, 'USD'), 'void_payout_currency_mismatch'],
   ] as const)('refuses %s', (_name, payout, reason) => {
     expect(() => computeCashup({ ...base, sales: [], voids: [payout] })).toThrow(
       expect.objectContaining({ reason }) as Error,
@@ -307,6 +322,56 @@ describe('closeShift counts the cash a void paid out', () => {
     const second = service.closeShift({ countedCashMinor: FLOAT });
     expect(second).toMatchObject({ cashRefundsTotalMinor: 0, expectedCashMinor: FLOAT });
   });
+});
+
+/** Claim the payout of void `n` (confirmed), its drawer kicked to `kick`, with no record yet. */
+function claimPayout(n: number, saleId: string, kick: 'opened' | 'sending'): void {
+  const payouts = createSaleVoidPayoutRepository(handleFor(db));
+  const voidId = `v${String(n)}`;
+  payouts.startClaim({
+    voidId,
+    saleId,
+    scope: SCOPE,
+    shiftId: openShiftId(),
+    businessDate: BUSINESS_DATE,
+    claimedBy: { operatorId: 'op-manager', displayName: 'Mona', sessionId: 'sess-1' },
+    claimedAt: PAID_AT,
+  });
+  payouts.markSending({ voidId, now: PAID_AT });
+  if (kick === 'opened') payouts.recordKick({ voidId, outcome: 'opened' });
+}
+
+describe('a claimed void payout holds the drawer (RT-1403 S2: H1, M1)', () => {
+  it('counts the claim as drawer activity in flight until its record exists', () => {
+    openWithSale('sale-1', 1_000);
+    journalVoid({ n: 1, saleId: 'sale-1', cash: 1_000, state: 'confirmed' });
+    const sources = createShiftCashupSources(handleFor(db));
+    expect(sources.pendingDrawerActivity(SCOPE).voidPayouts).toBe(0);
+    claimPayout(1, 'sale-1', 'opened');
+    expect(sources.pendingDrawerActivity(SCOPE).voidPayouts).toBe(1);
+    expect(sources.pendingDrawerActivity({ ...SCOPE, terminalId: 'term-2' }).voidPayouts).toBe(0);
+    payOut({ n: 1, saleId: 'sale-1', cash: 1_000 });
+    expect(sources.pendingDrawerActivity(SCOPE).voidPayouts).toBe(0);
+  });
+
+  it.each(['opened', 'sending'] as const)(
+    'refuses the close while a claim (kick %s) has no record, then closes once it has',
+    (kick) => {
+      openWithSale('sale-1', 1_000);
+      journalVoid({ n: 1, saleId: 'sale-1', cash: 1_000, state: 'confirmed' });
+      claimPayout(1, 'sale-1', kick);
+      harness.state.clock = CLOSED_AT;
+      expect(() => service.closeShift({ countedCashMinor: FLOAT + 1_000 })).toThrow(
+        expect.objectContaining({ reason: 'drawer_activity_pending' }) as Error,
+      );
+      // The kick resolves (it opened), then the record completes the claim.
+      createSaleVoidPayoutRepository(handleFor(db)).recordKick({ voidId: 'v1', outcome: 'opened' });
+      payOut({ n: 1, saleId: 'sale-1', cash: 1_000 });
+      expect(service.closeShift({ countedCashMinor: FLOAT })).toMatchObject({
+        cashRefundsTotalMinor: 1_000,
+      });
+    },
+  );
 });
 
 describe('openAndAdvance', () => {

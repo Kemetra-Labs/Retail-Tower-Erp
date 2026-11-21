@@ -76,6 +76,7 @@ import type {
   ReturnJournalView,
 } from '../../shared/returns/types.js';
 import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
+import { createDrawerSlot, type DrawerSlot } from '../drawer/drawer-slot.js';
 import type { PrintPipeline, RenderedReceipt } from '../receipts/print-pipeline.js';
 import type { SalesRepository } from '../sales/repositories/sales.repository.js';
 import type {
@@ -139,6 +140,11 @@ export interface ReturnsPayoutDeps {
   readonly enqueueExecutions?: EnqueueExecutions;
   /** RT-1543: start sending the return's executions (not awaited). */
   readonly reportExecutions?: (actor: AuthSnapshot, returnId: string) => void;
+  /**
+   * RT-1403 S2 (M1): the terminal's one drawer, shared with the void payout: while it is held by
+   * either, the other is refused `another_payout_in_progress`. Absent: a slot of its own.
+   */
+  readonly drawerSlot?: DrawerSlot;
 }
 
 export interface ReturnsPayoutAPI {
@@ -273,6 +279,8 @@ function serialized<T>(
 interface ActivePayout extends InFlight<ReturnsPayoutResponse> {
   readonly returnId: string;
   readonly action: ReturnPayoutAction;
+  /** Frees the shared drawer slot this payout holds (idempotent). */
+  readonly release: () => void;
 }
 
 class ReturnsPayoutService implements ReturnsPayoutAPI {
@@ -285,8 +293,11 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
    */
   private active: ActivePayout | null = null;
   private readonly reprints = new Map<string, InFlight<ReturnsReprintResponse>>();
+  private readonly slot: DrawerSlot;
 
-  constructor(private readonly deps: ReturnsPayoutDeps) {}
+  constructor(private readonly deps: ReturnsPayoutDeps) {
+    this.slot = deps.drawerSlot ?? createDrawerSlot();
+  }
 
   async payout(req: ReturnsPayoutRequest): Promise<ReturnsPayoutResponse> {
     if (this.deps.isStopped()) return { ...SHUTTING_DOWN, ret: null };
@@ -316,12 +327,18 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
     const key = actorKey(actor);
     const running = this.active;
     if (running !== null) return this.whileRunning(running, actor, req);
+    // RT-1403 S2 (M1): a void payout holds the same drawer: refused, never queued.
+    const release = this.slot.tryAcquire();
+    if (release === null) {
+      return Promise.resolve(this.busy(actor, req.returnId, 'another_payout_in_progress'));
+    }
     const promise = Promise.resolve()
       .then(() => this.runPayout(actor, req))
       .finally(() => {
+        release();
         if (this.active?.promise === promise) this.active = null;
       });
-    this.active = { returnId: req.returnId, action: req.action, actor: key, promise };
+    this.active = { returnId: req.returnId, action: req.action, actor: key, promise, release };
     return promise;
   }
 
@@ -346,7 +363,9 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
    * by its double click) still settles with the slip.
    */
   private releaseSlot(returnId: string): void {
-    if (this.active?.returnId === returnId) this.active = null;
+    if (this.active?.returnId !== returnId) return;
+    this.active.release();
+    this.active = null;
   }
 
   /** Another payout (step) runs on this terminal: refused, with this terminal's own row. */

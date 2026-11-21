@@ -69,7 +69,7 @@ describe('void copy', () => {
   it('tells the cashier why no cash is paid: shift, day, shift window, confirmation', () => {
     expect(voidRefusalMessage('payout_no_open_shift')).toContain('وردية');
     expect(voidRefusalMessage('payout_void_not_confirmed')).toContain('الخادم');
-    expect(voidRefusalMessage('payout_wrong_day')).toContain('مدير');
-    expect(voidRefusalMessage('payout_other_shift')).toContain('مدير');
+    expect(voidRefusalMessage('payout_wrong_day')).toContain('إقرار مدير آخر');
+    expect(voidRefusalMessage('payout_other_shift')).toContain('إقرار مدير آخر');
   });
 });

@@ -48,6 +48,8 @@ export type ShiftCashupSourceReason =
   | 'unreadable_sale_tenders'
   | 'invalid_refund'
   | 'refund_currency_mismatch'
+  | 'invalid_void_payout'
+  | 'void_payout_currency_mismatch'
   | 'total_out_of_range';
 
 /** A cash-up source the POS refuses to compute from. Names the reason only (P7). */
@@ -180,7 +182,7 @@ export function saleNetCashMinor(tenderLinesSummaryJson: string): number {
   return Number(cash);
 }
 
-function refundAmount(refund: CashupRefund | CashupVoidPayout, currencyCode: string): bigint {
+function refundAmount(refund: CashupRefund, currencyCode: string): bigint {
   if (!isSafeNonNegative(refund.amountMinor)) {
     throw new ShiftCashupSourceError('invalid_refund');
   }
@@ -188,6 +190,17 @@ function refundAmount(refund: CashupRefund | CashupVoidPayout, currencyCode: str
     throw new ShiftCashupSourceError('refund_currency_mismatch');
   }
   return BigInt(refund.amountMinor);
+}
+
+/** A void payout's cash: a safe non-negative integer in the shift's currency (else its own reasons). */
+function voidPayoutAmount(payout: CashupVoidPayout, currencyCode: string): bigint {
+  if (!isSafeNonNegative(payout.amountMinor)) {
+    throw new ShiftCashupSourceError('invalid_void_payout');
+  }
+  if (payout.currencyCode !== currencyCode) {
+    throw new ShiftCashupSourceError('void_payout_currency_mismatch');
+  }
+  return BigInt(payout.amountMinor);
 }
 
 /**
@@ -211,7 +224,7 @@ export function computeCashup(input: CashupInput): Cashup {
     0n,
   );
   const voidedCash = (input.voids ?? []).reduce<bigint>(
-    (sum, payout) => sum + refundAmount(payout, input.currencyCode),
+    (sum, payout) => sum + voidPayoutAmount(payout, input.currencyCode),
     0n,
   );
   const cashRefunds = returnedCash + voidedCash;

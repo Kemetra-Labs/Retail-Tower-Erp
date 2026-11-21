@@ -701,7 +701,7 @@ describe('RT-1403 S2: the cash of a void leaves only after Backend-Core confirme
     openShift();
     const voidId = await requestedVoidId();
     // Not confirmed yet: the payout is refused, the drawer is not kicked, nothing is recorded.
-    await expect(domain.service.payOut({ void_id: voidId })).resolves.toEqual({
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
       kind: 'refused',
       reason: 'payout_void_not_confirmed',
     });
@@ -716,7 +716,7 @@ describe('RT-1403 S2: the cash of a void leaves only after Backend-Core confirme
         },
       ],
     });
-    await expect(domain.service.payOut({ void_id: voidId })).resolves.toEqual({
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
       kind: 'paid_out',
     });
     expect(kicks).toBe(1);
@@ -730,7 +730,7 @@ describe('RT-1403 S2: the cash of a void leaves only after Backend-Core confirme
     markSaleSynced();
     const voidId = await requestedVoidId();
     await domain.sync.tick();
-    await expect(domain.service.payOut({ void_id: voidId })).resolves.toEqual({
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
       kind: 'refused',
       reason: 'payout_no_open_shift',
     });

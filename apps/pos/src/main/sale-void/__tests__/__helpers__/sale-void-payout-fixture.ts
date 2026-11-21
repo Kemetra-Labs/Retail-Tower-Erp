@@ -8,7 +8,7 @@ import {
   handleFor,
   seedSale,
 } from '../../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
-import type { NewPayout } from '../../sale-void-payout-repository.js';
+import type { NewClaim, NewPayout } from '../../sale-void-payout-repository.js';
 import { createSaleVoidRepository } from '../../sale-void-repository.js';
 import {
   APPROVAL_B,
@@ -46,6 +46,54 @@ export function closeShift(db: SqlJsDatabase, shiftId = SHIFT_A): void {
      VALUES (?, 'close', ?)`,
     [shiftId, PAID_AT],
   );
+}
+
+/** Spend-ready `sale.void_cash_exception` approval of void `voidId` by `approver` (a manager_approvals row). */
+export function seedApproval(
+  db: SqlJsDatabase,
+  over: {
+    approvalId?: string;
+    voidId?: string;
+    approver?: string;
+    requester?: string;
+    kind?: string;
+    consumed?: boolean;
+  } = {},
+): void {
+  db.run(
+    `INSERT INTO manager_approvals
+       (approval_id, tenant_id, branch_id, terminal_id, action_kind, subject_ref, subject_version,
+        amount_minor, reason_code, requester_operator_id, requester_user_id, approver_user_id,
+        policy_version, issued_at, expires_at, consumed_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 1500, 'cash_exception', 'op-cashier', ?, ?, 'rt114-2026-10-07',
+       '2026-06-07T12:55:00.000Z', '2026-06-07T13:55:00.000Z', ?)`,
+    [
+      (over.approvalId ?? APPROVAL_B).toLowerCase(),
+      SCOPE.tenantId,
+      SCOPE.branchId,
+      SCOPE.terminalId,
+      over.kind ?? 'sale.void_cash_exception',
+      over.voidId ?? 'v1',
+      `sale-void-cash-exception:${over.voidId ?? 'v1'}`,
+      over.requester ?? REQUESTER_USER,
+      over.approver ?? APPROVER_USER,
+      over.consumed === false ? null : '2026-06-07T12:59:00.000Z',
+    ],
+  );
+}
+
+/** A claim of void `v1` (confirmed, shift A), never kicked. */
+export function newClaim(over: Partial<NewClaim> = {}): NewClaim {
+  return {
+    voidId: 'v1',
+    saleId: 'sale-1',
+    scope: SCOPE,
+    shiftId: SHIFT_A,
+    businessDate: '2026-06-07',
+    claimedBy: { operatorId: 'op-manager', displayName: 'Mona Manager', sessionId: 'sess-2' },
+    claimedAt: '2026-06-07T12:58:00.000Z',
+    ...over,
+  };
 }
 
 export type VoidFixtureState = 'pending' | 'unknown' | 'confirmed' | 'refused';

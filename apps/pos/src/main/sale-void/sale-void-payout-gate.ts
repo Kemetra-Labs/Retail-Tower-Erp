@@ -1,24 +1,35 @@
 /**
- * RT-1403 S2 — the void payout gate (RT-530 c12022, c12028; owner decisions RT-1403 c18143).
+ * RT-1403 S2 — the void payout gate (RT-530 c12022, c12028; owner decisions RT-1403 c18143; the
+ * claim: orchestrator decisions H1/H2/M1/L3, c18153).
  *
  * No cash leaves the drawer on a void REQUEST. The cash of a void is paid out only when
  *
  *   • Backend-Core CONFIRMED the void (`pending`, `unknown` and `refused` give nothing);
  *   • a shift is open on this terminal;
- *   • it is the void's own business day; and
+ *   • it is the void's business day; and
  *   • that shift was already open when the void was requested (the same open shift);
  *
- * and the cash of a sale has no record yet (it leaves once). The pure rules live here; the DB
- * triggers of migration 0069 are their backstop. Anything unreadable (a failed shift read, an
- * unparseable instant) is a refusal, never a pass.
+ * and the cash of a sale has no record yet (it leaves once). The first step CLAIMS the payout (a
+ * durable row and its audit) before the drawer is kicked; once a claim exists a fresh payout is
+ * never offered, only a drawer retry or a manager's manual completion (RT-15's rule). The pure rules
+ * live here; the DB triggers of migration 0069 are their backstop. Anything unreadable (a failed
+ * shift read, an unparseable instant) is a refusal, never a pass.
  */
 import type { ApprovalSubject } from '../operator/manager-approval-service.js';
 import type {
   LocalVoidRefusal,
+  SaleVoidClaimAction,
   SaleVoidMismatchReason,
+  SaleVoidPayoutAction,
   SaleVoidPayoutBlock,
 } from '../../shared/sale-void/types.js';
-import type { PayoutRecord, SaleVoidPayoutRepository } from './sale-void-payout-repository.js';
+import type { DrawerSlot } from '../drawer/drawer-slot.js';
+import { kickStateOf } from '../returns/returns-drawer.js';
+import type {
+  PayoutClaim,
+  PayoutRecord,
+  SaleVoidPayoutRepository,
+} from './sale-void-payout-repository.js';
 import type { SaleVoidAudit } from './sale-void-audit.js';
 import type { SaleVoidRepository, VoidEntry, VoidScope } from './sale-void-repository.js';
 import { admitVoidCall } from './sale-void-session.js';
@@ -41,6 +52,7 @@ export interface PayoutSession {
   readonly sessionId: string;
   readonly operatorId: string;
   readonly displayName: string;
+  readonly role: 'cashier' | 'manager' | 'admin';
   /** The operator's provider-neutral `users.id`, lower-case; null when unknown. */
   readonly userId: string | null;
   readonly scope: VoidScope;
@@ -58,11 +70,23 @@ export interface SaleVoidPayoutDeps {
   readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
   /** Kick the cash drawer (the RT-15 / RT-531 port); never rejects. */
   readonly kickDrawer: () => Promise<DrawerResult>;
-  readonly audit: Pick<SaleVoidAudit, 'paidOut' | 'cashExceptionRecorded' | 'cashMismatchFlagged'>;
+  readonly audit: Pick<
+    SaleVoidAudit,
+    | 'paidOut'
+    | 'cashExceptionRecorded'
+    | 'cashMismatchFlagged'
+    | 'payoutStarted'
+    | 'payoutDrawer'
+    | 'payoutNotMade'
+  >;
   /** The store business day (`YYYY-MM-DD`) of an ISO instant (RT-552). */
   readonly localDayOf: (iso: string) => string;
   readonly now: () => string;
   readonly newPayoutId: () => string;
+  /**
+   * The terminal's one drawer, shared with the returns payout (M1). Absent: a slot of its own.
+   */
+  readonly drawerSlot?: DrawerSlot;
 }
 
 /** A refusal thrown inside a commit transaction, so nothing is written. */
@@ -77,19 +101,27 @@ function sameShift(entry: VoidEntry, shift: OpenShiftFact): boolean {
   return Date.parse(shift.openedAt) <= Date.parse(entry.requestedAt);
 }
 
-/** Why an otherwise payable confirmed void cannot be paid out at this moment, or null. */
-export function payoutBlockOf(input: {
+/**
+ * Why an otherwise payable confirmed void cannot be paid out at `today`, or null. The day comes
+ * first: a void whose day has passed is never payable, whatever shift is open. `claimShiftId` (a
+ * payout already claimed) must still be the open shift.
+ */
+function payoutBlockOf(input: {
   entry: VoidEntry;
   shift: OpenShiftFact | null;
   today: string;
+  claimShiftId?: string;
 }): SaleVoidPayoutBlock | null {
   const { entry, shift, today } = input;
-  if (shift === null) return 'payout_no_open_shift';
   if (today !== entry.businessDate) return 'payout_wrong_day';
+  if (shift === null) return 'payout_no_open_shift';
+  if (input.claimShiftId !== undefined && shift.shiftId !== input.claimShiftId) {
+    return 'payout_other_shift';
+  }
   return sameShift(entry, shift) ? null : 'payout_other_shift';
 }
 
-/** Why the gated payout is refused for `entry`, or null when cash may leave. */
+/** Why the FRESH payout is refused for `entry`, or null when cash may leave. */
 export function payOutRefusal(input: {
   entry: VoidEntry;
   existing: PayoutRecord | null;
@@ -101,6 +133,34 @@ export function payOutRefusal(input: {
   if (entry.state !== 'confirmed') return 'payout_void_not_confirmed';
   if (entry.cashMinor === 0) return 'payout_no_cash';
   return input.block;
+}
+
+/**
+ * Why `action` is refused for a payout that is (or is not) claimed, as RT-15's rule: a fresh payout
+ * is never offered once a claim exists; a drawer retry only after a kick that provably never left
+ * (or none); a manual completion once no kick is in flight. Null when the action is allowed (the
+ * window gate is separate).
+ */
+export function claimActionRefusal(input: {
+  claim: PayoutClaim | null;
+  action: SaleVoidPayoutAction;
+  now: string;
+}): LocalVoidRefusal | null {
+  const { claim, action } = input;
+  if (claim === null) return action === 'start' ? null : 'payout_not_started';
+  if (action === 'start') return 'payout_started';
+  const kick = kickStateOf({ kickOutcome: claim.kickOutcome, kickedAt: claim.kickedAt }, input.now);
+  if (action === 'retry_drawer') {
+    return kick === 'none' || kick === 'failed_before_send' ? null : 'payout_drawer_retry_unsafe';
+  }
+  return kick === 'in_flight' ? 'payout_drawer_in_progress' : null;
+}
+
+/** The steps a manager may still take on a claimed payout. */
+export function claimActionsOf(claim: PayoutClaim, now: string): readonly SaleVoidClaimAction[] {
+  const allowed = (action: SaleVoidClaimAction): boolean =>
+    claimActionRefusal({ claim, action, now }) === null;
+  return (['retry_drawer', 'manual'] as const).filter(allowed);
 }
 
 /**
@@ -138,7 +198,8 @@ export interface PayoutContext {
   existingFor(entry: VoidEntry): PayoutRecord | null;
   /** The open shift; a failed read is no shift (fail closed). */
   shiftNow(scope: VoidScope): OpenShiftFact | null;
-  blockNow(entry: VoidEntry): SaleVoidPayoutBlock | null;
+  /** Why the void cannot be paid at `now` (one snapshot of the clock), or null. */
+  blockAt(entry: VoidEntry, now: string, claim?: PayoutClaim | null): SaleVoidPayoutBlock | null;
 }
 
 export function createPayoutContext(deps: SaleVoidPayoutDeps): PayoutContext {
@@ -163,11 +224,12 @@ export function createPayoutContext(deps: SaleVoidPayoutDeps): PayoutContext {
     existingFor: (entry) =>
       deps.payouts.readByVoid(entry.voidId) ?? deps.payouts.readBySale(entry.saleId),
     shiftNow,
-    blockNow: (entry) =>
+    blockAt: (entry, now, claim) =>
       payoutBlockOf({
         entry,
         shift: shiftNow(entry.scope),
-        today: deps.localDayOf(deps.now()),
+        today: deps.localDayOf(now),
+        ...(claim === null || claim === undefined ? {} : { claimShiftId: claim.shiftId }),
       }),
   };
 }

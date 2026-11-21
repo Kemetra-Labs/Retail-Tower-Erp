@@ -43,7 +43,9 @@ export const VOID_COPY = Object.freeze({
   noHistory: 'لا توجد طلبات إلغاء.',
   requestedAt: 'وقت الطلب',
   acknowledge: 'تم الاطلاع',
-  attentionBanner: 'رفض الخادم طلب إلغاء بيع. افتح «إلغاء بيع» لمعرفة السبب.',
+  // RT-1403 S2 (PROPOSED): also a payout left unfinished, or cash never paid out in its window.
+  attentionBanner:
+    'يحتاج طلب إلغاء بيع إلى مراجعتك: رفض الخادم، أو صرف نقد لم يكتمل. افتح «إلغاء بيع».',
   attentionAction: 'عرض',
   unavailable: 'تعذّر تنفيذ الإجراء. حاول مرة أخرى.',
   // RT-1403 S2 (PROPOSED): the cash of a confirmed void.
@@ -51,6 +53,12 @@ export const VOID_COPY = Object.freeze({
   payOut: 'صرف النقد',
   paidOut: 'تم صرف النقد',
   paidAt: 'وقت الصرف',
+  claimed: 'بدأ صرف النقد ولم يكتمل',
+  retryDrawer: 'إعادة فتح الدرج',
+  manualComplete: 'تأكيد صرف النقد يدويًا',
+  managerPays: 'يصرف النقد مدير.',
+  drawerMayBeOpen: 'قد يكون الدرج مفتوحًا. لا تُسلِّم النقد للعميل قبل أن يؤكد المدير الصرف.',
+  voidStateIs: 'حالة الإلغاء',
   // RT-1403 S2 (PROPOSED): cash that left the drawer outside the payout gate.
   exceptionAction: 'تسجيل نقد صُرف خارج الإجراء',
   exceptionTitle: 'تسجيل نقد صُرف خارج الإجراء',
@@ -95,11 +103,19 @@ const REFUSALS: Readonly<Record<SaleVoidRefusalReason | ManagerApprovalRefusalRe
   payout_void_refused: 'رفض الخادم الإلغاء، فلا يُصرف نقد.',
   payout_no_cash: 'لا نقد يُصرف لهذا البيع.',
   payout_no_open_shift: 'لا توجد وردية مفتوحة. افتح وردية ليُصرف النقد فيها.',
-  payout_wrong_day: 'انتهى يوم الإلغاء، فلا يُصرف النقد من هنا. يلزم تسجيل بإقرار مدير.',
+  // Owner decision (RT-1403, delegated 2026-11-22): after the window a late payout is only the
+  // manager-attested cash exception (current open shift, another manager's PIN, once, flagged).
+  payout_wrong_day: 'انتهت مهلة صرف النقد (يوم الإلغاء). يلزم إقرار مدير آخر لصرف النقد المتأخر.',
   payout_other_shift:
-    'الوردية المفتوحة بدأت بعد طلب الإلغاء، فلا يُصرف النقد فيها. يلزم تسجيل بإقرار مدير.',
+    'انتهت مهلة صرف النقد (وردية الإلغاء). يلزم إقرار مدير آخر لصرف النقد المتأخر.',
   payout_already_recorded: 'سُجّل صرف النقد لهذا البيع من قبل.',
-  payout_drawer_failed: 'لم يُفتح الدرج، ولم يُسجَّل صرف. حاول مرة أخرى.',
+  payout_drawer_failed: 'تعذّر التأكد من فتح الدرج، ولم يُسجَّل صرف.',
+  payout_started: 'بدأ صرف النقد لهذا الإلغاء من قبل. يكمله المدير.',
+  payout_not_started: 'لم يبدأ صرف النقد لهذا الإلغاء.',
+  payout_drawer_retry_unsafe:
+    'قد يكون الدرج قد فُتح، فلا تُعاد المحاولة. يؤكد المدير الصرف يدويًا.',
+  payout_drawer_in_progress: 'فتح الدرج قيد التنفيذ. انتظر ثوانٍ ثم حاول.',
+  another_payout_in_progress: 'عملية صرف أخرى جارية على هذه الطرفية. انتظر حتى تنتهي.',
   payout_in_progress: 'صرف النقد قيد التنفيذ.',
   // The approval itself: never says which part failed (RT-114 C3), but names
   // the four-eyes rule so the cashier knows another manager is needed.

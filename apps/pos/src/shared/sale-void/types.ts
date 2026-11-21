@@ -88,9 +88,22 @@ export const LOCAL_VOID_REFUSALS = [
   'payout_other_shift',
   /** The cash of this sale already has its record (a payout or an exception): never twice. */
   'payout_already_recorded',
-  /** The drawer did not open: nothing was recorded; the payout may be tried again. */
+  /**
+   * The drawer was kicked but the payout is not recorded (it did not open, or answered unknown):
+   * the payout stays claimed; only a retry (a kick that provably never left) or a manager's manual
+   * completion remains.
+   */
   'payout_drawer_failed',
   'payout_in_progress',
+  /** RT-1403 S2 (H1): the payout was already started for this void; complete it, never start again. */
+  'payout_started',
+  'payout_not_started',
+  /** The last kick may have opened the drawer: only the manager's manual completion remains. */
+  'payout_drawer_retry_unsafe',
+  /** A kick is still in flight: wait for it. */
+  'payout_drawer_in_progress',
+  /** RT-1403 S2 (M1): another payout (a return's or a void's) holds the terminal's one drawer. */
+  'another_payout_in_progress',
 ] as const;
 export type LocalVoidRefusal = (typeof LOCAL_VOID_REFUSALS)[number];
 
@@ -166,10 +179,28 @@ export const SALE_VOID_MISMATCH_REASONS = [
 ] as const;
 export type SaleVoidMismatchReason = (typeof SALE_VOID_MISMATCH_REASONS)[number];
 
+/** What a manager may still do to a claimed payout (RT-15's pattern). */
+const SALE_VOID_CLAIM_ACTIONS = ['retry_drawer', 'manual'] as const;
+export type SaleVoidClaimAction = (typeof SALE_VOID_CLAIM_ACTIONS)[number];
+
+/** The payout step a request asks for: the first one, or a step of a claimed payout. */
+export const SALE_VOID_PAYOUT_ACTIONS = ['start', ...SALE_VOID_CLAIM_ACTIONS] as const;
+export type SaleVoidPayoutAction = (typeof SALE_VOID_PAYOUT_ACTIONS)[number];
+
 /** The cash of a void, as the renderer sees it. */
 export interface SaleVoidPayoutView {
-  /** `none`: no cash has left; `paid_out`: the gated payout; `exception`: manager-attested. */
-  state: 'none' | 'paid_out' | 'exception';
+  /**
+   * `none`: no cash has left; `claimed`: the payout was started and the drawer may be open (no
+   * record yet); `paid_out`: the gated payout; `exception`: manager-attested.
+   */
+  state: 'none' | 'claimed' | 'paid_out' | 'exception';
+  /** Set only on a `claimed` payout: the steps a manager may still take. */
+  claim_actions: readonly SaleVoidClaimAction[];
+  /**
+   * A confirmed void with cash that was never paid out and whose payout window (day or shift) has
+   * passed: flagged for the manager (audit only; no stored flag).
+   */
+  overdue: boolean;
   paid_at: string | null;
   /** Set only on an exception that disagrees with the accounting status. */
   mismatch_reason: SaleVoidMismatchReason | null;
@@ -208,12 +239,20 @@ export interface SaleVoidListView {
 
 export type SaleVoidListResponse = SaleVoidListView | SaleVoidRefused;
 
-/** RT-1403 S2: pay out the cash of a confirmed void (the amount is the journal's, never sent). */
+/**
+ * RT-1403 S2: pay out the cash of a confirmed void (the amount is the journal's, never sent). A
+ * manager or admin acts; `start` claims the payout and kicks the drawer, `retry_drawer` and `manual`
+ * complete a claimed one (RT-15's pattern).
+ */
 export interface SaleVoidPayOutRequest {
   void_id: string;
+  action: SaleVoidPayoutAction;
 }
 
-export type SaleVoidPayOutResponse = { kind: 'paid_out' } | SaleVoidRefused;
+/** A refused payout; `drawer_may_be_open` when the drawer was kicked first (never hand the cash over). */
+type SaleVoidPayOutRefused = SaleVoidRefused & { drawer_may_be_open?: true };
+
+export type SaleVoidPayOutResponse = { kind: 'paid_out' } | SaleVoidPayOutRefused;
 
 /**
  * RT-1403 S2: record cash that left the drawer outside the payout gate. `approval_id` is the

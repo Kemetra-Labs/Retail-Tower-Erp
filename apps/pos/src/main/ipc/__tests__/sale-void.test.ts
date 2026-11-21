@@ -59,15 +59,21 @@ describe('sale void IPC validators', () => {
 });
 
 describe('RT-1403 S2 payout validators', () => {
-  it("payOut: a void id only (the amount is the journal's, never sent)", () => {
-    expect(readPayOut({ void_id: 'v-1' })).toEqual({ void_id: 'v-1' });
+  it("payOut: a void id and a closed step (the amount is the journal's, never sent)", () => {
+    for (const action of ['start', 'retry_drawer', 'manual'] as const) {
+      expect(readPayOut({ void_id: 'v-1', action })).toEqual({ void_id: 'v-1', action });
+    }
     for (const bad of [
       null,
       [],
       {},
-      { void_id: 'v 1' },
-      { void_id: 'v-1', amount_minor: 1 },
-      { void_id: 'v-1', shift_id: 'forged' },
+      { void_id: 'v-1' },
+      { action: 'start' },
+      { void_id: 'v 1', action: 'start' },
+      { void_id: 'v-1', action: 'refund' },
+      { void_id: 'v-1', action: 7 },
+      { void_id: 'v-1', action: 'start', amount_minor: 1 },
+      { void_id: 'v-1', action: 'start', shift_id: 'forged' },
     ]) {
       expect(readPayOut(bad)).toBeNull();
     }
@@ -155,12 +161,17 @@ describe('sale void IPC handlers', () => {
   it('payOut and cashException pass a closed request through, and refuse anything else', async () => {
     const { handlers, service } = register();
     await expect(
-      Promise.resolve(handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1' })),
+      Promise.resolve(
+        handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1', action: 'start' }),
+      ),
     ).resolves.toEqual({ kind: 'paid_out' });
-    expect(service.payOut).toHaveBeenCalledWith({ void_id: 'v-1' });
+    expect(service.payOut).toHaveBeenCalledWith({ void_id: 'v-1', action: 'start' });
     await expect(
       Promise.resolve(
-        handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1', amount_minor: 1 }),
+        handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.(
+          {},
+          { void_id: 'v-1', action: 'start', amount_minor: 1 },
+        ),
       ),
     ).resolves.toEqual({ kind: 'refused', reason: 'invalid_input' });
     await handlers.get(SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION)?.(
@@ -183,7 +194,9 @@ describe('sale void IPC handlers', () => {
     const { handlers, service, logger } = register();
     service.payOut.mockRejectedValueOnce(new Error('disk full'));
     await expect(
-      Promise.resolve(handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1' })),
+      Promise.resolve(
+        handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1', action: 'start' }),
+      ),
     ).resolves.toEqual({ kind: 'refused', reason: 'void_unavailable' });
     expect(logger.warn).toHaveBeenCalledWith({ op: 'payOut', error: 'Error' }, 'sale_void:failed');
   });

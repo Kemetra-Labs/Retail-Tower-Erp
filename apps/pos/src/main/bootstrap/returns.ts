@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
 import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
+import { terminalDrawerSlot } from '../drawer/drawer-slot.js';
 import { registerReturnsHandlers } from '../ipc/returns.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
 import { resolveSessionScope } from '../operator/resolve-session-scope.js';
@@ -95,6 +96,8 @@ export function registerReturns(deps: ReturnsDeps): void {
     // hardware path): the payout kicks the drawer, the slip prints through
     // the receipt pipeline's path selection.
     drawer: drawerKickTransport,
+    // RT-1403 S2 (M1): the void payout holds the same drawer: one at a time.
+    drawerSlot: terminalDrawerSlot,
     printer: printPipeline,
     // RT-1543: the shift whose drawer paid, for the refund execution's evidence. None open (or
     // shift cash-up off, so none can be): no execution is reported for that payout.

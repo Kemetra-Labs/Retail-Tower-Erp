@@ -1,45 +1,33 @@
 /**
- * RT-1403 S2 — the fail-closed void payout and the manager-attested cash exception, over the full
- * migration stack (sql.js) with the real journal and payout repositories.
+ * RT-1403 S2 — the fail-closed void payout over the full migration stack (sql.js) with the real
+ * journal, claim and record repositories and the real audit.
  *
  *   • cash leaves only for a void Backend-Core CONFIRMED, inside an open shift, on the void's
  *     business day, in the shift that was already open when the void was requested;
- *   • `pending`, `unknown` and `refused` give no cash, and the drawer is never kicked for them;
- *   • the cash of a sale is recorded once, whichever way it left;
- *   • an exception needs an open shift, a single-use approval of a manager other than the
- *     requester, and carries a mismatch flag when cash and accounting status disagree.
+ *   • a CLAIM (with its audit) is written BEFORE the drawer is kicked; once it exists a fresh payout
+ *     is never offered, only a drawer retry (after a kick that provably never left) or a manager's
+ *     manual completion, and exactly one record is ever counted (H1);
+ *   • a manager or admin pays out, a cashier never does (L3);
+ *   • `pending`, `unknown` and `refused` give no cash, and the drawer is never kicked for them.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Database as SqlJsDatabase } from 'sql.js';
 
 import {
   freshSalesSyncDb,
-  handleFor,
   initSalesSyncSql,
 } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
-import type {
-  ConsumeApprovalInput,
-  ConsumeApprovalOutcome,
-} from '../../operator/manager-approval-service.js';
-import type { SaleVoidMismatchReason } from '../../../shared/sale-void/types.js';
+import { SCOPE } from './__helpers__/sale-void-fixture.js';
 import {
-  createSaleVoidPayout,
-  type DrawerResult,
-  type OpenShiftFact,
-  type SaleVoidPayoutService,
-} from '../sale-void-payout.js';
-import {
-  createSaleVoidPayoutRepository,
-  type PayoutRecord,
-  type SaleVoidPayoutRepository,
-} from '../sale-void-payout-repository.js';
-import { createSaleVoidRepository } from '../sale-void-repository.js';
-import {
-  APPROVAL_B,
-  APPROVER_USER,
-  REQUESTER_USER,
-  SCOPE,
-} from './__helpers__/sale-void-fixture.js';
+  AFTER_LEASE,
+  NEXT_DAY,
+  WITHIN_LEASE,
+  createHarness,
+  freshState,
+  viewOfV1,
+  type PayoutHarness,
+  type PayoutState,
+} from './__helpers__/sale-void-payout-harness.js';
 import {
   OPENED_AFTER_VOID,
   OPENED_BEFORE_VOID,
@@ -50,119 +38,16 @@ import {
   type VoidFixtureState,
 } from './__helpers__/sale-void-payout-fixture.js';
 
-const NOW = '2026-06-07T13:00:00.000Z';
-const NEXT_DAY = '2026-06-08T09:00:00.000Z';
-
-interface Harness {
-  service: SaleVoidPayoutService;
-  payouts: SaleVoidPayoutRepository;
-  audit: string[];
-  kicks: number;
-  consumed: ConsumeApprovalInput[];
-  state: {
-    now: string;
-    enabled: boolean;
-    stopped: boolean;
-    locked: boolean;
-    session: { sessionId: string; userId: string | null } | null;
-    terminalId: string;
-    kick: () => Promise<DrawerResult>;
-    consume: ConsumeApprovalOutcome;
-    evidence: { approverUserId: string; requesterUserId: string | null } | null;
-    shiftReadFails: boolean;
-  };
-}
-
 let db: SqlJsDatabase;
-let h: Harness;
+let h: PayoutHarness;
 
 beforeAll(async () => {
   await initSalesSyncSql();
 });
 
-function compose(): Harness {
-  const handle = handleFor(db);
-  const payouts = createSaleVoidPayoutRepository(handle);
-  const voids = createSaleVoidRepository(handle);
-  const state: Harness['state'] = {
-    now: NOW,
-    enabled: true,
-    stopped: false,
-    locked: false,
-    session: { sessionId: 'sess-2', userId: REQUESTER_USER },
-    terminalId: SCOPE.terminalId,
-    kick: () => Promise.resolve('opened'),
-    consume: { kind: 'consumed', approverUserId: APPROVER_USER },
-    evidence: { approverUserId: APPROVER_USER, requesterUserId: REQUESTER_USER },
-    shiftReadFails: false,
-  };
-  const out: Harness = {
-    service: undefined as unknown as SaleVoidPayoutService,
-    payouts,
-    audit: [],
-    kicks: 0,
-    consumed: [],
-    state,
-  };
-  out.service = createSaleVoidPayout({
-    isEnabled: () => state.enabled,
-    isStopped: () => state.stopped,
-    isSessionLocked: () => state.locked,
-    getSession: () =>
-      state.session === null
-        ? null
-        : {
-            sessionId: state.session.sessionId,
-            operatorId: 'op-cashier',
-            displayName: 'Cara Cashier',
-            userId: state.session.userId,
-            scope: { ...SCOPE, terminalId: state.terminalId },
-          },
-    voids,
-    payouts,
-    openShift: (scope): OpenShiftFact | null => {
-      if (state.shiftReadFails) throw new Error('shift read failed');
-      const row = db.exec(
-        `SELECT o.shift_id, o.opened_at FROM shift_cashup_opens o
-          WHERE o.terminal_id = '${scope.terminalId}'
-            AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)`,
-      )[0]?.values[0];
-      return row === undefined ? null : { shiftId: String(row[0]), openedAt: String(row[1]) };
-    },
-    approvals: {
-      consume: (input) => {
-        out.consumed.push(input);
-        return state.consume;
-      },
-      evidence: () =>
-        state.evidence === null
-          ? null
-          : {
-              approverUserId: state.evidence.approverUserId,
-              requesterUserId: state.evidence.requesterUserId,
-              policyVersion: 'rt114-2026-10-07',
-              issuedAt: NOW,
-            },
-    },
-    kickDrawer: () => {
-      out.kicks += 1;
-      return state.kick();
-    },
-    audit: {
-      paidOut: (r) => out.audit.push(`paid_out:${r.voidId}`),
-      cashExceptionRecorded: (r) => out.audit.push(`exception:${r.voidId}`),
-      cashMismatchFlagged: (r) => out.audit.push(`mismatch:${r.mismatchReason ?? ''}`),
-    },
-    localDayOf: (iso) => iso.slice(0, 10),
-    now: () => state.now,
-    newPayoutId: () => '0192f5a2-3b4c-7d8e-9f01-0000000000b1',
-  });
-  return out;
-}
-
 beforeEach(() => {
   db = freshSalesSyncDb();
-  h = compose();
+  h = createHarness(db);
 });
 
 afterEach(() => {
@@ -175,15 +60,27 @@ function given(state: VoidFixtureState, opts: { shift?: string | null; cash?: nu
   if (opts.shift !== null) openShift(db, SHIFT_A, opts.shift ?? OPENED_BEFORE_VOID);
 }
 
-function record(): PayoutRecord | null {
-  return h.payouts.readByVoid('v1');
-}
+const start = { void_id: 'v1', action: 'start' } as const;
+const retry = { void_id: 'v1', action: 'retry_drawer' } as const;
+const manual = { void_id: 'v1', action: 'manual' } as const;
 
-describe('payOut', () => {
-  it('records the cash of a confirmed void in the open shift, through the drawer', async () => {
+describe('payOut: start', () => {
+  it('claims the payout and audits it BEFORE the drawer is kicked, then records the cash', async () => {
     given('confirmed');
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({ kind: 'paid_out' });
-    expect(record()).toMatchObject({
+    expect(await h.service.payOut(start)).toEqual({ kind: 'paid_out' });
+    expect(h.trail).toEqual([
+      'sale.void.payout_started',
+      'kick',
+      'sale.void.payout_drawer',
+      'sale.void.paid_out',
+    ]);
+    expect(h.payouts.readClaim('v1')).toMatchObject({
+      shiftId: SHIFT_A,
+      businessDate: '2026-06-07',
+      kickOutcome: 'opened',
+      kickCount: 1,
+    });
+    expect(h.record()).toMatchObject({
       kind: 'payout',
       method: 'drawer',
       amountMinor: 1500,
@@ -192,504 +89,353 @@ describe('payOut', () => {
       businessDate: '2026-06-07',
       voidState: 'confirmed',
       mismatchReason: null,
-      paidAt: NOW,
-      paidBy: { operatorId: 'op-cashier', sessionId: 'sess-2' },
+      paidAt: '2026-06-07T13:00:00.000Z',
+      paidBy: { operatorId: 'op-manager', sessionId: 'sess-2' },
       exception: null,
     });
-    expect(h.kicks).toBe(1);
-    expect(h.audit).toEqual(['paid_out:v1']);
+    expect(h.payouts.countOpenClaims(SCOPE)).toBe(0);
+  });
+
+  it('writes the claim durably before the kick: a kick in flight already has its claim', async () => {
+    given('confirmed');
+    let seen: unknown = null;
+    h.state.kick = () => {
+      seen = h.payouts.readClaim('v1')?.kickOutcome;
+      return Promise.resolve('opened');
+    };
+    await h.service.payOut(start);
+    expect(seen).toBe('sending');
   });
 
   it('completes as no_drawer when the terminal has no drawer (RT-531)', async () => {
     given('confirmed');
     h.state.kick = () => Promise.resolve('no_drawer');
-    await h.service.payOut({ void_id: 'v1' });
-    expect(record()?.method).toBe('no_drawer');
+    expect(await h.service.payOut(start)).toEqual({ kind: 'paid_out' });
+    expect(h.record()?.method).toBe('no_drawer');
+    expect(h.payouts.readClaim('v1')?.kickOutcome).toBe('failed_before_send');
+  });
+
+  it('takes the payment day from the one clock read, and an admin may pay out too', async () => {
+    given('confirmed');
+    h.state.session = { sessionId: 'sess-2', userId: null, role: 'admin' };
+    await h.service.payOut(start);
+    expect(h.record()?.businessDate).toBe(h.record()?.paidAt.slice(0, 10));
+  });
+
+  it('refuses a cashier (L3): nothing is claimed, kicked or recorded', async () => {
+    given('confirmed');
+    h.state.session = { sessionId: 'sess-2', userId: null, role: 'cashier' };
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'role_denied' });
+    expect(h.kicks).toBe(0);
+    expect(h.payouts.readClaim('v1')).toBeNull();
+    expect(h.record()).toBeNull();
   });
 
   it.each([
     ['pending', 'payout_void_not_confirmed'],
     ['unknown', 'payout_void_not_confirmed'],
     ['refused', 'payout_void_refused'],
-  ] as const)('gives no cash for a %s void (%s)', async (state, reason) => {
+  ] as const)('gives no cash for a %s void (%s): no claim, no kick', async (state, reason) => {
     given(state);
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({ kind: 'refused', reason });
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason });
     expect(h.kicks).toBe(0);
-    expect(record()).toBeNull();
-    expect(h.audit).toEqual([]);
+    expect(h.payouts.readClaim('v1')).toBeNull();
+    expect(h.record()).toBeNull();
+    expect(h.events).toEqual([]);
   });
 
-  it('refuses with no open shift, before the drawer', async () => {
+  it('refuses with no open shift, before any claim or kick', async () => {
     given('confirmed', { shift: null });
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_no_open_shift',
     });
     expect(h.kicks).toBe(0);
+    expect(h.payouts.readClaim('v1')).toBeNull();
   });
 
   it('refuses when the shift read fails (fail closed)', async () => {
     given('confirmed');
     h.state.shiftReadFails = true;
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_no_open_shift',
     });
-    expect(record()).toBeNull();
+    expect(h.payouts.readClaim('v1')).toBeNull();
   });
 
-  it('refuses after midnight, even in a shift that is still open', async () => {
+  it('refuses after midnight, even in a shift that is still open, with no claim', async () => {
     given('confirmed');
     h.state.now = NEXT_DAY;
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'payout_wrong_day',
-    });
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'payout_wrong_day' });
     expect(h.kicks).toBe(0);
-    expect(record()).toBeNull();
+    expect(h.payouts.readClaim('v1')).toBeNull();
+    expect(h.record()).toBeNull();
   });
 
   it('refuses in a shift opened after the void was requested (not the same shift)', async () => {
     given('confirmed', { shift: OPENED_AFTER_VOID });
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_other_shift',
     });
-    expect(record()).toBeNull();
+    expect(h.payouts.readClaim('v1')).toBeNull();
   });
 
   it('refuses a void with no cash to hand back (a card sale)', async () => {
     given('confirmed', { cash: 0 });
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'payout_no_cash',
-    });
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'payout_no_cash' });
   });
 
-  it('pays once: a second payout is refused and the drawer is not kicked again', async () => {
+  it('pays once: a second start is refused and the drawer is not kicked again', async () => {
     given('confirmed');
-    await h.service.payOut({ void_id: 'v1' });
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    await h.service.payOut(start);
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_already_recorded',
     });
     expect(h.kicks).toBe(1);
   });
 
-  it('records nothing when the drawer does not open, and may be tried again', async () => {
+  it('refuses a void that does not exist or belongs to another terminal', async () => {
     given('confirmed');
-    h.state.kick = () => Promise.resolve('failed');
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut({ void_id: 'ghost', action: 'start' })).toEqual({
       kind: 'refused',
-      reason: 'payout_drawer_failed',
+      reason: 'invalid_input',
     });
-    expect(record()).toBeNull();
-    h.state.kick = () => Promise.resolve('opened');
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({ kind: 'paid_out' });
+    h.state.terminalId = 'term-2';
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'invalid_input' });
   });
 
-  it('re-checks the gate at the commit: a shift closed during the kick records nothing', async () => {
+  it.each<[string, (state: PayoutState) => void]>([
+    ['feature_disabled', (s) => (s.enabled = false)],
+    ['no_session', (s) => (s.session = null)],
+    ['session_locked', (s) => (s.locked = true)],
+    ['void_unavailable', (s) => (s.stopped = true)],
+  ])('is not admitted: %s', async (reason, arrange) => {
+    given('confirmed');
+    arrange(h.state);
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason });
+    expect(h.kicks).toBe(0);
+    expect(h.payouts.readClaim('v1')).toBeNull();
+  });
+});
+
+describe('payOut: the claim survives anything after the kick (H1)', () => {
+  it('a drawer that failed leaves the claim: told it may be open, and only the manual completion remains', async () => {
+    given('confirmed');
+    h.state.kick = () => Promise.resolve('failed');
+    expect(await h.service.payOut(start)).toEqual({
+      kind: 'refused',
+      reason: 'payout_drawer_failed',
+      drawer_may_be_open: true,
+    });
+    expect(h.record()).toBeNull();
+    expect(h.payouts.readClaim('v1')?.kickOutcome).toBe('unknown');
+    // No fresh payout; an unknown kick is never retried; the manager attests it by hand.
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'payout_started' });
+    expect(await h.service.payOut(retry)).toEqual({
+      kind: 'refused',
+      reason: 'payout_drawer_retry_unsafe',
+    });
+    expect(h.kicks).toBe(1);
+    expect(await h.service.payOut(manual)).toEqual({ kind: 'paid_out' });
+    expect(h.record()).toMatchObject({ kind: 'payout', method: 'manual' });
+    expect(h.payouts.countOpenClaims(SCOPE)).toBe(0);
+  });
+
+  it('a shift closed during the kick records nothing, says the drawer may be open, keeps the claim', async () => {
     given('confirmed');
     h.state.kick = () => {
       closeShift(db);
       return Promise.resolve('opened');
     };
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_no_open_shift',
+      drawer_may_be_open: true,
     });
-    expect(record()).toBeNull();
-    expect(h.audit).toEqual([]);
+    expect(h.record()).toBeNull();
+    expect(h.payouts.readClaim('v1')?.kickOutcome).toBe('opened');
+    expect(h.trail).not.toContain('sale.void.paid_out');
+    expect(h.payouts.countOpenClaims(SCOPE)).toBe(1);
   });
 
-  it('re-checks the day at the commit: midnight passing during the kick records nothing', async () => {
+  it('midnight passing during the kick records nothing and keeps the claim', async () => {
     given('confirmed');
     h.state.kick = () => {
       h.state.now = NEXT_DAY;
       return Promise.resolve('opened');
     };
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'payout_wrong_day',
+      drawer_may_be_open: true,
     });
-    expect(record()).toBeNull();
+    expect(h.record()).toBeNull();
+    expect(h.payouts.countOpenClaims(SCOPE)).toBe(1);
+    // The window has passed for a manual completion too: only an exception can settle it.
+    expect(await h.service.payOut(manual)).toEqual({ kind: 'refused', reason: 'payout_wrong_day' });
   });
 
-  it('records nothing when the session locks or changes during the kick', async () => {
+  it('a lock during the kick records nothing and keeps the claim; no fresh payout follows', async () => {
     given('confirmed');
     h.state.kick = () => {
       h.state.locked = true;
       return Promise.resolve('opened');
     };
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'session_locked',
+      drawer_may_be_open: true,
     });
     h.state.locked = false;
-    h.state.kick = () => {
-      h.state.session = { sessionId: 'sess-other', userId: REQUESTER_USER };
-      return Promise.resolve('opened');
-    };
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'no_session',
-    });
-    expect(record()).toBeNull();
+    expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'payout_started' });
+    expect(h.record()).toBeNull();
   });
 
-  it('records nothing when the domain stops during the kick', async () => {
+  it('a session swapped during the kick refuses the commit, and the next manager completes it by hand', async () => {
+    given('confirmed');
+    h.state.kick = () => {
+      h.state.session = { sessionId: 'sess-other', userId: null, role: 'manager' };
+      return Promise.resolve('opened');
+    };
+    expect(await h.service.payOut(start)).toEqual({
+      kind: 'refused',
+      reason: 'no_session',
+      drawer_may_be_open: true,
+    });
+    expect(h.record()).toBeNull();
+    expect(await h.service.payOut(manual)).toEqual({ kind: 'paid_out' });
+    expect(h.record()?.paidBy.sessionId).toBe('sess-other');
+  });
+
+  it('a stop during the kick writes nothing more and leaves the durable sending mark', async () => {
     given('confirmed');
     h.state.kick = () => {
       h.state.stopped = true;
       return Promise.resolve('opened');
     };
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
+    expect(await h.service.payOut(start)).toEqual({
       kind: 'refused',
       reason: 'void_unavailable',
+      drawer_may_be_open: true,
     });
-    expect(record()).toBeNull();
+    expect(h.record()).toBeNull();
+    expect(h.payouts.readClaim('v1')?.kickOutcome).toBe('sending');
+    expect(h.events.map((e) => e.action_category)).toEqual(['sale.void.payout_started']);
   });
 
-  it('shares one payout per void: a repeat while one runs is refused, one record results', async () => {
+  it('crash between kick and commit, then restart: no fresh payout, retry unsafe, ONE manual record', async () => {
     given('confirmed');
-    let release: () => void = () => undefined;
-    h.state.kick = () =>
-      new Promise<DrawerResult>((resolve) => {
-        release = () => {
-          resolve('opened');
-        };
-      });
-    const first = h.service.payOut({ void_id: 'v1' });
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'payout_in_progress',
+    h.state.kick = () => {
+      // The process "dies" with the kick sent: nothing more is written (the DB is closing).
+      h.state.stopped = true;
+      return Promise.resolve('opened');
+    };
+    await h.service.payOut(start);
+    expect(h.payouts.countOpenClaims(SCOPE)).toBe(1);
+
+    // Restart: a new service over the same database, after the kick's lease has run out.
+    const restarted = createHarness(db, { ...freshState(), now: AFTER_LEASE });
+    expect(viewOfV1(db, restarted.service)).toMatchObject({
+      state: 'claimed',
+      claim_actions: ['manual'],
     });
-    release();
-    expect(await first).toEqual({ kind: 'paid_out' });
-    expect(h.kicks).toBe(1);
+    expect(await restarted.service.payOut(start)).toEqual({
+      kind: 'refused',
+      reason: 'payout_started',
+    });
+    expect(await restarted.service.payOut(retry)).toEqual({
+      kind: 'refused',
+      reason: 'payout_drawer_retry_unsafe',
+    });
+    expect(restarted.kicks).toBe(0);
+    expect(await restarted.service.payOut(manual)).toEqual({ kind: 'paid_out' });
+    expect(Number(db.exec('SELECT COUNT(*) FROM sale_void_payouts')[0]?.values[0]?.[0])).toBe(1);
+    expect(restarted.payouts.countOpenClaims(SCOPE)).toBe(0);
+    expect(await restarted.service.payOut(manual)).toEqual({
+      kind: 'refused',
+      reason: 'payout_already_recorded',
+    });
   });
 
-  it.each<[string, () => void]>([
-    [
-      'feature_disabled',
-      () => {
-        h.state.enabled = false;
-      },
-    ],
-    [
-      'no_session',
-      () => {
-        h.state.session = null;
-      },
-    ],
-    [
-      'session_locked',
-      () => {
-        h.state.locked = true;
-      },
-    ],
-    [
-      'void_unavailable',
-      () => {
-        h.state.stopped = true;
-      },
-    ],
-  ])('is not admitted: %s', async (reason, arrange) => {
+  it('a restart inside the kick lease waits: the manual completion is refused while the kick may be in flight', async () => {
     given('confirmed');
-    arrange();
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({ kind: 'refused', reason });
-    expect(h.kicks).toBe(0);
-  });
-
-  it('refuses a void that does not exist or belongs to another terminal', async () => {
-    given('confirmed');
-    expect(await h.service.payOut({ void_id: 'ghost' })).toEqual({
+    h.state.kick = () => {
+      h.state.stopped = true;
+      return Promise.resolve('opened');
+    };
+    await h.service.payOut(start);
+    const restarted = createHarness(db, { ...freshState(), now: WITHIN_LEASE });
+    expect(viewOfV1(db, restarted.service)).toMatchObject({ state: 'claimed', claim_actions: [] });
+    expect(await restarted.service.payOut(manual)).toEqual({
       kind: 'refused',
-      reason: 'invalid_input',
+      reason: 'payout_drawer_in_progress',
     });
-    h.state.terminalId = 'term-2';
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'invalid_input',
-    });
+    expect(restarted.payouts.countOpenClaims(SCOPE)).toBe(1);
   });
 });
 
-describe('recordCashException', () => {
-  const request = { void_id: 'v1', approval_id: APPROVAL_B };
-
-  it.each([
-    ['refused', 'void_refused'],
-    ['unknown', 'void_unconfirmed'],
-    ['pending', 'void_unconfirmed'],
-  ] as const)(
-    'records cash that left for a %s void, flagged %s, spending the approval',
-    async (state, flag: SaleVoidMismatchReason) => {
-      given(state);
-      expect(await h.service.recordCashException(request)).toEqual({
-        kind: 'exception_recorded',
-        mismatch_reason: flag,
-      });
-      expect(record()).toMatchObject({
-        kind: 'exception',
-        method: 'manual',
-        voidState: state,
-        mismatchReason: flag,
-        amountMinor: 1500,
-        shiftId: SHIFT_A,
-        exception: {
-          approvalId: APPROVAL_B,
-          approverUserId: APPROVER_USER,
-          requesterUserId: REQUESTER_USER,
-          policyVersion: 'rt114-2026-10-07',
-        },
-      });
-      expect(h.audit).toEqual([`exception:v1`, `mismatch:${flag}`]);
-      expect(h.kicks).toBe(0);
-    },
-  );
-
-  it('spends the approval bound to this void, this operator and this scope', async () => {
-    given('refused');
-    await h.service.recordCashException(request);
-    expect(h.consumed).toHaveLength(1);
-    expect(h.consumed[0]).toMatchObject({
-      approvalId: APPROVAL_B,
-      actionKind: 'sale.void_cash_exception',
-      subjectRef: 'v1',
-      subject: { version: 'sale-void-cash-exception:v1', amountMinor: 1500 },
-      session: {
-        operator_id: 'op-cashier',
-        tenant_id: SCOPE.tenantId,
-        branch_id: SCOPE.branchId,
-      },
-    });
-  });
-
-  it('records an unflagged exception for a confirmed void inside its window', async () => {
+describe('payOut: retry_drawer and manual', () => {
+  it('retries the drawer after a kick that provably never left, and completes in the same shift', async () => {
     given('confirmed');
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'exception_recorded',
-      mismatch_reason: null,
-    });
-    expect(h.audit).toEqual(['exception:v1']);
-  });
-
-  it('flags a confirmed void paid outside its day window', async () => {
-    given('confirmed');
-    h.state.now = NEXT_DAY;
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'exception_recorded',
-      mismatch_reason: 'payout_window_closed',
-    });
-    expect(record()?.businessDate).toBe('2026-06-08');
-  });
-
-  it('flags a confirmed void paid in a shift opened after the request', async () => {
-    given('confirmed', { shift: OPENED_AFTER_VOID });
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'exception_recorded',
-      mismatch_reason: 'payout_window_closed',
-    });
-  });
-
-  it('needs an open shift and spends no approval without one (a closed shift is never changed)', async () => {
-    given('refused', { shift: null });
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'payout_no_open_shift',
-    });
-    expect(h.consumed).toEqual([]);
-    expect(record()).toBeNull();
-  });
-
-  it('records nothing and spends nothing when the shift read fails', async () => {
-    given('refused');
-    h.state.shiftReadFails = true;
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'payout_no_open_shift',
-    });
-    expect(h.consumed).toEqual([]);
-  });
-
-  it.each(['approval_invalid', 'approval_stale'] as const)(
-    'records nothing when the approval is refused (%s)',
-    async (reason) => {
-      given('refused');
-      h.state.consume = { kind: 'refused', reason };
-      expect(await h.service.recordCashException(request)).toEqual({ kind: 'refused', reason });
-      expect(record()).toBeNull();
-      expect(h.audit).toEqual([]);
-    },
-  );
-
-  it('refuses an approver who is the requester (four-eyes)', async () => {
-    given('refused');
-    h.state.evidence = { approverUserId: REQUESTER_USER, requesterUserId: REQUESTER_USER };
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'approval_invalid',
-    });
-    expect(record()).toBeNull();
-  });
-
-  it('refuses an approval granted to another requester', async () => {
-    given('refused');
-    h.state.evidence = { approverUserId: APPROVER_USER, requesterUserId: APPROVER_USER };
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'approval_invalid',
-    });
-    h.state.evidence = null;
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'approval_invalid',
-    });
-    expect(record()).toBeNull();
-  });
-
-  it('refuses a session with no users.id before any approval is spent', async () => {
-    given('refused');
-    h.state.session = { sessionId: 'sess-2', userId: null };
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'approval_invalid',
-    });
-    expect(h.consumed).toEqual([]);
-  });
-
-  it('is single use: the cash of a void is recorded once, a repeat spends nothing', async () => {
-    given('refused');
-    await h.service.recordCashException(request);
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'payout_already_recorded',
-    });
-    expect(h.consumed).toHaveLength(1);
-  });
-
-  it('is refused after a payout, and a payout after an exception', async () => {
-    given('confirmed');
-    await h.service.payOut({ void_id: 'v1' });
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'payout_already_recorded',
-    });
-    db.close();
-    db = freshSalesSyncDb();
-    h = compose();
-    given('confirmed');
-    await h.service.recordCashException(request);
-    expect(await h.service.payOut({ void_id: 'v1' })).toEqual({
-      kind: 'refused',
-      reason: 'payout_already_recorded',
-    });
-  });
-
-  it('refuses a void with no cash, an unknown void, and a session that is not admitted', async () => {
-    given('refused', { cash: 0 });
-    expect(await h.service.recordCashException(request)).toEqual({
-      kind: 'refused',
-      reason: 'payout_no_cash',
-    });
-    expect(await h.service.recordCashException({ ...request, void_id: 'ghost' })).toEqual({
-      kind: 'refused',
-      reason: 'invalid_input',
-    });
-    h.state.locked = true;
-    expect(await h.service.recordCashException(request)).toEqual({
+    let first = true;
+    h.state.kick = () => {
+      if (first) {
+        first = false;
+        h.state.locked = true; // refuses the first commit; the kick never left
+      }
+      return Promise.resolve('no_drawer');
+    };
+    expect(await h.service.payOut(start)).toMatchObject({
       kind: 'refused',
       reason: 'session_locked',
     });
+    h.state.locked = false;
+    expect(viewOfV1(db, h.service).claim_actions).toEqual(['retry_drawer', 'manual']);
+    expect(await h.service.payOut(retry)).toEqual({ kind: 'paid_out' });
+    expect(h.kicks).toBe(2);
+    expect(h.payouts.readClaim('v1')).toMatchObject({
+      kickCount: 2,
+      kickOutcome: 'failed_before_send',
+    });
+    expect(h.record()).toMatchObject({ kind: 'payout', method: 'no_drawer' });
   });
-});
 
-describe('viewOf', () => {
-  function view() {
-    const entry = createSaleVoidRepository(handleFor(db)).read('v1');
-    if (entry === null) throw new Error('void v1 not journaled');
-    return h.service.viewOf(entry);
-  }
-
-  it('is payable now for a confirmed void in an open shift', () => {
+  it('refuses a retry or a manual completion with no claim', async () => {
     given('confirmed');
-    expect(view()).toEqual({
-      state: 'none',
-      paid_at: null,
-      mismatch_reason: null,
-      blocked_reason: null,
+    expect(await h.service.payOut(retry)).toEqual({
+      kind: 'refused',
+      reason: 'payout_not_started',
     });
+    expect(await h.service.payOut(manual)).toEqual({
+      kind: 'refused',
+      reason: 'payout_not_started',
+    });
+    expect(h.kicks).toBe(0);
   });
 
-  it.each<[string, () => void]>([
-    [
-      'payout_no_open_shift',
-      () => {
-        closeShift(db);
-      },
-    ],
-    [
-      'payout_wrong_day',
-      () => {
-        h.state.now = NEXT_DAY;
-      },
-    ],
-  ])('says why a confirmed void cannot be paid now: %s', (reason, arrange) => {
+  it('refuses a retry when the shift is gone, before kicking again', async () => {
     given('confirmed');
-    arrange();
-    expect(view().blocked_reason).toBe(reason);
+    h.state.kick = () => {
+      closeShift(db);
+      return Promise.resolve('no_drawer');
+    };
+    await h.service.payOut(start);
+    expect(await h.service.payOut(retry)).toEqual({
+      kind: 'refused',
+      reason: 'payout_no_open_shift',
+    });
+    expect(h.kicks).toBe(1);
   });
 
-  it('has no blocked reason for a void that is not confirmed or has no cash', () => {
-    given('refused');
-    closeShift(db);
-    expect(view().blocked_reason).toBeNull();
-  });
-
-  it('shows a paid-out record and an exception with its flag', async () => {
+  it('a cashier may not complete a claimed payout either', async () => {
     given('confirmed');
-    await h.service.payOut({ void_id: 'v1' });
-    expect(view()).toEqual({
-      state: 'paid_out',
-      paid_at: NOW,
-      mismatch_reason: null,
-      blocked_reason: null,
-    });
-    db.close();
-    db = freshSalesSyncDb();
-    h = compose();
-    given('refused');
-    await h.service.recordCashException({ void_id: 'v1', approval_id: APPROVAL_B });
-    expect(view()).toEqual({
-      state: 'exception',
-      paid_at: NOW,
-      mismatch_reason: 'void_refused',
-      blocked_reason: null,
-    });
-  });
-});
-
-describe('cashExceptionSubject', () => {
-  it('binds the approval to the void and its cash', () => {
-    given('refused');
-    expect(h.service.cashExceptionSubject({ subjectRef: 'v1' })).toEqual({
-      version: 'sale-void-cash-exception:v1',
-      amountMinor: 1500,
-    });
-  });
-
-  it('is null for a void with a record, no cash, no such void, or no admitted session', async () => {
-    given('refused');
-    await h.service.recordCashException({ void_id: 'v1', approval_id: APPROVAL_B });
-    expect(h.service.cashExceptionSubject({ subjectRef: 'v1' })).toBeNull();
-    expect(h.service.cashExceptionSubject({ subjectRef: 'ghost' })).toBeNull();
-    h.state.session = null;
-    expect(h.service.cashExceptionSubject({ subjectRef: 'v1' })).toBeNull();
-  });
-
-  it('is null for a void with no cash', () => {
-    given('refused', { cash: 0 });
-    expect(h.service.cashExceptionSubject({ subjectRef: 'v1' })).toBeNull();
+    h.state.kick = () => Promise.resolve('failed');
+    await h.service.payOut(start);
+    h.state.session = { sessionId: 'sess-2', userId: null, role: 'cashier' };
+    expect(await h.service.payOut(manual)).toEqual({ kind: 'refused', reason: 'role_denied' });
+    expect(h.record()).toBeNull();
   });
 });

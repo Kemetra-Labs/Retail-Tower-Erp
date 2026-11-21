@@ -39,7 +39,7 @@ const BUSY = statusView({
   openShift: openShiftView(),
   queue: { pending: 3, waiting: 1, blocked: 2, envelopePending: 4 },
   stranded: { unsyncedFacts: 5, openShifts: 1 },
-  pendingDrawerActivity: { refundPayouts: 6, unfinalizedSales: 7 },
+  pendingDrawerActivity: { refundPayouts: 6, voidPayouts: 10, unfinalizedSales: 7 },
   probeRefusals: { payOut: 8, varianceClose: 9, approverFailure: 11 },
 });
 
@@ -106,6 +106,7 @@ describe('ShiftStatusPanel — what a manager sees', () => {
       [SHIFT_COPY.strandedFacts, '5'],
       [SHIFT_COPY.strandedShifts, '1'],
       [SHIFT_COPY.pendingRefunds, '6'],
+      [SHIFT_COPY.pendingVoidPayouts, '10'],
       [SHIFT_COPY.pendingSales, '7'],
       [SHIFT_COPY.probePayOut, '8'],
       [SHIFT_COPY.probeVariance, '9'],

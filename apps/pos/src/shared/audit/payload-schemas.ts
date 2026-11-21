@@ -702,6 +702,24 @@ export interface SaleVoidRefusedPayload {
 // The paying operator is `acting_operator_id`, the open shift `shift_id`; an exception's approving
 // manager is `approving_supervisor_id` (users.id). Ids, minor units and closed codes only.
 
+/** `sale.void.payout_started` — the payout was claimed, before the drawer is kicked. */
+interface SaleVoidPayoutStartedPayload {
+  void_id: string;
+  sale_id: string;
+  amount_minor: number;
+  currency_code: string;
+  business_date: string;
+}
+
+/** `sale.void.payout_drawer` — what a drawer kick of a claimed payout proved. */
+interface SaleVoidPayoutDrawerPayload {
+  void_id: string;
+  sale_id: string;
+  /** `opened`, `failed_before_send` or `unknown`. */
+  outcome: string;
+  kick_count: number;
+}
+
 /** `sale.void.paid_out` — the gated payout of a CONFIRMED void was recorded. */
 interface SaleVoidPaidOutPayload {
   void_id: string;
@@ -729,7 +747,11 @@ interface SaleVoidCashExceptionRecordedPayload {
   mismatch_reason: string;
 }
 
-/** `sale.void.cash_mismatch_flagged` — cash and accounting status disagree: a manager reconciles. */
+/**
+ * `sale.void.cash_mismatch_flagged` — cash and accounting status disagree: a manager reconciles.
+ * With reason `payout_not_made` (a confirmed void never paid out, its window passed) there is no
+ * record: `payout_id` is empty.
+ */
 interface SaleVoidCashMismatchFlaggedPayload {
   void_id: string;
   sale_id: string;
@@ -926,6 +948,8 @@ export type AuditPayloadMap = {
   'sale.void.confirmed': SaleVoidConfirmedPayload;
   'sale.void.refused': SaleVoidRefusedPayload;
   // RT-1403 S2
+  'sale.void.payout_started': SaleVoidPayoutStartedPayload;
+  'sale.void.payout_drawer': SaleVoidPayoutDrawerPayload;
   'sale.void.paid_out': SaleVoidPaidOutPayload;
   'sale.void.cash_exception_recorded': SaleVoidCashExceptionRecordedPayload;
   'sale.void.cash_mismatch_flagged': SaleVoidCashMismatchFlaggedPayload;

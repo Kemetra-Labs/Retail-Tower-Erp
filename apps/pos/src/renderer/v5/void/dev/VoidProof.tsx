@@ -118,7 +118,14 @@ function entry([suffix, total, at, state, extra = {}]: Row): SaleVoidJournalView
     confirmed_at: null,
     // RT-1403 S2: the drawn proofs show no cash action (the frozen VD-Void references pre-date it).
     cash_minor: 0,
-    payout: { state: 'none', paid_at: null, mismatch_reason: null, blocked_reason: null },
+    payout: {
+      state: 'none',
+      claim_actions: [],
+      overdue: false,
+      paid_at: null,
+      mismatch_reason: null,
+      blocked_reason: null,
+    },
     ...extra,
   };
 }

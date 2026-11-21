@@ -215,7 +215,29 @@ beforeEach(async () => {
   raw = freshGrantDb();
   const db = handleFor(raw);
   resetState();
-  const emitter: AuditSink = { emit: (e) => audit.push(e) };
+  const emitter: AuditSink = {
+    emit: (e) => {
+      audit.push(e);
+      // The once-only unpaid flag dedupes against the stored audit (RT-1403 S2, H2).
+      raw.run(
+        `INSERT INTO audit_events (event_id, tenant_id, branch_id, originating_terminal_id,
+           acting_operator_id, session_id, shift_id, action_category, created_at, payload)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`,
+        [
+          e.event_id,
+          e.tenant_id,
+          e.branch_id,
+          e.originating_terminal_id,
+          e.acting_operator_id,
+          e.session_id,
+          e.shift_id,
+          e.action_category,
+          e.created_at,
+          JSON.stringify(e.payload),
+        ],
+      );
+    },
+  };
   pins = createManagerPinStore({ db, safeStorage: aeadSafeStorage() });
   await enrolManagers();
   journal = createSaleVoidRepository(db);
@@ -589,7 +611,7 @@ describe('RT-1403 S2: the cash of a void through the bridge', () => {
   it('the bridge refuses a payout of a void that is not confirmed, and one with no shift', async () => {
     const answer = await request('sale-1', await approvedId());
     if (answer.kind !== 'requested') throw new Error('not requested');
-    await expect(voids.payOut({ void_id: answer.void.void_id })).resolves.toEqual({
+    await expect(voids.payOut({ void_id: answer.void.void_id, action: 'start' })).resolves.toEqual({
       kind: 'refused',
       reason: 'payout_void_not_confirmed',
     });
@@ -598,7 +620,7 @@ describe('RT-1403 S2: the cash of a void through the bridge', () => {
       voidRef: '0190f5a2-7b3c-7d4e-8f90-0000000000d1',
       now: clock,
     });
-    await expect(voids.payOut({ void_id: answer.void.void_id })).resolves.toEqual({
+    await expect(voids.payOut({ void_id: answer.void.void_id, action: 'start' })).resolves.toEqual({
       kind: 'refused',
       reason: 'payout_no_open_shift',
     });
@@ -616,6 +638,55 @@ describe('RT-1403 S2: the cash of a void through the bridge', () => {
     expect(voids.cashExceptionApprovalSubject({ subjectRef: answer.void.void_id })).toEqual({
       version: `sale-void-cash-exception:${answer.void.void_id}`,
       amountMinor: 1500,
+    });
+  });
+
+  it('a cashier is refused a payout (a manager or admin pays out), with nothing claimed', async () => {
+    const answer = await request('sale-1', await approvedId());
+    if (answer.kind !== 'requested') throw new Error('not requested');
+    journal.markConfirmed({
+      voidId: answer.void.void_id,
+      voidRef: '0190f5a2-7b3c-7d4e-8f90-0000000000d1',
+      now: clock,
+    });
+    current = session('cashier', 'rana');
+    await expect(voids.payOut({ void_id: answer.void.void_id, action: 'start' })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'role_denied',
+    });
+  });
+
+  it('a confirmed void never paid out before midnight needs attention, and is flagged ONCE in the audit (H2)', async () => {
+    const answer = await request('sale-1', await approvedId());
+    if (answer.kind !== 'requested') throw new Error('not requested');
+    journal.markConfirmed({
+      voidId: answer.void.void_id,
+      voidRef: '0190f5a2-7b3c-7d4e-8f90-0000000000d1',
+      now: clock,
+    });
+    await expect(voids.list()).resolves.toMatchObject({
+      voids: [{ needs_attention: false, payout: { overdue: false } }],
+    });
+    clock = '2026-06-08T09:00:00.000Z';
+    await expect(voids.list()).resolves.toMatchObject({
+      voids: [
+        {
+          needs_attention: true,
+          payout: { overdue: true, blocked_reason: 'payout_wrong_day', state: 'none' },
+        },
+      ],
+    });
+    await voids.list();
+    const flags = audit.filter(
+      (e) =>
+        e.action_category === 'sale.void.cash_mismatch_flagged' &&
+        (e.payload as { mismatch_reason?: string }).mismatch_reason === 'payout_not_made',
+    );
+    expect(flags).toHaveLength(1);
+    expect(flags[0]?.payload).toMatchObject({
+      void_id: answer.void.void_id,
+      amount_minor: 1500,
+      void_state: 'confirmed',
     });
   });
 });

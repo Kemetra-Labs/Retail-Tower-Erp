@@ -19,6 +19,7 @@ import { randomUUID } from 'node:crypto';
 
 import type { DatabaseHandle } from '../db/client.js';
 import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
+import type { DrawerSlot } from '../drawer/drawer-slot.js';
 import type {
   ApprovalSubjectResolver,
   ManagerApprovalService,
@@ -78,6 +79,11 @@ export interface ComposeSaleVoidDeps {
   readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
   /** RT-1403 S2: the sale drawer's hardware port (the same instance sales and returns use). */
   readonly drawer: DrawerKickTransport;
+  /**
+   * RT-1403 S2 (M1): the terminal's one drawer slot, shared with the returns payout. Production passes
+   * the terminal's; absent, the payout holds one of its own.
+   */
+  readonly drawerSlot?: DrawerSlot;
   readonly auditSink: SaleVoidAuditSink;
   /**
    * RT-741: records `sale.access.refused` for the shared RT-546 gate that
@@ -224,6 +230,7 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
     openShift: (scope) => shifts.findOpenShift(scope),
     approvals: deps.approvals,
     kickDrawer: () => kickVoidDrawer(deps.drawer),
+    ...(deps.drawerSlot === undefined ? {} : { drawerSlot: deps.drawerSlot }),
     audit,
     localDayOf,
     now,

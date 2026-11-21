@@ -3,6 +3,7 @@ import type { Logger } from 'pino';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
 import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
+import { terminalDrawerSlot } from '../drawer/drawer-slot.js';
 import { registerSaleVoidHandlers } from '../ipc/sale-void.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
 import { createSaleSyncTokenReader } from '../operator/sale-sync-token.js';
@@ -105,6 +106,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     approvals: managerApprovals,
     // RT-1403 S2: the void payout kicks the SAME drawer port as sales and returns.
     drawer: drawerKickTransport,
+    drawerSlot: terminalDrawerSlot,
     auditSink: auditEmitter,
     // RT-741: `saleVoid.lookup` runs the shared RT-546 gate; its refusals are
     // `sale.access.refused`, written like the sales and receipts bridges' own.

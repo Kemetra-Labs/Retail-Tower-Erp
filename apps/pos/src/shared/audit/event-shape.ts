@@ -144,9 +144,13 @@ export const AUDIT_ACTION_CATEGORIES = [
   'sale.void.refused',
   // RT-1403 S2 (RT-530 c12022, owner c18143) — the cash of a void leaving the drawer: the gated
   // payout of a CONFIRMED void, a manager-attested cash-out exception (single use), and the
-  // mismatch flag raised when cash and accounting status disagree. LOCAL only: not in the central
+  // mismatch flag raised when cash and accounting status disagree (and, with reason `payout_not_made`,
+  // once per void that was confirmed but never paid out), plus the claim written BEFORE the drawer is
+  // kicked and each kick's outcome (RT-15's pattern; orchestrator decision H1). LOCAL only: not in the central
   // set (no Backend-Core category, endpoint or contract change). Payload ids, minor units and
   // closed codes only. Open-set at the SQL layer (0004); recorded in migration 0069's header.
+  'sale.void.payout_started',
+  'sale.void.payout_drawer',
   'sale.void.paid_out',
   'sale.void.cash_exception_recorded',
   'sale.void.cash_mismatch_flagged',

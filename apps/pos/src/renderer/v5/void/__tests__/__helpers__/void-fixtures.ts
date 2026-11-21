@@ -20,6 +20,16 @@ export const MANAGER = {
 
 export const SALE_NUMBER = 'T1-2026-06-07-000001';
 
+/** A void whose cash has not moved, and is not blocked, claimed or overdue. */
+export const NO_PAYOUT: SaleVoidJournalView['payout'] = {
+  state: 'none',
+  claim_actions: [],
+  overdue: false,
+  paid_at: null,
+  mismatch_reason: null,
+  blocked_reason: null,
+};
+
 export function saleView(overrides: Partial<SaleVoidSaleView> = {}): SaleVoidSaleView {
   return {
     sale_id: 'sale-1',
@@ -46,7 +56,7 @@ export function journalView(overrides: Partial<SaleVoidJournalView> = {}): SaleV
     needs_attention: false,
     confirmed_at: null,
     cash_minor: 15_000,
-    payout: { state: 'none', paid_at: null, mismatch_reason: null, blocked_reason: null },
+    payout: NO_PAYOUT,
     ...overrides,
   };
 }

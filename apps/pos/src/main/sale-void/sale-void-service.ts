@@ -194,6 +194,13 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
   }
 
   function journalView(entry: VoidEntry): SaleVoidJournalView {
+    const payout = deps.payout.viewOf(entry);
+    // Staff look at a refusal nobody acknowledged, a payout left claimed (the drawer may be open) and
+    // a confirmed void whose cash was never paid out before its window passed (RT-1403 S2: H1, H2).
+    const attention =
+      (entry.state === 'refused' && entry.acknowledgedAt === null) ||
+      payout.state === 'claimed' ||
+      payout.overdue;
     return {
       void_id: entry.voidId,
       sale_number: entry.saleNumber,
@@ -203,10 +210,10 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
       requester_display_name: entry.requesterDisplayName,
       waiting_for: waitingFor(entry),
       refusal_reason: entry.refusalReason,
-      needs_attention: entry.state === 'refused' && entry.acknowledgedAt === null,
+      needs_attention: attention,
       confirmed_at: entry.confirmedAt,
       cash_minor: entry.cashMinor,
-      payout: deps.payout.viewOf(entry),
+      payout,
     };
   }
 
@@ -392,6 +399,12 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
       if (admitted.kind !== 'ok') return admitted;
       const scope = admitted.session.scope;
       const recent = deps.repo.listRecent(scope, SALE_VOID_LIST_LIMIT);
+      // H2: a confirmed void never paid out is flagged once in the audit as the list shows it.
+      const actor = {
+        operatorId: admitted.session.operatorId,
+        sessionId: admitted.session.sessionId,
+      };
+      for (const row of recent) deps.payout.flagUnpaid(row, actor);
       // A refusal stays visible until acknowledged, however many newer voids exist.
       const listed = new Set(recent.map((row) => row.voidId));
       const olderRefused = deps.repo

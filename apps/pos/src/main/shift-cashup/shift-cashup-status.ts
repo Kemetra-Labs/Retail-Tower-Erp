@@ -106,6 +106,7 @@ const FOREIGN_OPEN_SHIFTS_SQL = `
 
 const NO_DRAWER_ACTIVITY: PendingDrawerActivity = Object.freeze({
   refundPayouts: 0,
+  voidPayouts: 0,
   unfinalizedSales: 0,
 });
 

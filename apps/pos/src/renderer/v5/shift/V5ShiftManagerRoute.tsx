@@ -165,6 +165,7 @@ const strandedRows = ({ stranded }: ShiftStatusView): Row[] => [
 
 const pendingRows = ({ pendingDrawerActivity }: ShiftStatusView): Row[] => [
   [SHIFT_COPY.pendingRefunds, pendingDrawerActivity.refundPayouts],
+  [SHIFT_COPY.pendingVoidPayouts, pendingDrawerActivity.voidPayouts],
   [SHIFT_COPY.pendingSales, pendingDrawerActivity.unfinalizedSales],
 ];
 

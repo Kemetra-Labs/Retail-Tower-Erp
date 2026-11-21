@@ -36,6 +36,8 @@
  * in flight, which the cash-up cannot read yet:
  *   • refundPayouts     RT-15 payouts started (the drawer may already be
  *                       open) but not completed (`paid_at IS NULL`);
+ *   • voidPayouts       RT-1403 S2 void payout claims (migration 0069) with no
+ *                       payout record yet: same shape, same hold;
  *   • unfinalizedSales  `payment.settled` audits of the terminal that the 008
  *                       finalize listener has not turned into a sale yet —
  *                       the listener's own pending-set filter — PLUS (RT-496)
@@ -71,6 +73,11 @@ export interface CashupSourceQuery {
 /** The scope's drawer cash in flight (counts only). */
 export interface PendingDrawerActivity {
   refundPayouts: number;
+  /**
+   * RT-1403 S2 (H1, M1): void payouts CLAIMED (the drawer may be open or the kick unresolved) with no
+   * payout record yet: the shift cannot close over them.
+   */
+  voidPayouts: number;
   unfinalizedSales: number;
 }
 
@@ -150,6 +157,12 @@ const PENDING_PAYOUTS_SQL = `
   FROM return_payouts p JOIN return_journal j ON j.return_id = p.return_id
   WHERE j.tenant_id = ? AND j.branch_id = ? AND j.terminal_id = ? AND p.paid_at IS NULL`;
 
+const PENDING_VOID_PAYOUTS_SQL = `
+  SELECT COUNT(*) AS n
+  FROM sale_void_payout_claims c
+  WHERE c.tenant_id = ? AND c.branch_id = ? AND c.terminal_id = ?
+    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)`;
+
 const PARKED_SALES_SQL = `
   SELECT COUNT(*) AS n FROM carts
   WHERE tenant_id = ? AND branch_id = ? AND terminal_id = ?
@@ -192,6 +205,7 @@ export function createShiftCashupSources(db: DatabaseHandle): ShiftCashupSources
     lastClosedAt,
     pendingDrawerActivity: (scope) => ({
       refundPayouts: count(PENDING_PAYOUTS_SQL, scopeParams(scope)),
+      voidPayouts: count(PENDING_VOID_PAYOUTS_SQL, scopeParams(scope)),
       unfinalizedSales:
         count(UNFINALIZED_SALES_SQL, [scope.terminalId]) +
         count(STRANDED_SETTLEMENTS_SQL, scopeParams(scope)),

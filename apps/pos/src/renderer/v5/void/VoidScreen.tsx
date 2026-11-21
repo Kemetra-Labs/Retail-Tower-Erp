@@ -13,15 +13,10 @@ import { ScreenSection } from '../foundation/ScreenSection';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
 import { useSingleFlight } from '../shift/shift-bridge';
-import {
-  VOID_COPY,
-  voidMismatchMessage,
-  voidRefusalMessage,
-  voidStateLabel,
-  voidWaitingMessage,
-} from './void-copy';
+import { VOID_COPY, voidRefusalMessage, voidStateLabel, voidWaitingMessage } from './void-copy';
 import type { VoidBridges } from './void-bridges';
 import { VoidActionDialog } from './VoidActionDialog';
+import { VoidCash } from './VoidCash';
 import { VoidCashExceptionDialog } from './VoidCashExceptionDialog';
 import { VoidLookup, type Found } from './VoidLookup';
 import { VoidAlert, VoidCode, VoidMoney, VoidPanel, VoidTime } from './void-parts';
@@ -125,6 +120,7 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
           <HistoryPanel
             listed={listed}
             bridges={bridges}
+            canPayOut={role === 'manager' || role === 'admin'}
             onChanged={reload}
             onException={(entry) => {
               setExceptionRecorded(false);
@@ -181,6 +177,8 @@ function RequestedNotice({ entry }: { entry: SaleVoidJournalView }): JSX.Element
 interface HistoryProps {
   listed: Listed;
   bridges: VoidBridges;
+  /** RT-1403 S2 (L3): a manager or admin pays out a void's cash. */
+  canPayOut: boolean;
   onChanged: () => void;
   /** RT-1403 S2: open the cash exception dialog for this void. */
   onException: (entry: SaleVoidJournalView) => void;
@@ -222,6 +220,7 @@ function HistoryBody(props: HistoryProps): JSX.Element {
           key={entry.void_id}
           entry={entry}
           bridges={props.bridges}
+          canPayOut={props.canPayOut}
           onChanged={props.onChanged}
           onException={props.onException}
         />
@@ -254,6 +253,7 @@ function StatePill({ state }: { state: SaleVoidState }): JSX.Element {
 function HistoryRow(props: {
   entry: SaleVoidJournalView;
   bridges: VoidBridges;
+  canPayOut: boolean;
   onChanged: () => void;
   onException: (entry: SaleVoidJournalView) => void;
 }): JSX.Element {
@@ -294,7 +294,7 @@ function HistoryRow(props: {
           <VoidAlert message={voidRefusalMessage(entry.refusal_reason)} />
         </div>
       )}
-      {entry.needs_attention && (
+      {entry.needs_attention && entry.state === 'refused' && (
         <div className="v5-void-row__full">
           <button
             type="button"
@@ -309,100 +309,10 @@ function HistoryRow(props: {
       <VoidCash
         entry={entry}
         bridges={props.bridges}
+        canPayOut={props.canPayOut}
         onChanged={props.onChanged}
         onException={props.onException}
       />
     </li>
-  );
-}
-
-/** Whether the manager-attested exception is offered: the cash is not paid, and the gate cannot pay it. */
-function exceptionOffered(entry: SaleVoidJournalView): boolean {
-  const { payout } = entry;
-  if (payout.state !== 'none' || entry.cash_minor === 0) return false;
-  if (payout.blocked_reason === 'payout_already_recorded') return false;
-  return entry.state !== 'confirmed' || payout.blocked_reason !== null;
-}
-
-/**
- * RT-1403 S2 (PROPOSED copy) — the cash of one void. A request moves no cash: once the server
- * confirmed the void and the payout gate allows it, «صرف النقد» hands it out; otherwise the row says
- * why, and only a manager-attested exception can record cash that left anyway.
- */
-function VoidCash(props: {
-  entry: SaleVoidJournalView;
-  bridges: VoidBridges;
-  onChanged: () => void;
-  onException: (entry: SaleVoidJournalView) => void;
-}): JSX.Element | null {
-  const { entry } = props;
-  const { payout } = entry;
-  const { busy, run } = useSingleFlight();
-  const [error, setError] = useState<string | null>(null);
-  const payOut = (): void => {
-    setError(null);
-    run(async () => {
-      try {
-        const answer = await props.bridges.saleVoid.payOut({ void_id: entry.void_id });
-        if (answer.kind === 'refused') setError(voidRefusalMessage(answer.reason));
-      } catch {
-        setError(VOID_COPY.unavailable);
-      } finally {
-        props.onChanged();
-      }
-    });
-  };
-  if (payout.state !== 'none') {
-    return (
-      <div className="v5-void-row__full v5-void-row__cash" data-testid="void-cash">
-        <span>
-          {payout.state === 'paid_out' ? VOID_COPY.paidOut : VOID_COPY.exceptionRecordedLabel}:{' '}
-          <VoidMoney minor={entry.cash_minor} />
-        </span>
-        {payout.paid_at !== null && (
-          <p className="v5-void-row__meta">
-            {VOID_COPY.paidAt}: <VoidTime iso={payout.paid_at} />
-          </p>
-        )}
-        {payout.mismatch_reason !== null && (
-          <VoidAlert message={voidMismatchMessage(payout.mismatch_reason)} />
-        )}
-      </div>
-    );
-  }
-  if (entry.cash_minor === 0) return null;
-  const due = entry.state === 'confirmed';
-  const canPay = due && payout.blocked_reason === null;
-  return (
-    <div className="v5-void-row__full v5-void-row__cash" data-testid="void-cash">
-      {due && (
-        <span>
-          {VOID_COPY.cashDue}: <VoidMoney minor={entry.cash_minor} />
-        </span>
-      )}
-      {due && payout.blocked_reason !== null && (
-        <VoidAlert message={voidRefusalMessage(payout.blocked_reason)} />
-      )}
-      {error !== null && <VoidAlert message={error} />}
-      <div className="v5-void-row__actions">
-        {canPay && (
-          <button type="button" className="v5-void-btn v5-btn" disabled={busy} onClick={payOut}>
-            {VOID_COPY.payOut}
-          </button>
-        )}
-        {exceptionOffered(entry) && (
-          <button
-            type="button"
-            className="v5-void-btn v5-btn"
-            disabled={busy}
-            onClick={() => {
-              props.onException(entry);
-            }}
-          >
-            {VOID_COPY.exceptionAction}
-          </button>
-        )}
-      </div>
-    </div>
   );
 }

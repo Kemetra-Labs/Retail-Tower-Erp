@@ -30,6 +30,7 @@ import {
 import {
   PAYOUT_1,
   SHIFT_A,
+  newClaim,
   newException,
   newPayout,
 } from './__helpers__/sale-void-payout-fixture.js';
@@ -186,6 +187,67 @@ describe('sale void payout audit events (RT-1403 S2)', () => {
   it('cash_exception_recorded: an unflagged exception records an empty mismatch reason', () => {
     audit.cashExceptionRecorded(newException({ voidState: 'confirmed', mismatchReason: null }));
     expect(events[0]?.payload).toMatchObject({ void_state: 'confirmed', mismatch_reason: '' });
+  });
+
+  it('cash_exception_recorded: a record without exception evidence records empty ids, never throws', () => {
+    audit.cashExceptionRecorded(newPayout());
+    expect(events[0]).toMatchObject({
+      approving_supervisor_id: null,
+      payload: { approval_id: '', policy_version: '', requester_user_id: '', mismatch_reason: '' },
+    });
+  });
+
+  it('payout_started and payout_drawer: the acting session, the claim shift, the cash and the kick', () => {
+    const claim = {
+      ...newClaim(),
+      kickOutcome: 'opened' as const,
+      kickCount: 2,
+      kickedAt: '2026-06-07T12:58:30.000Z',
+    };
+    audit.payoutStarted({ operatorId: 'op-a', sessionId: 'sess-a' }, claim, {
+      amountMinor: 1500,
+      currencyCode: 'EGP',
+    });
+    audit.payoutDrawer({ operatorId: 'op-b', sessionId: 'sess-b' }, claim, 'opened');
+    expect(events.map((e) => e.action_category)).toEqual([
+      'sale.void.payout_started',
+      'sale.void.payout_drawer',
+    ]);
+    expect(events[0]).toMatchObject({
+      acting_operator_id: 'op-a',
+      session_id: 'sess-a',
+      shift_id: SHIFT_A,
+      approving_supervisor_id: null,
+      payload: {
+        void_id: 'v1',
+        sale_id: 'sale-1',
+        amount_minor: 1500,
+        currency_code: 'EGP',
+        business_date: '2026-06-07',
+      },
+    });
+    expect(events[1]).toMatchObject({
+      acting_operator_id: 'op-b',
+      payload: { void_id: 'v1', sale_id: 'sale-1', outcome: 'opened', kick_count: 2 },
+    });
+  });
+
+  it('payout_not_made: a confirmed void never paid out, flagged for the manager, no payout id', () => {
+    repo.markConfirmed({ voidId: 'v1', voidRef: 'ref-1', now: NOW });
+    audit.payoutNotMade({ operatorId: 'op-a', sessionId: 'sess-a' }, row(), SHIFT_A);
+    audit.payoutNotMade({ operatorId: 'op-a', sessionId: 'sess-a' }, row(), null);
+    expect(events[0]).toMatchObject({
+      action_category: 'sale.void.cash_mismatch_flagged',
+      shift_id: SHIFT_A,
+      payload: {
+        void_id: 'v1',
+        payout_id: '',
+        amount_minor: 1500,
+        void_state: 'confirmed',
+        mismatch_reason: 'payout_not_made',
+      },
+    });
+    expect(events[1]?.shift_id).toBeNull();
   });
 
   it('cash_mismatch_flagged: names the reason for manager reconciliation', () => {
