@@ -851,6 +851,18 @@ A script without the marker, such as the owner-gated
   request, step-log row, credential, provisioner token or managed registration
   exists. Rollback of the grants: see the script's header.
 
+- **Migration `0129_sync_failure_alerts` (RT-1034).** Run
+  [`sql/sync-failure-alerts-domain-grants.sql`](sql/sync-failure-alerts-domain-grants.sql)
+  after `migrate up` and before the worker starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT`, `INSERT` and
+  `UPDATE` on `sync_failure_alert_windows` and `sync_failure_alert_deliveries`
+  (the sync-failure email alert's open conditions and per-recipient delivery
+  claims). The alert gets no write grant on any posting, reconciliation or sale
+  table. Never grant `DELETE` or `TRUNCATE`; the auth lookup role holds no
+  privilege on either table. Without the grants the alert sweep fails with
+  permission denied (it stays off unless `SYNC_FAILURE_ALERT_ENABLED=true`).
+
 - **Migration `0106_cashier_suspensions` (RT-1138).** Run
   [`sql/cashier-suspensions-domain-grants.sql`](sql/cashier-suspensions-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of

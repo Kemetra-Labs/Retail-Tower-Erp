@@ -191,6 +191,7 @@ describe("QUEUE_NAMES (RT-125)", () => {
       aiUsageReservationSweep: "ai-usage-reservation-sweep",
       erpProvisioningSweep: "erp-provisioning-sweep",
       catalogImportRetention: "catalog-import-retention",
+      syncFailureAlertSweep: "sync-failure-alert-sweep",
     });
   });
 
