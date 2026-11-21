@@ -45,7 +45,7 @@ export interface PlannedUpdate {
 export type ConflictReason = "field_disagreement" | "second_sku";
 
 /** One product the publish refuses (`import_not_publishable`), with the rows the merchant has to fix. */
-export interface PlanConflict {
+interface PlanConflict {
   readonly productId: string;
   readonly product: ProductRef;
   /** Ascending, without duplicates: every row that states a value for the product (a disagreement), or adds one of its SKUs. */
