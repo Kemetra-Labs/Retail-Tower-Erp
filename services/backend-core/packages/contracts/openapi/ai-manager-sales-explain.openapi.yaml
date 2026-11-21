@@ -1,0 +1,947 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 — Manager Sales Ask/Explain API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1538 (W8 P-05, `[GATED: OpenAPI]`), contract-first. The HTTP
+    boundary of the first W8 Manager Sales Ask/Explain experience (AI-WS05C
+    S02 + S10), exactly as ratified in RT-1526 v6 (Confluence page 87457808,
+    owner-ratified 2026-11-20; section numbers below are its sections) and
+    the W8 Blueprint v0.2 (page 87687170). One operation:
+
+      `consoleExplainSales` — `POST /api/v1/ai/manager-sales/explain`: a
+      read-only, deterministic, routing-tier-0 answer (no model, no provider,
+      no tool call) to one of the catalogue questions `T-01` .. `T-10`,
+      `T-12` (`msx-templates/1`) over the caller's own sales figures, or a
+      typed refusal, or a typed gateway `unavailable`.
+
+
+    **Posture.** `1.0.0-draft`. This contract implements NO runtime, route,
+    ledger outcome, migration, feature registry, evidence builder or
+    provider: the operation carries `x-runtime-status: contract-only`. The
+    runtime ships in P-06 (RT-1539), which removes the marker; the Admin
+    Console panel is P-08 (RT-1541); no generated client or consumer PIN is
+    changed by this file. The shared AI Gateway, routing and the single
+    `ai_usage_ledger` stay owned by RT-641 (RT-1527 for routing); the sales
+    reads it is grounded on stay owned by W5.
+
+
+    **Decision recorded on RT-1538 (owner, comment 18048, 2026-11-21).** A
+    requested `storeIds` entry that is outside the caller's authorized scope,
+    or does not exist in the caller's tenant, is the non-disclosing **404**,
+    exactly as on `console-sales-summary` and `console-sales-by-store`. It is
+    NOT a 200 `unavailable` with `store_out_of_scope`, so that reason is not
+    in the `unavailable` code set of this contract and the RT-641
+    `AI_FALLBACK_REASONS` family is not expanded. The whole request is
+    refused, never narrowed, with no evidence read and no quota reservation.
+    An unknown store and an unauthorized store give the same status and the
+    same body.
+
+
+    **Auth.** The HUMAN `cookieAuth` session only (httpOnly `dp2_session`),
+    through the same edge guards as the sales reads: `SessionOnlyAdminGuard`
+    → `TenantContextGuard` → `RolesGuard`, roles `owner`, `tenant_admin`,
+    `store_manager`. A machine bearer, a POS `device` token or an
+    `operatorAuthorization` envelope without a valid session cookie is 401;
+    with a valid cookie the cookie authenticates and any `Authorization`
+    header is ignored. A role outside the list (`store_staff`) is the
+    non-disclosing 404. A session platform admin is also refused with the
+    same 404 on this surface (RT-1526 §4.2, case 36; AD-AI-ENT-001 D-6:
+    platform admin consumes no tenant AI) — narrower than the sales reads,
+    which admit one, by design; a POS device principal can never call it
+    (401). The tenant comes ONLY from the session: there is no tenant field,
+    and `tenant_id` or any other unknown key is 400 `validation_error`
+    (§4.2). The only 403 is the repo-wide RT-430 `origin_rejected` check on a
+    cookie-authenticated POST. These guards run before request validation, so
+    a refused role is 404 for any input.
+
+
+    **Denial ordering (the order is part of the contract, §2.1; AD-AI-ENT-001
+    D-1: authorization before entitlement, deny before spend).** After the
+    edge guards above (401 / 403 `origin_rejected` / role 404) and strict
+    validation (400), the Gateway evaluates, each step stopping the call:
+
+      0. kill switch (`feature_disabled_system`; default OFF);
+      1. tenant lifecycle (`tenant_inactive`);
+      2. human session principal only (already enforced at the edge; a
+         non-session principal never reaches the Gateway);
+      3. role (the edge 404);
+      4. FULL requested store scope: any `storeIds` entry outside the
+         caller's scope or unknown in the tenant, or an empty `storeIds`
+         without tenant-wide access, refuses the whole request with the
+         non-disclosing 404 — never narrowed, nothing read;
+      5. domain policy (no `unavailable` code exists for it today: the
+         Gateway layer 5 is not wired and `policy_denied` is not in
+         `AI_FALLBACK_REASONS`; RT-641 owns adding it, as a contract
+         change);
+      6. entitlement and tenant owner opt-out (D-5): `not_entitled`,
+         `trial_expired`, `grace_read_only`, `feature_disabled_tenant`,
+         `entitlement_unavailable` as 200 `unavailable`;
+      7. spend and quota pre-check, then one request-quota reservation:
+         `quota_exhausted`, `spend_cap_reached`, `free_credit_exhausted` as
+         200 `unavailable`, before any evidence read.
+
+    Only after step 7 does the deterministic intent match (`msx-match/1`)
+    and the evidence build run. A product refusal (`refusal`) ends at the
+    match step, before the reservation. A request that is invalid, denied,
+    refused or unsupported reads no evidence and is never charged. A failed
+    evidence read is `unavailable` / `evidence_unavailable`, with no partial
+    figure, and its reservation is released (D-8).
+
+
+    **Tier-0 economics (RT-1526 §4.4, owner-adopted V1 quota rule
+    2026-11-20).** A validated successful `answer` commits exactly ONE AI
+    request-quota unit (AD-AI-ENT-001 D-3) with zero model/provider cost,
+    zero provider calls and zero tokens. A `refusal`, an `unavailable`, an
+    invalid request or a failed run is not charged: its reservation is
+    released (D-8). Exhausted AI quota or a denying spend pre-check blocks
+    this Gateway path only; the ordinary deterministic sales and KPI
+    endpoints outside the AI Gateway stay available. The ledger outcome
+    `deterministic_no_model` does not exist on `main` yet (RT-1526 §4.4): its
+    enum, the ledger columns and the migration are an RT-641 `[GATED]`
+    decision; this contract only reports the response `ledger` metadata.
+
+
+    **Request.** Strict (`additionalProperties: false`, unknown keys are 400
+    `validation_error`). `templateId` (a suggested-question chip) and/or
+    `question` (untrusted text, 1..500 characters, selects a template only;
+    never executed, never echoed into figures, never resolves a store or
+    tenant name — M-3, M-5) — at least one. Every parameter comes from the
+    panel's controls, never from the question text (M-2): `storeIds` (0..500
+    unique UUIDs; empty means tenant-wide and needs tenant-wide authority —
+    Admin Console always sends explicit ids for a `specific`-scope
+    `store_manager`, X-3), `from` and `to` (inclusive store business dates,
+    `to >= from`, at most 31 days, `to - from <= 30`; a JSON Schema cannot
+    express the span, so a longer or inverted range is 400 `validation_error`
+    — never truncated), `currency` (ISO-4217, required for templates `T-04`
+    .. `T-09` and `T-12`), `compare` (`previous_period` | `none`) and
+    `locale` (`ar` | `en`). A scope with more than 500 stores is 400
+    `scope_too_large`, as in the reads. `Idempotency-Key` is REQUIRED (it is
+    the Gateway reservation key).
+
+
+    **Response.** 200, `Cache-Control: no-store`, a body discriminated by
+    `kind`:
+
+      - `answer` — a deterministic template answer (`msx-templates/1`,
+        output schema `manager_sales.answer/1`): the scope and period used,
+        the source reads with their own `asOf` and `completeness`, typed
+        `blocks` (statements and tables whose every number is a pack figure
+        copied as the sales reads returned it, with its citation ref),
+        `citations`, `notices`, `declined`, documented source `gaps` and
+        the tier-0 `ledger` metadata. Templates select, order and format;
+        they never add, subtract, divide, convert currencies or round to a
+        different value (§2.4). Money is `numeric(19,4)` text; ratios are
+        four-digit half-even text; counts are integers.
+      - `refusal` — one of the W8 answer codes `msx-answer-codes/1` (family
+        `answer`): a successful deterministic outcome, not a gateway
+        fallback. Nothing is read and nothing is charged.
+      - `unavailable` — a gateway reason from the existing RT-641 closed
+        family (family `gateway`), used verbatim. `store_out_of_scope` and
+        `not_authorized` are NOT here: they are the 404.
+
+    Server codes and typed slots only: Admin Console renders the copy from
+    its i18n catalogue; raw server text is never primary copy (O-7).
+
+
+    **Audit and limits.** One `ai.manager_sales.explain` event per 200
+    answer (metadata: `templateId`, scope mode, store count, range; never a
+    figure and never the question text). Console rate-limit class
+    `expensiveRead` (RT-1526 §7). `Cache-Control: no-store` on every 200.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id
+    } }` shape: 400 `validation_error` (a malformed, unknown or missing
+    request key, a `tenant_id`, a range longer than 31 days or inverted),
+    400 `scope_too_large`, 400 `idempotency_key_required` /
+    `idempotency_key_malformed`; 401 unauthenticated; 403 `origin_rejected`;
+    404 non-disclosing not-found (role, platform admin, store scope);
+    409 `idempotency_key_conflict`; 425 `idempotency_in_progress`; 429
+    `rate_limited`; 500 internal.
+
+
+    **Open items reported with this contract (not decided here).** RT-1526 v6
+    does not define: the outcome of a question-only request whose matched
+    template needs `currency` when none is sent (the panel always sends the
+    currency control, M-2); the value domains of the `ledger` fields
+    `task_class`, `classifier_version` and `catalogue_version`; a null or
+    state marker on a table cell for a zero, missing or not-begun figure
+    (UX-13.23). They are typed as the RT-1526 sketch gives them and are
+    resolved by RT-1526, RT-1527 and P-06 before the runtime ships.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: ai-manager-sales
+    description: >
+      Manager Sales Ask/Explain, a read-only deterministic W8 experience over
+      the console sales reads (RT-1526, RT-1538).
+
+security:
+  - cookieAuth: []
+
+paths:
+  /api/v1/ai/manager-sales/explain:
+    post:
+      summary: Ask or explain the caller's received sales with a deterministic, cited, tier-0 answer.
+      operationId: consoleExplainSales
+      x-audit-action: ai.manager_sales.explain
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1538 (W8 P-05) contract-first. The runtime ships in RT-1539 (P-06),
+        which removes the marker; no route, ledger outcome or migration exists
+        yet.
+      tags: [ai-manager-sales]
+      security:
+        - cookieAuth: []
+      description: >
+        Answers one catalogue question over the caller's authorized stores
+        and an inclusive range of at most 31 days, from the typed reads of
+        `console-sales-summary` and `console-sales-by-store`, without any
+        model. Read only: it writes only the Gateway usage reservation and
+        the audit event. See the API description for the denial ordering,
+        the Tier-0 economics and the store-scope 404 decision; every refused,
+        invalid or unsupported path reads nothing and charges nothing.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ManagerSalesExplainRequest"
+      responses:
+        "200":
+          description: >
+            An answer, a refusal or a gateway-unavailable outcome. A
+            same-`Idempotency-Key` retry replays this 200 with
+            `Idempotent-Replayed: true`.
+          headers:
+            Cache-Control:
+              $ref: "#/components/headers/CacheControlNoStore"
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ManagerSalesExplainResponse"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/IdempotencyConflict"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only accepted credential on this
+        surface: without a valid session cookie, a machine bearer, a POS
+        `device` token or an `operatorAuthorization` envelope is rejected
+        (401). With a valid session cookie, the cookie authenticates the
+        request and any `Authorization` header is ignored (the repo-wide
+        `AuthGuard` rule). `RolesGuard` +
+        `@Roles("owner", "tenant_admin", "store_manager")` gate the route
+        (default deny → 404).
+
+  headers:
+    CacheControlNoStore:
+      description: >
+        `no-store` on every 200: the body carries the tenant's commercial
+        figures, so no shared or browser cache keeps them.
+      required: true
+      schema:
+        type: string
+        const: no-store
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay, which carries
+        the stored 200. Absent on a first-time call.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED: 16 to 128 printable ASCII characters with no whitespace, as
+        the shared `IdempotencyInterceptor` enforces. It is also the Gateway
+        quota reservation key (RT-1526 §7). Keyed on the verified actor. An
+        identical retry replays the stored 200 with `Idempotent-Replayed:
+        true`; key reuse with a different body is 409
+        `idempotency_key_conflict`; a key still being processed is 425.
+
+  schemas:
+    CurrencyCode:
+      type: string
+      pattern: '^[A-Z]{3}$'
+      description: ISO-4217 alphabetic currency code, upper case.
+    BusinessDate:
+      type: string
+      format: date
+      description: A store business date, `YYYY-MM-DD` in the store's timezone.
+    TemplateId:
+      type: string
+      enum: [T-01, T-02, T-03, T-04, T-05, T-06, T-07, T-08, T-09, T-10, T-12]
+      description: >
+        A template of the closed catalogue `msx-templates/1` (RT-1526 §2.3):
+        `T-01` period_total, `T-02` daily_breakdown, `T-03` voids_returns,
+        `T-04` store_ranking, `T-05` store_compare, `T-06`
+        change_vs_previous, `T-07` change_explain, `T-08` best_day, `T-09`
+        average_sale, `T-10` why_partial, `T-12` stores_without_sales. `T-11`
+        is not used (reserved for ERP posting status, which belongs to a
+        different slice), so it is not a value.
+    Locale:
+      type: string
+      enum: [ar, en]
+      description: The language of the caller's panel; the server returns codes and slots, not copy.
+
+    ManagerSalesExplainRequest:
+      type: object
+      additionalProperties: false
+      required: [storeIds, from, to, locale]
+      description: >
+        Strict request (RT-1526 §7). At least one of `templateId` and
+        `question` is required. There is no tenant field: the tenant comes
+        from the session only, and `tenant_id` or any other unknown key is
+        400 `validation_error`. Every parameter comes from the panel's
+        controls, never from the question text (M-2). `to >= from` and
+        `to - from <= 30` (at most 31 days) cannot be expressed in JSON
+        Schema: the server answers 400 `validation_error` and never
+        truncates.
+      anyOf:
+        - required: [templateId]
+        - required: [question]
+      allOf:
+        - if:
+            required: [templateId]
+            properties:
+              templateId:
+                enum: [T-04, T-05, T-06, T-07, T-08, T-09, T-12]
+          then:
+            required: [currency]
+      properties:
+        templateId:
+          $ref: "#/components/schemas/TemplateId"
+        question:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            Untrusted text (AI-11). It selects a template only, through the
+            closed `msx-match/1` lexicon; it is never executed, never echoed
+            into figures, and a store or tenant name in it is never resolved.
+            When a `templateId` is present, `question` is optional.
+        storeIds:
+          type: array
+          minItems: 0
+          maxItems: 500
+          uniqueItems: true
+          items:
+            type: string
+            format: uuid
+          description: >
+            The requested stores. EMPTY means every store of the caller's
+            scope and requires tenant-wide authority; for a `specific`-scope
+            caller an empty list is the non-disclosing 404. Any entry outside
+            the caller's scope or unknown in the tenant refuses the whole
+            request with the same 404; the request is never narrowed. More
+            than 500 stores in scope is 400 `scope_too_large`.
+        from:
+          $ref: "#/components/schemas/BusinessDate"
+        to:
+          allOf:
+            - $ref: "#/components/schemas/BusinessDate"
+          description: Last business date, inclusive. `to >= from` and `to - from <= 30`, else 400 `validation_error`.
+        currency:
+          allOf:
+            - $ref: "#/components/schemas/CurrencyCode"
+          description: >
+            The ranking currency. Required when `templateId` is `T-04`,
+            `T-05`, `T-06`, `T-07`, `T-08`, `T-09` or `T-12` (the by-store
+            templates, RT-1526 §7).
+        compare:
+          type: string
+          enum: [previous_period, none]
+          description: >
+            The comparison control. `previous_period` is the equal-length
+            period immediately before the range (as in
+            `console-sales-by-store`); `none` has no baseline.
+        locale:
+          $ref: "#/components/schemas/Locale"
+
+    ManagerSalesExplainResponse:
+      description: >
+        A strictly discriminated result: exactly one of `answer`, `refusal`
+        and `unavailable`, selected by `kind`.
+      oneOf:
+        - $ref: "#/components/schemas/ManagerSalesAnswer"
+        - $ref: "#/components/schemas/ManagerSalesRefusal"
+        - $ref: "#/components/schemas/ManagerSalesUnavailable"
+      discriminator:
+        propertyName: kind
+        mapping:
+          answer: "#/components/schemas/ManagerSalesAnswer"
+          refusal: "#/components/schemas/ManagerSalesRefusal"
+          unavailable: "#/components/schemas/ManagerSalesUnavailable"
+
+    ManagerSalesAnswer:
+      type: object
+      additionalProperties: false
+      required:
+        - kind
+        - templateId
+        - templateVersion
+        - outputSchemaId
+        - scope
+        - period
+        - sources
+        - blocks
+        - citations
+        - notices
+        - declined
+        - gaps
+        - ledger
+      description: >
+        A deterministic tier-0 answer. Every number in `blocks` is a pack
+        figure copied as the read returned it and carries its citation `ref`
+        (§2.4); every `ref` is a subset of the evidence pack's refs. Charged:
+        one request-quota unit, zero provider cost.
+      properties:
+        kind:
+          type: string
+          const: answer
+        templateId:
+          $ref: "#/components/schemas/TemplateId"
+        templateVersion:
+          type: string
+          const: msx-templates/1
+        outputSchemaId:
+          type: string
+          const: manager_sales.answer/1
+        scope:
+          $ref: "#/components/schemas/AnswerScope"
+        period:
+          $ref: "#/components/schemas/AnswerPeriod"
+        sources:
+          type: array
+          description: >
+            The typed source reads behind the answer, each with its OWN
+            `asOf`; two `asOf` values are never merged and the earlier one is
+            shown as "as of" (§3.1).
+          items:
+            $ref: "#/components/schemas/AnswerSource"
+        blocks:
+          type: array
+          description: The statements and tables of the answer, in display order.
+          items:
+            $ref: "#/components/schemas/AnswerBlock"
+        citations:
+          type: array
+          description: One entry per cited figure ref; the drawer's source operation and field path (X-4).
+          items:
+            $ref: "#/components/schemas/Citation"
+        notices:
+          type: array
+          uniqueItems: true
+          items:
+            $ref: "#/components/schemas/AnswerNotice"
+        declined:
+          type: array
+          uniqueItems: true
+          description: >
+            Declines inside a successful answer. Figures are still shown,
+            with their notices (§4.2).
+          items:
+            $ref: "#/components/schemas/AnswerDecline"
+        gaps:
+          type: array
+          uniqueItems: true
+          description: The documented W5 source gaps that shaped this answer (§3.4); a gap is never filled by a template computation.
+          items:
+            $ref: "#/components/schemas/SourceGap"
+        ledger:
+          $ref: "#/components/schemas/AnswerLedger"
+
+    ManagerSalesRefusal:
+      type: object
+      additionalProperties: false
+      required: [kind, family, code]
+      description: >
+        A product refusal at the deterministic match step: a successful
+        outcome of the feature, not a gateway fallback. Nothing is read and
+        nothing is charged.
+      properties:
+        kind:
+          type: string
+          const: refusal
+        family:
+          type: string
+          const: answer
+        code:
+          $ref: "#/components/schemas/AnswerRefusalCode"
+
+    ManagerSalesUnavailable:
+      type: object
+      additionalProperties: false
+      required: [kind, family, code]
+      description: >
+        A gateway outcome with no answer: the existing RT-641 reason family,
+        used verbatim. Nothing is charged (a reservation, if taken, is
+        released). A store outside the caller's scope is NOT here: it is the
+        non-disclosing 404.
+      properties:
+        kind:
+          type: string
+          const: unavailable
+        family:
+          type: string
+          const: gateway
+        code:
+          $ref: "#/components/schemas/GatewayUnavailableCode"
+
+    AnswerRefusalCode:
+      type: string
+      enum:
+        - finance_source_absent
+        - forecast_not_supported
+        - write_action_not_supported
+        - unsupported_question
+      description: >
+        The W8 answer codes `msx-answer-codes/1` that refuse (RT-1526 §4.2):
+        margin, profit or COGS (`finance_source_absent`); a forecast
+        (`forecast_not_supported`); a write or action request
+        (`write_action_not_supported`); no template match
+        (`unsupported_question`). `partial_data_not_conclusive` and
+        `causal_not_supported` are declines inside an answer, not refusals.
+    GatewayUnavailableCode:
+      type: string
+      enum:
+        - feature_disabled_system
+        - tenant_inactive
+        - not_entitled
+        - trial_expired
+        - grace_read_only
+        - feature_disabled_tenant
+        - entitlement_unavailable
+        - quota_exhausted
+        - spend_cap_reached
+        - free_credit_exhausted
+        - evidence_unavailable
+      description: >
+        The subset of RT-641 `AI_FALLBACK_REASONS` (the AD-AI-ENT-001 closed
+        reason set plus `evidence_unavailable`) that a tier-0 request can
+        reach as a 200. The family is not expanded. Absent on purpose:
+        `store_out_of_scope` and `not_authorized` (the non-disclosing 404),
+        `policy_denied` (not in `AI_FALLBACK_REASONS`; Gateway layer 5 is not
+        wired), and every provider, route, output and `internal_error` reason
+        (a tier-0 answer calls no provider and has no route).
+
+    AnswerScope:
+      type: object
+      additionalProperties: false
+      required: [mode, storeRefs]
+      properties:
+        mode:
+          type: string
+          enum: [store, stores, all_in_scope]
+          description: One store, several selected stores, or every store of the caller's scope (`pack.meta.scopeMode`).
+        storeRefs:
+          type: array
+          maxItems: 500
+          items:
+            type: string
+            format: uuid
+          description: The stores the answer covers.
+    AnswerPeriod:
+      type: object
+      additionalProperties: false
+      required: [from, to]
+      properties:
+        from:
+          $ref: "#/components/schemas/BusinessDate"
+        to:
+          $ref: "#/components/schemas/BusinessDate"
+        baseline:
+          type: object
+          additionalProperties: false
+          required: [from, to, dayCount]
+          description: The equal-length period before the range; present only when a baseline was read (T-06, T-07).
+          properties:
+            from:
+              $ref: "#/components/schemas/BusinessDate"
+            to:
+              $ref: "#/components/schemas/BusinessDate"
+            dayCount:
+              type: integer
+              minimum: 1
+              maximum: 31
+
+    AnswerSource:
+      type: object
+      additionalProperties: false
+      required: [operationId, contractVersion, asOf, completeness]
+      properties:
+        operationId:
+          type: string
+          enum: [consoleGetSalesSummary, consoleGetSalesByStore]
+          description: The Backend-Core read the figures come from (RT-1526 §3.1 `src.ss`, `src.sbs`).
+        contractVersion:
+          type: string
+          minLength: 1
+          description: The `info.version` of that read's contract, for example `1.0.0-draft`.
+        asOf:
+          type: string
+          format: date-time
+          description: The server time after that read's snapshot.
+        completeness:
+          type: string
+          const: received_only
+          description: Always `received_only`, meaning only what the server had received by `asOf`, never a final total.
+
+    AnswerBlock:
+      description: A statement or a table, selected by `type`.
+      oneOf:
+        - $ref: "#/components/schemas/StatementBlock"
+        - $ref: "#/components/schemas/TableBlock"
+      discriminator:
+        propertyName: type
+        mapping:
+          statement: "#/components/schemas/StatementBlock"
+          table: "#/components/schemas/TableBlock"
+    StatementBlock:
+      type: object
+      additionalProperties: false
+      required: [type, key, slots]
+      description: >
+        A sentence rendered by the client from its i18n catalogue: a message
+        `key` plus typed slots, each slot a reference to a pack figure.
+      properties:
+        type:
+          type: string
+          const: statement
+        key:
+          type: string
+          minLength: 1
+          description: The statement's message key (the server returns keys and slots, never primary copy, O-7).
+        slots:
+          type: object
+          description: Slot name → the pack figure that fills it.
+          additionalProperties:
+            $ref: "#/components/schemas/FigureRef"
+    TableBlock:
+      type: object
+      additionalProperties: false
+      required: [type, columns, rows]
+      description: A semantic table; every cell is a pack figure with its ref (X-2).
+      properties:
+        type:
+          type: string
+          const: table
+        columns:
+          type: array
+          minItems: 1
+          items:
+            type: string
+            minLength: 1
+          description: Column message keys, in order.
+        rows:
+          type: array
+          items:
+            type: array
+            minItems: 1
+            items:
+              $ref: "#/components/schemas/TableCell"
+    FigureRef:
+      type: object
+      additionalProperties: false
+      required: [ref]
+      properties:
+        ref:
+          $ref: "#/components/schemas/EvidenceRef"
+    TableCell:
+      type: object
+      additionalProperties: false
+      required: [ref, value]
+      properties:
+        ref:
+          $ref: "#/components/schemas/EvidenceRef"
+        value:
+          description: >
+            The pack field copied as the read returned it: money as
+            `numeric(19,4)` text, a ratio as four-digit half-even text, a
+            count as an integer, or a store name or label as text (untrusted:
+            fenced and isolated by the client, AI-11). Never recomputed,
+            summed across currencies or rounded to another value.
+          oneOf:
+            - type: string
+            - type: integer
+        currency:
+          $ref: "#/components/schemas/CurrencyCode"
+    EvidenceRef:
+      type: string
+      minLength: 1
+      maxLength: 256
+      description: >
+        An evidence-pack citation ref (`msx-pack/1`), grammar
+        `<src>:<storeRef|scope>:<range|YYYY-MM-DD>:<metric>[:<currency>]`,
+        for example `ss:scope:range:receivedSales.total:EGP`. Every ref in an
+        answer is one of the pack's refs.
+    Citation:
+      type: object
+      additionalProperties: false
+      required: [ref, operationId, fieldPath]
+      properties:
+        ref:
+          $ref: "#/components/schemas/EvidenceRef"
+        operationId:
+          type: string
+          enum: [consoleGetSalesSummary, consoleGetSalesByStore]
+        fieldPath:
+          type: string
+          minLength: 1
+          description: The path of the cited field in that operation's response.
+
+    AnswerNotice:
+      type: string
+      enum:
+        - received_only
+        - day_in_progress
+        - day_not_begun
+        - multi_currency
+        - scope_relative_ratio
+        - parameters_from_controls_only
+      description: >
+        Notices, not refusals (RT-1526 §4.3). `received_only` is always
+        present. `day_in_progress`: a requested day is `so_far`.
+        `day_not_begun`: a later day is shown as not begun, never as zero.
+        `multi_currency`: more than one currency line. `scope_relative_ratio`:
+        a share or rank shown for a subset. `parameters_from_controls_only`:
+        the question text named a date, period or number that the controls do
+        not reflect.
+    AnswerDecline:
+      type: string
+      enum:
+        - partial_data_not_conclusive
+        - causal_not_supported
+      description: >
+        `partial_data_not_conclusive`: a partial or stale figure asked for as
+        conclusive; the figures are shown only with their notices.
+        `causal_not_supported`: a "why" beyond the data; the answer states
+        what changed and declines the cause.
+    SourceGap:
+      type: string
+      enum: [G-1, G-2, G-3, G-4, G-5, G-6, G-7]
+      description: >
+        The documented W5 source gaps (RT-1526 §3.4): `G-1` no subset total,
+        `G-2` no subset rank or share, `G-3` no scope-level baseline delta,
+        `G-4` no scope-level average sale, `G-5` facts still queued on
+        terminals, `G-6` baseline voids and returns come from a summary read,
+        `G-7` net sales, margin, profit and COGS.
+    AnswerLedger:
+      type: object
+      additionalProperties: false
+      required: [routeKey, routing_tier, task_class, classifier_version, catalogue_version, latency_ms]
+      description: >
+        The tier-0 run metadata for the single `ai_usage_ledger` (RT-1526
+        §4.4). Informational: the ledger outcome enum and columns are an
+        RT-641 `[GATED]` decision and are not implemented by this contract.
+      properties:
+        routeKey:
+          type: string
+          const: deterministic_no_model
+        routing_tier:
+          type: integer
+          const: 0
+        task_class:
+          type: string
+          minLength: 1
+        classifier_version:
+          type: string
+          minLength: 1
+        catalogue_version:
+          type: string
+          minLength: 1
+        latency_ms:
+          type: integer
+          minimum: 0
+
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope, unknown-store, cross-tenant
+        and refused-role cases are non-disclosing (§II, §XII): they never
+        name the cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the cause is recorded server-side.
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: The shared `IdempotencyInterceptor`'s 425 body.
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+
+  responses:
+    ValidationFailure:
+      description: >
+        validation_error (400): a malformed, unknown (including `tenant_id`)
+        or missing request key, a `question` outside 1..500, a `storeIds`
+        list over 500 or with a repeated or non-UUID entry, a date that is
+        not a calendar date, `to` before `from`, a range longer than 31 days,
+        a `templateId` outside the catalogue (`T-11` included), a missing
+        `currency` for `T-04` .. `T-09` or `T-12`, neither `templateId` nor
+        `question`, or a `compare` or `locale` outside its values. Also
+        scope_too_large (400, more than 500 stores in the caller's scope) and
+        the `IdempotencyInterceptor`'s `idempotency_key_required` /
+        `idempotency_key_malformed`. Nothing is read, reserved or charged.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        Unauthenticated (401): a missing or invalid session cookie, or a
+        non-cookie credential (machine bearer, POS `device` token,
+        `operatorAuthorization` envelope) without a valid session cookie.
+        Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated POST whose
+        `Origin` is missing or not allowed. It is the only 403 on this
+        operation. Nothing is read, reserved or charged.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        not_found (404), non-disclosing and identical for: a role outside
+        `owner` / `tenant_admin` / `store_manager`; a session platform admin;
+        any `storeIds` entry outside the caller's scope or unknown in the
+        tenant (the whole request is refused, never narrowed); an empty
+        `storeIds` without tenant-wide access. Decided before any evidence
+        read and before any quota reservation. It carries no plan, store or
+        tenant information.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyConflict:
+      description: >
+        409 `idempotency_key_conflict`: the same `Idempotency-Key` with a
+        different body. Nothing is read, reserved or charged.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: a request with the same
+        `Idempotency-Key` is still being processed. Retry after `Retry-After`
+        seconds with the same key and body.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    SystemFailure:
+      description: >
+        system_failure (500): unexpected server error; the cause is recorded
+        server-side under `request_id`. A reservation taken for the call is
+        released.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error
+        envelope with a non-disclosing message (no budget, class or window);
+        its `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`. A 429 is not a 401: it never means the session ended.
+        The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"

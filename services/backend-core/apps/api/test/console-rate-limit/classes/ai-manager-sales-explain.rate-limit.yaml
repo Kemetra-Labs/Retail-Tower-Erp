@@ -1,0 +1,5 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/ai-manager-sales-explain.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1538 (contract-only; RT-1526 v6 §7): a validated tier-0 answer reads the sales summary and by-store aggregates over up to 31 days of up to 500 stores.
+consoleExplainSales: expensiveRead
