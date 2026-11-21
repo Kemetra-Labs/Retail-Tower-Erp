@@ -43,6 +43,8 @@ interface Harness {
     scope: typeof SCOPE | null;
     /** Runs while the read is in flight. */
     during: () => void;
+    /** Runs after the pairing scope was read for the `n`th time (1-based). */
+    afterScope: (n: number) => void;
   };
 }
 
@@ -67,7 +69,9 @@ function harness(cache: PolicyCache = createPolicyCache(handleFor(db))): Harness
     token: 'device-token',
     scope: SCOPE,
     during: () => undefined,
+    afterScope: () => undefined,
   };
+  let scopeReads = 0;
   const client: PolicyClient = {
     read: async (token, ifNoneMatch) => {
       reads.push({ token, ifNoneMatch });
@@ -80,7 +84,13 @@ function harness(cache: PolicyCache = createPolicyCache(handleFor(db))): Harness
     client,
     cache,
     readDeviceToken: () => Promise.resolve(state.token),
-    getScope: () => Promise.resolve(state.scope),
+    getScope: async () => {
+      await Promise.resolve();
+      scopeReads += 1;
+      const scope = state.scope;
+      state.afterScope(scopeReads);
+      return scope;
+    },
     now: () => NOW,
   });
   return { service, cache, reads, state };
@@ -165,6 +175,15 @@ describe('refresh', () => {
     };
     const h = harness(broken);
     expect(await h.service.refresh()).toBe('failed');
+  });
+
+  it('writes nothing when stopped while the pairing is re-read after the answer', async () => {
+    const h = harness();
+    h.state.afterScope = (n) => {
+      if (n === 2) h.service.stop();
+    };
+    expect(await h.service.refresh()).toBe('skipped');
+    expect(h.cache.read(SCOPE)).toBeNull();
   });
 
   it('reads nothing after stop', async () => {

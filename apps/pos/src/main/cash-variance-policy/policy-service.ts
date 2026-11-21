@@ -60,8 +60,8 @@ export function createPolicyService(deps: PolicyServiceDeps): PolicyService {
     const token = scope === null ? null : await deps.readDeviceToken();
     if (scope === null || token === null || isStopped()) return 'skipped';
     const outcome = await deps.client.read(token, cachedEtag(scope));
-    const stillCurrent = !isStopped() && sameScope(await deps.getScope(), scope);
-    if (!stillCurrent) return 'skipped';
+    const current = await deps.getScope();
+    if (isStopped() || !sameScope(current, scope)) return 'skipped';
     if (outcome.kind === 'not_modified') return 'unchanged';
     if (outcome.kind !== 'ok') return 'failed';
     deps.cache.write(scope, {

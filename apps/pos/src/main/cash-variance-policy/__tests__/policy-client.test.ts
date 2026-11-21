@@ -7,7 +7,8 @@ import { describe, expect, it } from 'vitest';
 import { createPolicyClient, POLICY_PATH } from '../policy-client.js';
 
 const REVISION = '0190f5a2-3b4c-7d8e-9f01-23456789abcd';
-const ETAG = '"7b3c5f"';
+/** Backend-Core's strong ETag: a quoted SHA-256 (policy.query.ts IfNoneMatchSchema). */
+const ETAG = `"${'7b3c5f01'.repeat(8)}"`;
 const OK_BODY = {
   policySource: 'tenant',
   policyRevisionId: REVISION,
@@ -86,6 +87,20 @@ describe('createPolicyClient.read', () => {
 
   it('answers ok with a null ETag when the answer carries none (the policy is still good)', async () => {
     const { client } = clientAnswering(() => json(200, OK_BODY));
+    expect(await client.read('device-token', null)).toMatchObject({ kind: 'ok', etag: null });
+  });
+
+  // Backend-Core answers 400 to an If-None-Match that is not its own strong ETag, and a cached ETag is
+  // never aged out, so one rewritten by an intermediary must never be stored: the policy would stop
+  // refreshing for good.
+  it.each([
+    ['a weak ETag', `W/${ETAG}`],
+    ['an unquoted ETag', ETAG.slice(1, -1)],
+    ['an empty ETag', ''],
+    ['a short ETag', '"7b3c5f"'],
+    ['an upper-case ETag', ETAG.toUpperCase()],
+  ])('keeps the policy but caches no ETag for %s', async (_name, etag) => {
+    const { client } = clientAnswering(() => json(200, OK_BODY, { ETag: etag }));
     expect(await client.read('device-token', null)).toMatchObject({ kind: 'ok', etag: null });
   });
 

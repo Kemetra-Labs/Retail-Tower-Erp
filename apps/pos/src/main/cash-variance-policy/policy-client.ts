@@ -55,12 +55,19 @@ const STATUS_OUTCOMES: Readonly<Partial<Record<number, PolicyReadOutcome>>> = {
 };
 const SERVER_ERROR: PolicyReadOutcome = { kind: 'server_error' };
 
-/** A 200 answer: the policy and the ETag, or `unreadable` when it is off-contract. */
+/**
+ * Backend-Core's strong ETag (a quoted SHA-256) is the only value its `If-None-Match` accepts; any
+ * other is a 400. The cache has no maximum age, so an ETag that does not match (an intermediary
+ * weakened or rewrote it, or it is empty) is never kept: the next read is unconditional.
+ */
+const STRONG_ETAG = /^"[0-9a-f]{64}"$/;
+
+/** A 200 answer: the policy and its ETag, or `unreadable` when it is off-contract. */
 function okOutcome(answer: BackendAnswer): PolicyReadOutcome {
   const policy = readPolicyBody(answer.json);
-  return policy === null
-    ? { kind: 'unreadable' }
-    : { kind: 'ok', policy, etag: answer.headers?.['etag'] ?? null };
+  if (policy === null) return { kind: 'unreadable' };
+  const etag = answer.headers?.['etag'];
+  return { kind: 'ok', policy, etag: etag !== undefined && STRONG_ETAG.test(etag) ? etag : null };
 }
 
 export function createPolicyClient(deps: PolicyClientDeps): PolicyClient {
