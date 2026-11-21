@@ -70,9 +70,10 @@ require(workerData.entry);
 function startWorker(job: ImportParseJob, limits: ResourceLimits, workerFile: string | undefined): Worker {
   const entry = workerFile ?? join(__dirname, `import-parse.worker${extname(__filename)}`);
   if (extname(entry) === ".ts") {
-    return new Worker(TS_BOOTSTRAP, { eval: true, resourceLimits: limits, workerData: { job, entry, tsPath: require.resolve("typescript") } });
+    const workerData = { job, entry, tsPath: require.resolve("typescript") };
+    return new Worker(TS_BOOTSTRAP, { eval: true, resourceLimits: limits, workerData, transferList: [job.bytes.buffer as ArrayBuffer] });
   }
-  return new Worker(entry, { resourceLimits: limits, workerData: { job } });
+  return new Worker(entry, { resourceLimits: limits, workerData: { job }, transferList: [job.bytes.buffer as ArrayBuffer] });
 }
 
 /** Parses an upload off-thread. Throws `ImportFileRejectedError`; nothing is written either way. */
@@ -83,8 +84,16 @@ export function parseImportFileOffThread(
 ): Promise<ParsedImportFile> {
   return new Promise((resolve, reject) => {
     let settled = false;
-    // A copy: the worker gets its own bytes, the caller's Buffer (a slice of a shared pool) is not detached.
-    const worker = startWorker({ bytes: Uint8Array.from(bytes), options }, config.resourceLimits, config.workerFile);
+    // A copy, moved (not cloned) to the worker: the caller's Buffer (a slice of a shared pool) is not detached.
+    let worker: Worker;
+    try {
+      worker = startWorker({ bytes: Uint8Array.from(bytes), options }, config.resourceLimits, config.workerFile);
+    } catch (err) {
+      // The thread could not even start (no worker file, no thread): the same refusal, never a 500.
+      logger.warn(`import parse worker did not start: ${err instanceof Error ? err.name : "non-error thrown"}`);
+      reject(new ImportFileRejectedError("file_unreadable"));
+      return;
+    }
     const settle = (outcome: () => void): void => {
       if (settled) return;
       settled = true;
