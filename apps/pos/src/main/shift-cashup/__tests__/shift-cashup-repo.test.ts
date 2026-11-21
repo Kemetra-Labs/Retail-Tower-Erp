@@ -497,6 +497,23 @@ describe('RT-388: the policy frozen with an open', () => {
     expect(count({ table: 'shift_cashup_open_policies' })).toBe(0);
   });
 
+  it('reads a frozen row that is malformed (a hand edit the CHECKs let through) as the limit-0 fallback, never as legacy', () => {
+    repo.recordOpen({ scope: SCOPE, fact: OPEN, now: NOW });
+    // A 36-character revision id that is not a uuid passes the CHECK (length only).
+    db.run(
+      `INSERT INTO shift_cashup_open_policies (shift_id, policy_source, policy_revision_id,
+         policy_mode, limit_amount, currency_code, frozen_at)
+       VALUES ('${S1}', 'tenant', '${'z'.repeat(36)}', 'none', NULL, NULL, '${NOW}')`,
+    );
+    expect(repo.findOpenShift(SCOPE)?.frozenPolicy).toEqual({
+      source: 'fallback',
+      revisionId: null,
+      mode: 'limit',
+      limitAmount: '0',
+      currencyCode: 'EGP',
+    });
+  });
+
   it('persists neither the open nor its policy when the outbox write fails', () => {
     expect(() => {
       createShiftCashupRepo(outboxFailingHandle()).recordOpen({

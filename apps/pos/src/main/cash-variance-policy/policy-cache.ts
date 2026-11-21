@@ -1,5 +1,5 @@
 /**
- * RT-388 — the local shift variance policy cache (migration 0066
+ * RT-388 — the local shift variance policy cache (migration 0067
  * `cash_variance_policy_cache`).
  *
  * One row: the last policy the device read returned for this pairing's tenant

@@ -8,8 +8,9 @@
  *   • a terminal that never fetched the policy freezes the fail-closed fallback
  *     (`limit 0`, DR-6): any non-zero variance needs a verified manager;
  *   • an open recorded before the upgrade (no frozen policy) is legacy: no limit;
- *   • the forced close (RT-554) is the sanctioned route when no manager PIN exists
- *     and never refuses for the missing approver;
+ *   • the forced close (RT-554) keeps refusing `variance_approval_required` under a frozen
+ *     policy that asks (the manager is the closer and cannot approve their own close; owner
+ *     decision "keep refusal" on RT-388);
  *   • approval never changes the variance, and an offline close needs nothing from
  *     the network (the approver is checked on the local PIN records).
  */
@@ -305,20 +306,50 @@ describe('approval', () => {
 });
 
 describe('the forced close (RT-554) under the fail-closed fallback', () => {
-  it('closes a non-zero variance with no approver and records none', () => {
-    openedWith(fallbackPolicy('EGP'));
+  function forceClose(variance: number): () => unknown {
     harness.state.clock = CLOSED_AT;
     harness.state.session = managerSession();
     harness.state.manager = onlineManager();
     const shiftId = createShiftCashupRepo(handleFor(db)).findOpenShift(SCOPE)?.shiftId ?? '';
-    const closed = harness.service.forceCloseShift({
-      operatorSessionId: managerSession().operator_session_id,
-      managerUserId: MANAGER,
-      shiftId,
-      countedCashMinor: FLOAT - 1_200,
-      forcedReason: 'Cashier left',
-    });
-    expect(closed.varianceMinor).toBe(-1_200);
-    expect(storedBody(db, 2)).not.toHaveProperty('varianceApprovedByUserId');
+    return () =>
+      harness.service.forceCloseShift({
+        operatorSessionId: managerSession().operator_session_id,
+        managerUserId: MANAGER,
+        shiftId,
+        countedCashMinor: FLOAT + variance,
+        forcedReason: 'Cashier left',
+      });
+  }
+
+  // Owner decision "keep refusal" (RT-388): a single-manager store whose shift froze the fallback
+  // cannot close a non-zero variance here. It is a follow-up candidate, not worked around.
+  it('refuses a non-zero variance (the manager cannot approve their own close) and closes nothing', () => {
+    openedWith(fallbackPolicy('EGP'));
+    expect(refusalOf(forceClose(-1_200))).toBe('variance_approval_required');
+    expect(db.exec('SELECT COUNT(*) FROM shift_cashup_closes')[0]?.values).toEqual([[0]]);
+  });
+
+  it('refuses a manager force-closing their OWN shift under a tenant limit when the variance is past it', () => {
+    // RT-1004: a manager signed in online opens their own shift (envelope path), freezing the tenant
+    // limit; closing it by force makes them the closer, and they cannot approve their own close.
+    harness.state.session = managerSession();
+    harness.state.manager = onlineManager();
+    openedWith(LIMIT_5);
+    expect(createShiftCashupRepo(handleFor(db)).findOpenShift(SCOPE)?.openingUserId).toBe(MANAGER);
+    expect(refusalOf(forceClose(-600))).toBe('variance_approval_required');
+    expect(db.exec('SELECT COUNT(*) FROM shift_cashup_closes')[0]?.values).toEqual([[0]]);
+    // Within the limit it closes.
+    expect(forceClose(-500)()).toMatchObject({ varianceMinor: -500 });
+  });
+
+  it('closes a zero variance', () => {
+    openedWith(fallbackPolicy('EGP'));
+    expect(forceClose(0)()).toMatchObject({ varianceMinor: 0 });
+  });
+
+  it('closes a shift opened before the upgrade (legacy: no limit) whatever the variance', () => {
+    seedPreRolloutShift(db, { openingFloatMinor: FLOAT });
+    harness.state.policy = fallbackPolicy('EGP');
+    expect(forceClose(-1_200)()).toMatchObject({ varianceMinor: -1_200 });
   });
 });

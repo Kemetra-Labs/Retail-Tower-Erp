@@ -53,8 +53,8 @@
 --
 -- ## Rollback (manual, not run by the app)
 --
--- Downgrades are unsupported: a pre-0066 build refuses a database that lists
--- 0066 as applied (`SchemaAheadError`, RT-320). By hand:
+-- Downgrades are unsupported: a pre-0067 build refuses a database that lists
+-- 0067 as applied (`SchemaAheadError`, RT-320). By hand:
 --
 --   DROP TRIGGER trg_shift_cashup_open_policies_no_update;
 --   DROP TRIGGER trg_shift_cashup_open_policies_no_delete;

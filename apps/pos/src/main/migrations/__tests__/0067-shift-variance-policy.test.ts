@@ -1,7 +1,7 @@
 /**
- * RT-388 — migration-shape and upgrade test for `0066_shift_variance_policy`
+ * RT-388 — migration-shape and upgrade test for `0067_shift_variance_policy`
  * ([GATED: migration]):
- *   • the number right after 0065, and only it;
+ *   • the number right after 0066, and only it;
  *   • two additive tables, nothing dropped or altered, shipped empty;
  *   • the CHECKs keep a policy row well-formed (source / revision id / mode / limit);
  *   • the frozen policy of an open is append-only and one row per shift;
@@ -20,7 +20,7 @@ import {
 } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import { MIGRATIONS_DIR } from '../../operator/__tests__/__helpers__/offline-grant-fixture.js';
 
-const MIGRATION = '0066_shift_variance_policy';
+const MIGRATION = '0067_shift_variance_policy';
 const CACHE = 'cash_variance_policy_cache';
 const FROZEN = 'shift_cashup_open_policies';
 const SQL_TEXT = readFileSync(path.join(MIGRATIONS_DIR, `${MIGRATION}.sql`), 'utf8');
@@ -93,12 +93,14 @@ function insertFrozen(o: PolicyInput & { shift?: string } = {}): void {
   );
 }
 
-describe('0066 — shift variance policy (RT-388, [GATED: migration])', () => {
-  it('is the only migration numbered 0066, right after 0065', () => {
+describe('0067 — shift variance policy (RT-388, [GATED: migration])', () => {
+  it('is the only migration numbered 0067, right after 0066', () => {
     const names = readdirSync(MIGRATIONS_DIR).filter((n) => n.endsWith('.sql'));
-    expect(names.filter((n) => n.startsWith('0066_'))).toEqual([`${MIGRATION}.sql`]);
+    expect(names.filter((n) => n.startsWith('0067_'))).toEqual([`${MIGRATION}.sql`]);
     const sorted = [...names].sort((a, b) => a.localeCompare(b));
-    expect(sorted[sorted.indexOf(`${MIGRATION}.sql`) - 1]).toBe('0065_sale_quarantine_upload.sql');
+    expect(sorted[sorted.indexOf(`${MIGRATION}.sql`) - 1]).toBe(
+      '0066_sale_tender_refs_cutover.sql',
+    );
   });
 
   it('adds two tables, drops or alters nothing, and ships empty', () => {

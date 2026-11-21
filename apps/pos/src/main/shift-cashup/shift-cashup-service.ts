@@ -479,8 +479,7 @@ interface CloseParts {
   countedCashMinor: number;
   approverUserId: string | undefined;
   /**
-   * The policy frozen at the open (null: a legacy open, or a forced close, which
-   * never refuses for a missing approver: see `forceCloseShift`).
+   * The policy frozen at the open (null: a legacy open, which has no limit).
    */
   policy: VariancePolicy | null;
 }
@@ -1041,10 +1040,9 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
         countedCashMinor: input.countedCashMinor,
       });
       return refusedCountRecorded(count, () => {
-        // RT-388: the forced close is the route a terminal with no second manager PIN has
-        // (the frozen fail-closed policy asks for a verified approver, and a manager cannot
-        // approve their own close), so it never refuses for the missing approver. It records
-        // none: Backend-Core then derives `approvalMissing = yes` from the frozen policy.
+        // The policy frozen at the open applies as for any close (RT-554, owner decision
+        // "keep refusal" on RT-388): a manager cannot approve their own close, so a variance
+        // the frozen policy asks about is refused `variance_approval_required`.
         const fact = closeFactOf({
           open,
           closedAt,
@@ -1052,7 +1050,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           cashup,
           countedCashMinor: input.countedCashMinor,
           approverUserId: undefined,
-          policy: null,
+          policy: open.frozenPolicy,
         });
         const closed: ForcedClosedShift = {
           ...closedShiftOf(fact),

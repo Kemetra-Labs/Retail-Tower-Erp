@@ -128,7 +128,7 @@ export interface OpenShiftView {
   payInTotalMinor: number;
   payOutTotalMinor: number;
   /**
-   * RT-388: the variance policy frozen at this open (migration 0066). Null for an
+   * RT-388: the variance policy frozen at this open (migration 0067). Null for an
    * open recorded before the upgrade: a legacy shift, evaluated with no limit.
    */
   frozenPolicy: VariancePolicy | null;

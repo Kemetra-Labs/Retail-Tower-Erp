@@ -24,7 +24,7 @@ interface VariancePolicyLogger {
 
 /** What `registerVariancePolicy` closes over from the composition (the shift deps). */
 export interface VariancePolicyDeps {
-  /** The open database handle the policy cache lives in (migration 0066). */
+  /** The open database handle the policy cache lives in (migration 0067). */
   db: DatabaseHandle;
   /** The pairing store: the tenant and branch of every read and cache lookup. */
   pairingStore: Pick<PairingStore, 'getStatus'>;

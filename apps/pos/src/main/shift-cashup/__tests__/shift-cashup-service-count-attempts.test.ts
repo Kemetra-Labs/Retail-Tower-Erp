@@ -255,13 +255,15 @@ describe('a forced close', () => {
     expect(links()).toEqual([[shiftId, FLOAT - 700, 'accepted']]);
   });
 
-  it('RT-388: a policy that asks does not refuse the forced close; the manager’s count is accepted', () => {
+  it('records a count the variance policy refused as the manager’s refused attempt', () => {
     const shiftId = openShift();
     harness.state.session = managerSession();
-    harness.service.forceCloseShift(forced(shiftId));
+    expect(() => harness.service.forceCloseShift(forced(shiftId))).toThrow(
+      refusal('variance_approval_required'),
+    );
 
-    expect(attempts()).toEqual([[FLOAT - 700, 'accepted', MANAGER]]);
-    expect(links()).toEqual([[shiftId, FLOAT - 700, 'accepted']]);
+    expect(attempts()).toEqual([[FLOAT - 700, 'refused', MANAGER]]);
+    expect(links()).toEqual([]);
   });
 });
 

@@ -1,5 +1,5 @@
 /**
- * RT-388 — the local policy cache (migration 0066 `cash_variance_policy_cache`):
+ * RT-388 — the local policy cache (migration 0067 `cash_variance_policy_cache`):
  * one row, kept with no maximum age (DR-7), only ever read for the pairing's own
  * tenant and branch.
  */

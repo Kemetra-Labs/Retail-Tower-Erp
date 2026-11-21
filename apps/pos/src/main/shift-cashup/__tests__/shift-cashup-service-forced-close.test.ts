@@ -204,23 +204,32 @@ describe('what it refuses, writing nothing', () => {
     expect(factCounts(db)).toMatchObject({ shift_cashup_closes: 0 });
   });
 
-  it('RT-388: never refuses for a missing approver, whatever the frozen policy: the manager closes and none is recorded', () => {
-    // A policy that asks (limit 0) cannot be satisfied by the forced close: the manager is the
-    // closer and cannot approve their own close. It is the route a terminal with no second
-    // manager PIN has, so it closes and records no approver (Backend-Core derives
-    // `approvalMissing = yes` from the frozen policy).
-    const strict = serviceHarness(db, { varianceApprovalThresholdMinor: 0 });
+  it('applies the policy frozen at the open: the manager is the closer, so a variance past it is refused', () => {
+    // RT-388: the policy is frozen when the shift opens, so the shift is opened under the policy
+    // that asks (the fixture's limit 0), on a database of its own.
+    const strictDb = freshSalesSyncDb();
+    const strict = serviceHarness(strictDb, { varianceApprovalThresholdMinor: 0 });
+    const strictShiftId = strict.service.openShift({ openingFloatMinor: FLOAT }).shiftId;
     strict.state.session = managerSession();
     strict.state.clock = CLOSE_AT;
-    const closed = strict.service.forceCloseShift({
-      shiftId,
-      countedCashMinor: FLOAT - 1,
-      forcedReason: SHIFT_REASON,
-      managerUserId: MANAGER,
-      operatorSessionId: managerSession().operator_session_id,
-    });
+    expect(
+      reasonOf(() =>
+        strict.service.forceCloseShift({
+          shiftId: strictShiftId,
+          countedCashMinor: FLOAT - 1,
+          forcedReason: SHIFT_REASON,
+          managerUserId: MANAGER,
+          operatorSessionId: managerSession().operator_session_id,
+        }),
+      ),
+    ).toBe('variance_approval_required');
+    strictDb.close();
+  });
+
+  it('RT-388: an open that froze no limit (the system default) lets the forced close through', () => {
+    // harness (beforeEach) opened under the system default (none): nothing to approve.
+    const closed = forceClose({ countedCashMinor: FLOAT - 1 });
     expect(closed.varianceMinor).toBe(-1);
-    expect(factCounts(db)).toMatchObject({ shift_cashup_closes: 1 });
   });
 
   it('refuses a clock before the open (clock_regressed)', () => {
