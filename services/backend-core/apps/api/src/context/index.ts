@@ -12,6 +12,7 @@ export {
 } from "./effective-role";
 export { MembershipRepository } from "./membership.repository";
 export { callerStoreScope, scopeStoreIds } from "./operator-store-scope";
+export { resolveStoreScope } from "./store-scope";
 export type { StoreScope } from "./store-scope";
 export { TenantContextGuard } from "./tenant-context.guard";
-export type { TenantContextRequest } from "./types";
+export type { ResolvedContext, TenantContextRequest } from "./types";

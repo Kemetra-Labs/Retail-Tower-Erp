@@ -42,6 +42,17 @@ export interface AiFeatureDefinition<T = unknown> {
 }
 
 /**
+ * A product decline of a Tier-0 feature (RT-1539): the deterministic match
+ * step refused the request (for example a finance or forecast question). It is
+ * a successful outcome of the feature, NOT a gateway fallback: the `code`
+ * belongs to the feature's own closed set and is never a gateway reason or a
+ * metric label.
+ */
+export interface AiDeterministicDecline {
+  readonly code: string;
+}
+
+/**
  * A Tier-0 feature (RT-1542): a pure, synchronous executor replaces the
  * provider call. It runs after authorize, kill switch, entitlement, budget
  * pre-check, the quota reservation and the evidence build, and its output is
@@ -67,6 +78,17 @@ export interface AiDeterministicFeatureDefinition<T = unknown> {
    * fails validation, ends in a fallback and releases the reservation.
    */
   readonly execute: (pack: EvidencePack, input: Readonly<Record<string, unknown>>) => unknown;
+  /**
+   * RT-1539, optional. A pure, synchronous product check on the caller's raw
+   * `AiRunScope.params` (an untrusted input, like `execute`'s). The Gateway
+   * calls it AFTER the kill switch and the entitlement check and BEFORE the
+   * budget pre-check and the quota reservation, so a decline reads no evidence,
+   * reserves nothing and charges nothing. `null` continues; a decline ends the
+   * run with `{ kind: "declined" }`. It gets a frozen copy of the params. A
+   * throw, a returned promise or a malformed result is `internal_error` with
+   * nothing reserved. Model features have no preflight.
+   */
+  readonly preflight?: (input: Readonly<Record<string, unknown>>) => AiDeterministicDecline | null;
 }
 
 /** Any feature the gateway can register. */

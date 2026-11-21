@@ -16,14 +16,16 @@ info:
       typed refusal, or a typed gateway `unavailable`.
 
 
-    **Posture.** `1.0.0-draft`. This contract implements NO runtime, route,
-    ledger outcome, migration, feature registry, evidence builder or
-    provider: the operation carries `x-runtime-status: contract-only`. The
-    runtime ships in P-06 (RT-1539), which removes the marker; the Admin
-    Console panel is P-08 (RT-1541); no generated client or consumer PIN is
-    changed by this file. The shared AI Gateway, routing and the single
-    `ai_usage_ledger` stay owned by RT-641 (RT-1527 for routing); the sales
-    reads it is grounded on stay owned by W5.
+    **Posture.** `1.0.0-draft`. The runtime ships in P-06 (RT-1539): the
+    route, the feature registration and the evidence builder are served, and
+    the operation no longer carries the `x-runtime-status: contract-only`
+    marker. It adds NO ledger outcome and NO migration, and no provider is
+    called. Production plan catalogues grant no AI feature until a later
+    gated migration, so a production caller receives `unavailable` /
+    `not_entitled`. The Admin Console panel is P-08 (RT-1541); no generated
+    client or consumer PIN is changed by this file. The shared AI Gateway,
+    routing and the single `ai_usage_ledger` stay owned by RT-641 (RT-1527 for
+    routing); the sales reads it is grounded on stay owned by W5.
 
 
     **Decision recorded on RT-1538 (owner, comment 18048, 2026-11-21).** A
@@ -154,7 +156,7 @@ info:
 
 
     **Audit and limits.** One `ai.manager_sales.explain` event per 200
-    answer (metadata: `templateId`, scope mode, store count, range; never a
+    answer (metadata: `template_id`, scope mode, store count, range; never a
     figure and never the question text). Console rate-limit class
     `expensiveRead` (RT-1526 §7). `Cache-Control: no-store` on every 200.
 
@@ -197,11 +199,6 @@ paths:
       operationId: consoleExplainSales
       x-audit-action: ai.manager_sales.explain
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1538 (W8 P-05) contract-first. The runtime ships in RT-1539 (P-06),
-        which removes the marker; no route, ledger outcome or migration exists
-        yet.
       tags: [ai-manager-sales]
       security:
         - cookieAuth: []

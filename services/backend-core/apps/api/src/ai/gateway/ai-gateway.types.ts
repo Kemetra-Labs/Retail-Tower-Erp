@@ -9,7 +9,7 @@
  * an allowlisted route.
  */
 import type { ResolvedContext } from "../../context/types";
-import type { AiRegisteredFeature } from "./ai-feature";
+import type { AiDeterministicDecline, AiRegisteredFeature } from "./ai-feature";
 import type {
   EvidencePack,
   ModelProviderPort,
@@ -91,6 +91,14 @@ export type AiGatewayResult<T = unknown> =
       readonly reason: AiFallbackReason;
       /** True only when a request actually reached the provider port. */
       readonly providerRequested: boolean;
+    }
+  | {
+      /**
+       * RT-1539: a Tier-0 feature's `preflight` declined the request. Nothing was
+       * budgeted, reserved, read or settled; the code is the feature's own.
+       */
+      readonly kind: "declined";
+      readonly decline: AiDeterministicDecline;
     };
 
 /** What the caller asks for. The caller never picks a route, model or provider. */

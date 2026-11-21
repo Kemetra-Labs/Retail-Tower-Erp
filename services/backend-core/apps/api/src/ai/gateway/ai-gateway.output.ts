@@ -63,7 +63,7 @@ function validateOk(
   feature: AiFeatureDefinition,
   route: ModelRouteDescriptor,
   pack: EvidencePack,
-): AiGatewayResult {
+): Exclude<AiGatewayResult, { kind: "declined" }> {
   const validated = validateOutput(result.rawOutput, feature, pack, true);
   if ("kind" in validated) return validated;
   const { output, refs } = validated;
@@ -82,7 +82,7 @@ export function interpretResult(
   feature: AiFeatureDefinition,
   route: ModelRouteDescriptor,
   pack: EvidencePack,
-): AiGatewayResult {
+): Exclude<AiGatewayResult, { kind: "declined" }> {
   switch (result.kind) {
     case "refused":
       return fallback("provider_refused", true);

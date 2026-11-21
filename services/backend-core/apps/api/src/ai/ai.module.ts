@@ -8,12 +8,15 @@
  *   - empty evidence builder (RT-647 supplies real ones)
  *   - the disabled provider (never the fake) and the kill switch off
  *
- * It has no controller, so it adds no HTTP route, and it is deliberately NOT
- * imported by AppModule yet: there is no consumer until a feature route exists
- * (contract-first, [GATED]). RT-648's offline harness builds the gateway from
- * these tokens directly.
+ * It has no controller, so it adds no HTTP route. The plain `AiModule` is imported
+ * by no module: a feature route imports `AiModule.withOverrides(...)`, which
+ * keeps these safe defaults and replaces only what the feature registers (its
+ * `AI_FEATURES` and its `AI_EVIDENCE_BUILDER`). RT-1539 (Manager Sales
+ * Ask/Explain) is the first, through `ManagerSalesModule`, which AppModule
+ * imports. RT-648's offline harness builds the gateway from these tokens
+ * directly.
  */
-import { Module } from "@nestjs/common";
+import { Module, type DynamicModule, type ModuleMetadata, type Provider } from "@nestjs/common";
 
 import { AiEntitlementsModule } from "../ai-entitlements/ai-entitlements.module";
 import { AiGatewayEntitlementPort } from "../ai-entitlements/gateway-entitlement.port";
@@ -97,6 +100,20 @@ type Routing = Pick<AiGatewayDeps, "routes" | "providers">;
     },
     AiGateway,
   ],
-  exports: [AiGateway],
+  // RT-1539: the runtime is exported so a feature route can read the kill switch before its own checks.
+  exports: [AiGateway, AI_GATEWAY_RUNTIME],
 })
-export class AiModule {}
+export class AiModule {
+  /**
+   * The same module with extra imports and providers layered over the defaults (RT-1539). A
+   * provider with a default's token replaces it for this instance only; the gateway it exports is
+   * built from the replaced tokens. Everything not replaced (the fail-closed budget, the empty
+   * route allowlist, the disabled provider, the kill switch) stays as the module defines it.
+   */
+  static withOverrides(options: {
+    readonly imports: NonNullable<ModuleMetadata["imports"]>;
+    readonly providers: readonly Provider[];
+  }): DynamicModule {
+    return { module: AiModule, imports: [...options.imports], providers: [...options.providers] };
+  }
+}

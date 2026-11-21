@@ -29,6 +29,7 @@ import {
   FAKE_ROUTE,
   FEATURE_ID,
   STORE_A,
+  STORE_B,
   TENANT_ID,
   TEST_FEATURE,
   buildHarness,
@@ -326,6 +327,137 @@ describe("AiGateway — Tier 0 deterministic route", () => {
       // Only the exact "zero" marker passes; a forged or unknown value is denied.
       await expect(budget.check({ ...input, providerCost: "metered" as never })).resolves.toEqual({ allowed: false, reason: "entitlement_unavailable" });
       await expect(budget.check({ ...input, providerCost: "zero" })).resolves.toEqual({ allowed: true });
+    });
+  });
+
+  describe("preflight (RT-1539): a pure product decline after the kill switch and entitlement, before budget and reserve", () => {
+    type Preflight = NonNullable<AiDeterministicFeatureDefinition["preflight"]>;
+
+    function withPreflight(preflight: Preflight, options: HarnessOptions = {}) {
+      const t = tier0(echoRefs);
+      const feature: AiDeterministicFeatureDefinition = { ...t.feature, preflight };
+      const h = buildHarness({ features: [feature], routes: [], providers: [], ...options });
+      return { h, invocations: t.invocations };
+    }
+
+    function counted(result: ReturnType<Preflight>): { preflight: Preflight; calls: () => number } {
+      let n = 0;
+      return {
+        preflight: () => {
+          n += 1;
+          return result;
+        },
+        calls: () => n,
+      };
+    }
+
+    it("a decline returns a declined result with no budget call, no reservation, no evidence, no executor and no settlement", async () => {
+      const p = counted({ code: "unsupported_question" });
+      const { h, invocations } = withPreflight(p.preflight);
+      const out = await h.gateway.run(TIER0_FEATURE_ID, scope());
+      expect(out).toEqual({ kind: "declined", decline: { code: "unsupported_question" } });
+      expect(p.calls()).toBe(1);
+      expect(h.calls).toEqual({ entitlement: 1, budget: 0, evidence: 0, reserve: 0 });
+      expect(invocations()).toBe(0);
+      expect(h.settlements).toHaveLength(0);
+      expect(h.provider.calls).toHaveLength(0);
+      expect(h.runMetrics).toEqual([{ feature: TIER0_FEATURE_ID, outcome: "declined" }]);
+    });
+
+    it("a null result continues: the budget is consulted, one unit is reserved, and the run commits", async () => {
+      const p = counted(null);
+      const { h, invocations } = withPreflight(p.preflight);
+      expect((await h.gateway.run(TIER0_FEATURE_ID, scope())).kind).toBe("ok");
+      expect(p.calls()).toBe(1);
+      expect(h.calls).toEqual({ entitlement: 1, budget: 1, evidence: 1, reserve: 1 });
+      expect(invocations()).toBe(1);
+      expect(h.settlements.map((s) => s.outcome)).toEqual(["ok"]);
+    });
+
+    it("a feature without a preflight runs exactly as before", async () => {
+      const { h } = build();
+      expect((await h.gateway.run(TIER0_FEATURE_ID, scope())).kind).toBe("ok");
+    });
+
+    it("a disabled system never reaches the preflight", async () => {
+      const p = counted({ code: "unsupported_question" });
+      const { h } = withPreflight(p.preflight, { enabled: false });
+      expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toEqual({ kind: "fallback", reason: "feature_disabled_system", providerRequested: false });
+      expect(p.calls()).toBe(0);
+    });
+
+    it("a denied entitlement never reaches the preflight", async () => {
+      const p = counted({ code: "unsupported_question" });
+      const { h } = withPreflight(p.preflight, { entitlement: { allowed: false, reason: "not_entitled" } });
+      expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toEqual({ kind: "fallback", reason: "not_entitled", providerRequested: false });
+      expect(p.calls()).toBe(0);
+      expect(h.calls.budget).toBe(0);
+    });
+
+    it("an unauthorized or out-of-scope caller never reaches the preflight", async () => {
+      const p = counted({ code: "unsupported_question" });
+      const { h } = withPreflight(p.preflight);
+      expect(await h.gateway.run(TIER0_FEATURE_ID, scope({ storeIds: [STORE_B], ctx: sessionCtx({ storeAccess: { kind: "specific", storeIds: [STORE_A] } }) }))).toMatchObject({
+        kind: "fallback",
+        reason: "store_out_of_scope",
+      });
+      expect(p.calls()).toBe(0);
+    });
+
+    it("a throwing preflight is a safe internal_error with nothing reserved", async () => {
+      const { h } = withPreflight(() => {
+        throw new Error("SECRET-QUESTION-TEXT");
+      });
+      const out = await h.gateway.run(TIER0_FEATURE_ID, scope());
+      expect(out).toEqual({ kind: "fallback", reason: "internal_error", providerRequested: false });
+      expect(h.calls).toMatchObject({ budget: 0, reserve: 0, evidence: 0 });
+      expect(h.settlements).toHaveLength(0);
+      expect(JSON.stringify(h.logs)).not.toContain("SECRET-QUESTION-TEXT");
+    });
+
+    it("a preflight returning a promise is internal_error, nothing reserved, and a rejection leaves no unhandled rejection", async () => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        const { h } = withPreflight((() => Promise.reject(new Error("async preflight"))) as unknown as Preflight);
+        expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toEqual({ kind: "fallback", reason: "internal_error", providerRequested: false });
+        expect(h.calls).toMatchObject({ budget: 0, reserve: 0 });
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
+    });
+
+    it.each([["undefined", undefined], ["a string", "decline"], ["an empty code", { code: "" }], ["a non-string code", { code: 7 }]])(
+      "a malformed preflight result (%s) is internal_error with nothing reserved",
+      async (_name, value) => {
+        const { h } = withPreflight((() => value) as unknown as Preflight);
+        expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toEqual({ kind: "fallback", reason: "internal_error", providerRequested: false });
+        expect(h.calls).toMatchObject({ budget: 0, reserve: 0 });
+      },
+    );
+
+    it("hands the preflight a frozen copy of the caller's params, never the original", async () => {
+      let received: Readonly<Record<string, unknown>> | undefined;
+      const params = { question: "q", storeIds: [STORE_A] };
+      const { h } = withPreflight((input) => {
+        received = input;
+        return null;
+      });
+      await h.gateway.run(TIER0_FEATURE_ID, scope({ params }));
+      expect(received).toEqual(params);
+      expect(received).not.toBe(params);
+      expect(Object.isFrozen(received)).toBe(true);
+      expect(Object.isFrozen(received!["storeIds"])).toBe(true);
+    });
+
+    it("a model feature has no preflight: the field is not part of its definition", async () => {
+      const h = buildHarness();
+      expect((await h.gateway.run(FEATURE_ID, scope())).kind).toBe("ok");
     });
   });
 

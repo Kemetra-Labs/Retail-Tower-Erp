@@ -79,6 +79,7 @@ export function abstentionRows(run: EvalRun): string[] {
 
 function outcomeLabel(e: EvaluationResult): string {
   const gateway = e.obs.gateway;
+  if (gateway.kind === "declined") return `declined: ${gateway.decline.code}`;
   return gateway.kind === "ok" ? "ok (recorded response validated and shown)" : `fallback: ${gateway.reason}`;
 }
 
