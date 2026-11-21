@@ -72,7 +72,7 @@ export function parseRef(ref: string): ParsedRef | null {
 }
 
 /** The money metrics of the two reads, per currency line. */
-const KPI_METRIC = /^(receivedSales|voids|returns|legacyRefunds)\.(total|count)$/;
+export const KPI_METRIC = /^(receivedSales|voids|returns|legacyRefunds)\.(total|count)$/;
 
 function byStorePath(parsed: ParsedRef): string {
   const { subject, range, metric } = parsed;

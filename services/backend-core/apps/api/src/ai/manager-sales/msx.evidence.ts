@@ -40,7 +40,7 @@ import {
   type MsxNotice,
   type MsxTemplateId,
 } from "./msx.constants";
-import { RANGE, SCOPE, refOf, type FigureSource, type FigureValue, type SrcKey } from "./msx.figures";
+import { KPI_METRIC, RANGE, SCOPE, refOf, type FigureSource, type FigureValue, type SrcKey } from "./msx.figures";
 import { matchRequest } from "./msx.matcher";
 import { figureItem, metaItem, sourceItem, type PackMeta, type SourceFacts } from "./msx.pack";
 import { ManagerSalesExplainRequestSchema, type ManagerSalesExplainRequest } from "./msx.request";
@@ -56,7 +56,6 @@ const NO_CURRENCY = "XXX";
 const DAY_MS = 86_400_000;
 
 const SUMMARY_TEMPLATES: readonly MsxTemplateId[] = ["T-01", "T-02", "T-03", "T-07"];
-const KPI_METRIC = /^(receivedSales|voids|returns|legacyRefunds)\.(total|count)$/;
 const KPI_NAMES = ["receivedSales", "voids", "returns", "legacyRefunds"] as const;
 
 // ---------------------------------------------------------------------------
