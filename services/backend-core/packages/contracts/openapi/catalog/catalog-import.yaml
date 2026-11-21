@@ -1869,8 +1869,9 @@ components:
           type: integer
           minimum: 0
           description: >
-            How many conflicts the batch has, which can exceed the length of
-            the bounded `conflicts` list (RT-1536).
+            How many conflict entries the batch has (one per product and
+            reason, and per field for a disagreement), which can exceed the
+            length of the bounded `conflicts` list (RT-1536).
         conflicts:
           type: array
           maxItems: 100
