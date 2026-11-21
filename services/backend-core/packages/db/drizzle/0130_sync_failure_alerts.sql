@@ -1,4 +1,4 @@
--- 0129_sync_failure_alerts.sql
+-- 0130_sync_failure_alerts.sql
 --
 -- RT-1034 (RT-1033 D2, Automation V1 PoC) — `[GATED: migration]`.
 -- Owner authority: Jira RT-1034 comment 18022 (2026-11-21): ONE migration for
@@ -44,7 +44,7 @@
 -- Retained for the life of the tenant.
 -- ---------------------------------------------------------------------------
 --
--- Reversal: 0129_sync_failure_alerts.down.sql drops both tables. Losing them
+-- Reversal: 0130_sync_failure_alerts.down.sql drops both tables. Losing them
 -- only means an open condition alerts once more after the next deploy.
 --
 -- Runtime grants are provisioned outside migrations:
