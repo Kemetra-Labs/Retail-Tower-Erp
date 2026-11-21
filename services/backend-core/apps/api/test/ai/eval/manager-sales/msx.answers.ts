@@ -138,11 +138,15 @@ export function t02StoreWeek(key: "A1" | "A2"): Built {
   const p = new Pack();
   const week: StoreWeek = key === "A1" ? A1_WEEK : A2_WEEK;
   const id = STORE[key].id;
-  const rows = WEEK_DAYS.map((day, i) => [
-    p.fact("ss", id, day, "businessDate", day),
-    p.money("ss", id, day, "receivedSales.total", week.days[i]?.total ?? "", week.currency),
-    p.fact("ss", id, day, "receivedSales.count", week.days[i]?.count ?? -1, week.currency),
-  ]);
+  const rows = WEEK_DAYS.map((day, i) => {
+    const fact = week.days[i];
+    if (fact === undefined) throw new Error(`no fixture figure for ${key} on ${day}`);
+    return [
+      p.fact("ss", id, day, "businessDate", day),
+      p.money("ss", id, day, "receivedSales.total", fact.total, week.currency),
+      p.fact("ss", id, day, "receivedSales.count", fact.count, week.currency),
+    ];
+  });
   return assemble(p, {
     templateId: "T-02",
     mode: "store",
@@ -284,6 +288,7 @@ export function t04SingleStore(): Built {
     store: p.fact("sbs", STORE_A1, R, "storeName", NAME_A1),
     total: p.money("sbs", STORE_A1, R, "ranking.total", A1_WEEK.total, "EGP"),
     count: p.fact("sbs", STORE_A1, R, "ranking.count", A1_WEEK.count, "EGP"),
+    rankable: p.flag("sbs", "scope", R, "rankable", false),
   };
   return assemble(p, {
     templateId: "T-04",

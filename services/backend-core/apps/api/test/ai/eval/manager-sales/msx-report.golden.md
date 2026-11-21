@@ -5,7 +5,7 @@
 
 ## 1. Dataset identity
 
-- Dataset: msx-eval/1, sha256 16b40f3a0ea75b9b1a74ed0938126a9e3426a57dbf644f71abdcf5fc8f64d629
+- Dataset: msx-eval/1, sha256 e26e07f6d2d8ecab8a3980635670e1f0c32aa44640995789ddb95daaeafc5309
 - Run date: fixture
 - Code SHA: fixture
 - Planning source: RT-1526 v6 (Confluence 87457808), section 6 (cases 1 to 38) and gates G-S1 to G-S6
@@ -170,4 +170,7 @@ node tools/code-health/check.mjs
 - Cases 20 and 35: both are deliberate validation failures (400 `validation_error`). Case 20 fails the request schema (unknown key `tenant_id`); case 35 passes the schema and fails the prose 31-day rule.
 - Cases 23 to 28 and 32 to 36: section 6 gives no controls, so the request uses an explicit range (MONTH for refusals that name a month, WEEK otherwise), `storeIds` empty for the owner and the manager's own stores for MA (X-3).
 - Cases 33 and 34 give no question text; a neutral Arabic question stands in. The contract places the kill switch and opt-out before the intent match, so the text does not matter.
+- Cases 13, 17 and 38 are 200 answers that carry a `declined` entry or `parameters_from_controls_only`. They are encoded as `reservation: committed` (one unit, as every answer); §4.2 leaves their charge "per O-3".
+- Case 31 is "OA · to after today" and §6 names no store. It is encoded with `storeIds` [A1] so the day rows are one store's.
+- Case 10 ("T-04 with rankable=false"): the pack carries `src.sbs.rankable` (§3.1), so it is a figure (`sbs:scope:range:rankable` = false) cited by the one-store statement. A cell cannot hold a boolean in the contract, so the answer has no ranking table and no rank cell.
 - Ledger `task_class` and the citation `fieldPath` strings are fixture placeholders: the contract types them but does not fix their value domains (its open items).

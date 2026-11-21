@@ -58,7 +58,7 @@ export interface MsxFigure {
   readonly ref: string;
   readonly src: SrcKey;
   readonly metric: string;
-  readonly value: string | number;
+  readonly value: string | number | boolean;
   readonly currency?: string;
 }
 

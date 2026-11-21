@@ -13,7 +13,7 @@ import { spanViolation, validateRequest, validateResponse } from "./msx.schema";
 import { MSX_GATES, MSX_LANGUAGES, MSX_DATASET_VERSION, type AnswerBody, type MsxCase } from "./msx.types";
 import { STORE_A1, STORE_A2, STORE_A3, STORE_B1, TENANT_A, TENANT_B, NAME_B1 } from "./msx.world";
 
-const PINNED_DATASET_SHA256 = "16b40f3a0ea75b9b1a74ed0938126a9e3426a57dbf644f71abdcf5fc8f64d629";
+const PINNED_DATASET_SHA256 = "e26e07f6d2d8ecab8a3980635670e1f0c32aa44640995789ddb95daaeafc5309";
 
 /** Metrics that are money: numeric(19,4) text whose table cell carries its currency code. */
 const MONEY_METRIC = /(^|\.)total$|baselineTotal$|averageSale$/;
@@ -115,6 +115,51 @@ describe("msx-eval/1 dataset", () => {
     });
   });
 
+  describe("negative controls and boundaries", () => {
+    const answerBody = (): AnswerBody => {
+      const first = answers.find((c) => c.id === "case-02");
+      if (first === undefined) throw new Error("case-02 missing");
+      return JSON.parse(JSON.stringify(bodyOf(first))) as AnswerBody;
+    };
+    type Loose = { blocks: { rows?: { extra?: number }[][]; extra?: number }[]; citations: { extra?: number }[]; notices: string[] };
+
+    it("rejects an extra key nested in a block, a cell or a citation, and an unknown notice", () => {
+      const mutate = (edit: (b: Loose) => void): boolean => {
+        const body = answerBody() as unknown as Loose;
+        edit(body);
+        return validateResponse(body).valid;
+      };
+      expect(mutate(() => undefined)).toBe(true);
+      expect(mutate((b) => { b.blocks[0]!.extra = 1; })).toBe(false);
+      expect(mutate((b) => { b.blocks[0]!.rows![0]![0]!.extra = 1; })).toBe(false);
+      expect(mutate((b) => { b.citations[0]!.extra = 1; })).toBe(false);
+      expect(mutate((b) => { b.notices.push("bogus_notice"); })).toBe(false);
+    });
+
+    it("explains the case 20 rejection: an additional property, tenant_id", () => {
+      const verdict = validateRequest(caseOf("case-20").request);
+      expect(verdict.valid).toBe(false);
+      expect(verdict.errors).toContain("additional properties");
+      expect(verdict.errors).toContain("tenant_id");
+    });
+
+    it("applies the 31-day rule: 31 days inclusive passes, 32 fails, an inverted range fails", () => {
+      expect(spanViolation({ from: "2026-10-01", to: "2026-10-01" })).toBe(false);
+      expect(spanViolation({ from: "2026-10-01", to: "2026-10-31" })).toBe(false);
+      expect(spanViolation({ from: "2026-10-01", to: "2026-11-01" })).toBe(true);
+      expect(spanViolation({ from: "2026-10-02", to: "2026-10-01" })).toBe(true);
+    });
+
+    it("case 10 states rankable=false in the pack and answers with a sentence: no table, no rank cell", () => {
+      const c = caseOf("case-10");
+      expect((c.evidence?.figures ?? []).find((f) => f.metric === "rankable")?.value).toBe(false);
+      const body = bodyOf(c) as AnswerBody;
+      expect(body.blocks.map((b) => b.type)).toEqual(["statement"]);
+      expect(body.citations.map((x) => x.ref).some((ref) => /ranking\.rank$/.test(ref))).toBe(false);
+      expect(body.citations.some((x) => x.ref.endsWith(":rankable"))).toBe(true);
+    });
+  });
+
   describe("owner decision RT-1538 comment 18048: an out-of-scope or unknown store, and a refused role, is the 404", () => {
     it("encodes cases 18, 19 and 36 as HTTP 404 not_found with their traceability to the decision", () => {
       for (const id of ["case-18", "case-19", "case-36"]) {
@@ -175,11 +220,15 @@ describe("msx-eval/1 dataset", () => {
     it("G-S1: no tenant B id or name, and no store outside the caller's scope, in any expected output", () => {
       for (const c of MSX_CASES) {
         const text = JSON.stringify(c.expected);
-        for (const forbidden of [TENANT_B, STORE_B1, NAME_B1]) expect(text).not.toContain(forbidden);
+        const packText = JSON.stringify(c.evidence ?? {});
+        for (const forbidden of [TENANT_B, STORE_B1, NAME_B1]) {
+          expect(text).not.toContain(forbidden);
+          expect(packText).not.toContain(forbidden);
+        }
         const body = bodyOf(c) as { scope?: { storeRefs: string[] } } | undefined;
         const allowed = c.caller.storeAccess === "all" ? [STORE_A1, STORE_A2, STORE_A3] : c.caller.storeIds;
         for (const ref of body?.scope?.storeRefs ?? []) expect(allowed).toContain(ref);
-        for (const uuid of text.match(/0191e540-0000-7000-8000-[0-9a-f]{12}/g) ?? []) expect([...allowed, TENANT_A]).toContain(uuid);
+        for (const uuid of `${text}${packText}`.match(/0191e540-0000-7000-8000-[0-9a-f]{12}/g) ?? []) expect([...allowed, TENANT_A]).toContain(uuid);
       }
     });
 

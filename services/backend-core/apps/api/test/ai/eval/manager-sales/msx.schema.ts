@@ -31,7 +31,7 @@ export interface Verdict {
 
 function verdictOf(validate: ValidateFunction, value: unknown): Verdict {
   const valid = validate(value) as boolean;
-  return { valid, errors: valid ? "" : ajv.errorsText(validate.errors) };
+  return { valid, errors: valid ? "" : `${ajv.errorsText(validate.errors)} ${JSON.stringify(validate.errors)}` };
 }
 
 export const validateRequest = (body: unknown): Verdict => verdictOf(validatorFor("ManagerSalesExplainRequest"), body);

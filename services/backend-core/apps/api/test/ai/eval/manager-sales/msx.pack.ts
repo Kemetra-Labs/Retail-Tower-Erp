@@ -28,7 +28,7 @@ const OPERATION: Readonly<Record<SrcKey, OperationId>> = {
 export class Pack {
   private readonly byRef = new Map<string, MsxFigure>();
 
-  private register(src: SrcKey, subject: string, range: string, metric: string, value: string | number, currency?: string): string {
+  private register(src: SrcKey, subject: string, range: string, metric: string, value: string | number | boolean, currency?: string): string {
     const ref = [PREFIX[src], subject, range, metric, ...(currency === undefined ? [] : [currency])].join(":");
     const existing = this.byRef.get(ref);
     if (existing !== undefined && existing.value !== value) throw new Error(`conflicting figure ${ref}`);
@@ -46,6 +46,11 @@ export class Pack {
     return { ref: this.register(src, subject, range, metric, value, currency), value };
   }
 
+  /** A boolean pack field (RT-1526 §3.1 `src.sbs.rankable`): a statement slot cites it by ref; it is never a table cell. */
+  flag(src: SrcKey, subject: string, range: string, metric: string, value: boolean): { readonly ref: string } {
+    return { ref: this.register(src, subject, range, metric, value) };
+  }
+
   figures(): readonly MsxFigure[] {
     return [...this.byRef.values()];
   }
@@ -53,7 +58,7 @@ export class Pack {
 
 export const table = (columns: readonly string[], rows: readonly (readonly TableCell[])[]): AnswerBlock => ({ type: "table", columns, rows });
 
-export const statement = (key: string, slots: Readonly<Record<string, TableCell>>): AnswerBlock => ({
+export const statement = (key: string, slots: Readonly<Record<string, { readonly ref: string }>>): AnswerBlock => ({
   type: "statement",
   key,
   slots: Object.fromEntries(Object.entries(slots).map(([name, cell]) => [name, { ref: cell.ref }])),
