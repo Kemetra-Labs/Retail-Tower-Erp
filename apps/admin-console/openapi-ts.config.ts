@@ -570,10 +570,9 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
   // Manager Sales Ask/Explain (RT-1538 contract, W8 P-05 #776; RT-1541 P-08): the one operation
   // `consoleExplainSales` (POST /api/v1/ai/manager-sales/explain), wrapped in
   // src/lib/ai-manager-sales-queries.ts for the default-OFF panel in src/ai-manager-sales/.
-  // Consume-only; no YAML authored here. NEW SOURCE. Repinned to the RT-1538 contract branch
-  // commit d83894c0 (PR #776, not merged yet); REPIN TO THE `main` MERGE COMMIT OF #776 BEFORE THIS
-  // PR MERGES (a squash drops the branch commit). Of the 39 other sources only
-  // `catalog/catalog-import.yaml` moved (description prose, RT-1536).
+  // Consume-only; no YAML authored here. NEW SOURCE at the repin to the RT-1538 merge commit
+  // (134359e7, #776). Of the 39 other sources only `catalog/catalog-import.yaml` moved
+  // (description prose, RT-1536).
   {
     name: "AiManagerSalesExplain",
     path: "services/backend-core/packages/contracts/openapi/ai-manager-sales-explain.openapi.yaml",
