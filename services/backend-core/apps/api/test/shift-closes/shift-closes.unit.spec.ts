@@ -129,6 +129,20 @@ describe("RT-387: the policy fields of a close", () => {
     expect(summary).toMatchObject({ approvalRequiredByPolicy: "yes", approvalMissing: "yes" });
   });
 
+  it("projects the RT-592 stale-at-receipt flag after the other flags, in the contract's order", () => {
+    const summary = toShiftCloseSummary(
+      detailRow({
+        frozen_policy_source: "tenant",
+        frozen_policy_revision_id: SHIFT,
+        frozen_policy_mode: "limit",
+        frozen_policy_limit_amount: "10.0000",
+        frozen_policy_currency_code: "EGP",
+        frozen_policy_flags: ["policy_revision_stale_at_receipt", "policy_value_mismatch"],
+      }),
+    );
+    expect(summary.frozenPolicy?.policyFlags).toEqual(["policy_value_mismatch", "policy_revision_stale_at_receipt"]);
+  });
+
   it.each([
     ["no verdict row: the check_unavailable placeholder", null, null, { status: "unverified", reason: "check_unavailable" }],
     ["a verified row", "verified", null, { status: "verified", reason: null }],

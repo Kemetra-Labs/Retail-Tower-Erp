@@ -406,9 +406,9 @@ const VALID_CLOSE = {
 // 1. Document, version, and the unchanged stuck-shift surface
 // ===========================================================================
 describe("pos-shifts — document and version", () => {
-  it("is an OpenAPI 3.1 document at version 1.5.0-draft (RT-811; RT-742 was 1.4.0-draft)", () => {
+  it("is an OpenAPI 3.1 document at version 1.6.0-draft (RT-592; RT-811 was 1.5.0-draft)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.5.0-draft");
+    expect(doc.info?.version).toBe("1.6.0-draft");
   });
 
   it("carries an RT-384 version note: additive, [GATED], AD-CASH-001", () => {
@@ -1213,7 +1213,12 @@ describe("pos-shifts — RT-384 shift variance policy", () => {
     expect(text).toContain("RT-387");
     expect(text).toMatch(/must not send/i);
     expect(text).toMatch(/never refuses an open or a close on policy grounds/i);
-    for (const flag of ["policy_revision_unknown", "policy_revision_superseded", "policy_value_mismatch"]) {
+    for (const flag of [
+      "policy_revision_unknown",
+      "policy_revision_superseded",
+      "policy_value_mismatch",
+      "policy_revision_stale_at_receipt",
+    ]) {
       expect(text).toContain(`\`${flag}\``);
     }
   });
@@ -1746,5 +1751,56 @@ describe("pos-shifts — RT-811 live cashier admission on the opening terminal (
     expect([...new Set(codes)].sort()).toEqual(
       ["idempotency_key_conflict", "pos_operator", "shift_closed", "shift_force_closed", "shift_not_stuck"],
     );
+  });
+});
+
+// ===========================================================================
+// RT-592 — policy_revision_stale_at_receipt (1.6.0-draft)
+// ===========================================================================
+describe("pos-shifts — RT-592 policy_revision_stale_at_receipt (1.6.0-draft)", () => {
+  const flat = (text: string | undefined): string => (text ?? "").replace(/\s+/g, " ");
+  const expectAll = (text: string, parts: readonly string[]): void => {
+    expect(parts.filter((part) => !text.includes(part))).toEqual([]);
+  };
+
+  it("PolicyFlag lists the four flags, the new one last (the runtime's flag order)", () => {
+    expect(schema("PolicyFlag")["enum"]).toEqual([
+      "policy_revision_unknown",
+      "policy_revision_superseded",
+      "policy_value_mismatch",
+      "policy_revision_stale_at_receipt",
+    ]);
+  });
+
+  it("documents the finding: more than 24 hours, not the effective policy at receipt, never a refusal", () => {
+    expectAll(flat(schema("PolicyFlag")["description"] as string), [
+      "`policy_revision_stale_at_receipt` (RT-592)",
+      "MORE than 24 hours after `openedAt` (exactly 24 hours is not)",
+      "not the store's effective policy at the server's receipt time",
+      "never set for an unknown revision or a `fallback`",
+      "never a refusal",
+    ]);
+  });
+
+  it("carries an RT-592 note: [GATED] owner decision, additive, no limit on openedAt", () => {
+    expectAll(flat(doc.info?.description), [
+      "RT-592 (1.6.0-draft; [GATED] owner decision 2026-11-21, Jira RT-592 comments 18021 and 18028",
+      "additive",
+      "more than 24 hours after its `openedAt`",
+      "never a limit on `openedAt`",
+      "an offline open with no maximum cache age (DR-8) stays valid",
+      "No operation, status, `error.code`, request field or required property changes",
+    ]);
+  });
+
+  it("an open and a close echoing the new flag validate against the contract", () => {
+    const recorded = {
+      policySource: "tenant",
+      policyRevisionId: "0a000000-0000-7000-8000-000000000592",
+      policyValue: { mode: "limit", limitAmount: "50.00", currencyCode: "EGP" },
+      policyFlags: ["policy_revision_stale_at_receipt"],
+    };
+    expect(validator("RecordedFrozenPolicy")(recorded)).toBe(true);
+    expect(validator("RecordedFrozenPolicy")({ ...recorded, policyFlags: ["policy_revision_stale"] })).toBe(false);
   });
 });

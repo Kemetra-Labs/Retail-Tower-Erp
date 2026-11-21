@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ e153972ed586cb86225e21378f3a2a19e3d0b40a
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 6d6becacd8c082932f1717af091de663badd30e2
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -5113,7 +5113,7 @@ export namespace ShiftClosesSchema {
              * @description AD-CASH-001 D-6 accept-and-flag findings on the open's frozen policy (see `pos-shifts.openapi.yaml` `PolicyFlag`). Never a refusal.
              * @enum {string}
              */
-            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch";
+            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch" | "policy_revision_stale_at_receipt";
             /**
              * @description A derived yes / no, or `unknown` when the shift's open carried no frozen policy (a pre-upgrade or pre-RT-384 shift). `unknown` is never "no exception". `approvalRequiredByPolicy` is `yes` when the frozen value is `limit` and `|variance| > limitAmount`; `approvalMissing` is `yes` when approval was required and no `varianceApprovedByUserId` was recorded.
              * @enum {string}
