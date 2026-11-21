@@ -60,11 +60,15 @@
  *                       (the close's expected cash must not be negative).
  *   closeShift          a normal close (device path): the POS computes the
  *                       cash-up over its window (see above) and the counted
- *                       cash gives the variance. By default no variance needs a
- *                       manager (RT-17 2026-10-07, superseding 10920); when the
- *                       policy `varianceApprovalThresholdMinor` is set, a
- *                       variance above it needs an approval (a manager PIN),
- *                       else `variance_approval_required`; the
+ *                       cash gives the variance. RT-388 (AD-CASH-001 F5): the
+ *                       shift variance policy FROZEN at the open decides whether
+ *                       a variance needs an approval (a manager PIN, else
+ *                       `variance_approval_required`): `none` never, `limit`
+ *                       when `|variance| > limit`, the fail-closed fallback
+ *                       (`limit 0`, a till that never fetched the policy) for
+ *                       any non-zero variance, and an open recorded before the
+ *                       upgrade (no frozen policy) never. The live policy is
+ *                       never consulted at the close. The
  *                       approving manager's users.id is recorded as
  *                       `varianceApprovedByUserId` only for a non-zero
  *                       variance (the contract: the manager who approved a
@@ -167,6 +171,10 @@
  * No audit event is written (part 1, decision 4). Errors name a closed reason,
  * never a value (P7).
  */
+import {
+  policyRequiresApproval,
+  type VariancePolicy,
+} from '../cash-variance-policy/policy-core.js';
 import type {
   EnrolledManager,
   ManagerPinStore,
@@ -416,10 +424,11 @@ export interface ShiftCashupServiceDeps {
   /** The terminal's capture currency (the sale-sync capture's own source). */
   currencyCode: string;
   /**
-   * RT-17 2026-10-07: a close with `|variance|` above this many minor units
-   * needs a verified manager. `null` or absent: never (the default policy).
+   * RT-388: the policy an open freezes: the cached policy of this terminal's
+   * tenant and branch, else the fail-closed fallback (DR-6). Read once per open,
+   * synchronously; never at a close.
    */
-  varianceApprovalThresholdMinor?: number | null;
+  resolvePolicy: (input: { scope: ShiftScope; shiftCurrencyCode: string }) => VariancePolicy;
   /** Canonical ISO-8601 UTC instants. */
   now: () => string;
   /** A new lower-case UUID (v7) for a shift or a movement. */
@@ -469,8 +478,11 @@ interface CloseParts {
   cashup: Cashup;
   countedCashMinor: number;
   approverUserId: string | undefined;
-  /** The policy: see `ShiftCashupServiceDeps.varianceApprovalThresholdMinor`. */
-  thresholdMinor: number | null | undefined;
+  /**
+   * The policy frozen at the open (null: a legacy open, or a forced close, which
+   * never refuses for a missing approver: see `forceCloseShift`).
+   */
+  policy: VariancePolicy | null;
 }
 
 function scopeOf(session: ShiftCashupSession): ShiftScope {
@@ -498,21 +510,17 @@ function shiftNotOpen(): never {
 }
 
 /**
- * RT-17 owner decision 2026-10-07 (supersedes 10920's "any variance needs a
- * manager"): the cashier closes their own shift whatever the variance, because
- * the shortage is recorded against the closer anyway. The mechanism stays
- * behind `ShiftCashupServiceDeps.varianceApprovalThresholdMinor`: `null` (the
- * default) never asks; a number asks above that many minor units of the capture
- * currency. Backend-Core records the approver but never requires it, so this is
- * a POS policy only.
+ * RT-388 (AD-CASH-001 D-1, DR-6): whether the policy frozen at the open asks for a
+ * verified manager at this variance (`policyRequiresApproval`; `null`, a legacy
+ * open, never asks). Backend-Core records the approver and derives
+ * `approvalMissing` but never refuses on policy grounds, so this is the POS's gate.
  */
 function needsApproval(input: {
   varianceMinor: number;
-  thresholdMinor: number | null | undefined;
+  policy: VariancePolicy | null;
+  shiftCurrencyCode: string;
 }): boolean {
-  const { thresholdMinor } = input;
-  if (thresholdMinor === null || thresholdMinor === undefined) return false;
-  return Math.abs(input.varianceMinor) > thresholdMinor;
+  return policyRequiresApproval(input);
 }
 
 /**
@@ -522,7 +530,8 @@ function needsApproval(input: {
 function approverOf(input: {
   varianceMinor: number;
   approverUserId: string | undefined;
-  thresholdMinor: number | null | undefined;
+  policy: VariancePolicy | null;
+  shiftCurrencyCode: string;
 }): {
   varianceApprovedByUserId?: string;
 } {
@@ -670,7 +679,8 @@ function closeFactOf(parts: CloseParts): ShiftCloseFact {
     ...approverOf({
       varianceMinor,
       approverUserId: parts.approverUserId,
-      thresholdMinor: parts.thresholdMinor,
+      policy: parts.policy,
+      shiftCurrencyCode: open.currencyCode,
     }),
   };
 }
@@ -933,6 +943,8 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       requireClockFrom({ now, floor: deps.sources.lastClosedAt(scope), gapMs: 1 });
       requireDrawerSettled({ sources: deps.sources, scope });
       const opened = { shiftId: deps.newId(), openedAt: now };
+      // RT-388 (K-2): the policy is frozen with the open; a later change applies from the next.
+      const frozenPolicy = deps.resolvePolicy({ scope, shiftCurrencyCode: deps.currencyCode });
       repo.recordOpen({
         scope,
         fact: {
@@ -940,6 +952,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           openingUserId: userId,
           currencyCode: deps.currencyCode,
           openingFloatMinor: input.openingFloatMinor,
+          frozenPolicy,
         },
         now: opened.openedAt,
         authPath,
@@ -998,7 +1011,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
             cashup,
             countedCashMinor,
             approverUserId: approver?.userId,
-            thresholdMinor: deps.varianceApprovalThresholdMinor,
+            policy: open.frozenPolicy,
           }),
         );
         repo.recordClose({
@@ -1028,8 +1041,10 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
         countedCashMinor: input.countedCashMinor,
       });
       return refusedCountRecorded(count, () => {
-        // The configured variance policy applies as for any close: it is off by
-        // default, and a manager cannot approve their own close.
+        // RT-388: the forced close is the route a terminal with no second manager PIN has
+        // (the frozen fail-closed policy asks for a verified approver, and a manager cannot
+        // approve their own close), so it never refuses for the missing approver. It records
+        // none: Backend-Core then derives `approvalMissing = yes` from the frozen policy.
         const fact = closeFactOf({
           open,
           closedAt,
@@ -1037,7 +1052,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
           cashup,
           countedCashMinor: input.countedCashMinor,
           approverUserId: undefined,
-          thresholdMinor: deps.varianceApprovalThresholdMinor,
+          policy: null,
         });
         const closed: ForcedClosedShift = {
           ...closedShiftOf(fact),
@@ -1065,7 +1080,8 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       if (
         !needsApproval({
           varianceMinor: plan.varianceMinor,
-          thresholdMinor: deps.varianceApprovalThresholdMinor,
+          policy: plan.open.frozenPolicy,
+          shiftCurrencyCode: plan.open.currencyCode,
         })
       ) {
         return null;

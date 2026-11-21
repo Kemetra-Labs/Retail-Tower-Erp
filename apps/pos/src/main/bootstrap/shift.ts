@@ -22,6 +22,7 @@ import {
 } from '../shift-cashup/compose-shift-cashup.js';
 import type { UpdateService } from '../update/update-service.js';
 import { resolveApiBaseUrl } from './env.js';
+import { registerVariancePolicy } from './variance-policy.js';
 
 /** What `registerShift` closes over from the composition root (RT-893 extraction 4). */
 export interface ShiftDeps {
@@ -119,6 +120,26 @@ export function registerShift(deps: ShiftDeps): void {
       }),
   });
 
+  // ── RT-388 — the shift variance policy: the device read, its cache and its triggers ──
+  //
+  // Flag-gated with the rest of the shift cash-up (default off: nothing registered, nothing
+  // read). The open freezes the policy `resolvePolicy` answers (the cached policy, else the
+  // fail-closed fallback) and the bridge reads the policy before an open (`beforeOpen`).
+  const variancePolicy = resolveFeatureFlags().shiftCashup
+    ? registerVariancePolicy({
+        db,
+        pairingStore,
+        pairedWorkersLatch,
+        workerRegistry,
+        operatorSessionManager,
+        mainLogger,
+        backendFetch,
+        readSendableDeviceToken,
+        apiBaseUrl: resolveApiBaseUrl(),
+        now: () => new Date().toISOString(),
+      })
+    : undefined;
+
   // ── RT-17 slice 4 part 1 — shift cash-up IPC (flag-gated, default off) ──
   //
   // Registered only with POS_PULSE_FEATURE_SHIFT_CASHUP on, on the
@@ -147,6 +168,12 @@ export function registerShift(deps: ShiftDeps): void {
     safeStorage,
     now: () => new Date().toISOString(),
     logger: mainLogger,
+    ...(variancePolicy === undefined
+      ? {}
+      : {
+          resolvePolicy: variancePolicy.resolvePolicy,
+          beforeOpen: variancePolicy.refreshBeforeOpen,
+        }),
     // RT-443: the one store, shared with the approval service (audited there).
     managerPins,
     // RT-772: the cashier's shift close is a safe-point trigger for an update install.

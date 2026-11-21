@@ -173,6 +173,12 @@ describe('openShift', () => {
       currencyCode: 'EGP',
       openingFloat: '500.00',
       operatorUserId: USER,
+      // RT-388: the policy resolved at the open is frozen into it (the fixture's: limit 0).
+      frozenPolicy: {
+        policySource: 'tenant',
+        policyRevisionId: '0190f5a2-3b4c-7d8e-9f01-23456789abc1',
+        policyValue: { mode: 'limit', limitAmount: '0.00', currencyCode: 'EGP' },
+      },
     });
   });
 

@@ -411,10 +411,13 @@ describe('F1 — a pay-in never takes the shift out of the safe range (10944)', 
     harness.state.clock = CLOSED_AT;
   }
 
-  /** A plausible count of a pre-rollout shift: its variance needs the manager. */
+  /**
+   * A plausible count of a pre-rollout shift. RT-388: it has no frozen policy (legacy), so
+   * its variance never needs the manager and it closes alone.
+   */
   async function closeApproved(countedCashMinor: number): Promise<void> {
-    const approver = await approval(countedCashMinor);
-    closeWith(countedCashMinor, approver)();
+    expect(await approve(countedCashMinor)).toBeNull();
+    closeWith(countedCashMinor)();
   }
 
   it('accepts a pay-in that takes the expected cash exactly to the bound, and the shift closes', async () => {

@@ -31,6 +31,7 @@ import { createShiftCashupStatusReader } from '../shift-cashup-status.js';
 import {
   OPENED_AT,
   msAfter,
+  policyFromThreshold,
   seedRefund,
   seedSettlement,
   serviceHarness,
@@ -115,6 +116,7 @@ describe('readStatus — the current terminal', () => {
       openingFloatMinor: 50_000,
       payInTotalMinor: 1_000,
       payOutTotalMinor: 0,
+      frozenPolicy: policyFromThreshold(0, 'EGP'),
     });
     expect(read.queue).toEqual({ ...EMPTY_QUEUE, pending: 2 });
   });

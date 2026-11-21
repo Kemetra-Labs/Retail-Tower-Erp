@@ -83,6 +83,13 @@ export interface ShiftCashupBridgeDeps {
   service: ShiftCashupService;
   enrollment: ManagerPinEnrollment;
   logger: ShiftCashupBridgeLogger;
+  /**
+   * RT-388 (AD-CASH-001 D-5): a bounded refresh of the shift variance policy,
+   * awaited before an open so the open freezes the newest policy the terminal can
+   * reach. It never fails or blocks the open: a rejection is ignored (the open
+   * freezes the cached policy or the fail-closed fallback).
+   */
+  beforeOpen?: () => Promise<void>;
 }
 
 /** The service's refusals as the renderer sees them (two generic on purpose). */
@@ -239,6 +246,15 @@ export function createShiftCashupBridge(deps: ShiftCashupBridgeDeps): ShiftCashu
     return approver === null ? answer : { ...answer, varianceMinor: closed.varianceMinor };
   }
 
+  /** RT-388: the policy refresh before an open; its failure is never the open's. */
+  async function refreshBeforeOpen(): Promise<void> {
+    try {
+      await deps.beforeOpen?.();
+    } catch {
+      // The open freezes the cached policy, or the fail-closed fallback.
+    }
+  }
+
   function move(op: 'payIn' | 'payOut', kind: CashMovementKind, req: ShiftMovementRequest) {
     return attempt(op, () => {
       const moved = service.recordCashMovement(movementOf(kind, req));
@@ -248,7 +264,8 @@ export function createShiftCashupBridge(deps: ShiftCashupBridgeDeps): ShiftCashu
 
   return {
     open: (req) =>
-      attempt('open', () => {
+      attempt('open', async () => {
+        await refreshBeforeOpen();
         const opened = service.openShift({ openingFloatMinor: req.openingFloatMinor });
         return { kind: 'opened' as const, ...opened };
       }),

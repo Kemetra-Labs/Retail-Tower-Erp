@@ -204,21 +204,23 @@ describe('what it refuses, writing nothing', () => {
     expect(factCounts(db)).toMatchObject({ shift_cashup_closes: 0 });
   });
 
-  it('applies the configured variance policy: the manager is the closer, so a variance past it is refused', () => {
+  it('RT-388: never refuses for a missing approver, whatever the frozen policy: the manager closes and none is recorded', () => {
+    // A policy that asks (limit 0) cannot be satisfied by the forced close: the manager is the
+    // closer and cannot approve their own close. It is the route a terminal with no second
+    // manager PIN has, so it closes and records no approver (Backend-Core derives
+    // `approvalMissing = yes` from the frozen policy).
     const strict = serviceHarness(db, { varianceApprovalThresholdMinor: 0 });
     strict.state.session = managerSession();
     strict.state.clock = CLOSE_AT;
-    expect(
-      reasonOf(() =>
-        strict.service.forceCloseShift({
-          shiftId,
-          countedCashMinor: FLOAT - 1,
-          forcedReason: SHIFT_REASON,
-          managerUserId: MANAGER,
-          operatorSessionId: managerSession().operator_session_id,
-        }),
-      ),
-    ).toBe('variance_approval_required');
+    const closed = strict.service.forceCloseShift({
+      shiftId,
+      countedCashMinor: FLOAT - 1,
+      forcedReason: SHIFT_REASON,
+      managerUserId: MANAGER,
+      operatorSessionId: managerSession().operator_session_id,
+    });
+    expect(closed.varianceMinor).toBe(-1);
+    expect(factCounts(db)).toMatchObject({ shift_cashup_closes: 1 });
   });
 
   it('refuses a clock before the open (clock_regressed)', () => {

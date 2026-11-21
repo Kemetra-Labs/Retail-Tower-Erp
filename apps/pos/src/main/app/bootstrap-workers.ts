@@ -46,6 +46,10 @@ const STOP_ORDER = [
   // RT-475 — the tenant branding read-down (startup + hourly). It writes the
   // branding cache, so it stops with the catalogue read-down, before the DB closes.
   'branding read-down',
+  // RT-388 — the shift variance policy read (the paired worker's start, each new operator
+  // session, before an open). It writes the policy cache, so it stops with the read-down
+  // workers, before the DB closes.
+  'variance policy read',
   // RT-1339 — the store's Offer Pack read-down (start + 5 min). It writes only the Pack file
   // beside the database, so it stops with the other read-down workers, before the DB closes.
   'offer pack read-down',

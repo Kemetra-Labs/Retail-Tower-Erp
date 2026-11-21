@@ -107,6 +107,49 @@ describe('composeShiftCashupService — defaults', () => {
     expect(storedBody(db, 1)['currencyCode']).toBe('EGP');
     db.close();
   });
+
+  it('RT-388: without a policy resolver the open freezes the fail-closed fallback', () => {
+    const db = freshSalesSyncDb();
+    const service = composeShiftCashupService({
+      db: handleFor(db),
+      isEnabled: () => true,
+      getSession: () => cashierSession(),
+      isSessionLocked: () => false,
+      pairedScope: () => Promise.resolve(SCOPE),
+      pairingEpoch: () => 'epoch-1',
+      managerPins: { verify: () => Promise.resolve({ kind: 'invalid' }), list: () => [] },
+      now: () => NOW,
+    });
+    service.openShift({ openingFloatMinor: 0 });
+    expect(storedBody(db, 1)['frozenPolicy']).toEqual({
+      policySource: 'fallback',
+      policyRevisionId: null,
+      policyValue: { mode: 'limit', limitAmount: '0.00', currencyCode: 'EGP' },
+    });
+    db.close();
+  });
+
+  it('RT-388: freezes what the given resolver returns', () => {
+    const db = freshSalesSyncDb();
+    const service = composeShiftCashupService({
+      db: handleFor(db),
+      isEnabled: () => true,
+      getSession: () => cashierSession(),
+      isSessionLocked: () => false,
+      pairedScope: () => Promise.resolve(SCOPE),
+      pairingEpoch: () => 'epoch-1',
+      managerPins: { verify: () => Promise.resolve({ kind: 'invalid' }), list: () => [] },
+      resolvePolicy: () => ({ source: 'system', revisionId: null, mode: 'none' }),
+      now: () => NOW,
+    });
+    service.openShift({ openingFloatMinor: 0 });
+    expect(storedBody(db, 1)['frozenPolicy']).toEqual({
+      policySource: 'system',
+      policyRevisionId: null,
+      policyValue: { mode: 'none' },
+    });
+    db.close();
+  });
 });
 
 describe('startShiftSync — scheduling, sources and RT-215', () => {
