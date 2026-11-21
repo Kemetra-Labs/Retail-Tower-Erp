@@ -19,13 +19,18 @@
  *   network / timeout / no token      → unreachable
  * Never throws.
  */
-import { createBackendTransport, type FetchLike } from '../http/transport.js';
+import {
+  createBackendTransport,
+  statusOutcome,
+  type BackendAnswer,
+  type FetchLike,
+} from '../http/transport.js';
 import { readPolicyBody, type WirePolicy } from './policy-wire.js';
 
 export const POLICY_PATH = '/api/pos/v1/store/cash-variance-policy';
-export const POLICY_REQUEST_TIMEOUT_MS = 10_000;
+const POLICY_REQUEST_TIMEOUT_MS = 10_000;
 /** A policy answer is a few hundred bytes. */
-export const POLICY_MAX_BODY_BYTES = 16 * 1024;
+const POLICY_MAX_BODY_BYTES = 16 * 1024;
 
 export type PolicyReadOutcome =
   | { readonly kind: 'ok'; readonly policy: WirePolicy; readonly etag: string | null }
@@ -42,6 +47,20 @@ export interface PolicyClient {
 export interface PolicyClientDeps {
   readonly baseUrl: string;
   readonly fetch: FetchLike;
+}
+
+/** The answer to a status other than 200 / 304: 401 is the device's, any other is the server's. */
+const STATUS_OUTCOMES: Readonly<Partial<Record<number, PolicyReadOutcome>>> = {
+  401: { kind: 'unauthorized' },
+};
+const SERVER_ERROR: PolicyReadOutcome = { kind: 'server_error' };
+
+/** A 200 answer: the policy and the ETag, or `unreadable` when it is off-contract. */
+function okOutcome(answer: BackendAnswer): PolicyReadOutcome {
+  const policy = readPolicyBody(answer.json);
+  return policy === null
+    ? { kind: 'unreadable' }
+    : { kind: 'ok', policy, etag: answer.headers?.['etag'] ?? null };
 }
 
 export function createPolicyClient(deps: PolicyClientDeps): PolicyClient {
@@ -65,16 +84,11 @@ export function createPolicyClient(deps: PolicyClientDeps): PolicyClient {
         readHeaders: ['etag'],
       });
       if (answer === null) return { kind: 'unreachable' };
-      if (answer.status === 200) {
-        const policy = readPolicyBody(answer.json);
-        if (policy === null) return { kind: 'unreadable' };
-        return { kind: 'ok', policy, etag: answer.headers?.['etag'] ?? null };
-      }
+      if (answer.status === 200) return okOutcome(answer);
       if (answer.status === 304) {
         return ifNoneMatch === null ? { kind: 'unreadable' } : { kind: 'not_modified' };
       }
-      if (answer.status === 401) return { kind: 'unauthorized' };
-      return { kind: 'server_error' };
+      return statusOutcome(answer.status, STATUS_OUTCOMES, SERVER_ERROR);
     },
   };
 }

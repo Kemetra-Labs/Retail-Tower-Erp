@@ -15,9 +15,9 @@ import type { PairingStore } from '../pairing/store.js';
  * The longest an open waits for the policy read. The read is best effort: the open
  * freezes the cached policy (or the fail-closed fallback) when it is slower or fails.
  */
-export const POLICY_BEFORE_OPEN_WAIT_MS = 2_500;
+const POLICY_BEFORE_OPEN_WAIT_MS = 2_500;
 
-export interface VariancePolicyLogger {
+interface VariancePolicyLogger {
   info(payload: Record<string, unknown>, message: string): void;
   warn(payload: Record<string, unknown>, message: string): void;
 }
