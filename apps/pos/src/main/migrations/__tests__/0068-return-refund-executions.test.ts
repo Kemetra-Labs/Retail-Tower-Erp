@@ -1,7 +1,7 @@
 /**
  * RT-1543 — migration-shape test for `0068_return_refund_executions` ([GATED: migration], owner
  * decisions on RT-1543, comments 18082 and 18114, 2026-11-21): the refund-execution outbox.
- *   • the number is unique and sorts after 0066 and 0067 (0067 is RT-388's shift variance policy);
+ *   • the number is unique and sorts after 0066 (0067 is RT-388's shift variance policy, merged);
  *   • one table, three triggers, nothing altered or dropped, nothing inserted;
  *   • an execution row exists only for a PAID-OUT return, once per (return, allocation);
  *   • the identity and the frozen body never change; `recorded` and `refused` are final;

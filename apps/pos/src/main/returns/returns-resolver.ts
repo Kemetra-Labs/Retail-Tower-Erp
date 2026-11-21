@@ -212,11 +212,11 @@ function createPass(deps: ReturnsResolverDeps) {
     }
   }
 
-  /** RT-1543: the open executions now, as a summary field (none without an outbox; 0 once stopped). */
+  /** RT-1543: the open executions now, as a summary field (none without an outbox, or once stopped). */
   function openExecutions(snapshot: AuthSnapshot): { executionsOpen?: number } {
     const { executions } = deps;
-    if (executions === undefined) return {};
-    if (executions.isStopped()) return { executionsOpen: 0 };
+    // After stop the DB may be closed: the count is unknown, so the field is absent (never 0).
+    if (executions === undefined || executions.isStopped()) return {};
     return { executionsOpen: executions.repo.listUnrecorded(snapshot.scope).length };
   }
 
