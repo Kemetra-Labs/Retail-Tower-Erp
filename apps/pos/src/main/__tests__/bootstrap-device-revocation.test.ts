@@ -42,12 +42,12 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
   it('never reads the device token for sending except through the sendable reader', () => {
     expect(count(/secretStore\.get\(\s*DEVICE_TOKEN_KEY\s*\)/g)).toBe(0);
     expect(source).toMatch(/createSendableDeviceTokenReader\(\{\s*pairingStore,/);
-    // probe, admissions (index.ts) + read-down (bootstrap/catalogue.ts) + RT-17 shift sync (bootstrap/shift.ts)
+    // probe, admissions, RT-1403 cashier sale void (index.ts) + read-down (bootstrap/catalogue.ts) + RT-17 shift sync (bootstrap/shift.ts)
     expect(
       count(/getDeviceToken: readSendableDeviceToken/g) +
         countCatalogue(/getDeviceToken: readSendableDeviceToken/g) +
         countShift(/getDeviceToken: readSendableDeviceToken/g),
-    ).toBe(4);
+    ).toBe(5);
     expect(countCatalogue(/getDeviceToken: readSendableDeviceToken/g)).toBe(1);
     expect(countShift(/getDeviceToken: readSendableDeviceToken/g)).toBe(1);
     // RT-215 × RT-224: the sale-sync device path reads through the sendable read
@@ -184,7 +184,7 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
       count(/getDeviceToken: readSendableDeviceToken/g) +
         countCatalogue(/getDeviceToken: readSendableDeviceToken/g) +
         countShift(/getDeviceToken: readSendableDeviceToken/g),
-    ).toBe(4);
+    ).toBe(5);
     expect(
       count(/withDeviceAuthObservation\(/g) + countCatalogue(/withDeviceAuthObservation\(/g),
     ).toBe(2);
