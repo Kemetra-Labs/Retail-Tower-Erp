@@ -1,0 +1,7 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/return-policy.openapi.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1544 (contract-only): one policy row and one keyset page of revisions per call.
+consoleGetTenantReturnPolicy: cheapRead
+consoleListTenantReturnPolicyRevisions: cheapRead
+consolePublishTenantReturnPolicy: write

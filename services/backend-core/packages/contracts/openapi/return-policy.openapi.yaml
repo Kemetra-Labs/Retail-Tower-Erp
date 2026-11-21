@@ -1,0 +1,902 @@
+openapi: 3.1.0
+info:
+  title: Backend-Core — Versioned Return Policy V1 API
+  version: "1.0.0-draft"
+  description: >
+    Jira RT-1544 (RP-1 of `specs/045-return-policy`, plan G5 / RT-272): the
+    tenant Return Policy, versioned and effective-dated, and the online
+    read that tells the POS, before a return is submitted, what Backend-Core
+    will decide. The decisions of record are OD-272-1 to OD-272-11, approved by
+    the owner on RT-272 comment 12791, on the Sales & Returns decisions 1035 to
+    1046 (Confluence 22904843).
+
+
+    **Posture.** `1.0.0-draft`, CONTRACT ONLY. `[GATED: contract]`, approved by
+    the owner on RT-1544 comment 18145. Every operation here is
+    `x-runtime-status: contract-only`: no route, no migration and no consumer
+    exist, and each answers 404 until the RP-3 runtime lifts its marker. The
+    runtime slices are RP-2 (the `[GATED]` migration), RP-3 (the runtime) and
+    RP-4 (the POS); the Admin-Console editor is RP-5 (specs/045, section 8).
+    `pos-sales/sales.yaml` 1.27.0-draft is the other half of this contract:
+    the optional line `reasonCode` / `reasonNote` on `recordReturn`, the three
+    422 codes, and the `returnPolicy` echo on `SaleReturn`. Return-policy
+    enforcement stays OFF until the owner sets the legal minimum window.
+
+
+    **Surfaces.**
+
+      1. `consoleGetTenantReturnPolicy` — the policy in force for the tenant
+         (read effective), with the latest revision and the concurrency token.
+      2. `consoleListTenantReturnPolicyRevisions` — the revision history,
+         newest first.
+      3. `consolePublishTenantReturnPolicy` — publish a new revision.
+      4. `posGetSaleReturnEligibility` — the online read of the policy that
+         applies to one sale, with a returnable verdict per line.
+
+    The Console operations are the human `cookieAuth` session only
+    (`SessionOnlyAdminGuard` → `TenantContextGuard` → `RolesGuard`, as in
+    `cash-variance-policy.openapi.yaml`): a bearer-only request,
+    `dashboard_api` included, is `401`. Roles are `owner` and `tenant_admin`
+    (OD-272-11). The tenant comes from the session; a `{tenant_id}` that is
+    not the session's tenant, and a role outside the list, are the same
+    non-disclosing `404` (§II, §XII). Every unsafe Console request is subject
+    to the RT-430 `Origin` check (`403 origin_rejected`). The Admin-Console UI
+    is a later slice (RP-5); until then the owner publishes the pilot tenant's
+    revision through the API before returns are enabled.
+
+
+    **Scope and shape of the V1 policy (OD-272-2).** A tenant policy: System
+    default, then Tenant, with no store override. A field is either
+    configurable (the tenant publishes it) or locked (a V1 constant of this
+    contract, opened later only additively). Configurable: `windowDays`
+    (integer 0 to 365; the deadline is the sale's business date plus
+    `windowDays`, in store calendar days, and `0` means the same business day
+    only, OD-272-4) and `excludedCategoryIds` (the `tenant_product_categories`
+    ids whose products cannot be returned, OD-272-7). Locked: the legal floor
+    (below), receipt required (no-receipt returns are deferred), the closed
+    reason catalogue `defective`, `wrong_item`, `not_as_described`,
+    `changed_mind`, `other` (OD-272-8, in `pos-sales/sales.yaml`), no approval
+    threshold (returns stay manager and admin only, OD-272-9) and a cash
+    refund to the original tender of an all-cash sale (RT-271 R-12). Locked
+    values are contract text, not fields of a response.
+
+
+    **The legal floor (OD-272-5).** A System-locked minimum window, applied at
+    publish (a `windowDays` below it is `422
+    return_policy_window_below_legal_floor`) AND at evaluation, so the law
+    protects old revisions too. The owner or legal supplies the value; this
+    contract carries no number for it, and `legalFloorDays` has no `const`,
+    `enum` or `default`. A tenant that never published has the System default:
+    `windowDays` equal to the floor and no excluded category (OD-272-6).
+    Returns are not enabled in an environment until the floor is set, and
+    enforcement stays OFF until then.
+
+
+    **Revisions (OD-272-1).** Every change is an immutable revision in one
+    linear chain per tenant (`supersedesRevisionId`); a revision is never edited
+    or deleted, and rollback is a new revision. Only Apply Now: `effectiveFrom`
+    is the server time at publish. Derived state: `current` (the latest) or
+    `superseded`. A publish takes `expectedRevisionId`, the latest revision the
+    caller saw (`null` when the tenant has none): a stale one is `409
+    return_policy_changed_concurrently` and nothing is written. A later
+    revision never changes the verdict of an earlier sale: a return is judged
+    under the revision frozen on its SALE (OD-272-3), stamped by Backend-Core at
+    sale capture and never re-derived. A revision applies to sales stamped
+    after its publish commits. The only exception is the legal floor.
+
+
+    **Eligibility (OD-272-10).** The POS makes an online `readSale` before every
+    return and then calls `posGetSaleReturnEligibility`. V1 needs no POS policy
+    cache: returns are online only, so the policy is `online_only` in RT-284
+    terms. Backend-Core still re-decides in `recordReturn`. The read is a new
+    operation, so `readSale`'s response does not change.
+
+
+    **Audit.** A publish writes one `audit_events` row, `return_policy.published`
+    (actor, old and new values, `reason`, revision id). The eligibility read is
+    audited as `return_policy.eligibility_read`. No PII beyond actor ids;
+    `reason` is short free text documented "no PII". A 422 refusal in
+    `recordReturn` stores nothing server-side.
+
+
+    **ROLLOUT ORDER.** (1) This contract. (2) RP-2, the migration, then RP-3,
+    the Backend-Core runtime that lifts the markers and serves the four
+    operations, with enforcement still off. (3) RP-4, the POS: it reads
+    `posGetSaleReturnEligibility` after `readSale`, shows the verdicts and
+    sends the line reasons. The POS release ships only after RP-3 is live,
+    because a POS that sends `reasonCode` to an older Backend-Core fails its
+    strict body with a 400. A 404 on the eligibility read, or an unreachable
+    one, is `returns_unavailable`: the POS refuses and sends nothing; it never
+    guesses. The legal floor value (OD-272-5) is a precondition of switching
+    enforcement on, not of this contract.
+
+
+    **Error envelope.** The canonical `{ error: { code, message, request_id }
+    }` shape. The `425` is the shared `IdempotencyInterceptor`'s own body.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: return-policy-console
+    description: Admin-Console tenant Return Policy (RT-1544, contract-only).
+  - name: return-policy-pos
+    description: POS return eligibility read (RT-1544, contract-only).
+
+paths:
+  /api/v1/tenants/{tenant_id}/return-policy:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      summary: Read the Return Policy in force for the tenant.
+      operationId: consoleGetTenantReturnPolicy
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1544 (RP-1): contract only. No route is registered until the RP-3
+        runtime (specs/045-return-policy); the policy store arrives with the
+        RP-2 migration. Enforcement stays off until the owner sets the legal
+        minimum window.
+      tags: [return-policy-console]
+      security:
+        - cookieAuth: []
+      description: >
+        The effective policy (`source`, `revisionId`, `windowDays`,
+        `excludedCategoryIds`, `legalFloorDays`): the tenant's latest revision,
+        or the System default when the tenant never published, with the latest
+        revision (actor, time, reason) and the concurrency token for the next
+        publish. Roles `owner` / `tenant_admin`.
+      responses:
+        "200":
+          description: The tenant's effective Return Policy.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantReturnPolicy"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/tenants/{tenant_id}/return-policy/revisions:
+    parameters:
+      - $ref: "#/components/parameters/TenantId"
+    get:
+      summary: List the tenant's Return Policy revisions (newest first).
+      operationId: consoleListTenantReturnPolicyRevisions
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1544 (RP-1): contract only. No route is registered until the RP-3
+        runtime (specs/045-return-policy).
+      tags: [return-policy-console]
+      security:
+        - cookieAuth: []
+      description: >
+        Every revision of the tenant, newest first by (`createdAt`,
+        `revisionId`), keyset paginated. Roles `owner` / `tenant_admin`.
+      parameters:
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/PageSize"
+      responses:
+        "200":
+          description: A page of revisions.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnPolicyRevisionPage"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+    post:
+      summary: Publish a new Return Policy revision (Apply Now).
+      operationId: consolePublishTenantReturnPolicy
+      x-idempotency: required
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1544 (RP-1): contract only. No route is registered until the RP-3
+        runtime (specs/045-return-policy), after the RP-2 migration.
+      tags: [return-policy-console]
+      security:
+        - cookieAuth: []
+      description: >
+        Appends a revision with the given `windowDays`, `excludedCategoryIds`
+        and `reason`. Roles `owner` / `tenant_admin`. The new revision applies
+        to sales stamped after the publish commits (OD-272-3); a sale already
+        stamped keeps its revision, so a publish never changes an earlier
+        sale's verdict.
+
+
+        Order of checks, each stopping the call: (1) session, `Origin`, tenant
+        and role (`401` / `403 origin_rejected` / `404`); (2) the
+        `Idempotency-Key` (a same-key retry replays the stored response with
+        `Idempotent-Replayed: true`); (3) the body (`400 validation_error`);
+        (4) under a lock on the tenant's policy chain, `expectedRevisionId`
+        (`409 return_policy_changed_concurrently`); (5) the legal floor: a
+        `windowDays` below it is `422 return_policy_window_below_legal_floor`;
+        (6) every `excludedCategoryIds` entry must be a category of the
+        tenant, else `422 return_policy_category_invalid`; (7) write the
+        revision, its excluded categories and its `return_policy.published`
+        audit row in one transaction and answer `201` with the updated read.
+        Apply Now only: `effectiveFrom` is the server time. Nothing is written
+        on any refusal.
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PublishReturnPolicyRequest"
+      responses:
+        "201":
+          description: >
+            Published. A same-key retry replays this `201` with
+            `Idempotent-Replayed: true`.
+          headers:
+            Idempotent-Replayed:
+              $ref: "#/components/headers/IdempotentReplayed"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/TenantReturnPolicy"
+        "400":
+          $ref: "#/components/responses/WriteValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          $ref: "#/components/responses/OriginRejected"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/Conflict"
+        "422":
+          $ref: "#/components/responses/PublishUnprocessable"
+        "425":
+          $ref: "#/components/responses/IdempotencyInProgress"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/pos/v1/sales/{saleRef}/return-eligibility:
+    parameters:
+      - $ref: "#/components/parameters/SaleRef"
+    get:
+      summary: Read the Return Policy that applies to a sale, with a verdict per line.
+      operationId: posGetSaleReturnEligibility
+      x-audit-action: return_policy.eligibility_read
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1544 (RP-1): contract only. The route answers 404 until the RP-3
+        runtime (specs/045-return-policy); the POS (RP-4) treats a 404 or an
+        unreachable read as `returns_unavailable`.
+      tags: [return-policy-pos]
+      security:
+        - operatorAuthorization: []
+      description: >
+        The same authentication and scope as `readSale`: the operator
+        envelope, re-verified live per request, supplies the tenant and store;
+        a sale outside that scope is the non-disclosing 404. Answers the policy
+        revision frozen on the sale and, for each sale line, whether the policy
+        lets it be returned. `returnPolicy` is the one `SaleReturn.returnPolicy`
+        will carry: `revisionId` (`null` for the System default), `source`,
+        `windowEndsOn` and `legalFloorDays`. A line the policy refuses is
+        `returnable: false` with a `reason`: `category_excluded` (the product's
+        current category is excluded by the revision, OD-272-7) or
+        `category_unknown` (no product or no category while the excluded set is
+        not empty), shown plainly, never as a generic error. The read decides
+        the policy only: it says nothing about the quantity still returnable
+        (`readSale` has it), about a voided sale or about a credit sale, which
+        `recordReturn` refuses itself. `windowEndsOn` is the last store day the
+        sale can be returned; the read carries no separate window verdict, and
+        Backend-Core re-decides the window in `recordReturn`. Audit: one
+        `return_policy.eligibility_read` event per authorized 200, with only the
+        sale ref in its metadata.
+      responses:
+        "200":
+          description: The policy applying to the sale, and a verdict per line.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnEligibility"
+        "400":
+          $ref: "#/components/responses/ReadValidationFailure"
+        "401":
+          $ref: "#/components/responses/PosUnauthorized"
+        "404":
+          $ref: "#/components/responses/SaleNotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+      description: >
+        The human dashboard session cookie (httpOnly `dp2_session`), verified
+        by `SessionOnlyAdminGuard`. The only credential accepted on the
+        Console operations: a machine bearer (`dashboard_api` included), a POS
+        `device` token or an `operatorAuthorization` envelope is 401.
+    operatorAuthorization:
+      type: http
+      scheme: bearer
+      description: >
+        The operator-authorization ENVELOPE, as in `pos-sales/sales.yaml`: an
+        opaque, revocable, DP-2-issued `pos_operator` bearer presented as
+        `Authorization: Bearer <envelope>`, re-verified live on every request.
+        Every refusal collapses to the same generic 401. `bearerFormat` is
+        intentionally omitted: it is not a JWT.
+
+  headers:
+    IdempotentReplayed:
+      description: >
+        Present and `true` on a same-`Idempotency-Key` replay, which carries
+        the stored status (`201`). Absent on a first-time publish.
+      schema:
+        type: boolean
+    RetryAfterInProgress:
+      description: Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body.
+      schema:
+        type: integer
+        minimum: 1
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every
+        console 429 (RT-574 D5). Its own bound, 1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+
+  parameters:
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Must be the session's tenant; another tenant, or a role outside the
+        operation's list, is the non-disclosing 404.
+    SaleRef:
+      name: saleRef
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Stable server-issued sale reference (`captureSale`). Resolves only
+        within the caller's (tenant, store) scope; an out-of-scope ref is a
+        non-disclosing 404.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+        maxLength: 512
+        pattern: "^[A-Za-z0-9_-]+$"
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`; omit it for the
+        first page. A value the server did not issue is 400 `validation_error`.
+    PageSize:
+      name: page_size
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 50
+      description: Maximum revisions per page. The server MAY return fewer.
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+      description: >
+        REQUIRED on every publish (G5): 16 to 128 printable ASCII characters
+        with no whitespace, as the shared `IdempotencyInterceptor` enforces.
+        Keyed on the verified actor. An identical retry replays the stored
+        response with `Idempotent-Replayed: true`; key reuse with a different
+        body is 409 `idempotency_key_conflict`; a key still being processed is
+        425 `idempotency_in_progress`. A missing key is 400
+        `idempotency_key_required`, a malformed one 400
+        `idempotency_key_malformed`.
+
+  schemas:
+    # -----------------------------------------------------------------------
+    # The V1 policy values (specs/045 section 2)
+    # -----------------------------------------------------------------------
+    WindowDays:
+      type: integer
+      minimum: 0
+      maximum: 365
+      description: >
+        The return window in store calendar days (OD-272-4): the return's
+        store-day must be on or before the sale's business date plus
+        `windowDays`. `0` means the same business day only. A publish below
+        the legal floor is 422.
+    LegalFloorDays:
+      type: integer
+      minimum: 0
+      maximum: 365
+      description: >
+        The System-locked legal minimum window in days (OD-272-5), applied at
+        publish and at evaluation. The owner or legal supplies the value: this
+        contract carries none, and a client must not assume one.
+    ExcludedCategoryIds:
+      type: array
+      uniqueItems: true
+      maxItems: 500
+      items:
+        type: string
+        format: uuid
+      description: >
+        The `tenant_product_categories` ids whose products cannot be returned
+        (OD-272-7), matched against the product's CURRENT category at return
+        time. A set: no duplicates, and an empty set excludes nothing.
+    Reason:
+      type: string
+      minLength: 1
+      maxLength: 500
+      description: Why the policy changed, 1 to 500 characters. No PII. Required on every publish.
+    ReturnPolicySource:
+      type: string
+      enum: [system, tenant]
+      description: >
+        Where a policy comes from. `system` is the Backend-Core default (the
+        legal floor, no exclusions) and has no revision. V1 has no store
+        override.
+
+    EffectiveReturnPolicy:
+      type: object
+      additionalProperties: false
+      required: [source, revisionId, windowDays, excludedCategoryIds, legalFloorDays]
+      if:
+        properties:
+          source:
+            const: system
+        required: [source]
+      then:
+        properties:
+          revisionId:
+            type: "null"
+          excludedCategoryIds:
+            maxItems: 0
+      else:
+        properties:
+          revisionId:
+            type: string
+      description: >
+        The policy in force. `revisionId` is `null` exactly when `source` is
+        `system`; a `system` policy has `windowDays` equal to `legalFloorDays`
+        and no excluded category (OD-272-6).
+      properties:
+        source:
+          $ref: "#/components/schemas/ReturnPolicySource"
+        revisionId:
+          type: [string, "null"]
+          format: uuid
+        windowDays:
+          $ref: "#/components/schemas/WindowDays"
+        excludedCategoryIds:
+          $ref: "#/components/schemas/ExcludedCategoryIds"
+        legalFloorDays:
+          $ref: "#/components/schemas/LegalFloorDays"
+
+    # -----------------------------------------------------------------------
+    # Revisions and the Console reads
+    # -----------------------------------------------------------------------
+    ReturnPolicyRevision:
+      type: object
+      additionalProperties: false
+      required:
+        - revisionId
+        - windowDays
+        - excludedCategoryIds
+        - reason
+        - effectiveFrom
+        - supersedesRevisionId
+        - state
+        - createdByUserId
+        - createdAt
+      description: >
+        One immutable revision of the tenant policy. Apply Now: `effectiveFrom`
+        equals `createdAt`. The revisions form one linear chain
+        (`supersedesRevisionId`, `null` for the first). No tenant id.
+      properties:
+        revisionId:
+          type: string
+          format: uuid
+        windowDays:
+          $ref: "#/components/schemas/WindowDays"
+        excludedCategoryIds:
+          $ref: "#/components/schemas/ExcludedCategoryIds"
+        reason:
+          $ref: "#/components/schemas/Reason"
+        effectiveFrom:
+          type: string
+          format: date-time
+          description: The server time at publish (Apply Now).
+        supersedesRevisionId:
+          type: [string, "null"]
+          format: uuid
+          description: The revision this one replaced; `null` for the tenant's first.
+        state:
+          type: string
+          enum: [current, superseded]
+          description: >
+            Derived, never stored. `current` for the latest revision, else
+            `superseded`.
+        createdByUserId:
+          type: string
+          format: uuid
+          description: The `users.id` who published the revision.
+        createdAt:
+          type: string
+          format: date-time
+    ReturnPolicyRevisionPage:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      description: A keyset page of the tenant's revisions, newest first.
+      properties:
+        items:
+          type: array
+          maxItems: 100
+          items:
+            $ref: "#/components/schemas/ReturnPolicyRevision"
+        nextCursor:
+          type: [string, "null"]
+          description: Opaque cursor for the next page; `null` on the last page.
+    TenantReturnPolicy:
+      type: object
+      additionalProperties: false
+      required: [effective, latestRevision, latestRevisionId]
+      if:
+        properties:
+          effective:
+            properties:
+              source:
+                const: system
+            required: [source]
+        required: [effective]
+      then:
+        properties:
+          latestRevision:
+            type: "null"
+          latestRevisionId:
+            type: "null"
+      else:
+        properties:
+          latestRevision:
+            type: object
+          latestRevisionId:
+            type: string
+      description: >
+        The tenant policy. `latestRevisionId` is the `expectedRevisionId` of the
+        next publish and the id of `latestRevision`. With a `system` policy (the
+        tenant never published) both are `null`; with a `tenant` policy both
+        are set.
+      properties:
+        effective:
+          $ref: "#/components/schemas/EffectiveReturnPolicy"
+        latestRevision:
+          oneOf:
+            - $ref: "#/components/schemas/ReturnPolicyRevision"
+            - type: "null"
+        latestRevisionId:
+          type: [string, "null"]
+          format: uuid
+
+    # -----------------------------------------------------------------------
+    # The publish request (strict; no tenant field)
+    # -----------------------------------------------------------------------
+    PublishReturnPolicyRequest:
+      type: object
+      additionalProperties: false
+      required: [expectedRevisionId, windowDays, excludedCategoryIds, reason]
+      description: >
+        A new revision: the complete configurable state, never a patch. The
+        tenant comes from the path and the session, never the body.
+      properties:
+        expectedRevisionId:
+          type: [string, "null"]
+          format: uuid
+          description: The read's `latestRevisionId` (`null` when the tenant has no revision yet).
+        windowDays:
+          $ref: "#/components/schemas/WindowDays"
+        excludedCategoryIds:
+          $ref: "#/components/schemas/ExcludedCategoryIds"
+        reason:
+          $ref: "#/components/schemas/Reason"
+
+    # -----------------------------------------------------------------------
+    # The POS eligibility read
+    # -----------------------------------------------------------------------
+    AppliedReturnPolicy:
+      type: object
+      additionalProperties: false
+      required: [revisionId, source, windowEndsOn, legalFloorDays]
+      if:
+        properties:
+          source:
+            const: system
+        required: [source]
+      then:
+        properties:
+          revisionId:
+            type: "null"
+      else:
+        properties:
+          revisionId:
+            type: string
+      description: >
+        The policy that applies to a sale, the same four fields
+        `SaleReturn.returnPolicy` echoes (`pos-sales/sales.yaml`). `revisionId`
+        is the revision stamped on the sale, `null` exactly when `source` is
+        `system`.
+      properties:
+        revisionId:
+          type: [string, "null"]
+          format: uuid
+        source:
+          $ref: "#/components/schemas/ReturnPolicySource"
+        windowEndsOn:
+          type: string
+          format: date
+          description: >
+            The last store calendar day on which the sale can be returned: its
+            business date plus the revision's `windowDays`, never earlier than
+            the legal floor allows.
+        legalFloorDays:
+          $ref: "#/components/schemas/LegalFloorDays"
+    ReturnLineVerdict:
+      type: object
+      additionalProperties: false
+      required: [lineRef, returnable]
+      if:
+        properties:
+          returnable:
+            const: false
+        required: [returnable]
+      then:
+        required: [reason]
+      else:
+        not:
+          required: [reason]
+      description: >
+        Whether the policy lets one sale line be returned. `reason` is present
+        exactly when `returnable` is `false`.
+      properties:
+        lineRef:
+          type: string
+          format: uuid
+          description: The sale line (`SaleLine.lineRef`).
+        returnable:
+          type: boolean
+        reason:
+          type: string
+          enum: [category_excluded, category_unknown]
+          description: >
+            `category_excluded`: the product's current category is excluded by
+            the revision. `category_unknown`: the line has no product, or its
+            product has no category, while the excluded set is not empty.
+    ReturnEligibility:
+      type: object
+      additionalProperties: false
+      required: [saleRef, returnPolicy, lines]
+      description: >
+        The Return Policy applying to one sale and a verdict for each of its
+        lines, in the order `readSale` lists them. Backend-Core re-decides every
+        refusal in `recordReturn`.
+      properties:
+        saleRef:
+          type: string
+          format: uuid
+        returnPolicy:
+          $ref: "#/components/schemas/AppliedReturnPolicy"
+        lines:
+          type: array
+          minItems: 1
+          maxItems: 500
+          items:
+            $ref: "#/components/schemas/ReturnLineVerdict"
+
+    # -----------------------------------------------------------------------
+    # Errors
+    # -----------------------------------------------------------------------
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope. Out-of-scope and cross-tenant refusals are
+        non-disclosing (§II, §XII).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error:
+          type: string
+          const: idempotency_in_progress
+        retryAfterSec:
+          type: integer
+          minimum: 1
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path id, an unknown or malformed
+        query parameter, or a cursor the server cannot decode. Checked before
+        any database read.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    WriteValidationFailure:
+      description: >
+        400: `validation_error` (a malformed path id or body, an unknown key, a
+        `windowDays` outside 0 to 365, a duplicate or malformed category id), or
+        the `IdempotencyInterceptor`'s `idempotency_key_required` /
+        `idempotency_key_malformed`. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`: no human dashboard session. A bearer-only request
+        (`dashboard_api` included) is refused (`SessionOnlyAdminGuard`).
+        Non-disclosing.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PosUnauthorized:
+      description: >
+        401 `unauthorized`: a missing, invalid, revoked or expired operator
+        envelope, or a failed live re-verification. One generic body for every
+        cause (no factor disclosure).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): a cookie-authenticated publish whose
+        `Origin` is missing or not allowed. Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`, non-disclosing: identical for another tenant, an absent
+        id and a role outside the operation's list.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SaleNotFound:
+      description: >
+        404 `not_found`: the sale ref does not resolve within the caller's
+        (tenant, store) scope. Non-disclosing: identical for a cross-tenant,
+        out-of-scope and genuinely absent id (FR-102). Until the RP-3 runtime
+        the route does not exist and every call answers this 404; the POS reads
+        that as `returns_unavailable`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Conflict:
+      description: >
+        409, `error.code` one of: `return_policy_changed_concurrently`
+        (`expectedRevisionId` is not the tenant's latest revision; reload and
+        retry); `idempotency_key_conflict` (the same `Idempotency-Key` with a
+        different body). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    PublishUnprocessable:
+      description: >
+        422, `error.code` one of: `return_policy_window_below_legal_floor`
+        (`windowDays` is below the System-locked legal floor, OD-272-5);
+        `return_policy_category_invalid` (an `excludedCategoryIds` entry is not a
+        category of the tenant). Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this
+        `Idempotency-Key` is still being processed. Retry after `Retry-After`
+        seconds with the same key and body. Nothing is written by this
+        request.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/IdempotencyInProgressBody"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error, recorded server-side
+        under `request_id` and never returned.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this
+        class of operation is spent. The body is the canonical error envelope
+        with a non-disclosing message (no budget, class or window); its
+        `request_id` equals the `X-Request-Id` response header. Honour
+        `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never
+        means the session ended. The console limit is server-configured and may
+        not be enforced, so a client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the
+            inbound `X-Request-Id` when it is a well-formed UUID, otherwise a
+            server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
