@@ -38,6 +38,7 @@ import { batchState, seedMapValidateFixture } from "./__support__/map-validate-f
 const IMPORTS = "/api/v1/catalog/imports";
 const ORIGIN = "http://127.0.0.1";
 const MIB = 1024 * 1024;
+const NOT_FOUND = { code: "not_found", message: "Not Found" };
 const OWNER_A_USER = "0a000000-0000-7000-8000-0000019202a3";
 
 const h = scopedHttpHarness({
@@ -222,7 +223,10 @@ describe("replace: the previous mapping is carried", () => {
     ]).expect(200);
     // `Zeta` is renamed (not carried, no synonym); `Name` appears twice (never carried); `Tax Category` is carried.
     const res = await replace(SES_OWNER_ALL, first.batchId, csv("Zeta2,Name,Name,Tax Category,Barcode\nA,Tea,Tea,standard,6223001360018\n"), "expected_version=2").expect(200);
+    // Only `Tax Category` is carried. The synonym pass then places `name` on the first `Name` column (a repeated header is only
+    // barred from being carried, not from being recognised) and `barcode` on `Barcode`; `Zeta2` is recognised by nothing.
     expect(res.body.suggestedMapping).toEqual([
+      { columnNumber: 2, target: "name" },
       { columnNumber: 4, target: "tax_category" },
       { columnNumber: 5, target: "barcode" },
     ]);
@@ -280,18 +284,31 @@ describe("replace: the order of checks", () => {
     if (skip()) return;
     const first = await open(V1);
     const absent = await replace(SES_OWNER_ALL, "0a000000-0000-7000-8000-000000153799", csv(V2)).expect(404);
-    expect(absent.body).toMatchObject({ error: { code: "not_found", message: "Not Found" } });
-    expect((await replace(SES_OWNER_B, first.batchId, csv(V2)).expect(404)).body).toEqual(absent.body);
-    for (const session of [SES_MANAGER, SES_STAFF]) expect((await replace(session, first.batchId, csv(V2)).expect(404)).body).toEqual(absent.body);
+    expect(absent.body.error).toMatchObject(NOT_FOUND);
+    // The same answer for every refusal (each carries its own request id).
+    expect((await replace(SES_OWNER_B, first.batchId, csv(V2)).expect(404)).body.error).toMatchObject(NOT_FOUND);
+    for (const session of [SES_MANAGER, SES_STAFF]) expect((await replace(session, first.batchId, csv(V2)).expect(404)).body.error).toMatchObject(NOT_FOUND);
     expect((await batchState(h.env().admin, first.batchId)).version).toBe(1);
   });
 
-  it("lets a tenant admin replace, and refuses a write with no trusted Origin", async () => {
+  it("lets a tenant admin replace", async () => {
     if (skip()) return;
     const first = await open(V1);
     await replace(SES_ADMIN_SPEC, first.batchId, csv(V2)).expect(200);
-    const noOrigin = await h.put(`${IMPORTS}/${first.batchId}/file?expected_version=2`, SES_OWNER_ALL, csv(V1)).set("Content-Type", "application/octet-stream").serialize((b: unknown) => b as string);
-    expectError(noOrigin, 403, "origin_rejected");
+  });
+
+  it("refuses a cookie write without a trusted Origin with 403 origin_rejected", async () => {
+    if (skip()) return;
+    const first = await open(V1);
+    // A raw session cookie the REAL guard judges (the test session header is not sent), as the upload spec does.
+    const cookie = "dp2_session=rt1537-not-a-session";
+    const put = (origin?: string): request.Test => {
+      const req = h.put(`${IMPORTS}/${first.batchId}/file?expected_version=1`, null, csv(V2)).set("Content-Type", "application/octet-stream").serialize((b: unknown) => b as string).set("Cookie", cookie);
+      return origin === undefined ? req : req.set("Origin", origin);
+    };
+    expectError(await put(), 403, "origin_rejected");
+    expectError(await put("http://evil.example"), 403, "origin_rejected");
+    expect((await batchState(h.env().admin, first.batchId)).version).toBe(1);
   });
 
   it("is 409 import_batch_closed for a cancelled batch and for one past its expiry, 409 version_conflict for a stale version", async () => {
@@ -447,8 +464,9 @@ describe("error report", () => {
     await h.env().admin.query(`UPDATE catalog_import_batches SET state = 'cancelled', closed_at = now(), expires_at = NULL WHERE id = $1`, [draft.batchId]);
     expectError(await h.get(`${IMPORTS}/${draft.batchId}/error-report`, SES_OWNER_ALL), 409, "import_batch_not_validated");
     const absent = await h.get(`${IMPORTS}/0a000000-0000-7000-8000-000000153799/error-report`, SES_OWNER_ALL).expect(404);
-    expect((await h.get(`${IMPORTS}/${draft.batchId}/error-report`, SES_OWNER_B).expect(404)).body).toEqual(absent.body);
-    expect((await h.get(`${IMPORTS}/${draft.batchId}/error-report`, SES_MANAGER).expect(404)).body).toEqual(absent.body);
+    expect(absent.body.error).toMatchObject(NOT_FOUND);
+    expect((await h.get(`${IMPORTS}/${draft.batchId}/error-report`, SES_OWNER_B).expect(404)).body.error).toMatchObject(NOT_FOUND);
+    expect((await h.get(`${IMPORTS}/${draft.batchId}/error-report`, SES_MANAGER).expect(404)).body.error).toMatchObject(NOT_FOUND);
     expectError(await h.get(`${IMPORTS}/not-a-uuid/error-report`, SES_OWNER_ALL), 400, "validation_error");
     expectError(await h.get(`${IMPORTS}/${draft.batchId}/error-report`, null), 401, "unauthorized");
   });
