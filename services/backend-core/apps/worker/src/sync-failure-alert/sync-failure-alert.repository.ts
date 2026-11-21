@@ -4,7 +4,7 @@
  * READ-ONLY on the failure state. The alert observes `erpnext_posting_status.status =
  * 'permanently_rejected'` and `sales.sync_status = 'failed-needs-repair'` with SELECT only and
  * never writes a posting, reconciliation, repair or sale table (S13). Its own writes are the two
- * alert tables (0129) and `audit_events`.
+ * alert tables (0130) and `audit_events`.
  *
  * RLS posture (the RT-123 lesson): tenant ids come from the shared `listAllTenantIds` platform
  * read (one site, RT-1389 ratchet); every other statement runs in its own transaction under ONE

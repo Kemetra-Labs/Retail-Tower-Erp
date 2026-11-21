@@ -1,7 +1,7 @@
--- Domain-role grants for the sync-failure email alert (RT-1034, migration 0129).
+-- Domain-role grants for the sync-failure email alert (RT-1034, migration 0130).
 -- See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0129 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0130 and BEFORE the
 -- worker image that needs it is rolled, as the migration owner. This file holds
 -- NO credential. Give psql the connection through libpq environment variables
 -- (PGHOST/PGUSER/PGPASSWORD/...; see deploy/grants.env.example), never as a URL
