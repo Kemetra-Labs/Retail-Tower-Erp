@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Shifts API
-  version: "1.5.0-draft"
+  version: "1.6.0-draft"
   description: >
     POS-Pulse 004 Backend shift-lifecycle surface. Wave 4.1b (stuck-shift
     discovery).
@@ -204,6 +204,21 @@ info:
     `error.code`, parameter or schema changes; the POS needs no change.
     **Runtime status:** the admission rule shipped in the RT-811 runtime
     change.
+
+
+    RT-592 (1.6.0-draft; [GATED] owner decision 2026-11-21, Jira RT-592
+    comments 18021 and 18028; RT-387 follow-up): additive. `PolicyFlag` gains
+    one value, `policy_revision_stale_at_receipt`, on the `frozenPolicy.policyFlags`
+    that `openShift` and `closeShift` return. A POS clock can backdate
+    `openedAt` to a time when an older, looser policy revision was in force, so
+    the superseded check (which is measured at `openedAt`) reads clean. The
+    flag is set when the open arrived more than 24 hours after its `openedAt`
+    AND the frozen policy is not the policy in effect for the store at the
+    server's receipt time. It is never a refusal and never a limit on
+    `openedAt`: an offline open with no maximum cache age (DR-8) stays valid.
+    No operation, status, `error.code`, request field or required property
+    changes. A client that validates `policyFlags` against a closed list must
+    add the value.
 servers:
   - url: https://api.example.com
 tags:
@@ -341,9 +356,9 @@ paths:
         refuses an open or a close on policy grounds: an unknown revision, a
         superseded revision and a value that differs from the revision (or,
         for a `limit`, from the shift's currency) are accepted, recorded and
-        flagged `policy_revision_unknown`, `policy_revision_superseded` or
-        `policy_value_mismatch` (an offline open on an older cached revision
-        is normal, DR-8). Only a malformed `frozenPolicy` is a 400
+        flagged `policy_revision_unknown`, `policy_revision_superseded`,
+        `policy_value_mismatch` or `policy_revision_stale_at_receipt` (an
+        offline open on an older cached revision is normal, DR-8). Only a malformed `frozenPolicy` is a 400
         `validation_error`: a missing member, a `null` `policyRevisionId`
         with source `tenant` or `store`, a non-null one with `system` or
         `fallback`, or a `limit` without its amount or currency.
@@ -1752,7 +1767,11 @@ components:
             $ref: "#/components/schemas/PolicyFlag"
     PolicyFlag:
       type: string
-      enum: [policy_revision_unknown, policy_revision_superseded, policy_value_mismatch]
+      enum:
+        - policy_revision_unknown
+        - policy_revision_superseded
+        - policy_value_mismatch
+        - policy_revision_stale_at_receipt
       description: >
         AD-CASH-001 D-6 accept-and-flag findings. `policy_revision_unknown`:
         the frozen revision is not a revision of this tenant, or is a store
@@ -1763,7 +1782,15 @@ components:
         from that revision's stored value (for `system`, from Backend-Core's
         System default), or a `limit` currency differs from the shift's. A
         `fallback` value other than the fail-closed `limit 0` (DR-6) is also
-        `policy_value_mismatch`.
+        `policy_value_mismatch`. `policy_revision_stale_at_receipt` (RT-592):
+        the open arrived MORE than 24 hours after `openedAt` (exactly 24 hours
+        is not) AND the frozen policy, its revision or the System default for
+        `system`, is not the store's effective policy at the server's receipt
+        time. It is measured from `openedAt` to receipt, so it flags a backdated
+        `openedAt` that froze an older revision. It is never set for an
+        unknown revision or a `fallback`, and an open that arrives within 24
+        hours is never flagged by it (an offline open, DR-8). It is a finding
+        for reporting, never a refusal.
     PolicyTriState:
       type: string
       enum: ["yes", "no", "unknown"]
