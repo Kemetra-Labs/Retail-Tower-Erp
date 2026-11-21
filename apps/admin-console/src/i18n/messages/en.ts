@@ -4,6 +4,7 @@
  * missing English string is a compile error.
  */
 import type { ar } from "./ar";
+import { aiManagerSales } from "./en/aiManagerSales";
 import { aiPlan } from "./en/aiPlan";
 import { audit } from "./en/audit";
 import { auth } from "./en/auth";
@@ -69,6 +70,7 @@ export const EN_MODULES = {
   inventory,
   counts,
   aiPlan,
+  aiManagerSales,
   branding,
   catalog,
   metrics,
@@ -108,6 +110,7 @@ export const en: MessagesOf<typeof ar> = {
   ...inventory,
   ...counts,
   ...aiPlan,
+  ...aiManagerSales,
   ...branding,
   ...catalog,
   ...metrics,

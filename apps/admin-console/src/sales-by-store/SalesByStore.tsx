@@ -14,6 +14,7 @@
  * `compare=none`) is the report's state; the default is the last 10 business
  * days, read only once the store zones are known so a UTC guess never fires.
  */
+import { ManagerSalesMount } from "@/ai-manager-sales/ManagerSalesMount";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
@@ -231,6 +232,8 @@ function Shell({
         facts={facts ? { label: t("salesByStore.band.label"), items: facts } : undefined}
       />
       {children}
+      {/* RT-1541: default-OFF Manager Sales Ask/Explain; renders nothing unless flag and role allow. */}
+      <ManagerSalesMount />
     </div>
   );
 }
