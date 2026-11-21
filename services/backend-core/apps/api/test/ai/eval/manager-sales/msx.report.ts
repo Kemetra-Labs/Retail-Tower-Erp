@@ -124,7 +124,6 @@ const COMMANDS = [
   "UPDATE_MSX_GOLDEN=1 npx jest test/ai/eval/manager-sales/msx-report   # only for a new dataset version",
   "cd ../..",
   "pnpm lint:eslint",
-  "node tools/code-health/check.mjs",
   "```",
   "",
 ];
