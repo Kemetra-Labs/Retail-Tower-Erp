@@ -88,9 +88,9 @@ describe("off-thread parse: worker failures are file_unreadable", () => {
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
-  it("a heap limit too small for a maximal workbook refuses and the process survives", async () => {
+  it("a worker that exceeds its heap limit is killed and refuses, and the process survives", async () => {
     const resourceLimits = { maxOldGenerationSizeMb: 16, maxYoungGenerationSizeMb: 4 };
-    expect(await codeOf(parseImportFileOffThread(maximalXlsx(), NONE, { ...DEFAULT_OFFTHREAD_PARSE_CONFIG, resourceLimits }))).toBe("file_unreadable");
+    expect(await codeOf(parseImportFileOffThread(TINY, mode("oom"), fake({ resourceLimits })))).toBe("file_unreadable");
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/ERR_WORKER_OUT_OF_MEMORY/));
   });
 
@@ -115,6 +115,13 @@ describe("off-thread parse: worker failures are file_unreadable", () => {
 describe("off-thread parse: the event loop stays free", () => {
   it("answers HTTP requests promptly while a 5,000 x 50 XLSX parses, and logs the in-thread baseline", async () => {
     const book = maximalXlsx();
+    // Baseline, logged only (never asserted): the same parse on the main thread.
+    // A 1 ms timer set before the parse fires only when the loop is free again: its lateness is the stall.
+    const timerSetAt = performance.now();
+    const stall = new Promise<number>((done) => setTimeout(() => done(performance.now() - timerSetAt), 1));
+    await parseImportFile(book, NONE);
+    const baselineStallMs = await stall;
+
     const server = createServer((_req, res) => res.end("ok"));
     await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
     const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
@@ -125,13 +132,6 @@ describe("off-thread parse: the event loop stays free", () => {
     };
     try {
       await probe();
-      // Baseline, logged only (never asserted): the same parse on the main thread.
-      // A 1 ms timer set before the parse fires only when the loop is free again: its lateness is the stall.
-      const timerSetAt = performance.now();
-      const stall = new Promise<number>((done) => setTimeout(() => done(performance.now() - timerSetAt), 1));
-      await parseImportFile(book, NONE);
-      const baselineStallMs = await stall;
-
       const histogram = monitorEventLoopDelay({ resolution: 5 });
       const latencies: number[] = [];
       let parsing = true;

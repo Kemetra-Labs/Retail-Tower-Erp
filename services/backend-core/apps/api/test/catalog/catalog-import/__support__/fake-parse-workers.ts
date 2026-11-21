@@ -6,7 +6,11 @@ const mode = (workerData as { job: { options: { sheet: string | null } } }).job.
 if (parentPort !== null) {
   if (mode === "crash") process.exit(3);
   else if (mode === "silent-exit") process.exit(0);
-  else if (mode === "unexpected") parentPort.postMessage({ ok: false, unexpected: "TypeError" });
+  else if (mode === "oom") {
+    // Retains arrays until the worker heap limit kills the thread (ERR_WORKER_OUT_OF_MEMORY).
+    const hoard: number[][] = [];
+    for (;;) hoard.push(new Array<number>(1_000_000).fill(1));
+  } else if (mode === "unexpected") parentPort.postMessage({ ok: false, unexpected: "TypeError" });
   // any other mode never answers: the host's timeout ends it
   else setInterval(() => undefined, 1000);
 }
