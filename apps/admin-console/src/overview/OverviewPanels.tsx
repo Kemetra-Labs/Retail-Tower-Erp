@@ -21,6 +21,7 @@
  * Recent activity (P-5) is deferred until Backend-Core can leave read-only audits out (OD-009-3,
  * RT-567): owner and tenant_admin get a plain link to `/audit` instead (AC-10).
  */
+import { ManagerSalesMount } from "@/ai-manager-sales/ManagerSalesMount";
 import { PageHeader } from "@/components/PageHeader";
 import { useT } from "@/i18n";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
@@ -121,6 +122,8 @@ function Panels({
           attention={<AttentionLedger session={session} nowMs={nowMs} />}
         />
       </div>
+      {/* RT-1541: default-OFF Manager Sales Ask/Explain; renders nothing unless flag and role allow. */}
+      <ManagerSalesMount />
     </>
   );
 }
