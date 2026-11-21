@@ -72,7 +72,10 @@ async function fixture<T>(fn: (c: PoolClient) => Promise<T>): Promise<T> {
   }
 }
 
-/** An open cash-up shift carrying `flags` (a system / none frozen policy), on its own device. */
+/**
+ * An open cash-up shift carrying `flags` (a system / none frozen policy), on its own device. `null` flags means
+ * the open froze no policy at all: the 0050 all-or-none CHECK ties the flags to the other frozen columns.
+ */
 async function insertShift(flags: Array<string | null> | null): Promise<string> {
   const shiftId = randomUUID();
   const hash = createHash("sha256").update(`open:${shiftId}`).digest();
@@ -83,8 +86,18 @@ async function insertShift(flags: Array<string | null> | null): Promise<string> 
           currency_code, opening_float, business_date, received_at, recorded_by_user_id, payload_hash,
           frozen_policy_source, frozen_policy_mode, frozen_policy_flags)
        VALUES ($1, $2, $3, $4, $5, '2026-11-20T08:00:00Z', 'cash_up', 'EGP', 500.00, '2026-11-20',
-               '2026-11-20T08:00:02Z', $5, $6, 'system', 'none', $7::text[])`,
-      [shiftId, randomUUID(), randomUUID(), randomUUID(), randomUUID(), hash, flags],
+               '2026-11-20T08:00:02Z', $5, $6, $8, $9, $7::text[])`,
+      [
+        shiftId,
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+        randomUUID(),
+        hash,
+        flags,
+        flags === null ? null : "system",
+        flags === null ? null : "none",
+      ],
     ),
   );
   return shiftId;
@@ -172,7 +185,7 @@ describe("0129 — up", () => {
   });
 
   it.each([
-    ["none (NULL)", null],
+    ["no frozen policy (NULL flags)", null],
     ["no flags ({})", []],
     ["each old flag", ["policy_revision_unknown", "policy_revision_superseded", "policy_value_mismatch"]],
   ])("still accepts %s", async (_label, flags) => {
