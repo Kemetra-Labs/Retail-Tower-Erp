@@ -6,7 +6,7 @@ const mode = (workerData as { job: { options: { sheet: string | null } } }).job.
 if (parentPort !== null) {
   if (mode === "crash") process.exit(3);
   else if (mode === "silent-exit") process.exit(0);
-  else if (mode === "unexpected") parentPort.postMessage({ ok: false, unexpected: "TypeError: boom" });
+  else if (mode === "unexpected") parentPort.postMessage({ ok: false, unexpected: "TypeError" });
   // any other mode never answers: the host's timeout ends it
   else setInterval(() => undefined, 1000);
 }

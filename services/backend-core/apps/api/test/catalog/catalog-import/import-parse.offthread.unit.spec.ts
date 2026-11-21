@@ -3,6 +3,8 @@
  * `file_unreadable` for a timeout, a resource-limit kill or a dead worker, and the event loop stays free while a
  * maximal XLSX is parsed.
  */
+import { createServer } from "node:http";
+import type { AddressInfo } from "node:net";
 import { resolve } from "node:path";
 import { monitorEventLoopDelay } from "node:perf_hooks";
 
@@ -80,13 +82,13 @@ describe("off-thread parse: worker failures are file_unreadable", () => {
     expect(warn).toHaveBeenCalledWith(expect.stringContaining("timeout after 300 ms"));
   });
 
-  it("a timeout kills a real parse of a maximal workbook long before it ends", async () => {
+  it("a short timeout on a maximal workbook refuses (the worker is killed, whether still starting or already parsing)", async () => {
     const started = Date.now();
     expect(await codeOf(parseImportFileOffThread(maximalXlsx(), NONE, { ...DEFAULT_OFFTHREAD_PARSE_CONFIG, timeoutMs: 100 }))).toBe("file_unreadable");
     expect(Date.now() - started).toBeLessThan(3000);
   });
 
-  it("a resource-limit kill (heap) refuses and the process survives", async () => {
+  it("a heap limit too small for a maximal workbook refuses and the process survives", async () => {
     const resourceLimits = { maxOldGenerationSizeMb: 16, maxYoungGenerationSizeMb: 4 };
     expect(await codeOf(parseImportFileOffThread(maximalXlsx(), NONE, { ...DEFAULT_OFFTHREAD_PARSE_CONFIG, resourceLimits }))).toBe("file_unreadable");
     expect(warn).toHaveBeenCalledWith(expect.stringMatching(/ERR_WORKER_OUT_OF_MEMORY/));
@@ -98,37 +100,56 @@ describe("off-thread parse: worker failures are file_unreadable", () => {
     expect(await codeOf(parseImportFileOffThread(TINY, mode("silent-exit"), fake()))).toBe("file_unreadable");
   });
 
-  it("a parser bug (not a refusal) refuses and is logged by message only", async () => {
+  it("a parser bug (not a refusal) refuses and is logged by error name only", async () => {
     expect(await codeOf(parseImportFileOffThread(TINY, mode("unexpected"), fake()))).toBe("file_unreadable");
-    expect(warn).toHaveBeenCalledWith(expect.stringContaining("parser error TypeError: boom"));
+    expect(warn).toHaveBeenCalledWith(expect.stringContaining("parser error TypeError"));
   });
 });
 
 describe("off-thread parse: the event loop stays free", () => {
-  it("serves a concurrent request while a 5,000 x 50 XLSX parses", async () => {
+  it("answers HTTP requests promptly while a 5,000 x 50 XLSX parses, and logs the in-thread baseline", async () => {
     const book = maximalXlsx();
-    const histogram = monitorEventLoopDelay({ resolution: 5 });
-    let served = 0;
-    let lastServedAt = 0;
-    const started = Date.now();
-    // A stand-in for a concurrent request: a tick of the event loop every 10 ms, each answered at once.
-    const ticker = setInterval(() => {
-      served += 1;
-      lastServedAt = Date.now() - started;
-    }, 10);
-    histogram.enable();
-    const parsed = await parseImportFileOffThread(book, NONE);
-    const parseMs = Date.now() - started;
-    histogram.disable();
-    clearInterval(ticker);
-    const maxMs = histogram.max / 1e6;
-    // eslint-disable-next-line no-console
-    console.info(
-      `RT-1535 measurement: parse ${parseMs} ms off-thread, event-loop delay max ${maxMs.toFixed(1)} ms, p99 ${(histogram.percentile(99) / 1e6).toFixed(1)} ms, ${served} ticks served, last at ${lastServedAt} ms`,
-    );
-    expect(parsed.grid.rows).toHaveLength(5000);
-    expect(maxMs).toBeLessThan(250);
-    expect(served).toBeGreaterThan(parseMs / 10 / 3);
-    expect(lastServedAt).toBeGreaterThan(parseMs * 0.8);
+    const server = createServer((_req, res) => res.end("ok"));
+    await new Promise<void>((done) => server.listen(0, "127.0.0.1", done));
+    const url = `http://127.0.0.1:${(server.address() as AddressInfo).port}/`;
+    const probe = async (): Promise<number> => {
+      const at = performance.now();
+      expect(await (await fetch(url)).text()).toBe("ok");
+      return performance.now() - at;
+    };
+    try {
+      await probe();
+      // Baseline, logged only (never asserted): the same parse on the main thread.
+      // A 1 ms timer set before the parse fires only when the loop is free again: its lateness is the stall.
+      const timerSetAt = performance.now();
+      const stall = new Promise<number>((done) => setTimeout(() => done(performance.now() - timerSetAt), 1));
+      await parseImportFile(book, NONE);
+      const baselineStallMs = await stall;
+
+      const histogram = monitorEventLoopDelay({ resolution: 5 });
+      const latencies: number[] = [];
+      let parsing = true;
+      const started = performance.now();
+      histogram.enable();
+      const parse = parseImportFileOffThread(book, NONE).finally(() => {
+        parsing = false;
+      });
+      while (parsing) latencies.push(await probe());
+      const parsed = await parse;
+      const parseMs = Math.round(performance.now() - started);
+      histogram.disable();
+      const maxMs = histogram.max / 1e6;
+      const slowest = Math.max(...latencies);
+      // eslint-disable-next-line no-console
+      console.info(
+        `RT-1535 measurement: in-thread baseline: a 1 ms timer fired ${baselineStallMs.toFixed(0)} ms late; off-thread parse ${parseMs} ms, event-loop delay max ${maxMs.toFixed(1)} ms (p99 ${(histogram.percentile(99) / 1e6).toFixed(1)} ms), ${latencies.length} HTTP requests served during the parse, slowest ${slowest.toFixed(0)} ms`,
+      );
+      expect(parsed.grid.rows).toHaveLength(5000);
+      expect(latencies.length).toBeGreaterThanOrEqual(5);
+      expect(maxMs).toBeLessThan(250);
+      expect(slowest).toBeLessThan(500);
+    } finally {
+      await new Promise((done) => server.close(done));
+    }
   });
 });

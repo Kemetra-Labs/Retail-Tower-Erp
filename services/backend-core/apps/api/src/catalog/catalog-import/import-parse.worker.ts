@@ -19,7 +19,7 @@ export interface ImportParseJob {
   readonly options: ImportParseOptions;
 }
 
-/** The one message a worker posts. `unexpected` is a bug in the parser (anything but a refusal), message only. */
+/** The one message a worker posts. `unexpected` is a bug in the parser (anything but a refusal): the error NAME only, never its message (a library message can quote cell text). */
 export type ImportParseReply =
   | { readonly ok: true; readonly parsed: ParsedImportFile }
   | { readonly ok: false; readonly code: string }
@@ -30,7 +30,7 @@ async function run(job: ImportParseJob): Promise<ImportParseReply> {
     return { ok: true, parsed: await parseImportFile(Buffer.from(job.bytes.buffer, job.bytes.byteOffset, job.bytes.byteLength), job.options) };
   } catch (err) {
     if (err instanceof ImportFileRejectedError) return { ok: false, code: err.code };
-    return { ok: false, unexpected: err instanceof Error ? `${err.name}: ${err.message}` : "non-error thrown" };
+    return { ok: false, unexpected: err instanceof Error ? err.name : "non-error thrown" };
   }
 }
 

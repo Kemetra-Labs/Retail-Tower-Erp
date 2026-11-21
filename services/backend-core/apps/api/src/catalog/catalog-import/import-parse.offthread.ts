@@ -13,7 +13,7 @@
  * Every worker-level failure (limit kill, timeout, crash, an exit with no
  * answer, a parser bug) is the contract's existing 422 `file_unreadable`: no
  * 500, nothing written (the caller writes only after this returns). A parser
- * bug is logged by name and message (never file content), so it is not hidden.
+ * bug is logged by its error name (never a message, which can quote file content), so it is not hidden.
  * A refusal the parser throws keeps its own code.
  *
  * Worker file: next to this file, `.js` in `dist` and `.ts` under Jest. Jest's
@@ -39,9 +39,11 @@ export interface OffThreadParseConfig {
 }
 
 /**
- * Measured (RT-1535, Windows laptop): a 5,000 x 50 XLSX of about 1 MB parses in about 1 s and needs a worker heap
- * between 96 and 128 MiB (96 refused, 128 accepted). 384 MiB is about 3x that, and 4 gate slots x 384 MiB stays
- * under 1.6 GiB. 20 s is about 15x the time, for a slow 2-vCPU runner or a loaded host.
+ * Measured (RT-1535, Windows laptop, built `dist` worker): the worst accepted 5,000 x 50 shapes (30-character Arabic
+ * cells near the 8M staged-character cap; 1,000 formats and styles at their caps) parse in 0.7 to 1.2 s and need a
+ * worker heap of 96 to 128 MiB (96 MiB refused the Arabic one, 128 MiB accepted it). 384 MiB is 3x that and 20 s is
+ * more than 15x the time, for a slow 2-vCPU runner. The heap limit does not cover Buffers (the zip inflate, up to
+ * 50 MiB), so the process total per slot is higher; the API container's memory limit is not in this repository.
  */
 export const DEFAULT_OFFTHREAD_PARSE_CONFIG: OffThreadParseConfig = {
   timeoutMs: 20_000,
