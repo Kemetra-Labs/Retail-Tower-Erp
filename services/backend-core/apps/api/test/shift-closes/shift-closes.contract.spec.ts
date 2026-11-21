@@ -72,6 +72,7 @@ const RT383_DETAIL_EXTRA_REQUIRED = ["openedAt", "openingUserId", "recordedByUse
 
 type SchemaName =
   | "ApproverCheck"
+  | "PolicyFlag"
   | "ShiftCloseSummary"
   | "ShiftClosePage"
   | "ShiftCloseDetail"
@@ -230,9 +231,9 @@ function without<T extends object>(value: T, key: keyof T): Omit<T, typeof key> 
 // 1. Document + operations
 // ===========================================================================
 describe("shift-closes — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.2.0-draft (RT-620, on RT-384)", () => {
+  it("is an OpenAPI 3.1 document at version 1.3.0-draft (RT-592, on RT-620 and RT-384)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.2.0-draft");
+    expect(doc.info?.version).toBe("1.3.0-draft");
   });
 
   it("carries an RT-384 note: additive, [GATED], non-breaking for Admin-Console RT-18", () => {
@@ -680,5 +681,26 @@ describe("shift-closes — POS shift contract unchanged", () => {
         "/api/pos/v1/shifts/{shift_id}/forced-close",
       ].sort(),
     );
+  });
+});
+
+// ===========================================================================
+// RT-592 — policy_revision_stale_at_receipt (1.3.0-draft)
+// ===========================================================================
+describe("shift-closes — RT-592 policy_revision_stale_at_receipt (1.3.0-draft)", () => {
+  it("PolicyFlag lists the four flags, the new one last", () => {
+    expect(schema("PolicyFlag")["enum"]).toEqual([
+      "policy_revision_unknown",
+      "policy_revision_superseded",
+      "policy_value_mismatch",
+      "policy_revision_stale_at_receipt",
+    ]);
+  });
+
+  it("carries an RT-592 note: [GATED] owner decision, additive, a closed-list client must add the value", () => {
+    const info = (doc.info?.description ?? "").replace(/\s+/g, " ");
+    expect(info).toContain("1.3.0-draft (RT-592, additive; [GATED] owner decision 2026-11-21");
+    expect(info).toContain("`policy_revision_stale_at_receipt`");
+    expect(info).toContain("must add the value");
   });
 });

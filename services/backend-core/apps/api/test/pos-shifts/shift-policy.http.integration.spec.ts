@@ -315,6 +315,80 @@ describe("the accept-and-flag matrix (AD-CASH-001 D-6), one case per cell", () =
   });
 });
 
+describe("RT-592: policy_revision_stale_at_receipt (an open that arrives more than 24 h late on a policy no longer in effect)", () => {
+  const STALE = "policy_revision_stale_at_receipt";
+  const LATE_MINUTES = 25 * 60;
+
+  beforeAll(async () => {
+    if (skipped()) return;
+    // The seeded admission windows start 24 h ago, so an open stamped 25 h ago needs an earlier window
+    // (the operator-attribution check, RT-224, covers `openedAt`). Ended rows may overlap, like the seeded ones.
+    await admin().query(
+      `INSERT INTO cashier_admissions
+         (id, tenant_id, store_id, user_id, device_id, mode, created_at, renewed_at, expires_at, ended_at, end_reason)
+       VALUES ($1, $2, $3, $4, $5, 'online', now() - interval '72 hours', now() - interval '72 hours',
+               now() + interval '48 hours', now() + interval '48 hours', 'device_end')`,
+      [randomUUID(), DEV_A1.tenant, DEV_A1.store, CASHIER.id, DEV_A1.id],
+    );
+  }, 60_000);
+
+  const frozenOld = () => ({ policySource: "tenant", policyRevisionId: revOld, policyValue: limit("100.00") });
+  const frozenCurrent = () => ({ policySource: "tenant", policyRevisionId: revCurrent, policyValue: limit("50.00") });
+
+  it("late and stale: recorded, never refused, and flagged on the 201 and in the row", async () => {
+    if (skipped()) return;
+    // revOld was replaced by revCurrent 120 min ago, and neither existed at openedAt (25 h ago), so the
+    // existing superseded finding fires as well; the new one stands after it, in the contract's order.
+    const { res, shiftId } = await openWith(frozenOld(), { openedAt: minutesAgo(LATE_MINUTES) });
+    expect(res.status).toBe(201);
+    expectSchema("Shift", res.body);
+    expect(res.body.frozenPolicy.policyFlags).toEqual(["policy_revision_superseded", STALE]);
+    expect((await frozenRow(shiftId)).flags).toEqual(["policy_revision_superseded", STALE]);
+  });
+
+  it("late and current: the revision in effect at receipt does not get the new flag", async () => {
+    if (skipped()) return;
+    const { res } = await openWith(frozenCurrent(), { openedAt: minutesAgo(LATE_MINUTES) });
+    expect(res.status).toBe(201);
+    // revCurrent did not exist at openedAt (the existing finding) but it is the policy in effect now.
+    expect(res.body.frozenPolicy.policyFlags).toEqual(["policy_revision_superseded"]);
+    expect(res.body.frozenPolicy.policyFlags).not.toContain(STALE);
+  });
+
+  it("on time and current: no flag; on time and stale at receipt: only the existing findings", async () => {
+    if (skipped()) return;
+    const current = await openWith(frozenCurrent(), { openedAt: minutesAgo(60) });
+    expect(current.res.body.frozenPolicy.policyFlags).toEqual([]);
+    await post({ path: closePath(current.shiftId), bearer: DEV_A1.token, body: closeBody() }).expect(201);
+    // revOld was effective 150 min ago, and 150 min is far inside 24 h: an offline open (DR-8), no new flag.
+    const stale = await openWith(frozenOld(), { openedAt: minutesAgo(150) });
+    expect(stale.res.body.frozenPolicy.policyFlags).toEqual([]);
+  });
+
+  it("late with a system policy while the tenant default is in force at receipt: flagged", async () => {
+    if (skipped()) return;
+    // No tenant revision existed 25 h ago, so the System default WAS effective at openedAt (no superseded).
+    const { res } = await openWith({ policySource: "system", policyRevisionId: null, policyValue: NONE }, { openedAt: minutesAgo(LATE_MINUTES) });
+    expect(res.status).toBe(201);
+    expect(res.body.frozenPolicy.policyFlags).toEqual([STALE]);
+  });
+
+  it("late with the fail-closed fallback or an unknown revision: never the new flag", async () => {
+    if (skipped()) return;
+    const fallback = await openWith(
+      { policySource: "fallback", policyRevisionId: null, policyValue: limit("0.00") },
+      { openedAt: minutesAgo(LATE_MINUTES) },
+    );
+    expect(fallback.res.body.frozenPolicy.policyFlags).toEqual([]);
+    await post({ path: closePath(fallback.shiftId), bearer: DEV_A1.token, body: closeBody() }).expect(201);
+    const unknown = await openWith(
+      { policySource: "tenant", policyRevisionId: randomUUID(), policyValue: limit("50.00") },
+      { openedAt: minutesAgo(LATE_MINUTES) },
+    );
+    expect(unknown.res.body.frozenPolicy.policyFlags).toEqual(["policy_revision_unknown"]);
+  });
+});
+
 /** Opens with `frozen` (or none) then closes with `close` overrides; returns the 201 close and the stored row. */
 async function openAndClose(frozen: unknown, close: Record<string, unknown> = {}) {
   const { res: opened, shiftId } = await openWith(frozen);
