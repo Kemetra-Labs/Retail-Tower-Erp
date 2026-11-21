@@ -112,6 +112,8 @@ export interface ContractSaleTender {
   reference?: string;
   /** Format: uuid. OPTIONAL (RT-359): the tender line's stable identity; required on every entry of a repeated method. */
   tenderRef?: string;
+  /** OPTIONAL (RT-359): the line's 1-based position among the sale's tender lines; unique within the sale. */
+  sequence?: number;
 }
 
 /** The binding `CaptureSaleLine` wire shape (`additionalProperties: false`). */

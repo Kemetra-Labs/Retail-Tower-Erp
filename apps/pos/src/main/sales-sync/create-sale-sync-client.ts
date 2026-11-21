@@ -358,13 +358,15 @@ type CaptureSaleReceiptWire = Omit<CaptureSaleReceipt, 'changeGivenMinor'> & {
 /**
  * The DP-2 `SaleTender` wire shape (RT-10 D1) — `reference` is deliberately never sent.
  * RT-1331: a `voucher` tender carries `redemptionId` (never a voucher code); `tenderRef`
- * only when the method repeats.
+ * only when the method repeats. RT-363: past the tender-refs cutoff every tender is one tender
+ * line and carries `tenderRef` and `sequence` (`SaleTender`, RT-359).
  */
 interface CaptureSaleTenderWire {
   method: 'cash' | 'card_external' | 'voucher';
   amount: string;
   redemptionId?: string;
   tenderRef?: string;
+  sequence?: number;
 }
 
 /**
@@ -460,13 +462,14 @@ function tendersWire(
   }));
 }
 
-/** RT-1331: the voucher redemption id and the tender ref, only when the tender has them. */
+/** RT-1331 / RT-363: the redemption id, tender ref and sequence, only when the tender has them. */
 function tenderIdentityWire(
   t: CaptureSaleTender,
-): Pick<CaptureSaleTenderWire, 'redemptionId' | 'tenderRef'> {
+): Pick<CaptureSaleTenderWire, 'redemptionId' | 'tenderRef' | 'sequence'> {
   return {
     ...(t.redemptionId === undefined ? {} : { redemptionId: t.redemptionId }),
     ...(t.tenderRef === undefined ? {} : { tenderRef: t.tenderRef }),
+    ...(t.sequence === undefined ? {} : { sequence: t.sequence }),
   };
 }
 

@@ -126,12 +126,15 @@ export interface CaptureSaleLineDiscount {
  * carries the V-A `redemptionId` and its amount is exactly the redeemed amount. `tenderRef`
  * (the POS tender line id) is set on a voucher entry only when the method repeats, as the
  * contract requires (`captureSale` `tenders`, RT-360).
+ * RT-363: past the tender-refs cutoff every entry is ONE tender line and carries `tenderRef`
+ * (the frozen `tender_line_id`) and `sequence` (its frozen 1-based apply rank).
  */
 export interface CaptureSaleTender {
   method: 'cash' | 'card_external' | 'voucher';
   amountMinor: number;
   redemptionId?: string;
   tenderRef?: string;
+  sequence?: number;
 }
 
 /** The `captureSale` request body. Money is integer minor units. */
@@ -179,6 +182,11 @@ export interface BuildCapturePayloadOptions {
   tendersSince?: string | null | undefined;
   /** RT-540: ISO instant; sales finalized at/after it carry `receipt`. null/undefined = off. */
   receiptSince?: string | null | undefined;
+  /**
+   * RT-363 (G1): ISO instant; a sale finalized at/after it (and past `tendersSince`) sends one
+   * tender per tender line with `tenderRef` and `sequence`. null/undefined = off (merged body).
+   */
+  tenderRefsSince?: string | null | undefined;
   /** RT-906: the sale's resolved approver roles (`readResolvedRoles`); none by default. */
   resolvedRoles?: ResolvedDiscountRoles | undefined;
 }
@@ -359,6 +367,8 @@ interface PersistedTenderLine {
   voucher_authority_redemption_id?: unknown;
   /** RT-362: the line's stable identity, frozen with the summary. */
   tender_line_id?: unknown;
+  /** RT-362: the line's frozen 1-based apply rank. */
+  sequence?: unknown;
 }
 
 const TENDER_METHOD: Readonly<Record<string, CaptureSaleTender['method']>> = {
@@ -421,6 +431,15 @@ export function parseTendersSince(raw: string | undefined): string | null {
  * to the Backend-Core RT-539 deploy, not to the tender switch.
  */
 export function parseReceiptSince(raw: string | undefined): string | null {
+  return parseTendersSince(raw);
+}
+
+/**
+ * RT-363: parse `POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE`, the cutoff for one-tender-per-line
+ * capture bodies. Same explicit-zone grammar and fail-safe as the tenders cutoff; a separate
+ * switch because it is tied to the Backend-Core same-method flag, not to the tender switch.
+ */
+export function parseTenderRefsSince(raw: string | undefined): string | null {
   return parseTendersSince(raw);
 }
 
@@ -537,9 +556,93 @@ function buildTenders(sale: SaleRow): CaptureSaleTender[] {
   return [...fungible, ...voucherTenders(vouchers)];
 }
 
-/** The sale's tenders: its frozen summary, or the RT-858 zero-total tender when that is empty. */
-function tendersOf(sale: SaleRow): CaptureSaleTender[] {
-  const tenders = buildTenders(sale);
+/** The most tenders one captured sale may carry (`CaptureSaleRequest.tenders.maxItems`, RT-1051). */
+const MAX_CAPTURE_TENDERS = 16;
+/** `SaleTender.sequence` is bounded by its SMALLINT column on the server. */
+const MAX_TENDER_SEQUENCE = 32767;
+
+interface LineIdentity {
+  tenderRef: string;
+  sequence: number;
+}
+
+/**
+ * RT-362 froze `tender_line_id` and `sequence` on every line, or on none. The identities of a
+ * sale's lines, or null when they cannot ALL be sent as is (a missing or non-uuid id, a missing,
+ * non-integer or out-of-range sequence, a repeat of either): such a sale keeps the merged body.
+ */
+function lineIdentities(lines: readonly PersistedTenderLine[]): LineIdentity[] | null {
+  const identities: LineIdentity[] = [];
+  for (const line of lines) {
+    const id = line.tender_line_id;
+    const sequence = line.sequence;
+    if (typeof id !== 'string' || !UUID.test(id)) return null;
+    if (typeof sequence !== 'number' || !Number.isSafeInteger(sequence)) return null;
+    if (sequence < 1 || sequence > MAX_TENDER_SEQUENCE) return null;
+    identities.push({ tenderRef: id, sequence });
+  }
+  // A uuid is case-insensitive: the same id in another case is the same tender line.
+  if (new Set(identities.map((i) => i.tenderRef.toLowerCase())).size !== identities.length) {
+    return null;
+  }
+  if (new Set(identities.map((i) => i.sequence)).size !== identities.length) return null;
+  return identities;
+}
+
+/**
+ * RT-363 (G1): one tender per applied line, each with its `tenderRef` and `sequence`, in
+ * `sequence` order. Amounts are NET of change; a zero-net line is dropped as in the merged body
+ * (the other lines keep their frozen sequence); the sum and fail-closed checks are the merged
+ * body's. Returns null when the merged body must be sent instead: an empty or unidentified
+ * summary, or more entries than the contract allows (RT-1052).
+ */
+function perLineTenders(sale: SaleRow): CaptureSaleTender[] | null {
+  const lines = parseTenderLines(sale);
+  if (lines === null) return null;
+  const identities = lineIdentities(lines);
+  if (identities === null) return null;
+
+  const entries: CaptureSaleTender[] = [];
+  const redemptions = new Set<string>();
+  let sum = 0;
+  lines.forEach((line, index) => {
+    const { method, applied, change } = readTenderLine(line);
+    const identity = identities[index] as LineIdentity;
+    if (method === 'voucher') {
+      const voucher = voucherLineOf(line, applied, change);
+      // UUID matches case-insensitively, so compare lower-cased (as the merged path does).
+      const redemption = voucher.redemptionId.toLowerCase();
+      if (redemptions.has(redemption)) {
+        throw new TenderNotSendableError('voucher redemption id repeated');
+      }
+      redemptions.add(redemption);
+      sum += voucher.amountMinor;
+      entries.push({
+        method,
+        amountMinor: voucher.amountMinor,
+        redemptionId: voucher.redemptionId,
+        ...identity,
+      });
+      return;
+    }
+    sum += applied - change;
+    if (applied - change > 0) entries.push({ method, amountMinor: applied - change, ...identity });
+  });
+  if (sum !== sale.subtotal_minor) {
+    throw new TenderNotSendableError(
+      `tenders sum ${String(sum)} != sale total ${String(sale.subtotal_minor)}`,
+    );
+  }
+  if (entries.length > MAX_CAPTURE_TENDERS) return null;
+  return entries.sort((a, b) => (a.sequence as number) - (b.sequence as number));
+}
+
+/**
+ * The sale's tenders: its frozen summary (one per line when `perLine`, RT-363), or the RT-858
+ * zero-total tender when that is empty.
+ */
+function tendersOf(sale: SaleRow, perLine: boolean): CaptureSaleTender[] {
+  const tenders = (perLine ? perLineTenders(sale) : null) ?? buildTenders(sale);
   return tenders.length > 0 ? tenders : zeroTotalTenders(sale);
 }
 
@@ -696,7 +799,9 @@ export function buildCapturePayload(
   const resolved = options.resolvedRoles ?? NO_RESOLVED_ROLES;
   const lines: CaptureSaleLine[] = snapshots.map((s) => captureLine(s, resolved));
 
-  const tenders = finalizedAtOrAfter(sale, options.tendersSince) ? tendersOf(sale) : [];
+  const tenders = finalizedAtOrAfter(sale, options.tendersSince)
+    ? tendersOf(sale, finalizedAtOrAfter(sale, options.tenderRefsSince))
+    : [];
   const admissionCheckAt = deriveAdmissionCheckAt(sale);
   const receipt = deriveReceipt(sale, options.receiptSince);
 

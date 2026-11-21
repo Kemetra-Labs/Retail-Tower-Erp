@@ -238,6 +238,12 @@ export interface SaleSyncEngineDeps {
    */
   receiptSince?: string | null | undefined;
   /**
+   * RT-363 gate (an ISO instant, `POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE`). Unset/null = the
+   * merged tender body. Set = a sale finalized at/after it (and past `tendersSince`) sends one
+   * tender per line with `tenderRef` and `sequence` (`tender-refs-cutoff.ts`).
+   */
+  tenderRefsSince?: string | null | undefined;
+  /**
    * Called once when a sale is dead-lettered (non-blocking operator notification).
    * `reason` is set when the POS itself refused to send the sale (RT-79: a tender it
    * cannot send faithfully); it carries no PII, card data or token.
@@ -407,6 +413,7 @@ export function createSaleSyncEngine(deps: SaleSyncEngineDeps): SaleSyncEngine {
       payload = buildCapturePayload(sale, {
         tendersSince: deps.tendersSince,
         receiptSince: deps.receiptSince,
+        tenderRefsSince: deps.tenderRefsSince,
         resolvedRoles: rolesOf(sale),
       });
     } catch (err) {

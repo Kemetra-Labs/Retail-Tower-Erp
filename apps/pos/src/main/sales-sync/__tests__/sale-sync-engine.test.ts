@@ -317,6 +317,33 @@ describe('RT-79 — tenders through the engine', () => {
     h.db.close();
   });
 
+  it('RT-363: with the tender-refs cutoff on, the client receives one tender per line with tenderRef/sequence; off, the merged one', async () => {
+    const L1 = 'a1111111-1111-4111-8111-111111111111';
+    const L2 = 'b2222222-2222-4222-8222-222222222222';
+    const split = JSON.stringify([
+      { tender_type: 'cash', amount_applied_minor: 1000, tender_line_id: L1, sequence: 1 },
+      { tender_type: 'cash', amount_applied_minor: 500, tender_line_id: L2, sequence: 2 },
+    ]);
+    for (const [refsSince, expected] of [
+      [
+        SINCE,
+        [
+          { method: 'cash', amountMinor: 1000, tenderRef: L1, sequence: 1 },
+          { method: 'cash', amountMinor: 500, tenderRef: L2, sequence: 2 },
+        ],
+      ],
+      [undefined, [{ method: 'cash', amountMinor: 1500 }]],
+    ] as const) {
+      const h = harness({ script: [{ kind: 'ok', saleRef: null }] });
+      seedSale(h.db, { sale_id: 'sale-1', tender_lines_summary_json: split });
+      seedOutbox(h.db, { sale_id: 'sale-1' });
+      await runOnce({ ...h.deps, tendersSince: SINCE, tenderRefsSince: refsSince });
+      const client = h.deps.client as ReturnType<typeof createFakeSaleSyncClient>;
+      expect(client.calls[0]?.tenders).toEqual(expected);
+      h.db.close();
+    }
+  });
+
   it('no cutoff configured (default) -> the client receives NO tenders', async () => {
     const { h, client } = await tendered(CASH, undefined);
     expect(client.calls).toHaveLength(1);
