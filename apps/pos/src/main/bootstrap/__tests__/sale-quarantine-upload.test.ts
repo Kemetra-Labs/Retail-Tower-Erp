@@ -35,6 +35,7 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.useRealTimers();
+  vi.unstubAllEnvs();
 });
 
 const TERMINAL = { tenant_id: 't1', branch_id: 'b1' };
@@ -58,9 +59,17 @@ function setup(
     answers?: QuarantineUploadOutcome[];
     revision?: number | null;
     sellingUsers?: SellingUserIdResolver;
+    /** RT-363: record a 0062 row (tenders and receipt cut-offs long past) before the uploader starts. */
+    cutover?: boolean;
   } = {},
 ) {
   const db = freshCatalogueDb();
+  if (opts.cutover === true) {
+    db.run(
+      `INSERT INTO sale_capture_cutover (id, tenders_since, receipt_since, recorded_at, source)
+       VALUES (1, '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', 'first_start')`,
+    );
+  }
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
   const sent: QuarantineUploadBody[] = [];
   const answers = [...(opts.answers ?? [])];
@@ -87,7 +96,7 @@ function setup(
     TERMINAL,
     () => (opts.revision === undefined ? 3 : opts.revision),
   );
-  const strand = (saleId: string, o: { lines?: string } = {}) => {
+  const strand = (saleId: string, o: { lines?: string; tenders?: string } = {}) => {
     const scope = { ...TERMINAL, terminal_id: 'term-1' };
     seedSale(db, {
       sale_id: saleId,
@@ -95,6 +104,7 @@ function setup(
       branch_id: 'b1',
       terminal_id: 'term-1',
       ...(o.lines === undefined ? {} : { lines_json: o.lines }),
+      ...(o.tenders === undefined ? {} : { tender_lines_summary_json: o.tenders }),
     });
     seedOutbox(db, {
       sale_id: saleId,
@@ -128,6 +138,31 @@ describe('RT-1312 Phase 3(c) — startSaleQuarantineUpload', () => {
     );
     expect(JSON.stringify(t.logger.info.mock.calls)).not.toContain('device-token');
     t.stop();
+  });
+
+  it('RT-363: uploads the per-line tender body when the tender-refs cut-off is set, the merged one when it is not', async () => {
+    const L1 = 'a1111111-1111-4111-8111-111111111111';
+    const L2 = 'b2222222-2222-4222-8222-222222222222';
+    const tenders = JSON.stringify([
+      { tender_type: 'cash', amount_applied_minor: 1000, tender_line_id: L1, sequence: 1 },
+      { tender_type: 'cash', amount_applied_minor: 500, tender_line_id: L2, sequence: 2 },
+    ]);
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2000-01-01T00:00:00Z');
+    const on = setup({ cutover: true });
+    on.strand('s1', { tenders });
+    await vi.advanceTimersByTimeAsync(PASS_MS);
+    expect(on.sent[0]?.saleBody['tenders']).toEqual([
+      { method: 'cash', amount: '10.00', tenderRef: L1, sequence: 1 },
+      { method: 'cash', amount: '5.00', tenderRef: L2, sequence: 2 },
+    ]);
+    on.stop();
+
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '');
+    const off = setup({ cutover: true });
+    off.strand('s1', { tenders });
+    await vi.advanceTimersByTimeAsync(PASS_MS);
+    expect(off.sent[0]?.saleBody['tenders']).toEqual([{ method: 'cash', amount: '15.00' }]);
+    off.stop();
   });
 
   it('does nothing while unpaired', async () => {

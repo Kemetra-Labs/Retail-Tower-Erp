@@ -175,6 +175,7 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     vi.clearAllMocks();
     vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDERS_SINCE', '');
     vi.stubEnv('POS_PULSE_FEATURE_SALE_RECEIPT_SINCE', '');
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -287,6 +288,24 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     expect(engineDeps()['tendersSince']).toBeNull();
     expect(engineDeps()['receiptSince']).toBeNull();
     expect(h.logger.warn).not.toHaveBeenCalled();
+  });
+
+  it('RT-363: the tender-refs cut-off is read from the environment: a valid instant, else off', () => {
+    const h = makeHarness();
+    const refsSince = (): unknown => {
+      m.createSaleSyncEngine.mockClear();
+      startSaleSyncEngine(h.deps, TERMINAL);
+      return engineDeps()['tenderRefsSince'];
+    };
+    expect(refsSince()).toBeNull();
+    expect(h.logger.warn).not.toHaveBeenCalled();
+
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2026-12-01T02:00:00+02:00');
+    expect(refsSince()).toBe('2026-12-01T00:00:00.000Z');
+
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', 'garbage');
+    expect(refsSince()).toBeNull();
+    expect(h.logger.warn).toHaveBeenCalledTimes(1);
   });
 
   it('runs the RT-225 support reset for this terminal before the engine exists', () => {

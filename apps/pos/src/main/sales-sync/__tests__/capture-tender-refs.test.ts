@@ -145,6 +145,59 @@ describe('RT-363 — one tender per line past the tender-refs cutoff', () => {
     ]);
   });
 
+  it('lines are sent in sequence order, whatever order the summary lists them', () => {
+    const lines = [
+      { tender_type: 'cash', amount_applied_minor: 400, tender_line_id: L3, sequence: 3 },
+      { tender_type: 'cash', amount_applied_minor: 600, tender_line_id: L1, sequence: 1 },
+      {
+        tender_type: 'external_card_terminal',
+        amount_applied_minor: 500,
+        tender_line_id: L2,
+        sequence: 2,
+      },
+    ];
+    expect(buildCapturePayload(saleRow(lines), ON).tenders?.map((t) => t.sequence)).toEqual([
+      1, 2, 3,
+    ]);
+  });
+
+  it('two vouchers each keep their redemptionId, tenderRef and sequence', () => {
+    const RED_2 = '7b9e1d34-2c58-4f06-9a73-5d8e0b1c4f22';
+    const lines = [
+      {
+        tender_type: 'internal_voucher',
+        amount_applied_minor: 1000,
+        voucher_authority_redemption_id: RED,
+        tender_line_id: L1,
+        sequence: 1,
+      },
+      {
+        tender_type: 'internal_voucher',
+        amount_applied_minor: 500,
+        voucher_authority_redemption_id: RED_2,
+        tender_line_id: L2,
+        sequence: 2,
+      },
+    ];
+    expect(buildCapturePayload(saleRow(lines), ON).tenders).toEqual([
+      { method: 'voucher', amountMinor: 1000, redemptionId: RED, tenderRef: L1, sequence: 1 },
+      { method: 'voucher', amountMinor: 500, redemptionId: RED_2, tenderRef: L2, sequence: 2 },
+    ]);
+  });
+
+  it('the same redemption id twice is still not sendable per line (also in another letter case)', () => {
+    const line = (id: string, sequence: number, redemption: string) => ({
+      tender_type: 'internal_voucher',
+      amount_applied_minor: 750,
+      voucher_authority_redemption_id: redemption,
+      tender_line_id: id,
+      sequence,
+    });
+    expect(() =>
+      buildCapturePayload(saleRow([line(L1, 1, RED), line(L2, 2, RED.toUpperCase())]), ON),
+    ).toThrow('voucher redemption id repeated');
+  });
+
   it('keeps the sum check: lines that do not add up to the total stay not sendable', () => {
     const lines = [
       { tender_type: 'cash', amount_applied_minor: 1400, tender_line_id: L1, sequence: 1 },
