@@ -4,8 +4,8 @@
  * With no overrides the gateway must deny everything: the real entitlement
  * port (RT-664) fails closed when its store is unreachable, the budget fails
  * closed, the route allowlist is empty and the provider is disabled. The fake adapter is test-only and never bound by default.
- * AiModule is deliberately NOT imported by AppModule yet: it has no controller
- * and adds no HTTP route.
+ * The plain AiModule has no controller and adds no HTTP route; the app reaches it only through
+ * `AiModule.withOverrides` in `ManagerSalesModule` (RT-1539), which this spec's defaults do not cover.
  */
 import "reflect-metadata";
 
