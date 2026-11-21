@@ -500,12 +500,16 @@ export class SalesController {
    * envelope route, unchanged. @DeviceBearer() makes the global
    * FailClosedAuthGuard defer to SaleVoidAuthGuard, which runs PosDeviceAuthGuard
    * first, then verifies the claimed cashier against a cashier admission live now
-   * on the device, and only then publishes that cashier as the actor. No
-   * per-device write bucket: a void is rare, as on `recordVoid`.
+   * on the device, and only then publishes that cashier as the actor. The
+   * per-device write limit (ADR 0009) runs AFTER the auth guard, as on captureSale
+   * (it fails open on a Redis or lookup error, so it never blocks a write the
+   * guard admitted): a device token alone could otherwise drive one admission and
+   * eligibility lookup per request without bound (review M1).
    */
   @Post("api/pos/v1/sales/:saleRef/cashier-void")
   @DeviceBearer()
-  @UseGuards(SaleVoidAuthGuard)
+  @UseGuards(SaleVoidAuthGuard, PosWriteRateLimitGuard)
+  @PosWriteRateLimitBucket("posWriteSaleVoid")
   @Idempotent("required")
   @Auditable("sale.voided")
   async recordCashierVoid(

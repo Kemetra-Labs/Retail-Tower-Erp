@@ -57,9 +57,9 @@ import type { DeviceScope } from "../../pos-cashier-admissions/device-scope";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import { RecordCashierVoidRequestSchema } from "./dto/record-void-request.dto";
 import {
-  TRACKED_LINE_CASHIER_VERIFIER,
-  type TrackedLineCashierRefusal,
-  type TrackedLineCashierVerifier,
+  SALE_VOID_CASHIER_VERIFIER,
+  type SaleVoidCashierRefusal,
+  type SaleVoidCashierVerifier,
 } from "./tracked-lines/tracked-line-cashier";
 import {
   ATTRIBUTION_REFUSAL_EVENTS,
@@ -139,7 +139,7 @@ export class SaleCaptureAuthGuard extends CompositePosAuthGuard {
 }
 
 /** The refusal log's fixed `event` per cause of recordCashierVoid's cashier claim (redaction matrix §3.4 `event`). */
-export const SALE_VOID_CASHIER_REFUSAL_EVENTS: Readonly<Record<TrackedLineCashierRefusal, string>> = {
+export const SALE_VOID_CASHIER_REFUSAL_EVENTS: Readonly<Record<SaleVoidCashierRefusal, string>> = {
   no_live_admission: "sale_void.operator_refused.no_live_admission",
   membership_inactive: "sale_void.operator_refused.membership_inactive",
   user_deleted: "sale_void.operator_refused.user_deleted",
@@ -147,6 +147,7 @@ export const SALE_VOID_CASHIER_REFUSAL_EVENTS: Readonly<Record<TrackedLineCashie
   store_inactive: "sale_void.operator_refused.store_inactive",
   store_not_accessible: "sale_void.operator_refused.store_not_accessible",
   profile_incomplete: "sale_void.operator_refused.profile_incomplete",
+  suspended: "sale_void.operator_refused.suspended",
 };
 
 /**
@@ -169,16 +170,31 @@ export const SALE_VOID_CASHIER_REFUSAL_EVENTS: Readonly<Record<TrackedLineCashie
  *   b. The strict cashier-void body (a malformed body from an authenticated
  *      device, including a missing `operatorUserId`, is the usual 400; the
  *      handler's pipe runs it again).
- *   c. `TrackedLineCashierVerifier` (RT-451 S2, reused): a cashier admission of
- *      THIS device and store for the claimed user, live at the server's current
- *      time (no back-dating window), plus the live cashier eligibility rules. A
- *      void queued while the cashier was admitted is therefore sent only while
- *      the same cashier is admitted again (RT-530 c12006).
+ *   c. `SaleVoidCashierVerifier` (the RT-451 S2 tracked-line rules, plus the
+ *      store suspension, RT-1403 review H2): a cashier admission of THIS device
+ *      and store for the claimed user, live at the server's current time (no
+ *      back-dating window), the live cashier eligibility rules, and no store
+ *      suspension of the cashier (`check` never refuses a suspended cashier, and
+ *      suspending does not end live admissions). A void queued while the cashier
+ *      was admitted is therefore sent only while the same cashier is admitted
+ *      again (RT-530 c12006).
  *   d. Only then is the VERIFIED cashier published as the actor, so the
  *      service's `requesterIsActor`, four-eyes, same-day and eligibility checks
- *      (void-approval.ts) apply unchanged: the requester is bound to the cashier
- *      holding a live admission on the paired device, never to an id the client
- *      merely states.
+ *      (void-approval.ts) apply unchanged: the requester is the cashier the
+ *      device holds a live admission for.
+ *
+ * RESIDUAL RISK, stated plainly (RT-1403 review M2). This is not proof that the
+ * cashier or the manager was present. The DEVICE creates the cashier admission
+ * itself (`POST /cashier-admissions` checks no PIN on the server), so the trust
+ * here is: the device token, plus a cashier id the client states, which must be
+ * eligible, not suspended and admitted on this device (and so not live
+ * elsewhere). The approver id is checked only for its role and four-eyes
+ * (store_manager or above, not the requester, not the seller); the PIN is checked
+ * on the terminal only. Anyone who holds a device token can void any same-day
+ * sale of the store, naming an admitted cashier and an eligible manager. It is
+ * the trust level of captureSale's device path and of RT-530's approval evidence;
+ * the per-device write bucket, the audit event naming both users, and the live
+ * admission requirement bound the exposure. They do not remove it.
  *
  * A refused cashier claim from an AUTHENTICATED device is the generic 403
  * `refused` (one body for every cause; to the POS a device 401 means "device
@@ -197,7 +213,7 @@ export class SaleVoidAuthGuard extends CompositePosAuthGuard {
   // dependency is an explicit, module-resolvable token (SalesModule), the
   // claim verifier first.
   constructor(
-    @Inject(TRACKED_LINE_CASHIER_VERIFIER) private readonly cashier: TrackedLineCashierVerifier,
+    @Inject(SALE_VOID_CASHIER_VERIFIER) private readonly cashier: SaleVoidCashierVerifier,
     @Inject(PosDeviceAuthGuard) device: CompositeGate,
     @Optional() @Inject(ROOT_LOGGER) logger?: Pick<Logger, "warn">,
   ) {

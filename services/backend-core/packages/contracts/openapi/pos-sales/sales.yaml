@@ -1117,17 +1117,34 @@ paths:
         device and store for that user is live at the server's current time (no
         back-dating window: a void queued while the cashier was admitted is
         sent only while the same cashier is admitted again), and the cashier's
-        membership, store access and account are still live. The verified
-        cashier is the void's actor, so check 4 of `recordVoid` binds
-        `approval.requesterUserId` to the cashier holding a live admission on
-        the paired device, never to an id the client merely states. A missing,
-        invalid or revoked device credential, and an operator envelope, are the
-        generic 401. A refused cashier claim from an authenticated device (no
-        live admission, an ineligible cashier, an unknown user or a user of
-        another tenant) is the generic 403 `refused`, with one body for every
-        cause, decided before any other check; it is never a sign that the
-        device was revoked. A malformed body from an authenticated device,
-        including a missing `operatorUserId`, is the usual 400.
+        membership, store access and account are still live, and the cashier
+        is not suspended at the store. The verified cashier is the void's
+        actor, so check 4 of `recordVoid` binds `approval.requesterUserId` to
+        that cashier. A missing, invalid or revoked device credential, and an
+        operator envelope, are the generic 401. A refused cashier claim from an
+        authenticated device (no live admission, an ineligible or suspended
+        cashier, an unknown user or a user of another tenant) is the generic
+        403 `refused`, with one body for every cause, decided before any other
+        check; it is never a sign that the device was revoked. A malformed body
+        from an authenticated device, including a missing `operatorUserId`, is
+        the usual 400.
+
+
+        What this credential proves, plainly. It does not prove that the
+        cashier or the approving manager was present. The DEVICE creates the
+        cashier admission itself (`POST /cashier-admissions` checks no PIN on
+        the server), so the trust is the device token plus a cashier id the
+        client states, which must be eligible, not suspended and admitted on
+        this device (and so not live on another). The approver id is checked
+        only for its role and four-eyes (`owner`, `tenant_admin` or
+        `store_manager` of the store, neither the requester nor the seller);
+        the approval PIN is checked on the terminal only, the same posture as
+        `recordVoid` and the RT-17 shift-variance approver. Anyone who holds a
+        device token can therefore void any same-day sale of the store by
+        naming an admitted cashier and an eligible manager. The per-device
+        write limit, the `sale.voided` audit event (it names the approver and
+        the requester) and the live-admission requirement bound the exposure;
+        they do not remove it.
 
 
         Everything after the credential is `recordVoid`'s, unchanged: the
@@ -3106,10 +3123,13 @@ components:
             accepts it only when a cashier admission of the authenticated device
             and store for this user is live at the server's current time and the
             cashier is still eligible (membership, account, role, store and
-            store access), else the generic 403 `refused`. The verified user is
-            the void's actor, and the approval's `requesterUserId` must equal it
-            (403 `void_requester_mismatch`). It is not part of the void's
-            `payload_hash`.
+            store access) and not suspended at the store, else the generic 403
+            `refused`. The verified user is the void's actor, and the approval's
+            `requesterUserId` must equal it (403 `void_requester_mismatch`). It
+            proves only that this device holds a live admission for that user:
+            the device creates the admission itself with no server-side PIN
+            check, so it is not proof that the cashier was present. It is not
+            part of the void's `payload_hash`.
     VoidApproval:
       type: object
       additionalProperties: false
@@ -4410,8 +4430,8 @@ components:
         403 on `recordCashierVoid` (RT-1403). `error.code` is one of:
         `refused` - the device credential is valid, but the cashier claim
         (`operatorUserId`) is not accepted: no live cashier admission of this
-        device and store, an ineligible cashier, an unknown user or a user of
-        another tenant. One body for every cause, decided before every other
+        device and store, an ineligible or suspended cashier, an unknown user or
+        a user of another tenant. One body for every cause, decided before every other
         check; the cause is logged server-side keyed by `request_id`, and it is
         never a sign that the device was revoked (that is a 401). Then the codes
         of `VoidForbidden`, unchanged: `void_approval_required`,

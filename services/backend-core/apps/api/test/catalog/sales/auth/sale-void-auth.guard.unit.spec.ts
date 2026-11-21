@@ -28,10 +28,12 @@ import {
   SaleVoidAuthGuard,
 } from "../../../../src/catalog/sales/sale-capture-auth.guard";
 import {
+  PgSaleVoidCashierVerifier,
   TRACKED_LINE_CASHIER_REFUSAL_EVENTS,
-  type TrackedLineCashierVerdict,
-  type TrackedLineCashierVerifier,
+  type SaleVoidCashierVerdict,
+  type SaleVoidCashierVerifier,
 } from "../../../../src/catalog/sales/tracked-lines/tracked-line-cashier";
+import type { CashierEligibilityReader } from "../../../../src/pos-cashier-admissions/cashier-eligibility";
 
 const TENANT_ID = "0a1403aa-0000-4000-8000-000000000001";
 const STORE_ID = "0a1403aa-0000-4000-8000-000000000002";
@@ -111,14 +113,14 @@ function deviceGuardRefusing(): { canActivate: jest.Mock } {
 }
 
 function verifier(
-  verdict: TrackedLineCashierVerdict,
-): TrackedLineCashierVerifier & { verify: jest.Mock } {
+  verdict: SaleVoidCashierVerdict,
+): SaleVoidCashierVerifier & { verify: jest.Mock } {
   return { verify: jest.fn(async (_scope: DeviceScope, _userId: string) => verdict) };
 }
 
 function makeGuard(opts: {
   device?: { canActivate: jest.Mock };
-  cashier?: TrackedLineCashierVerifier & { verify: jest.Mock };
+  cashier?: SaleVoidCashierVerifier & { verify: jest.Mock };
 }) {
   const device = opts.device ?? deviceGuardAccepting();
   const cashier = opts.cashier ?? verifier({ ok: true });
@@ -221,7 +223,7 @@ describe("SaleVoidAuthGuard — device path", () => {
     "refusal %s -> the same generic 403 refused (never the device's 401), and the cashier is never published",
     async (cause) => {
       const t = makeGuard({
-        cashier: verifier({ ok: false, cause } as TrackedLineCashierVerdict),
+        cashier: verifier({ ok: false, cause } as SaleVoidCashierVerdict),
       });
       const req = bearerRequest(voidBody());
       const err = await t.guard.canActivate(ctxFor(req)).catch((e: unknown) => e);
@@ -273,10 +275,11 @@ describe("SaleVoidAuthGuard — refusal log (redaction matrix)", () => {
     expect(serialized).not.toContain("device-token");
   });
 
-  it("covers every refusal cause of the shared verifier, with fixed, distinct event names", () => {
+  it("covers every refusal cause of the shared verifier plus the suspension, with fixed, distinct event names", () => {
     expect(Object.keys(SALE_VOID_CASHIER_REFUSAL_EVENTS).sort()).toEqual(
-      Object.keys(TRACKED_LINE_CASHIER_REFUSAL_EVENTS).sort(),
+      [...Object.keys(TRACKED_LINE_CASHIER_REFUSAL_EVENTS), "suspended"].sort(),
     );
+    expect(SALE_VOID_CASHIER_REFUSAL_EVENTS.suspended).toBe("sale_void.operator_refused.suspended");
     for (const name of Object.values(SALE_VOID_CASHIER_REFUSAL_EVENTS)) {
       expect(name).toMatch(/^sale_void\.operator_refused\.[a-z_]+$/);
     }
@@ -289,5 +292,64 @@ describe("SaleVoidAuthGuard — refusal log (redaction matrix)", () => {
     const t = makeGuard({});
     await t.guard.canActivate(ctxFor(bearerRequest(voidBody())));
     expect(t.logger.warn).not.toHaveBeenCalled();
+  });
+});
+
+describe("PgSaleVoidCashierVerifier — suspension (review H2)", () => {
+  const SCOPE: DeviceScope = { tenantId: TENANT_ID, storeId: STORE_ID, deviceId: DEVICE_ID };
+
+  /** A pool whose tenant-scoped client answers the live-admission query, and records every query. */
+  function poolWith(live: boolean): { pool: never; queries: string[] } {
+    const queries: string[] = [];
+    const client = {
+      query: jest.fn(async (sql: string) => {
+        queries.push(sql);
+        if (/^\s*(BEGIN|COMMIT|ROLLBACK)/i.test(sql) || /set_config|SET LOCAL/i.test(sql)) return { rows: [], rowCount: 0 };
+        return { rows: [{ live }], rowCount: 1 };
+      }),
+      release: jest.fn(),
+    };
+    return { pool: { connect: jest.fn(async () => client) } as never, queries };
+  }
+
+  function eligibility(opts: { eligible: boolean; suspended: boolean }): CashierEligibilityReader & {
+    isSuspended: jest.Mock;
+  } {
+    return {
+      check: jest.fn(async () =>
+        opts.eligible
+          ? { eligible: true as const, displayName: "Cashier", operatorId: "op-1" }
+          : { eligible: false as const, reason: "membership_inactive" as const },
+      ),
+      isSuspended: jest.fn(async () => opts.suspended),
+      roster: jest.fn(),
+    } as never;
+  }
+
+  it("accepts a live, eligible, NOT suspended cashier", async () => {
+    const e = eligibility({ eligible: true, suspended: false });
+    const v = new PgSaleVoidCashierVerifier(poolWith(true).pool, e);
+    await expect(v.verify(SCOPE, CASHIER_ID)).resolves.toEqual({ ok: true });
+    expect(e.isSuspended).toHaveBeenCalledTimes(1);
+  });
+
+  it("refuses a suspended cashier even with a live admission and eligibility (cause suspended)", async () => {
+    const e = eligibility({ eligible: true, suspended: true });
+    const v = new PgSaleVoidCashierVerifier(poolWith(true).pool, e);
+    await expect(v.verify(SCOPE, CASHIER_ID)).resolves.toEqual({ ok: false, cause: "suspended" });
+  });
+
+  it("no live admission wins and never reads eligibility or the suspension", async () => {
+    const e = eligibility({ eligible: true, suspended: true });
+    const v = new PgSaleVoidCashierVerifier(poolWith(false).pool, e);
+    await expect(v.verify(SCOPE, CASHIER_ID)).resolves.toEqual({ ok: false, cause: "no_live_admission" });
+    expect(e.isSuspended).not.toHaveBeenCalled();
+  });
+
+  it("an ineligible cashier is refused with the eligibility cause before the suspension is read", async () => {
+    const e = eligibility({ eligible: false, suspended: true });
+    const v = new PgSaleVoidCashierVerifier(poolWith(true).pool, e);
+    await expect(v.verify(SCOPE, CASHIER_ID)).resolves.toEqual({ ok: false, cause: "membership_inactive" });
+    expect(e.isSuspended).not.toHaveBeenCalled();
   });
 });

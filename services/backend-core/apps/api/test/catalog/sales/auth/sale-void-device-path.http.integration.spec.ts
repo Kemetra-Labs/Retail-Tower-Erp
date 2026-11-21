@@ -35,6 +35,7 @@ import request from "supertest";
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../../src/audit/audit-job.types";
 import { AuthModule } from "../../../../src/auth/auth.module";
+import { RateLimiter, type RateLimitDecision } from "../../../../src/auth/rate-limit";
 import { FailClosedAuthGuard } from "../../../../src/auth/fail-closed-auth.guard";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
@@ -66,7 +67,9 @@ const M_CASHIER = "0a140300-0000-4000-8000-0000000000d1";
 const M_CASHIER_2 = "0a140300-0000-4000-8000-0000000000d2";
 const M_MANAGER = "0a140300-0000-4000-8000-0000000000d3";
 const DEVICE = "0a140300-0000-4000-8000-0000000000e1";
+const DEVICE_2 = "0a140300-0000-4000-8000-0000000000e2";
 const TOKEN = "rt1403-device-token-till-1";
+const TOKEN_2 = "rt1403-device-token-till-2";
 
 const HOUR = 3_600_000;
 const fromNow = (offsetMs: number): string => new Date(Date.now() + offsetMs).toISOString();
@@ -78,10 +81,24 @@ class SpyAuditEnqueuer implements AuditJobEnqueuer {
   }
 }
 
+/** The per-device limiter, recording every check; it denies `denyBucket` for `denyKey`. */
+class SwitchRateLimiter {
+  denyBucket: string | null = null;
+  denyKey: string | null = null;
+  readonly calls: Array<{ bucket: string; key: string }> = [];
+  async check(bucket: string, key: string): Promise<RateLimitDecision> {
+    this.calls.push({ bucket, key });
+    const allowed = !(bucket === this.denyBucket && key === this.denyKey);
+    return { allowed, count: 1, remaining: 0, resetMs: 30_000 };
+  }
+  async release(): Promise<void> {}
+}
+
 let env: PgTestEnv | null = null;
 let app: INestApplication | null = null;
 let dockerSkipped = false;
 const audit = new SpyAuditEnqueuer();
+const limiter = new SwitchRateLimiter();
 
 function E(): PgTestEnv {
   if (!env) throw new Error("env not initialized");
@@ -94,7 +111,9 @@ function http(): ReturnType<typeof request> {
 const skip = (): boolean => dockerSkipped;
 
 /** A cashier admission of the till, live from an hour ago for eight hours. */
-async function liveAdmission(opts: { user?: string; endedAt?: string; expiresAt?: string } = {}): Promise<void> {
+async function liveAdmission(
+  opts: { user?: string; device?: string; endedAt?: string; expiresAt?: string } = {},
+): Promise<void> {
   await E().admin.query(
     `INSERT INTO cashier_admissions
        (id, tenant_id, store_id, user_id, device_id, mode,
@@ -106,7 +125,7 @@ async function liveAdmission(opts: { user?: string; endedAt?: string; expiresAt?
       TENANT,
       STORE,
       opts.user ?? CASHIER,
-      DEVICE,
+      opts.device ?? DEVICE,
       fromNow(-HOUR),
       opts.expiresAt ?? fromNow(8 * HOUR),
       opts.endedAt ?? null,
@@ -246,8 +265,9 @@ beforeAll(async () => {
     [M_CASHIER, M_CASHIER_2, M_MANAGER, STORE, TENANT],
   );
   await a.query(
-    `INSERT INTO devices (id, tenant_id, store_id, label, token_hash) VALUES ($1, $2, $3, 'till-1', $4)`,
-    [DEVICE, TENANT, STORE, hashToken(TOKEN)],
+    `INSERT INTO devices (id, tenant_id, store_id, label, token_hash) VALUES
+       ($1, $2, $3, 'till-1', $4), ($5, $2, $3, 'till-2', $6)`,
+    [DEVICE, TENANT, STORE, hashToken(TOKEN), DEVICE_2, hashToken(TOKEN_2)],
   );
 
   const moduleRef = await Test.createTestingModule({
@@ -260,6 +280,8 @@ beforeAll(async () => {
     .useValue(env.admin)
     .overrideProvider(AUDIT_JOB_ENQUEUER)
     .useValue(audit)
+    .overrideProvider(RateLimiter)
+    .useValue(limiter)
     .compile();
 
   app = moduleRef.createNestApplication({ bufferLogs: true, logger: false });
@@ -279,7 +301,11 @@ afterEach(async () => {
   if (!env) return;
   await env.admin.query(`DELETE FROM cashier_admissions`);
   await env.admin.query(`UPDATE devices SET revoked_at = NULL`);
+  await env.admin.query(`DELETE FROM cashier_suspensions`);
   audit.payloads.length = 0;
+  limiter.denyBucket = null;
+  limiter.denyKey = null;
+  limiter.calls.length = 0;
 });
 
 describe("recordCashierVoid — cashier device route (RT-1403)", () => {
@@ -449,6 +475,85 @@ describe("recordCashierVoid — cashier device route (RT-1403)", () => {
     const sale = await captureSale();
     const res = await postVoid({ sale, bearer: null, body: voidBody(sale, { operatorUserId: CASHIER }) });
     expect(res.status).toBe(401);
+  });
+
+  it("an admission of ANOTHER device does not authorize the claim: a cashier admitted on till 2 is refused with till 1's token", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    await E().admin.query(`DELETE FROM cashier_admissions`);
+    await liveAdmission({ device: DEVICE_2 });
+    const res = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("refused");
+    expect(await voidRows(sale.saleRef)).toHaveLength(0);
+    // The same cashier with till 2's own token is accepted: the device row is the scope.
+    const ok = await postVoid({ sale, bearer: TOKEN_2, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(ok.status).toBe(201);
+  });
+
+  it("an expired admission (expires_at in the past, never ended) is refused: 403 refused, nothing recorded", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    await E().admin.query(`DELETE FROM cashier_admissions`);
+    await liveAdmission({ expiresAt: fromNow(-60_000) });
+    const res = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("refused");
+    expect(await voidRows(sale.saleRef)).toHaveLength(0);
+  });
+
+  it("a cashier SUSPENDED at the store with a still-live admission is refused: generic 403 refused, nothing recorded (review H2)", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    // Suspending does not end the live admission; the void must still be refused.
+    await E().admin.query(
+      `INSERT INTO cashier_suspensions (tenant_id, store_id, user_id, status, changed_by_user_id)
+       VALUES ($1, $2, $3, 'suspended', $4)`,
+      [TENANT, STORE, CASHIER, MANAGER],
+    );
+    const res = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(res.status).toBe(403);
+    expect(res.body.error.code).toBe("refused");
+    expect(await voidRows(sale.saleRef)).toHaveLength(0);
+    // Reinstated (status active): the same void is accepted.
+    await E().admin.query(`UPDATE cashier_suspensions SET status = 'active' WHERE user_id = $1`, [CASHIER]);
+    const ok = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(ok.status).toBe(201);
+  });
+
+  it("the per-device write limit runs after the guard, on the cashier route's own bucket (review M1)", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    const ok = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(ok.status).toBe(201);
+    expect(limiter.calls).toContainEqual({ bucket: "posWriteSaleVoid", key: DEVICE });
+
+    const sale2 = await captureSale();
+    limiter.denyBucket = "posWriteSaleVoid";
+    limiter.denyKey = DEVICE;
+    const denied = await postVoid({ sale: sale2, bearer: TOKEN, body: voidBody(sale2, { operatorUserId: CASHIER }) });
+    expect(denied.status).toBe(429);
+    expect(denied.headers["retry-after"]).toBe("30");
+    expect(await voidRows(sale2.saleRef)).toHaveLength(0);
+    // Another till has its own budget (one live admission per cashier: move it to till 2).
+    await E().admin.query(`DELETE FROM cashier_admissions`);
+    await liveAdmission({ device: DEVICE_2 });
+    const other = await postVoid({ sale: sale2, bearer: TOKEN_2, body: voidBody(sale2, { operatorUserId: CASHIER }) });
+    expect(other.status).toBe(201);
+  });
+
+  it("an unauthenticated request never spends the limiter (the guard runs first)", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    limiter.calls.length = 0;
+    const res = await postVoid({ sale, bearer: "not-a-device-token", body: voidBody(sale, { operatorUserId: CASHIER }) });
+    expect(res.status).toBe(401);
+    expect(limiter.calls.filter((c) => c.bucket === "posWriteSaleVoid")).toEqual([]);
   });
 
   it("a revoked device is the generic 401, never the 403 refused", async () => {

@@ -302,8 +302,9 @@ export async function startCaptureHarness(
       // integration spec; a no-op here like the other auth guards.
       .overrideGuard(SaleCaptureAuthGuard)
       .useValue({ canActivate: () => true })
-      // RT-1403: recordVoid's route guard (envelope OR device + live cashier
-      // claim), a no-op here like captureSale's; covered by its unit spec.
+      // RT-1403: recordCashierVoid's route guard (device bearer + live cashier
+      // claim; recordVoid stays on the envelope guard above), a no-op here like
+      // captureSale's; covered by its unit spec and the device-path integration spec.
       .overrideGuard(SaleVoidAuthGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(PosOperatorAuthGuard)

@@ -106,6 +106,8 @@ describe("pos-sales/sales.yaml — RT-1403 cashier void route", () => {
     expect(text).toContain("It is a claim, never trusted on its own");
     expect(text).toContain("live at the server's current time");
     expect(text).toContain("`void_requester_mismatch`");
+    expect(text).toContain("the device creates the admission itself with no server-side PIN check");
+    expect(text).toContain("not suspended at the store");
     expect(text).toContain("not part of the void's `payload_hash`");
   });
 
@@ -114,7 +116,12 @@ describe("pos-sales/sales.yaml — RT-1403 cashier void route", () => {
     expect(text).toContain("`recordVoid` stays manager and admin envelope only");
     expect(text).toContain("an operator envelope, are the generic 401");
     expect(text).toContain("generic 403 `refused`");
-    expect(text).toContain("never to an id the client merely states");
+    expect(text).toContain("What this credential proves, plainly");
+    expect(text).toContain("It does not prove that the cashier or the approving manager was present");
+    expect(text).toContain("`POST /cashier-admissions` checks no PIN on the server");
+    expect(text).toContain("the trust is the device token plus a cashier id the client states");
+    expect(text).toContain("not suspended at the store");
+    expect(text).not.toContain("never to an id the client merely states");
     expect(text).toContain("including a missing `operatorUserId`, is the usual 400");
     expect(text).toContain("Both routes call the same service");
     expect(text).toContain("`operatorUserId` is not part of the stored `payload_hash`");
@@ -123,6 +130,7 @@ describe("pos-sales/sales.yaml — RT-1403 cashier void route", () => {
   it("the cashier 403 names `refused` first, says it is never a revoked device, and keeps the RT-530 codes", () => {
     const text = flat(sales.components?.responses?.["CashierVoidForbidden"]?.description);
     expect(text).toContain("`refused`");
+    expect(text).toContain("an ineligible or suspended cashier");
     expect(text).toContain("never a sign that the device was revoked");
     for (const code of [
       "void_approval_required",

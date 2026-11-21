@@ -8,4 +8,7 @@
   to the void) applies unchanged. A refused claim is the generic 403 `refused`; an operator envelope is a
   401. `recordVoid` is unchanged (manager and admin envelope only). Both routes call the same service, so
   the void provenance is one space and the stored `payload_hash` does not include `operatorUserId`. The
-  POS must not send to the new route before this runtime is deployed.
+  POS must not send to the new route before this runtime is deployed. A cashier suspended at the store
+  is refused (403 `refused`) even with a live admission, and the route has its own per-device write bucket
+  (`posWriteSaleVoid`). The contract states plainly what the credential does not prove: the device creates
+  the cashier admission itself, so it is not proof that the cashier or the approver was present.
