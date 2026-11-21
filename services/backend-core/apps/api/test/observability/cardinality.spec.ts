@@ -228,8 +228,6 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "connector_heartbeat_total",
     // ERPNext product-master reconciliation/repair — 021-POLISH (spec §VII). Unlabeled.
     "erpnext_product_reconciliation_total",
-    // Settlement & receivables domain — 035 T034 (spec section 7). Unlabeled.
-    "settlement_receivable_total",
     // POS shift close approver unverified at ingest — RT-17 10955 option A. `reason` (closed set).
     "shift_close_approver_unverified_total",
     // Console rate limiting — RT-619 (RT-574 D6). `class`, `outcome` (closed sets), `route` (template).

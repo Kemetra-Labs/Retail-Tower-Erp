@@ -16,8 +16,7 @@
  *
  * Persisted / compared bytes that depend on it:
  *   - `idempotency_keys.request_hash` written by the HTTP idempotency
- *     interceptor (including its row for the settlement-intent route; only
- *     the service-owned `settlement-intent:` row uses payload-hash);
+ *     interceptor;
  *   - the idempotency store key, which embeds `canonicalJson(params)`
  *     (`store-key.ts`, RT-155 path-param binding);
  *   - the POS cashier-admission `request_hash` (`admission-request.ts`);

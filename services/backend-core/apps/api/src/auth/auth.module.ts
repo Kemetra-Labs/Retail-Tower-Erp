@@ -246,11 +246,11 @@ export class AlwaysAllowRedis implements RedisLike {
     AuthGuard,
     DashboardAuthGuard,
     // RT-137: PosOperatorAuthGuard re-verifies device / membership / role /
-    // store access live on every request (the same reverifier SalesModule and
-    // SettlementModule register for PosOperatorEnvelopeSaleGuard). Exported
+    // store access live on every request (the same reverifier SalesModule
+    // registers for PosOperatorEnvelopeSaleGuard). Exported
     // because Nest builds a @UseGuards guard in the controller's own module,
-    // which must therefore see this token; a module's local binding (Sales,
-    // Settlement) still takes precedence there.
+    // which must therefore see this token; a module's local binding (Sales)
+    // still takes precedence there.
     {
       provide: OPERATOR_CONTEXT_RESOLVER,
       useFactory: (pool: Pool, lookupPool: Pool): PgOperatorContextResolver =>
@@ -332,8 +332,8 @@ export class AlwaysAllowRedis implements RedisLike {
     // client (real ioredis when REDIS_URL is set, AlwaysAllowRedis stub otherwise)
     // rather than creating a second connection.
     REDIS_CLIENT,
-    // RateLimiter is exported (ADR 0009) so downstream modules (SalesModule,
-    // SettlementModule) can wire PosWriteRateLimitGuard over the SAME single
+    // RateLimiter is exported (ADR 0009) so downstream modules (SalesModule)
+    // can wire PosWriteRateLimitGuard over the SAME single
     // Redis-backed limiter rather than re-provisioning a second client — keeps
     // the rate-limit policy in one place (rate-limit.ts).
     RateLimiter,

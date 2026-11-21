@@ -181,11 +181,6 @@ assertMetricLabels("pos_pilot_release_resolve_total", ["outcome"]);
 // — the (tenant, product, item, outcome) lives on the
 // erpnext_product_reconciliation_repair_attempt / _result rows + audit_events.
 assertMetricLabels("erpnext_product_reconciliation_total", []);
-// Settlement & receivables domain — 035 T034 (spec §7). UNLABELED — the
-// (tenant, store, payer, receivable, outcome) lives on the receivable /
-// payment_application / claim / remittance / reconciliation_result rows +
-// audit_events, not metric labels (the 009/010/015/017/018/020/021 precedent).
-assertMetricLabels("settlement_receivable_total", []);
 // POS shift close approver — RT-17 follow-up (10955 option A). `reason` is the
 // closed SHIFT_CLOSE_APPROVER_UNVERIFIED_REASONS set; no tenant/store/user label.
 assertMetricLabels("shift_close_approver_unverified_total", ["reason"]);
@@ -355,14 +350,6 @@ const _erpnextProductReconciliation: Counter = meter.createCounter(
       "Operator repair actions + run-completion outcomes recorded by 021 product-master reconciliation (a backlog-item confirm/suggest_confirm or run-result re_point driving 013's lifecycle, and a completed two-sided run) — the run -> report -> repair surface (021 spec §VII). Emitted by repairBacklogItem / repairResult + the run processor. Unlabeled — the (tenant, product, item, outcome) lives on the erpnext_product_reconciliation_repair_attempt / _result rows + audit_events, not metric labels.",
   },
 );
-const _settlementReceivable: Counter = meter.createCounter(
-  "settlement_receivable_total",
-  {
-    description:
-      "Settlement & receivables lifecycle events recorded by 035 (a receivable opened from a POS settlement intent, a cash application, a claim submission, or a remittance reconciliation) — the open -> apply -> claim -> reconcile surface (035 spec §7). Emitted by ReceivableService / ClaimService. Unlabeled — the (tenant, store, payer, receivable, outcome) lives on the receivable / payment_application / claim / remittance / reconciliation_result rows + audit_events, not metric labels.",
-  },
-);
-
 const _shiftCloseApproverUnverified: Counter = meter.createCounter(
   "shift_close_approver_unverified_total",
   {
@@ -736,19 +723,6 @@ export function recordPosDeviceHeartbeat(outcome: PosDeviceHeartbeatOutcome): vo
  */
 export function recordErpnextProductReconciliation(): void {
   _erpnextProductReconciliation.add(1);
-}
-
-/**
- * Increment settlement_receivable_total (035 T034, spec §7).
- * Emission sites: ReceivableService.openFromIntent / applyPayment +
- * ClaimService.submitClaim / reconcileRemittance (per recorded lifecycle event).
- * Unlabeled — the (tenant, store, payer, receivable, outcome) is on the
- * receivable / payment_application / claim / remittance / reconciliation_result
- * rows + audit_events, not metric labels. A SIGNAL — emission MUST NOT alter the
- * settlement outcome.
- */
-export function recordSettlementReceivable(): void {
-  _settlementReceivable.add(1);
 }
 
 /**

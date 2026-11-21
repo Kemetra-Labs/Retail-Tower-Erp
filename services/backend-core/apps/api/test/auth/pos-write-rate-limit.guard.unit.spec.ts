@@ -136,9 +136,9 @@ describe("PosWriteRateLimitGuard — ADR 0009 per-device write rate limit", () =
 
   it("selects the bucket named by the route annotation", async () => {
     const { guard, checkSpy } = makeGuard({ decision: ALLOW });
-    await guard.canActivate(ctxWith({ principal: POS_PRINCIPAL }, "posWriteSettlementIntent"));
+    await guard.canActivate(ctxWith({ principal: POS_PRINCIPAL }, "posWriteSaleQuarantine"));
     const [bucketName] = checkSpy.mock.calls[0] as [string, string, unknown];
-    expect(bucketName).toBe("posWriteSettlementIntent");
+    expect(bucketName).toBe("posWriteSaleQuarantine");
   });
 });
 

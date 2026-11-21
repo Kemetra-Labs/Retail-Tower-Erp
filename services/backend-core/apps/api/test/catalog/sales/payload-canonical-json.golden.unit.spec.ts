@@ -1,9 +1,9 @@
 /**
  * RT-1214 — direct golden bytes for `canonicalJsonPayload`, the serializer
- * behind every `payload_hash` and the settlement-intent `request_hash`.
- * The hashed checks live in `payload-hash.golden.unit.spec.ts` and
- * `settlement/unit/receivable-request-hash.vectors.golden.spec.ts`; these pin
- * the exact string so a stray byte shows as a readable diff.
+ * behind every `payload_hash`. The hashed checks live in
+ * `payload-hash.golden.unit.spec.ts`; these pin the exact string so a stray
+ * byte shows as a readable diff. (The settlement-intent request-hash spec left
+ * with the A/R ledger runtime, RT-422.)
  */
 import { canonicalJsonPayload } from "../../../src/common/hashing/payload-hash";
 import {

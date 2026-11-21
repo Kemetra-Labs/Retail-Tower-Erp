@@ -10,11 +10,10 @@
  *   AlwaysAllowRedis (get → null, set → "OK"). The 425 cases never read it;
  *   they stub InProgressMarker.trySet to false. That file now requires a
  *   retaining client. Redis NX itself is not what those cases prove.
- * - Integration harnesses (sales capture, inventory movement, settlement
- *   intent, apply-payment) use a retaining FakeRedis plus a no-op interceptor
- *   pg mirror. Settlement cases that clear the fake and still replay talk to
- *   Postgres through ReceivableService. Those stay; this file does not delete
- *   them. The harnesses now fail if their Redis double stops retaining.
+ * - Integration harnesses (sales capture, inventory movement) use a retaining
+ *   FakeRedis plus a no-op interceptor pg mirror. The harnesses now fail if
+ *   their Redis double stops retaining. (The settlement-intent and
+ *   apply-payment harnesses left with the A/R ledger runtime, RT-422.)
  * - Production redisClientFactory returns AlwaysAllowRedis when REDIS_URL is
  *   unset outside production. That client does not retain keys.
  *
