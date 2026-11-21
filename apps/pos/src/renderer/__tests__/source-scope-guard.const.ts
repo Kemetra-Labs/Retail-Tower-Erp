@@ -794,3 +794,26 @@ export function isRt592ExemptFile(branch: string, file: string): boolean {
     (RT_592_POLICY_FLAG_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-592-repin-after-merge` is the follow-up PR the RT-592 work owed: after `rt-592-stale-policy-flag`
+ * merged to `main` (79090b509), the POS PIN, which named a branch-only commit that the squash merge dropped,
+ * is repinned to the merge commit (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`
+ * (one description line of the `pos-shifts` open operation catches up). No POS code changes.
+ *
+ * Authority: RT-592 comment 18031 (the owner's "Yes, like #559": a later PR repins both consumers to the
+ * merge commit; the RT-1343 pattern). Exactly ONE file on exactly ONE branch (exact name, no `startsWith`).
+ * Narrowness is asserted by `source-scope-guard-rt592-repin.test.ts`.
+ */
+export const RT_592_REPIN_AFTER_MERGE_BRANCH = 'rt-592-repin-after-merge' as const;
+export const RT_592_REPIN_AFTER_MERGE_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-592 post-merge repin exemption allows on `branch`. */
+export function isRt592RepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_592_REPIN_AFTER_MERGE_BRANCH &&
+    (RT_592_REPIN_AFTER_MERGE_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
