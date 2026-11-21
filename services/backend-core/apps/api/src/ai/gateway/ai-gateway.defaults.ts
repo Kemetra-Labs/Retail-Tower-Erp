@@ -2,7 +2,7 @@
  * Default collaborators — RT-655. Every default DENIES or yields nothing, so an
  * AiModule with no overrides can never reach a provider.
  */
-import type { AiBudgetDecision, AiBudgetPort, AiEvidencePackBuilder } from "./ai-gateway.types";
+import type { AiBudgetDecision, AiBudgetInput, AiBudgetPort, AiEvidencePackBuilder } from "./ai-gateway.types";
 import type { EvidencePack } from "../ports/model-provider.port";
 
 /**
@@ -12,7 +12,12 @@ import type { EvidencePack } from "../ports/model-provider.port";
  * The quota itself is the entitlement port's reservation (RT-664).
  */
 export class FailClosedAiBudget implements AiBudgetPort {
-  check(): Promise<AiBudgetDecision> {
+  check(input?: AiBudgetInput): Promise<AiBudgetDecision> {
+    // RT-1542: a deterministic Tier-0 run spends nothing from the (unsized)
+    // spend cap or credit pool, so there is no unknown budget state to fail on;
+    // its quota is still reserved and can still deny. Every model route has
+    // provider cost, stays "unknown", and is denied.
+    if (input?.providerCost === "zero") return Promise.resolve({ allowed: true });
     return Promise.resolve({ allowed: false, reason: "entitlement_unavailable" });
   }
 }

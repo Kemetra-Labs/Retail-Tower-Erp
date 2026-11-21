@@ -9,7 +9,7 @@ import { z } from "zod";
 
 import { FakeModelProvider, type FakeModelBehavior } from "../../../src/ai/adapters/fake/fake-model-provider";
 import { AiGateway } from "../../../src/ai/gateway/ai-gateway.service";
-import type { AiFeatureDefinition } from "../../../src/ai/gateway/ai-feature";
+import type { AiFeatureDefinition, AiRegisteredFeature } from "../../../src/ai/gateway/ai-feature";
 import type {
   AiBudgetDecision,
   AiBudgetPort,
@@ -110,7 +110,7 @@ export interface HarnessOptions {
   readonly behavior?: FakeModelBehavior;
   readonly routes?: readonly ModelRouteDescriptor[];
   readonly providers?: AiGatewayDeps["providers"];
-  readonly features?: readonly AiFeatureDefinition[];
+  readonly features?: readonly AiRegisteredFeature[];
   readonly logger?: AiGatewayLogger;
   readonly metrics?: AiGatewayMetrics;
 }
@@ -120,6 +120,8 @@ export interface Harness {
   readonly provider: FakeModelProvider;
   readonly calls: { entitlement: number; budget: number; evidence: number; reserve: number };
   readonly reserves: AiReserveInput[];
+  /** Every input the budget pre-check received (RT-1542: the zero-cost marker is asserted here). */
+  readonly budgetInputs: Parameters<AiBudgetPort["check"]>[0][];
   readonly settlements: AiUsageSettlement[];
   readonly runMetrics: { feature: string; outcome: string }[];
   readonly providerMetrics: { provider: string; route: string; outcome: string }[];
@@ -134,6 +136,7 @@ async function resolveValue<T>(value: T | (() => Promise<T>)): Promise<T> {
 export function buildHarness(options: HarnessOptions = {}): Harness {
   const calls = { entitlement: 0, budget: 0, evidence: 0, reserve: 0 };
   const reserves: AiReserveInput[] = [];
+  const budgetInputs: Harness["budgetInputs"] = [];
   const settlements: AiUsageSettlement[] = [];
   const runMetrics: Harness["runMetrics"] = [];
   const providerMetrics: Harness["providerMetrics"] = [];
@@ -163,8 +166,9 @@ export function buildHarness(options: HarnessOptions = {}): Harness {
     reservationTtlMs: options.reservationTtlMs ?? 900_000,
   };
   const budget: AiBudgetPort = {
-    async check() {
+    async check(input) {
       calls.budget += 1;
+      budgetInputs.push(input);
       return resolveValue(options.budget ?? { allowed: true });
     },
   };
@@ -210,5 +214,5 @@ export function buildHarness(options: HarnessOptions = {}): Harness {
     logger,
   });
 
-  return { gateway, provider, calls, reserves, settlements, runMetrics, providerMetrics, logs };
+  return { gateway, provider, calls, reserves, budgetInputs, settlements, runMetrics, providerMetrics, logs };
 }

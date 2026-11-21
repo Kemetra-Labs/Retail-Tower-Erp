@@ -8,7 +8,7 @@ import type {
   ModelProviderPort,
   ModelRouteDescriptor,
 } from "../ports/model-provider.port";
-import type { AiFeatureDefinition } from "./ai-feature";
+import { DETERMINISTIC_ROUTE_KEY, type AiFeatureDefinition } from "./ai-feature";
 import type { AiFallbackReason, AiGatewayDeps } from "./ai-gateway.types";
 
 export interface ResolvedRoute {
@@ -29,6 +29,8 @@ export function resolveRoute(
   feature: AiFeatureDefinition,
   deps: RoutingDeps,
 ): ResolvedRoute | { readonly reason: AiFallbackReason } {
+  // RT-1542: a model feature can never resolve to the deterministic route.
+  if (feature.routeKey === DETERMINISTIC_ROUTE_KEY) return { reason: "route_not_allowlisted" };
   const resolved = findAllowlisted(feature, deps);
   if (resolved === null) return { reason: "route_not_allowlisted" };
   // AD-AI-PROV-001 E-9: a synthetic-only route cannot be used in production.
