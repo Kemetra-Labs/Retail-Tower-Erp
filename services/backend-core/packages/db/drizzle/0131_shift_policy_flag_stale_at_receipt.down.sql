@@ -1,6 +1,6 @@
--- 0130_shift_policy_flag_stale_at_receipt.down.sql
+-- 0131_shift_policy_flag_stale_at_receipt.down.sql
 --
--- RT-592 -- rollback for 0130_shift_policy_flag_stale_at_receipt.sql: restores the 0050 CHECK
+-- RT-592 -- rollback for 0131_shift_policy_flag_stale_at_receipt.sql: restores the 0050 CHECK
 -- shifts_frozen_policy_flags_valid (three known flags), NOT VALID as 0050 added it.
 --
 -- The rollback REFUSES while any shift carries `policy_revision_stale_at_receipt`: the flag is reporting
@@ -15,7 +15,7 @@
 --
 -- Rerunnable: the constraint is dropped IF EXISTS and re-added; running it twice changes nothing.
 -- Supports the UP -> DOWN -> UP round trip exercised by
--- packages/db/__tests__/migration/0130-shift-policy-flag-stale-at-receipt.spec.ts and the full-chain down in
+-- packages/db/__tests__/migration/0131-shift-policy-flag-stale-at-receipt.spec.ts and the full-chain down in
 -- packages/db/__tests__/cli/migrate.spec.ts.
 
 BEGIN;
@@ -34,7 +34,7 @@ BEGIN
     FROM shifts
    WHERE frozen_policy_flags @> ARRAY['policy_revision_stale_at_receipt']::text[];
   IF n > 0 THEN
-    RAISE EXCEPTION '0130 down refused: % shift(s) carry policy_revision_stale_at_receipt; the flag would be lost', n
+    RAISE EXCEPTION '0131 down refused: % shift(s) carry policy_revision_stale_at_receipt; the flag would be lost', n
       USING HINT = 'Back up the shifts, then strip the flag as a superuser with the shifts triggers disabled (ALTER TABLE shifts DISABLE TRIGGER USER).';
   END IF;
 END

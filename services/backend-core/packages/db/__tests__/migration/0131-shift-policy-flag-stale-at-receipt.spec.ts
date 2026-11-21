@@ -1,11 +1,11 @@
 /**
- * RT-592 (RT-387 follow-up): `0130_shift_policy_flag_stale_at_receipt` ([GATED: migration]) on a real
+ * RT-592 (RT-387 follow-up): `0131_shift_policy_flag_stale_at_receipt` ([GATED: migration]) on a real
  * PostgreSQL 16 (Testcontainers), applied on top of every earlier migration.
  *
  * The open's accept-and-flag findings live in `shifts.frozen_policy_flags`, guarded by the 0050 CHECK
  * `shifts_frozen_policy_flags_valid`. The new fourth flag must be storable, or the open would fail
  * with 23514 instead of being recorded and flagged. This proves:
- *   - BEFORE 0130: the new flag is refused by that constraint (so the migration is what makes it storable);
+ *   - BEFORE 0131: the new flag is refused by that constraint (so the migration is what makes it storable);
  *   - UP: the new flag is accepted alone and with the other three, in any order; the 0050 rules are
  *     unchanged (an unknown flag, a duplicate of any flag and a NULL element are still refused, NULL
  *     and `{}` are still fine); an existing row keeps its flags; the constraint is NOT VALID, as 0050
@@ -29,8 +29,8 @@ import { applyMigrationsBefore, asMigrationOwner, startPgEnvOrSkip } from "../_h
 import { startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP = "0130_shift_policy_flag_stale_at_receipt.sql";
-const DOWN = "0130_shift_policy_flag_stale_at_receipt.down.sql";
+const UP = "0131_shift_policy_flag_stale_at_receipt.sql";
+const DOWN = "0131_shift_policy_flag_stale_at_receipt.down.sql";
 const sql = (name: string): string => readFileSync(resolve(DRIZZLE_DIR, name), "utf8");
 
 const CONSTRAINT = "shifts_frozen_policy_flags_valid";
@@ -149,7 +149,7 @@ beforeAll(async () => {
   const started = await startPgEnvOrSkip(startPgEnv, process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1");
   if (started.env === null) {
     // eslint-disable-next-line no-console
-    console.warn(`\n[0130-shift-policy-flag-stale-at-receipt.spec] Docker NOT AVAILABLE — skipping: ${started.skipReason}\n`);
+    console.warn(`\n[0131-shift-policy-flag-stale-at-receipt.spec] Docker NOT AVAILABLE — skipping: ${started.skipReason}\n`);
     return;
   }
   env = started.env;
@@ -161,14 +161,14 @@ afterAll(async () => {
   if (env) await stopPgEnv(env);
 }, 60_000);
 
-describe("0130 — before the migration", () => {
+describe("0131 — before the migration", () => {
   it("refuses the new flag with the 0050 constraint (23514)", async () => {
     if (skip()) return;
     expect(await violated(() => insertShift([NEW_FLAG]))).toBe(CONSTRAINT);
   });
 });
 
-describe("0130 — up", () => {
+describe("0131 — up", () => {
   beforeAll(async () => {
     if (skip()) return;
     await pg().admin.query(sql(UP));
@@ -216,12 +216,12 @@ describe("0130 — up", () => {
   });
 });
 
-describe("0130 — down, as the NOSUPERUSER migration owner under FORCE RLS", () => {
+describe("0131 — down, as the NOSUPERUSER migration owner under FORCE RLS", () => {
   it("refuses while a shift carries the new flag, and changes nothing", async () => {
     if (skip()) return;
     const refused = await runAsOwner(DOWN);
     expect(refused.code).toBe("P0001");
-    expect(refused.message).toContain("0130 down refused");
+    expect(refused.message).toContain("0131 down refused");
     expect((await constraintState()).def).toContain(NEW_FLAG);
   });
 

@@ -1,4 +1,4 @@
--- 0130_shift_policy_flag_stale_at_receipt -- Jira RT-592 (RT-387 follow-up). `[GATED: migration]`.
+-- 0131_shift_policy_flag_stale_at_receipt -- Jira RT-592 (RT-387 follow-up). `[GATED: migration]`.
 -- Owner decision 2026-11-21: RT-592 comments 18021 (N = 24 h, flag name) and 18028 (the migration, in the same PR).
 --
 -- The open's accept-and-flag findings are stored in shifts.frozen_policy_flags (0050). Its CHECK
@@ -15,7 +15,7 @@
 -- DDL only: there is no data to move (no existing row can carry the new flag), so no backfill file.
 -- Grants: none; no new column. No table rewrite.
 -- Locks: ALTER TABLE takes ACCESS EXCLUSIVE on shifts for the catalog change only (lock_timeout 2 s).
--- Rollback: 0130_shift_policy_flag_stale_at_receipt.down.sql (refuses while a shift carries the new flag).
+-- Rollback: 0131_shift_policy_flag_stale_at_receipt.down.sql (refuses while a shift carries the new flag).
 
 BEGIN;
 
