@@ -4,7 +4,7 @@
  * - A UTF-8 byte order mark first, so a spreadsheet opens the Arabic text correctly.
  * - CRLF line ends and RFC 4180 quoting (a field with a comma, a quote or a line break is quoted, quotes doubled).
  * - CSV formula injection: a cell that starts with `=`, `+`, `-`, `@`, a tab or a carriage return is written with a
- *   leading `'`, so a spreadsheet never evaluates it (contract `consoleGetCatalogImportErrorReport`). The guard comes
+ *   leading `'`, so a spreadsheet never evaluates it (the OWASP set; contract `consoleGetCatalogImportErrorReport`). The guard comes
  *   first and the quoting second, so the `'` is inside the quotes.
  */
 

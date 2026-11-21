@@ -63,7 +63,7 @@ export async function replaceBatchFile(client: PoolClient, file: ReplacedFile): 
   return r.rows[0] as BatchRow;
 }
 
-/** The rows of the report: every `error` and `needs_review` row of the batch, in row-number order (at most 5,000). */
+/** The rows of the report: every `error` and `needs_review` row of the batch, in row-number order (a batch has at most 5,000 rows, the CHECK of `data_row_count`; a review decision moves a row out of these statuses). */
 export async function listReportRows(client: PoolClient, tenantId: string, batchId: string): Promise<ReportRow[]> {
   const r = await client.query<{ row_number: number; status: string; issues: RowIssue[]; cells: StagedCell[] }>(
     `SELECT row_number, status, issues, cells FROM catalog_import_rows

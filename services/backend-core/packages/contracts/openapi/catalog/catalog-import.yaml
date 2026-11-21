@@ -79,7 +79,9 @@ info:
     again in the write's transaction. A request that fails the batch checks
     never has its file parsed. The body is a file, so a malformed `batchId`
     or query is a 400 before the body is read. Idempotent by
-    `expected_version`: a retry after success is `409 version_conflict`. The
+    `expected_version`: a retry after success is `409 version_conflict`, so a
+    caller that lost the response re-reads the batch and compares `file.sha256`
+    with its file before it reports a failure. The
     new file's `file_name` is the query's, or `null` when absent (only the
     mode is kept), the `file_previously_published` warning is computed for
     the new file, and when the batch had no mapping yet nothing is carried
