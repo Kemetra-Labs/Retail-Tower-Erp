@@ -196,7 +196,6 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
     repo,
     client: createSaleVoidClient(deps.http),
     ...(deps.getDeviceToken === undefined ? {} : { deviceToken: deps.getDeviceToken }),
-    localDayOf: deps.localDayOf ?? voidBusinessDay,
     saleRef: saleRefOf,
     audit,
     currentSender,

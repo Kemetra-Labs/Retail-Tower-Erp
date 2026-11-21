@@ -280,10 +280,6 @@ describe('a void flows from the approval to Backend-Core under the requester env
   it('when Backend-Core refuses it for its business day, the refusal is visible and terminal, never retried or dropped', async () => {
     markSaleSynced();
     await monaRequestsVoid();
-    // The void was sent once (the answer was lost), so it is NOT refused locally when the day
-    // ends: the server may hold it, and it answers (here: refuses for the day).
-    answer = () => new Response('', { status: 503 });
-    await domain.sync.tick();
     clock = '2026-06-08T09:00:00.000Z';
     answer = () =>
       new Response(JSON.stringify({ error: { code: 'void_outside_business_day' } }), {
@@ -296,26 +292,13 @@ describe('a void flows from the approval to Backend-Core under the requester env
       ],
     });
     await domain.sync.tick();
-    expect(posted).toHaveLength(2);
+    expect(posted).toHaveLength(1);
     expect(audit.map((e) => e.action_category)).toContain('sale.void.refused');
     const refused = await listed();
     const id = refused.kind === 'list' ? (refused.voids[0]?.void_id ?? '') : '';
     await domain.service.acknowledge({ void_id: id });
     await expect(listed()).resolves.toMatchObject({
       voids: [{ state: 'refused', needs_attention: false }],
-    });
-  });
-
-  it('RT-1403: a void never sent whose business day has passed is refused locally, visibly, with no request', async () => {
-    markSaleSynced();
-    await monaRequestsVoid();
-    clock = '2026-06-08T09:00:00.000Z';
-    await domain.sync.tick();
-    expect(posted).toHaveLength(0);
-    await expect(listed()).resolves.toMatchObject({
-      voids: [
-        { state: 'refused', refusal_reason: 'void_outside_business_day', needs_attention: true },
-      ],
     });
   });
 

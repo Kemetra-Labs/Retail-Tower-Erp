@@ -78,13 +78,6 @@ export interface SaleVoidSyncDeps {
    * Omitted: no device credential.
    */
   readonly deviceToken?: () => Promise<string | null>;
-  /**
-   * RT-1403: the store business day of an instant. A void that was never sent and whose
-   * business day has passed is refused locally (the server refuses it too, for any
-   * credential); nothing was sent, so nothing can have been recorded. Omitted: no such rule.
-   */
-  readonly localDayOf?: (iso: string) => string;
-  /** The sale's stored Backend-Core reference, or null while it has not synced. */
   readonly saleRef: (scope: VoidScope, saleId: string) => string | null;
   readonly audit: Pick<SaleVoidAudit, 'confirmed' | 'refused'>;
   /** The live eligible sender (signed in, unlocked is NOT required, online envelope), or null. */
@@ -215,24 +208,6 @@ export function createSaleVoidSync(deps: SaleVoidSyncDeps): SaleVoidSync {
     );
   }
 
-  /**
-   * RT-1403: a void that was NEVER sent and whose business day has passed can only be refused
-   * (`void_outside_business_day`), on any credential. Refuse it here, visibly, instead of
-   * leaving it to wait; a row that was ever sent is not touched (the server may hold it).
-   */
-  function refuseIfExpired(entry: VoidEntry, tally: Tally): boolean {
-    if (deps.localDayOf === undefined) return false;
-    if (entry.state !== 'pending' || entry.attemptCount > 0) return false;
-    if (entry.businessDate === deps.localDayOf(deps.now())) return false;
-    try {
-      apply(entry, { kind: 'refused', reason: 'void_outside_business_day' }, tally);
-    } catch {
-      deps.logger.warn({ void_id: entry.voidId }, 'sale_void:local_commit_failed');
-      tally.unresolved += 1;
-    }
-    return true;
-  }
-
   /** Send one row; false stops the pass (the sender is gone). */
   async function sendOne(entry: VoidEntry, tally: Tally): Promise<boolean> {
     const sender = senderFor(entry);
@@ -264,7 +239,6 @@ export function createSaleVoidSync(deps: SaleVoidSyncDeps): SaleVoidSync {
       .filter((entry) => sameUser(entry.requesterUserId, sender.operatorUserId));
     for (const entry of mine) {
       if (deps.isStopped()) break;
-      if (refuseIfExpired(entry, tally)) continue;
       if (!isDue(entry, nowMs, policy)) {
         tally.unresolved += 1;
         continue;
