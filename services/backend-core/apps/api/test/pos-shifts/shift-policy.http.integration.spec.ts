@@ -29,6 +29,7 @@ import {
   closePath,
   DEV_A1,
   DEV_A2,
+  DEV_B1,
   expectError,
   expectReplay,
   expectSchema,
@@ -123,6 +124,8 @@ const REV_CURRENT_AT = before(120);
 let storeSet = "";
 let storeClear = "";
 let otherTenantRevision = "";
+/** Tenant B's first revision (30 h before the suite), replaced by `otherTenantRevision` 100 min before it (RT-592). */
+let revBAncient = "";
 
 beforeAll(async () => {
   if (skipped()) return;
@@ -130,7 +133,14 @@ beforeAll(async () => {
   revCurrent = await seedRevision({ value: limit("50.00"), createdAt: REV_CURRENT_AT, supersedes: revOld });
   storeSet = await seedRevision({ storeId: STORE_A2, value: limit("20.00"), createdAt: before(100), until: before(-1440) });
   storeClear = await seedRevision({ storeId: STORE_A2, kind: "clear", createdAt: before(80), supersedes: storeSet });
-  otherTenantRevision = await seedRevision({ tenantId: TENANT_B, value: limit("50.00"), createdAt: before(100), createdBy: CASHIER_B.id });
+  revBAncient = await seedRevision({ tenantId: TENANT_B, value: limit("100.00"), createdAt: before(30 * 60), createdBy: CASHIER_B.id });
+  otherTenantRevision = await seedRevision({
+    tenantId: TENANT_B,
+    value: limit("50.00"),
+    createdAt: before(100),
+    createdBy: CASHIER_B.id,
+    supersedes: revBAncient,
+  });
 }, 60_000);
 
 describe("open", () => {
@@ -323,13 +333,15 @@ describe("RT-592: policy_revision_stale_at_receipt (an open that arrives more th
     if (skipped()) return;
     // The seeded admission windows start 24 h ago, so an open stamped 25 h ago needs an earlier window
     // (the operator-attribution check, RT-224, covers `openedAt`). Ended rows may overlap, like the seeded ones.
-    await admin().query(
-      `INSERT INTO cashier_admissions
-         (id, tenant_id, store_id, user_id, device_id, mode, created_at, renewed_at, expires_at, ended_at, end_reason)
-       VALUES ($1, $2, $3, $4, $5, 'online', now() - interval '72 hours', now() - interval '72 hours',
-               now() + interval '48 hours', now() + interval '48 hours', 'device_end')`,
-      [randomUUID(), DEV_A1.tenant, DEV_A1.store, CASHIER.id, DEV_A1.id],
-    );
+    for (const [user, till] of [[CASHIER, DEV_A1], [CASHIER_B, DEV_B1]] as const) {
+      await admin().query(
+        `INSERT INTO cashier_admissions
+           (id, tenant_id, store_id, user_id, device_id, mode, created_at, renewed_at, expires_at, ended_at, end_reason)
+         VALUES ($1, $2, $3, $4, $5, 'online', now() - interval '72 hours', now() - interval '72 hours',
+                 now() + interval '48 hours', now() + interval '48 hours', 'device_end')`,
+        [randomUUID(), till.tenant, till.store, user.id, till.id],
+      );
+    }
   }, 60_000);
 
   const frozenOld = () => ({ policySource: "tenant", policyRevisionId: revOld, policyValue: limit("100.00") });
@@ -344,6 +356,21 @@ describe("RT-592: policy_revision_stale_at_receipt (an open that arrives more th
     expectSchema("Shift", res.body);
     expect(res.body.frozenPolicy.policyFlags).toEqual(["policy_revision_superseded", STALE]);
     expect((await frozenRow(shiftId)).flags).toEqual(["policy_revision_superseded", STALE]);
+  });
+
+  it("late and stale, with the revision in effect at openedAt: only the new flag (tenant B, replaced 100 min ago)", async () => {
+    if (skipped()) return;
+    // revBAncient was published 30 h before the suite and replaced by otherTenantRevision 100 min before it, so
+    // it WAS the effective revision at openedAt (25 h ago: no superseded finding) and is not the one at receipt.
+    const frozen = { policySource: "tenant", policyRevisionId: revBAncient, policyValue: limit("100.00") };
+    const { res, shiftId } = await openWith(
+      frozen,
+      { openedAt: minutesAgo(LATE_MINUTES), openingUserId: CASHIER_B.id, operatorUserId: CASHIER_B.id },
+      DEV_B1,
+    );
+    expect(res.status).toBe(201);
+    expect(res.body.frozenPolicy.policyFlags).toEqual([STALE]);
+    expect((await frozenRow(shiftId)).flags).toEqual([STALE]);
   });
 
   it("late and current: the revision in effect at receipt does not get the new flag", async () => {
