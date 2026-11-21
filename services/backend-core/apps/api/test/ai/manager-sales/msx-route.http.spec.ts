@@ -28,10 +28,12 @@ import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer, type AuditJobPayload } from 
 import { RolesGuard, SessionOnlyAdminGuard } from "../../../src/auth";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { ROOT_LOGGER } from "../../../src/common/logging.interceptor";
-import { TenantContextGuard, type ResolvedContext, type TenantContextRequest } from "../../../src/context";
+import { MembershipRepository, TenantContextGuard, type ResolvedContext, type TenantContextRequest } from "../../../src/context";
 import { PG_POOL } from "../../../src/database";
 import { IDEMPOTENT_POLICY_KEY } from "../../../src/idempotency/idempotent.decorator";
 import { AiGateway } from "../../../src/ai/gateway/ai-gateway.service";
+import { AI_GATEWAY_RUNTIME } from "../../../src/ai/ai.tokens";
+import type { AiDeterministicFeatureDefinition } from "../../../src/ai/gateway/ai-feature";
 import type {
   AiBudgetDecision,
   AiEntitlementDecision,
@@ -54,7 +56,34 @@ const RESERVATION = "0191e540-0000-7000-8000-0000000000c1";
 const WEEK = { from: "2026-11-08", to: "2026-11-14" };
 const NOT_FOUND = { error: { code: "not_found", message: "Not Found" } };
 
-type Who = "owner" | "manager" | "manager_a1" | "platform" | "token" | "staff";
+type Who =
+  | "owner"
+  | "manager"
+  | "manager_a1"
+  | "platform"
+  | "token"
+  | "staff"
+  // A session whose ACTIVE store is set (`sessions.active_store_id`): the Console sets it.
+  | "owner_active"
+  | "admin_active"
+  | "manager_active"
+  | "owner_specific";
+
+/** The membership role of each caller (what `MembershipRepository` would answer inside the tenant). */
+const ROLE_OF: Readonly<Record<Who, string>> = {
+  owner: "owner",
+  manager: "store_manager",
+  manager_a1: "store_manager",
+  platform: "owner",
+  token: "owner",
+  staff: "store_staff",
+  owner_active: "owner",
+  admin_active: "tenant_admin",
+  manager_active: "store_manager",
+  owner_specific: "owner",
+};
+
+let currentRole = "owner";
 
 function contextOf(who: Who): ResolvedContext {
   switch (who) {
@@ -64,6 +93,13 @@ function contextOf(who: Who): ResolvedContext {
       return managerCtx([STORE_A1]);
     case "platform":
       return ownerCtx({ isPlatformAdmin: true });
+    case "owner_active":
+    case "admin_active":
+      return ownerCtx({ storeId: STORE_A1 });
+    case "manager_active":
+      return managerCtx([STORE_A1, STORE_A2], STORE_A1);
+    case "owner_specific":
+      return managerCtx([STORE_A1]);
     default:
       return ownerCtx();
   }
@@ -81,6 +117,7 @@ const contextGuard: CanActivate = {
     const req = context.switchToHttp().getRequest<TenantContextRequest & { headers: Record<string, string> }>();
     const who = (req.headers["x-who"] ?? "owner") as Who;
     req.context = contextOf(who);
+    currentRole = ROLE_OF[who];
     (req as unknown as { principal: unknown }).principal = { userId: USER_ID };
     return true;
   },
@@ -103,6 +140,10 @@ interface World {
   /** How many live stores a tenant-wide scope holds (for `scope_too_large`). */
   readonly scopeCount?: number;
   readonly auditFails?: boolean;
+  /** An audit queue that never answers: the response must not wait for it. */
+  readonly auditHangs?: boolean;
+  /** Replaces the registered feature (to force a gateway fault). */
+  readonly feature?: AiDeterministicFeatureDefinition;
 }
 
 interface Rig {
@@ -128,8 +169,9 @@ async function rig(world: World = {}): Promise<Rig> {
   const poolQueries: string[] = [];
   const live = world.live ?? [STORE_A1, STORE_A2, STORE_A3];
 
+  const runtime = { isEnabled: () => world.enabled ?? true, isProduction: () => false };
   const gateway = new AiGateway({
-    features: [managerSalesFeature],
+    features: [world.feature ?? managerSalesFeature],
     entitlement: {
       async check() {
         calls.check += 1;
@@ -155,7 +197,7 @@ async function rig(world: World = {}): Promise<Rig> {
     evidence: new ManagerSalesEvidenceBuilder(reads.summary as never, reads.byStore as never),
     routes: [],
     providers: [],
-    runtime: { isEnabled: () => world.enabled ?? true, isProduction: () => false },
+    runtime,
     metrics: { recordRun: () => undefined, recordProviderCall: () => undefined },
     logger: { info: (obj, msg) => logs.push({ obj, msg }), warn: (obj, msg) => logs.push({ obj, msg }) },
   });
@@ -181,6 +223,7 @@ async function rig(world: World = {}): Promise<Rig> {
     async enqueue(payload) {
       if (world.auditFails === true) throw new Error("queue down");
       audits.push(payload);
+      if (world.auditHangs === true) await new Promise<void>(() => undefined);
     },
   };
 
@@ -191,6 +234,8 @@ async function rig(world: World = {}): Promise<Rig> {
       ManagerSalesScope,
       NoPlatformAdminGuard,
       { provide: PG_POOL, useValue: pool },
+      { provide: AI_GATEWAY_RUNTIME, useValue: runtime },
+      { provide: MembershipRepository, useValue: { findRoleCodeForUserInTenant: async () => currentRole } },
       { provide: AUDIT_JOB_ENQUEUER, useValue: enqueuer },
       { provide: ROOT_LOGGER, useValue: { error: (obj: unknown) => logs.push(obj), info: () => undefined, warn: () => undefined } },
     ],
@@ -263,6 +308,12 @@ describe("POST /api/v1/ai/manager-sales/explain", () => {
       const dump = JSON.stringify([r.audits, r.logs, r.settlements]);
       expect(dump).not.toContain("SECRET-QUESTION");
       expect(dump).not.toContain("22065.5000");
+    });
+
+    it("the audit enqueue is fire-and-forget: a queue that never answers does not hold the response", async () => {
+      const { res, rig: r } = await post({ auditHangs: true }, ask());
+      expect(res.status).toBe(200);
+      expect(r.audits).toHaveLength(1);
     });
 
     it("an audit failure never changes the answer", async () => {
@@ -373,7 +424,7 @@ describe("POST /api/v1/ai/manager-sales/explain", () => {
       expect(res.status).toBe(404);
       expect(res.body).toMatchObject(NOT_FOUND);
       untouched(r);
-      expect(r.poolQueries).toHaveLength(0);
+      expect(r.poolQueries.some((q) => q.includes("FROM stores"))).toBe(false);
     });
 
     it("an unknown (or deleted) store of the tenant is the same 404 and body", async () => {
@@ -395,6 +446,96 @@ describe("POST /api/v1/ai/manager-sales/explain", () => {
       expect(res.status).toBe(404);
       expect(res.body).toMatchObject(NOT_FOUND);
       expect(r.calls.reserve).toBe(0);
+    });
+  });
+
+  describe("the store scope is role-aware, as on the sales reads", () => {
+    const A = STORE_A1;
+    const B = STORE_A2;
+
+    it.each(["owner_active", "admin_active"] as const)("%s (an ACTIVE store set): an empty list is tenant-wide and answers", async (who) => {
+      const { res, rig: r } = await post({}, ask({ storeIds: [] }), who);
+      expect(res.status).toBe(200);
+      expect(res.body).toMatchObject({ kind: "answer", scope: { mode: "all_in_scope" } });
+      // The Gateway sees the membership authority, not the active-store narrowing.
+      expect(r.reserves[0]!.ctx.storeId).toBeNull();
+      expect(r.reserves[0]!.ctx.storeAccess).toEqual({ kind: "all" });
+    });
+
+    it.each([[A], [B]])("owner_active may ask the in-tenant store %s, whatever the active store", async (store) => {
+      const { res, rig: r } = await post({}, ask({ storeIds: [store] }), "owner_active");
+      expect(res.status).toBe(200);
+      expect(res.body.scope).toEqual({ mode: "store", storeRefs: [store] });
+      expect(r.reserves[0]!.ctx.storeId).toBeNull();
+    });
+
+    it("an unknown store is still the 404 for an owner with an active store", async () => {
+      const { res } = await post({}, ask({ storeIds: ["0191e540-0000-7000-8000-0000000000ee"] }), "owner_active");
+      expect(res.status).toBe(404);
+    });
+
+    it("a store_manager with an active store keeps the narrowed scope: its active store only", async () => {
+      const allowed = await post({}, ask({ storeIds: [A] }), "manager_active");
+      expect(allowed.res.status).toBe(200);
+      expect(allowed.rig.reserves[0]!.ctx.storeId).toBe(A);
+      await allowed.rig.app.close();
+      for (const storeIds of [[B], [], [A, B]]) {
+        const denied = await post({}, ask({ storeIds }), "manager_active");
+        expect(denied.res.status).toBe(404);
+        expect(denied.rig.calls).toEqual({ check: 0, budget: 0, reserve: 0 });
+        await denied.rig.app.close();
+      }
+      current = null;
+    });
+
+    it("an owner whose membership is SPECIFIC is never widened past it", async () => {
+      const { res, rig: r } = await post({}, ask({ storeIds: [B] }), "owner_specific");
+      expect(res.status).toBe(404);
+      expect(r.calls).toEqual({ check: 0, budget: 0, reserve: 0 });
+      const empty = await post({}, ask({ storeIds: [] }), "owner_specific");
+      expect(empty.res.status).toBe(404);
+    });
+  });
+
+  describe("the kill switch is checked before the scope 404", () => {
+    it("off, with an out-of-scope store: a 200 unavailable, never a 404, and the scope is not touched", async () => {
+      const { res, rig: r } = await post({ enabled: false, live: [] }, ask({ storeIds: [STORE_A1, STORE_A3] }), "manager");
+      expect(res.status).toBe(200);
+      expect(res.body).toEqual({ kind: "unavailable", family: "gateway", code: "feature_disabled_system" });
+      expect(r.poolQueries).toHaveLength(0);
+      expect(r.calls).toEqual({ check: 0, budget: 0, reserve: 0 });
+    });
+
+    it("off, a platform admin and a refused role stay the edge 404", async () => {
+      for (const who of ["platform", "staff"] as const) {
+        const { res, rig: r } = await post({ enabled: false }, ask(), who);
+        expect(res.status).toBe(404);
+        await r.app.close();
+      }
+      current = null;
+    });
+
+    it("on, the scope 404 applies as before", async () => {
+      const { res } = await post({}, ask({ storeIds: [STORE_A1, STORE_A3] }), "manager");
+      expect(res.status).toBe(404);
+    });
+  });
+
+  describe("a gateway fault is a 500 that charges nothing", () => {
+    it("internal_error: 500, the reservation is released (never committed), no audit event", async () => {
+      const faulty: AiDeterministicFeatureDefinition = {
+        ...managerSalesFeature,
+        execute: () => {
+          throw new Error("renderer bug");
+        },
+      };
+      const { res, rig: r } = await post({ feature: faulty }, ask());
+      expect(res.status).toBe(500);
+      expect(r.reserves).toHaveLength(1);
+      expect(r.settlements.map((s) => s.outcome)).toEqual(["not_attempted"]);
+      expect(r.settlements.some((s) => s.outcome === "ok")).toBe(false);
+      expect(r.audits).toHaveLength(0);
+      expect(JSON.stringify(res.body)).not.toContain("renderer bug");
     });
   });
 

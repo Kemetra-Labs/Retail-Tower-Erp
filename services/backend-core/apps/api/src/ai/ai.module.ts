@@ -100,7 +100,8 @@ type Routing = Pick<AiGatewayDeps, "routes" | "providers">;
     },
     AiGateway,
   ],
-  exports: [AiGateway],
+  // RT-1539: the runtime is exported so a feature route can read the kill switch before its own checks.
+  exports: [AiGateway, AI_GATEWAY_RUNTIME],
 })
 export class AiModule {
   /**

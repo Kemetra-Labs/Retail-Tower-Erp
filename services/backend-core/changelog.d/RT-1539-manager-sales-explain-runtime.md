@@ -7,3 +7,6 @@
   decline after the kill switch and entitlement, before budget and reservation) and a `declined` result. The contract
   drops its `x-runtime-status: contract-only` marker. No migration: the production plan catalogue `core@1` grants no AI
   feature, so the route answers `not_entitled` until a later gated migration grants `ai.manager_sales.ask_explain`.
+  After a 5xx the client must mint a new Idempotency-Key: the failed run's reservation is released, but its key is
+  spent. The store scope is role-aware as on the sales reads (owner and tenant_admin are not narrowed by the active
+  store); the kill switch is checked before the scope 404; every table row holds exactly as many cells as its header.

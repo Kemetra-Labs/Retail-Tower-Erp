@@ -48,7 +48,16 @@ async function run(
   const answer = ManagerSalesAnswerSchema.parse(managerSalesFeature.execute(structuredClone(pack), {}));
   const known = new Set(pack.items.map((i) => i.ref));
   for (const ref of citedRefsOf(answer)) expect(known.has(ref)).toBe(true);
+  expectAlignedTables(answer);
   return { answer, pack, reads };
+}
+
+/** Cells are positional under their header: every row of a table holds exactly `columns.length` cells. */
+function expectAlignedTables(answer: ManagerSalesAnswer): void {
+  for (const block of answer.blocks) {
+    if (block.type !== "table") continue;
+    for (const row of block.rows) expect(row).toHaveLength(block.columns.length);
+  }
 }
 
 const table = (a: ManagerSalesAnswer, index = 0) => {
@@ -89,8 +98,9 @@ describe("Manager Sales evidence + renderer", () => {
       }
     });
 
-    it("uses only column keys and slot names the Admin Console copy map knows (plus the two baseline voids/returns keys)", async () => {
-      const known = new Set(["store", "date", "received_sales", "count", "share", "rank", "average_sale", "best_day", "baseline_total", "delta_ratio", "voids", "returns", "legacy_refunds", "total", "voids_baseline", "returns_baseline"]);
+    it("uses only column keys and slot names the Admin Console copy map knows (COLUMN_COPY), none extra", async () => {
+      // EXACTLY the keys of `COLUMN_COPY` in apps/admin-console/src/ai-manager-sales/managerSalesLogic.ts: none extra.
+      const known = new Set(["store", "date", "received_sales", "count", "share", "rank", "average_sale", "best_day", "baseline_total", "delta_ratio", "voids", "returns", "legacy_refunds", "total"]);
       const templates: [MsxTemplateId, Record<string, unknown>][] = [
         ["T-01", {}], ["T-02", {}], ["T-03", {}], ["T-04", { currency: "EGP" }], ["T-05", { currency: "EGP" }], ["T-06", { currency: "EGP", compare: "previous_period" }],
         ["T-07", { currency: "EGP" }], ["T-08", { currency: "EGP" }], ["T-09", { currency: "EGP" }], ["T-10", { currency: "EGP" }], ["T-12", { currency: "EGP" }],
@@ -203,9 +213,9 @@ describe("Manager Sales evidence + renderer", () => {
         ["2026-11-16", "0.0000", 0],
         ["2026-11-17", "0.0000", 0],
         ["2026-11-18", "1184.7500", 21],
-        ["2026-11-19"],
-        ["2026-11-20"],
       ]);
+      expect(table(answer, 1).columns).toEqual(["date"]);
+      expect(values(answer, 1)).toEqual([["2026-11-19"], ["2026-11-20"]]);
       expect(answer.notices).toEqual(["received_only", "day_in_progress", "day_not_begun"]);
     });
 
@@ -214,8 +224,8 @@ describe("Manager Sales evidence + renderer", () => {
       expect(values(answer)).toEqual([
         ["2026-11-17", "0.0000", 0],
         ["2026-11-18", "1184.7500", 21],
-        ["2026-11-19"],
       ]);
+      expect(values(answer, 1)).toEqual([["2026-11-19"]]);
     });
 
     it("a range with no sale at all shows counts only (no currency to state a zero in)", async () => {
@@ -251,8 +261,10 @@ describe("Manager Sales evidence + renderer", () => {
       expect(values(answer)).toEqual([
         [NAME_A1, 1, "13459.5000", 227, "0.6100"],
         [NAME_A2, 2, "8606.0000", 144, "0.3900"],
-        [NAME_A3, 0],
       ]);
+      // A store with no sale in the currency is never a short row under the ranking header.
+      expect(table(answer, 1).columns).toEqual(["store", "count"]);
+      expect(values(answer, 1)).toEqual([[NAME_A3, 0]]);
       expect(reads.calls.byStore[0]).toMatchObject({ currency: "EGP", compare: "none" });
       expect(reads.calls.summary).toHaveLength(0);
       expect(answer.notices).toEqual(["received_only"]);
@@ -284,6 +296,12 @@ describe("Manager Sales evidence + renderer", () => {
       expect(answer.gaps).toEqual(["G-1", "G-2"]);
     });
 
+    it("T-05 in a scope of one store has no rank: the column is dropped, never a short row", async () => {
+      const { answer } = await run({ templateId: "T-05", currency: "EGP", storeIds: [STORE_A1] }, { ctx: managerCtx([STORE_A1]), world: { scope: [STORE_A1] } });
+      expect(table(answer).columns).toEqual(["store", "received_sales", "count", "average_sale", "share"]);
+      expect(values(answer)).toEqual([[NAME_A1, "13459.5000", 227, "59.2930", "1.0000"]]);
+    });
+
     it("T-06 over the whole scope: both periods' scope totals side by side, never a difference (G-3)", async () => {
       const { answer, reads } = await run({ templateId: "T-06", currency: "EGP", compare: "previous_period" });
       expect(table(answer).columns).toEqual(["received_sales", "baseline_total"]);
@@ -305,13 +323,16 @@ describe("Manager Sales evidence + renderer", () => {
       expect(values(answer, 0)).toEqual([
         [NAME_A2, "8606.0000", "10390.2500", "-0.1717"],
         [NAME_A1, "13459.5000", "14920.0000", "-0.0979"],
-        [NAME_A3, "0.0000", "0.0000"],
       ]);
-      expect(table(answer, 1).columns).toEqual(["voids", "returns", "voids_baseline", "returns_baseline"]);
-      expect(values(answer, 1)).toEqual([
-        ["210.0000", "455.0000", "180.0000", "390.5000"],
-        ["0.0000", "99.0000", "0.0000", "0.0000"],
-      ]);
+      // No delta (a zero baseline) is a [store, count] row, not a short row.
+      expect(table(answer, 1).columns).toEqual(["store", "count"]);
+      expect(values(answer, 1)).toEqual([[NAME_A3, 0]]);
+      // The current period and the baseline period are two tables with the same known keys.
+      expect(table(answer, 2).columns).toEqual(["voids", "returns"]);
+      expect(values(answer, 2)).toEqual([["210.0000", "455.0000"], ["0.0000", "99.0000"]]);
+      expect(table(answer, 3).columns).toEqual(["voids", "returns"]);
+      expect(values(answer, 3)).toEqual([["180.0000", "390.5000"], ["0.0000", "0.0000"]]);
+      expect(cellsOf(answer).filter((c) => c.ref.startsWith("ss.baseline:")).length).toBe(4);
       expect(answer.declined).toEqual(["causal_not_supported"]);
       expect(answer.gaps).toEqual(["G-3", "G-6"]);
       expect(answer.notices).toContain("multi_currency");
@@ -325,7 +346,9 @@ describe("Manager Sales evidence + renderer", () => {
 
     it("T-09: average sale per store in its currency with its count; no scope average (G-4)", async () => {
       const { answer } = await run({ templateId: "T-09", currency: "SAR" });
-      expect(values(answer)).toEqual([[NAME_A3, "73.7410", 83], [NAME_A1, 0], [NAME_A2, 0]]);
+      expect(values(answer)).toEqual([[NAME_A3, "73.7410", 83]]);
+      expect(table(answer, 1).columns).toEqual(["store", "count"]);
+      expect(values(answer, 1)).toEqual([[NAME_A1, 0], [NAME_A2, 0]]);
       expect(answer.gaps).toEqual(["G-4"]);
     });
 

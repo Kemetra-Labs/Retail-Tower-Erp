@@ -29,7 +29,12 @@ async function answer(extra: Record<string, unknown>): Promise<ManagerSalesAnswe
   const builder = new ManagerSalesEvidenceBuilder(reads.summary as never, reads.byStore as never);
   const params = ManagerSalesExplainRequestSchema.parse({ storeIds: [], locale: "en", ...WEEK, ...extra });
   const pack = await builder.build({ ctx: ownerCtx(), featureId: MSX_FEATURE_ID, storeIds: params.storeIds, correlationId: "c", params });
-  return managerSalesFeature.outputSchema.parse(managerSalesFeature.execute(pack, {})) as ManagerSalesAnswer;
+  const parsed = managerSalesFeature.outputSchema.parse(managerSalesFeature.execute(pack, {})) as ManagerSalesAnswer;
+  // Cells are positional: every row holds exactly as many cells as its table has columns.
+  for (const block of parsed.blocks) {
+    if (block.type === "table") for (const row of block.rows) expect(row).toHaveLength(block.columns.length);
+  }
+  return parsed;
 }
 
 describe("the runtime and the P-05 contract", () => {

@@ -48,8 +48,8 @@ export function ownerCtx(overrides: Partial<ResolvedContext> = {}): ResolvedCont
   return { userId: USER_ID, tenantId: TENANT_A, storeId: null, isPlatformAdmin: false, source: "session", storeAccess: { kind: "all" }, ...overrides };
 }
 
-export function managerCtx(storeIds: readonly string[]): ResolvedContext {
-  return ownerCtx({ storeAccess: { kind: "specific", storeIds } });
+export function managerCtx(storeIds: readonly string[], activeStore: string | null = null): ResolvedContext {
+  return ownerCtx({ storeAccess: { kind: "specific", storeIds }, storeId: activeStore });
 }
 
 interface StoreDef {
