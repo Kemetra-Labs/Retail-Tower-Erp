@@ -25,9 +25,7 @@
  *   - `payload_hash` on `sales`, `sale_voids`, `sale_refunds`, `sale_returns`,
  *     `refund_executions` and `sale_credit_reversals` (via `sha256CanonicalHex`);
  *   - `erpnext_posting_status.payload_hash`, which the worker copies from the
- *     parent sale's `sales.payload_hash`;
- *   - `idempotency_keys.request_hash` for settlement intents (key prefix
- *     `settlement-intent:`, `settlement/receivable.service.ts`).
+ *     parent sale's `sales.payload_hash`.
  */
 import { createHash } from "node:crypto";
 

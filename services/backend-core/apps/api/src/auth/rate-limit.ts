@@ -139,7 +139,6 @@ export const RATE_LIMIT_BUCKETS = {
  */
 export const POS_WRITE_RATE_LIMIT_BUCKETS = {
   posWriteSale: { limit: 300, windowMs: 60 * 60 * 1000 },
-  posWriteSettlementIntent: { limit: 120, windowMs: 60 * 60 * 1000 },
   // RT-1312 Phase 3(b) (decision P6): the sale quarantine upload, its own
   // bucket so an upload backlog never slows live capture. A till uploads each
   // refused or held sale once (plus a retry after a lost answer), so this is

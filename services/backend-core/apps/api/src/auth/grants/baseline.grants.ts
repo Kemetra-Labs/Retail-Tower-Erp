@@ -205,11 +205,6 @@ export const GRANTS: GrantFragment = {
       "sale_approval_uses",
       // RT-787 (0067): refund executions.
       "refund_executions",
-      "receivable",
-      "claim",
-      "claim_receivables",
-      "payment_application",
-      "remittance",
       "payer_account",
       // RT-113 BC2: cashier admission state and its replay store.
       "cashier_admissions",
