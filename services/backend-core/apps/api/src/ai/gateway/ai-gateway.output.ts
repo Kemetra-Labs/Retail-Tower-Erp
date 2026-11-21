@@ -11,14 +11,21 @@ import type {
   ModelResult,
   ModelRouteDescriptor,
 } from "../ports/model-provider.port";
-import type { AiFeatureDefinition } from "./ai-feature";
-import { fallback } from "./ai-gateway.result";
+import type { AiFeatureDefinition, AiRegisteredFeature } from "./ai-feature";
+import { fallback, type Fallback } from "./ai-gateway.result";
 import type { AiGatewayResult } from "./ai-gateway.types";
 
 type OkResult = Extract<ModelResult, { kind: "ok" }>;
+type Validatable = Pick<AiRegisteredFeature, "outputSchema" | "extractEvidenceRefs">;
+
+/** An output that passed the strict schema and the evidence-ref check. */
+export interface ValidatedOutput {
+  readonly output: unknown;
+  readonly refs: readonly string[];
+}
 
 /** The refs the validated output cites, or null if the feature hook misbehaves. */
-function citedRefs(feature: AiFeatureDefinition, output: unknown): readonly string[] | null {
+function citedRefs(feature: Validatable, output: unknown): readonly string[] | null {
   let refs: unknown;
   try {
     refs = feature.extractEvidenceRefs(output);
@@ -29,24 +36,41 @@ function citedRefs(feature: AiFeatureDefinition, output: unknown): readonly stri
   return wellFormed ? (refs as readonly string[]) : null;
 }
 
+/**
+ * The ONE validation of a feature's output, shared by model output (provider
+ * requested) and Tier-0 deterministic output (RT-1542, none requested): strict
+ * schema, then every cited ref must be in the pack that was built.
+ */
+export function validateOutput(
+  rawOutput: unknown,
+  feature: Validatable,
+  pack: EvidencePack,
+  providerRequested: boolean,
+): ValidatedOutput | Fallback {
+  const parsed = feature.outputSchema.safeParse(rawOutput);
+  if (!parsed.success) return fallback("output_schema_invalid", providerRequested);
+
+  const refs = citedRefs(feature, parsed.data);
+  if (refs === null) return fallback("output_schema_invalid", providerRequested);
+
+  const known = new Set(pack.items.map((item) => item.ref));
+  if (!refs.every((ref) => known.has(ref))) return fallback("output_unknown_evidence_ref", providerRequested);
+  return { output: parsed.data, refs };
+}
+
 function validateOk(
   result: OkResult,
   feature: AiFeatureDefinition,
   route: ModelRouteDescriptor,
   pack: EvidencePack,
 ): AiGatewayResult {
-  const parsed = feature.outputSchema.safeParse(result.rawOutput);
-  if (!parsed.success) return fallback("output_schema_invalid", true);
-
-  const refs = citedRefs(feature, parsed.data);
-  if (refs === null) return fallback("output_schema_invalid", true);
-
-  const known = new Set(pack.items.map((item) => item.ref));
-  if (!refs.every((ref) => known.has(ref))) return fallback("output_unknown_evidence_ref", true);
+  const validated = validateOutput(result.rawOutput, feature, pack, true);
+  if ("kind" in validated) return validated;
+  const { output, refs } = validated;
 
   return {
     kind: "ok",
-    output: parsed.data,
+    output,
     evidenceRefs: refs,
     routeKey: route.routeKey,
     usage: result.usage,
