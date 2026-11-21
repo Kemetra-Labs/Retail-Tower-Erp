@@ -10,11 +10,13 @@
  *   - DOWN recreates the six tables empty with their ENABLE + FORCE RLS and policies, and the up applies again.
  *
  * Docker policy: missing Docker is a HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
+ * Even with the opt-in only "no container runtime" skips; any other setup failure is rethrown
+ * (`startPgEnvOrSkip`).
  */
 import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 
-import { applyMigrationsBefore, asMigrationOwner } from "../_helpers/migration-spec";
+import { applyMigrationsBefore, asMigrationOwner, startPgEnvOrSkip } from "../_helpers/migration-spec";
 import { startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
@@ -106,13 +108,12 @@ const owner = (): { role: string; tables: readonly string[]; functions: readonly
 });
 
 beforeAll(async () => {
-  try {
-    env = await startPgEnv();
-  } catch (err: unknown) {
-    dockerSkipReason = String(err);
-    if (process.env["MIGRATION_TEST_ALLOW_SKIP"] !== "1") throw err;
+  const started = await startPgEnvOrSkip(startPgEnv, process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1");
+  if (started.env === null) {
+    dockerSkipReason = started.skipReason;
     return;
   }
+  env = started.env;
   await applyMigrationsBefore(env, DRIZZLE_DIR, UP);
   await env.admin.query(
     `INSERT INTO tenants (id, slug, name, default_currency_code)
