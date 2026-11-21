@@ -338,6 +338,8 @@ describe("the preview", () => {
       previewHash: excluded.body.previewHash,
       mode: "upsert",
       publishable: true,
+      conflictCount: 0, // RT-1536: a batch with no conflict is unchanged
+      conflicts: [],
       counts: { ready_create: 2, ready_update: 3, unchanged: 1, needs_review: 0, error: 0, excluded: 1 },
       brandsToCreate: ["Brand Fresh"],
       productsToCreate: 2,

@@ -1,6 +1,6 @@
 /**
  * CatalogImportController — RT-1505 / RT-1507 (spec 049 slices S4, S5): the operations of
- * `catalog/catalog-import.yaml` 1.0.5-draft that are served.
+ * `catalog/catalog-import.yaml` 1.0.6-draft that are served.
  *
  *   POST /api/v1/catalog/imports                                    consoleUploadCatalogImport     (RT-1505 part A)
  *   GET  /api/v1/catalog/imports/{batchId}                          consoleGetCatalogImport        (part A)

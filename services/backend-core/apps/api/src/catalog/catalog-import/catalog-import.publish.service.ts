@@ -43,7 +43,6 @@ import {
   activeIdsByName,
   catalogueChanged,
   loadPlanRows,
-  loadRowCells,
   lockTenantPublish,
   markBatchPublished,
   markBatchStale,
@@ -56,6 +55,7 @@ import { inTenant, ImportBatchNotFoundError, writeBatchAudit, type ImportWriteIn
 import { lockBatch } from "./catalog-import.validate-repository";
 import { ImportBatchRefusedError } from "./import-batch-refusal";
 import type { ColumnMapping } from "./import-mapping";
+import { explicitValues } from "./import-explicit-values";
 import { planPublish, summaryOf, type PlannedUpdate, type PublishPlan } from "./import-publish-plan";
 import type { PublishBody } from "./import-resolve-body";
 import { parseRows, type ParsedRow } from "./import-row-parse";
@@ -158,33 +158,6 @@ function idOf(ids: ReadonlyMap<string, string>, name: string | null): string | n
   const id = ids.get(name);
   if (id === undefined) throw new StaleValidationSignal();
   return id;
-}
-
-/**
- * What each row that shares its product with another row states for it, field by field (as the field changes name them),
- * read from the staged cells through the same parse validate used. Only those rows' cells are read: a row alone on its
- * product cannot disagree with anyone.
- */
-async function explicitValues(client: PoolClient, tenantId: string, batch: BatchRow, rows: readonly LoadedPlanRow[]): Promise<Map<number, Record<string, string>>> {
-  const perProduct = new Map<string, number[]>();
-  for (const r of rows) {
-    if ((r.status !== "ready_update" && r.status !== "unchanged") || r.outcome.matchedProduct === null) continue;
-    perProduct.set(r.outcome.matchedProduct.productId, [...(perProduct.get(r.outcome.matchedProduct.productId) ?? []), r.rowNumber]);
-  }
-  const shared = [...perProduct.values()].filter((numbers) => numbers.length > 1).flat();
-  const cells = await loadRowCells(client, tenantId, batch.id, shared);
-  const explicit = new Map<number, Record<string, string>>();
-  for (const p of parseRows(batch.mapping as ColumnMapping[], cells)) {
-    const values: Record<string, string> = {};
-    if (p.name !== null) values["name"] = p.name.value;
-    if (p.description !== null) values["description"] = p.description.value;
-    if (p.category !== null) values["category"] = p.category.value;
-    if (p.brand !== null) values["brand"] = p.brand.value;
-    if (p.taxCategory !== null) values["tax_category"] = p.taxCategory.value;
-    if (p.isActive !== null) values["is_active"] = String(p.isActive.value);
-    explicit.set(p.rowNumber, values);
-  }
-  return explicit;
 }
 
 @Injectable()

@@ -32,6 +32,7 @@ import { ImportBatchRefusedError } from "./import-batch-refusal";
 import { collectLookupKeys, type CatalogLookups } from "./import-lookups";
 import type { ColumnMapping, ImportMode } from "./import-mapping";
 import { previewHashOf } from "./import-preview-hash";
+import { explicitValues } from "./import-explicit-values";
 import { planPublish, previewOf } from "./import-publish-plan";
 import { applyDecision, clearedState, type AppliedDecision, type Decision, type StoredRowState } from "./import-resolution";
 import { toRowBody, type CatalogImportRowBody } from "./import-row-page";
@@ -95,14 +96,17 @@ export class CatalogImportReviewService {
     return inTenant(this.pool, tenantId, async (client) => {
       // Share-locked: the rows below are read as of this batch row (every row writer locks the batch first).
       const batch = await readBatchWithOutcomes(client, tenantId, batchId, true);
-      const plan = planPublish(await loadPlanRows(client, tenantId, batchId, false));
+      // The publish's own plan, with the cells of the rows that share a product read the same way, so the conflicts named here are
+      // the ones the publish refuses (RT-1536).
+      const rows = await loadPlanRows(client, tenantId, batchId, false);
+      const plan = planPublish(rows, await explicitValues(client, tenantId, batch, rows));
       const body = toBatchBody(batch);
       return {
         batchId,
         version: batch.version,
         previewHash: batch.preview_hash as string,
         mode: batch.mode,
-        publishable: body.publishable,
+        publishable: body.publishable && plan.conflicts.length === 0,
         counts: batch.counts,
         ...previewOf(plan),
       };
