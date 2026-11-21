@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 42bcab6451be410af4b60a9d656797ade46c4692
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 6d6becacd8c082932f1717af091de663badd30e2
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -5113,7 +5113,7 @@ export namespace ShiftClosesSchema {
              * @description AD-CASH-001 D-6 accept-and-flag findings on the open's frozen policy (see `pos-shifts.openapi.yaml` `PolicyFlag`). Never a refusal.
              * @enum {string}
              */
-            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch";
+            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch" | "policy_revision_stale_at_receipt";
             /**
              * @description A derived yes / no, or `unknown` when the shift's open carried no frozen policy (a pre-upgrade or pre-RT-384 shift). `unknown` is never "no exception". `approvalRequiredByPolicy` is `yes` when the frozen value is `limit` and `|variance| > limitAmount`; `approvalMissing` is `yes` when approval was required and no `varianceApprovedByUserId` was recorded.
              * @enum {string}
@@ -24684,7 +24684,7 @@ export namespace CatalogImportSchema {
             };
             /**
              * The impact preview of a validated batch.
-             * @description What publish would do, for exactly `previewHash`: brands to create, products to create and update, identifiers to add, rows excluded and unchanged, the products taken off the tills by `is_active = false` (OD-17 A) and the new products that will have no price (spec 049 §6). The field-level before → after of each row is on its row (`consoleListCatalogImportRows`). Not audited per request. The counts come from the same plan the publish writes from (a product two rows update is one update), so they are the published effect. Available for a `validated` or a `published` batch.
+             * @description What publish would do, for exactly `previewHash`: brands to create, products to create and update, identifiers to add, rows excluded and unchanged, the products taken off the tills by `is_active = false` (OD-17 A) and the new products that will have no price (spec 049 §6). It also names the conflicts that make the publish refuse the batch (`conflicts`, RT-1536) and reports `publishable: false` for them. The field-level before → after of each row is on its row (`consoleListCatalogImportRows`). Not audited per request. The counts come from the same plan the publish writes from (a product two rows update is one update), so they are the published effect. Available for a `validated` or a `published` batch.
              */
             get: operations["consoleGetCatalogImportPreview"];
             put?: never;
@@ -25009,14 +25009,28 @@ export namespace CatalogImportSchema {
                 rowNumber: number;
                 product: components["schemas"]["ProductRef"];
             };
+            ImportConflict: {
+                product: components["schemas"]["ProductRef"];
+                /** @description Ascending row numbers: for `field_disagreement` every row that states a value for the product's `field`; for `second_sku` every row that adds one of its SKUs. At most the first 50. */
+                rowNumbers: number[];
+                /** @enum {string} */
+                reason: "field_disagreement" | "second_sku";
+                /** @description The field the rows disagree on (`field_disagreement` only), as `fieldChanges` name it. */
+                field?: string;
+            };
             CatalogImportPreview: {
                 /** Format: uuid */
                 batchId: string;
                 version: components["schemas"]["Version"];
                 previewHash: components["schemas"]["PreviewHash"];
                 mode: components["schemas"]["ImportMode"];
+                /** @description True when the batch is `validated`, no row needs review or has an error, and `conflicts` is empty: exactly when the publish does not refuse it as `import_not_publishable`. This is the authoritative value; the count-based `publishable` of the batch does not see conflicts. */
                 publishable: boolean;
                 counts: components["schemas"]["StatusCounts"];
+                /** @description How many conflicts the batch has, which can exceed the length of the bounded `conflicts` list (RT-1536). */
+                conflictCount?: number;
+                /** @description The first 100 conflicts (RT-1536), ordered by their first row, then product and reason. Each is a product the publish refuses and the rows to fix. */
+                conflicts?: components["schemas"]["ImportConflict"][];
                 /** @description Brand names publish creates (OD-3 B), each once. */
                 brandsToCreate: string[];
                 productsToCreate: number;
