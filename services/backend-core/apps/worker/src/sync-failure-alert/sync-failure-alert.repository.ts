@@ -152,6 +152,22 @@ const RECIPIENT_SQL = `
                                    AND sa.store_id = $2))))
      )`;
 
+/** Whether a condition still holds for one store, re-read under the lock before a window closes. */
+const CONDITION_PRESENT_SQL: Readonly<Record<SyncFailureCondition, string>> = {
+  posting_permanently_rejected: `
+    SELECT 1 FROM erpnext_posting_status s
+      JOIN stores st ON st.id = s.store_id AND st.tenant_id = s.tenant_id
+     WHERE s.tenant_id = $1 AND s.store_id = $2 AND s.status = 'permanently_rejected'
+       AND st.deleted_at IS NULL
+     LIMIT 1`,
+  sale_failed_needs_repair: `
+    SELECT 1 FROM sales sa
+      JOIN stores st ON st.id = sa.store_id AND st.tenant_id = sa.tenant_id
+     WHERE sa.tenant_id = $1 AND sa.store_id = $2 AND sa.sync_status = 'failed-needs-repair'
+       AND st.deleted_at IS NULL
+     LIMIT 1`,
+};
+
 interface ObservedRow {
   store_id: string;
   store_name: string;
@@ -213,11 +229,7 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
     o: ObservedCondition,
     now: Date,
   ): Promise<OpenWindow> {
-    // Serialise concurrent sweeps of the same (store, condition): the check and the insert are atomic.
-    await client.query(
-      `SELECT pg_advisory_xact_lock(hashtextextended('sync-failure-alert:' || $1::text, 0))`,
-      [`${tenantId}|${keyOf(o.storeId, o.condition)}`],
-    );
+    await this.lockCondition(client, tenantId, o.storeId, o.condition);
     const open = await client.query<{ id: string; window_seq: number }>(
       `UPDATE sync_failure_alert_windows
           SET last_seen_at = $4, failure_count = $5
@@ -252,26 +264,49 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
     return { ...o, windowId, windowSeq, justOpened: true };
   }
 
+  /**
+   * Close the open windows whose condition is gone. The observation that picked the candidates was
+   * taken in an earlier transaction, so a concurrent sweep may have opened or refreshed the window
+   * since: each close takes the same advisory lock as `openOrRefresh` and re-reads the condition under
+   * it, and closes only when it is still clear.
+   */
   private async closeCleared(
     client: PoolClient,
     tenantId: string,
     live: ReadonlySet<string>,
     now: Date,
   ): Promise<number> {
-    const open = await client.query<{ id: string; store_id: string; condition_key: string }>(
+    const open = await client.query<{ id: string; store_id: string; condition_key: SyncFailureCondition }>(
       `SELECT id, store_id, condition_key FROM sync_failure_alert_windows
         WHERE tenant_id = $1 AND cleared_at IS NULL`,
       [tenantId],
     );
-    const stale = open.rows.filter((w) => !live.has(keyOf(w.store_id, w.condition_key)));
-    for (const w of stale) {
-      await client.query(
+    const candidates = open.rows.filter((w) => !live.has(keyOf(w.store_id, w.condition_key)));
+    let closed = 0;
+    for (const w of candidates) {
+      await this.lockCondition(client, tenantId, w.store_id, w.condition_key);
+      const present = await client.query(CONDITION_PRESENT_SQL[w.condition_key], [tenantId, w.store_id]);
+      if (present.rowCount !== 0) continue; // the condition is back: keep the window open
+      const r = await client.query(
         `UPDATE sync_failure_alert_windows SET cleared_at = $3
           WHERE tenant_id = $1 AND id = $2 AND cleared_at IS NULL`,
         [tenantId, w.id, now],
       );
+      closed += r.rowCount ?? 0;
     }
-    return stale.length;
+    return closed;
+  }
+
+  /** Serialise concurrent sweeps of one (store, condition): the check and the write are atomic. */
+  private async lockCondition(
+    client: PoolClient,
+    tenantId: string,
+    storeId: string,
+    condition: string,
+  ): Promise<void> {
+    await client.query(`SELECT pg_advisory_xact_lock(hashtextextended('sync-failure-alert:' || $1::text, 0))`, [
+      `${tenantId}|${keyOf(storeId, condition)}`,
+    ]);
   }
 
   listRecipients(tenantId: string, storeId: string): Promise<AlertRecipient[]> {

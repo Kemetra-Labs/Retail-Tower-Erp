@@ -227,7 +227,13 @@ export class SyncFailureAlertProcessor {
     const outcome = { tenantId, window, deliveryId: claim.deliveryId };
 
     // Send-time authorization re-check: the role or store access may have changed since listing.
-    const email = await this.repo.authorizedEmail(tenantId, window.storeId, recipient.userId);
+    let email: string | null;
+    try {
+      email = await this.repo.authorizedEmail(tenantId, window.storeId, recipient.userId);
+    } catch (err) {
+      // Nothing was sent yet, so the claim can be released for a retry (a thrown error is not a crash).
+      return await this.releaseClaim(outcome, err, tenantId, window, tally);
+    }
     if (email === null) {
       await this.repo.markFailed({ ...outcome, errorClass: "RecipientNotAuthorized", at: this.clock() });
       tally.note("failed");
@@ -254,6 +260,32 @@ export class SyncFailureAlertProcessor {
     await this.repo.markDelivered({ ...outcome, at: this.clock() });
     tally.note("delivered");
     return "delivered";
+  }
+
+  /**
+   * The send-time re-check threw before any send: mark the delivery `failed` so a retry re-claims it,
+   * and fail the job so BullMQ retries. If even that write fails the claim stays `claimed`
+   * (at-most-once) and the error propagates to the tenant-level handler.
+   */
+  private async releaseClaim(
+    outcome: { readonly tenantId: string; readonly window: OpenWindow; readonly deliveryId: string },
+    err: unknown,
+    tenantId: string,
+    window: OpenWindow,
+    tally: Tally,
+  ): Promise<DeliveryResult> {
+    await this.repo.markFailed({ ...outcome, errorClass: safeErrorClass(err), at: this.clock() });
+    tally.note("failed");
+    tally.retryable += 1;
+    this.log({
+      level: "warn",
+      component: COMPONENT,
+      message: "authorization_recheck_failed",
+      tenant_id: tenantId,
+      window_id: window.windowId,
+      ...errorFields(err),
+    });
+    return "failed";
   }
 
   private render(to: string, window: OpenWindow): AlertEmail {

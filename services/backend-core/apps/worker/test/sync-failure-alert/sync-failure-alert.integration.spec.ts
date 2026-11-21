@@ -447,7 +447,7 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     expect(Math.max(...latencies) + DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS + 15_000).toBeLessThan(10 * 60 * 1000);
   });
 
-  it("S3 (known limit, at-most-once): a crash between the claim and the send loses that email, never doubles it", async () => {
+  it("S3 (known limit, at-most-once): a hard crash between the claim and the send loses that email, never doubles it", async () => {
     if (SKIP()) return;
     await seedSale(TENANT_A, STORE_A1, "failed-needs-repair");
     const real = new PgSyncFailureAlertRepository(env!.app);
@@ -462,6 +462,8 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
           return real.authorizedEmail(tenantId, storeId, userId);
         },
       },
+      // The process is gone: not even the outcome write happens.
+      markFailed: { value: async () => Promise.reject(new Error("process gone")) },
     }) as SyncFailureAlertRepository;
     const adapter = new RecordingEmailAdapter();
     const { processor } = makeProcessor(env!.app, adapter, () => T0, crashesOnce);
@@ -471,6 +473,45 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     expect(adapter.sent).toHaveLength(3);
     const stuck = await admin().query(`SELECT count(*)::int AS n FROM sync_failure_alert_deliveries WHERE status = 'claimed'`);
     expect(stuck.rows[0].n).toBe(1);
+  });
+
+  it("a send-time re-check that throws releases the claim, and the retry sends it once", async () => {
+    if (SKIP()) return;
+    await seedSale(TENANT_A, STORE_A1, "failed-needs-repair");
+    const real = new PgSyncFailureAlertRepository(env!.app);
+    let failures = 1;
+    const flaky: SyncFailureAlertRepository = Object.create(real, {
+      authorizedEmail: {
+        value: async (tenantId: string, storeId: string, userId: string) => {
+          if (failures-- > 0) throw new Error("pool timeout");
+          return real.authorizedEmail(tenantId, storeId, userId);
+        },
+      },
+    }) as SyncFailureAlertRepository;
+    const adapter = new RecordingEmailAdapter();
+    const { processor } = makeProcessor(env!.app, adapter, () => T0, flaky);
+    await expect(sweep(processor)).rejects.toBeInstanceOf(SyncFailureAlertIncompleteError);
+    await sweep(processor);
+    await sweep(processor);
+    expect(adapter.sent).toHaveLength(4);
+    const states = await admin().query(`SELECT DISTINCT status FROM sync_failure_alert_deliveries`);
+    expect(states.rows).toEqual([{ status: "delivered" }]);
+  });
+
+  it("a window is not closed on a stale observation: the condition is re-read under the lock", async () => {
+    if (SKIP()) return;
+    await seedSale(TENANT_A, STORE_A1, "failed-needs-repair");
+    const repo = new PgSyncFailureAlertRepository(env!.app);
+    const observed = (await repo.observeConditions(TENANT_A))!;
+    await repo.reconcileWindows(TENANT_A, observed, T0);
+    // A concurrent sweep that observed "nothing" before the failure (re)appeared tries to close the window.
+    const stale = await repo.reconcileWindows(TENANT_A, [], new Date(T0.getTime() + 1000));
+    expect(stale.cleared).toBe(0);
+    expect((await windows())[0]!.cleared_at).toBeNull();
+    // Once the failure is really gone the same call closes it.
+    await admin().query(`DELETE FROM sales WHERE tenant_id = $1`, [TENANT_A]);
+    const real = await repo.reconcileWindows(TENANT_A, [], new Date(T0.getTime() + 2000));
+    expect(real.cleared).toBe(1);
   });
 
   it("a suspended tenant is not alerted: no window, no email, and nothing is written", async () => {

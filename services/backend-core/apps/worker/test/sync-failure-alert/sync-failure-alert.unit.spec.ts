@@ -186,7 +186,21 @@ describe("RT-1034 SyncFailureAlertProcessor", () => {
     expect(repo.windows).toHaveLength(0);
   });
 
-  it("S3 (known limit, at-most-once): a crash between the claim and the send loses that email, never doubles it", async () => {
+  it("a send-time re-check that throws releases the claim: the retry sends it, once", async () => {
+    const repo = new FakeRepo();
+    const { processor, adapter } = build(repo);
+    const realAuthorized = repo.authorizedEmail.bind(repo);
+    let failures = 1;
+    repo.authorizedEmail = (t, s, u) =>
+      failures-- > 0 ? Promise.reject(new Error("pool timeout")) : realAuthorized(t, s, u);
+    await expect(run(processor)).rejects.toBeInstanceOf(SyncFailureAlertIncompleteError);
+    expect([...repo.deliveries.values()][0]!.status).toBe("failed");
+    await run(processor);
+    await run(processor);
+    expect(adapter.sent).toHaveLength(1);
+  });
+
+  it("S3 (known limit, at-most-once): a hard crash between the claim and the send loses that email, never doubles it", async () => {
     const repo = new FakeRepo();
     const { processor, adapter } = build(repo);
     const realAuthorized = repo.authorizedEmail.bind(repo);
@@ -198,6 +212,8 @@ describe("RT-1034 SyncFailureAlertProcessor", () => {
       }
       return realAuthorized(t, s, u);
     };
+    // The process dies: not even the outcome write happens, so the row stays 'claimed'.
+    repo.markFailed = () => Promise.reject(new Error("process gone"));
     await expect(run(processor)).rejects.toBeInstanceOf(SyncFailureAlertIncompleteError);
     await run(processor);
     await run(processor);
