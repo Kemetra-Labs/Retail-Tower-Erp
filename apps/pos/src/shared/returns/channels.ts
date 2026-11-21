@@ -16,6 +16,8 @@ export const RETURNS_IPC_CHANNELS = {
   // RT-15 S4
   PAYOUT: 'returns:payout',
   REPRINT_SLIP: 'returns:reprintSlip',
+  // RT-1498 (RT-196 S1 remainder; §A4 record C-1): resend ONE unresolved return.
+  RESEND: 'returns:resend',
 } as const;
 
 export type ReturnsIpcChannel = (typeof RETURNS_IPC_CHANNELS)[keyof typeof RETURNS_IPC_CHANNELS];

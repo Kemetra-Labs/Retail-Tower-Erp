@@ -29,6 +29,7 @@ describe('preload returns bridge', () => {
     ['submit', RETURNS_IPC_CHANNELS.SUBMIT, req],
     ['payout', RETURNS_IPC_CHANNELS.PAYOUT, { returnId: 'r', action: 'start' }],
     ['reprintSlip', RETURNS_IPC_CHANNELS.REPRINT_SLIP, { returnId: 'r' }],
+    ['resend', RETURNS_IPC_CHANNELS.RESEND, { returnId: 'r' }],
   ] as const)('%s invokes its channel with the request', async (member, channel, arg) => {
     const { returns } = await import('../returns');
     const call = returns[member] as (a: unknown) => Promise<unknown>;
@@ -55,6 +56,7 @@ describe('preload returns bridge', () => {
       'payout',
       'quote',
       'reprintSlip',
+      'resend',
       'resolve',
       'submit',
     ]);

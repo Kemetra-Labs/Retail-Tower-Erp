@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 
 import type { ReturnJournalView } from '../../shared/returns/types.js';
+import { Notice } from '../v5/foundation/Notice';
 import { ToneIcon } from '../v5/foundation/ToneIcon';
 import type { IconName } from '../icons/registry';
 import { ReturnNotice } from './ReturnNotice';
@@ -9,11 +10,13 @@ import { formatReturnMoney, formatReturnTime } from './returns-format.js';
 import {
   OUTCOME_COPY,
   PAYOUT_COPY,
+  UNRESOLVED_COPY,
   refusalMessage,
   reprintMessage,
   stateLabel,
 } from './returns-messages.js';
 import type { HistoryReprint } from './useHistoryReprint.js';
+import type { HistoryResend } from './useHistoryResend.js';
 import type { HistoryState, ReturnHistory } from './useReturnHistory.js';
 
 /**
@@ -49,11 +52,16 @@ export interface HistoryActions {
   /** Show a confirmed return's payout (start or complete). */
   readonly pay: (row: ReturnJournalView) => void;
   readonly reprint: HistoryReprint;
+  /** RT-1498: send an unresolved (pending / unknown) return again. */
+  readonly resend: HistoryResend;
+  /** RT-1498: the bar's "check unresolved" is running (it holds the per-row resend). */
+  readonly checking: boolean;
 }
 
-type RowAction = 'pay' | 'complete' | 'reprint' | null;
+type RowAction = 'pay' | 'complete' | 'reprint' | 'resend' | null;
 
 function rowAction(row: ReturnJournalView): RowAction {
+  if (UNRESOLVED.has(row.state)) return 'resend';
   if (row.state === 'paid_out') return 'reprint';
   if (row.state !== 'confirmed') return null;
   return row.payout === null ? 'pay' : 'complete';
@@ -63,7 +71,15 @@ const ACTION_LABEL: Readonly<Record<Exclude<RowAction, null>, string>> = {
   pay: PAYOUT_COPY.historyPay,
   complete: PAYOUT_COPY.historyComplete,
   reprint: PAYOUT_COPY.historyReprint,
+  resend: UNRESOLVED_COPY.resend,
 };
+
+/** Is the row's action held by another one in flight (one call at a time)? */
+function actionHeld(action: Exclude<RowAction, null>, actions: HistoryActions): boolean {
+  if (action === 'reprint') return actions.reprint.printing !== null;
+  if (action === 'resend') return actions.resend.sending !== null || actions.checking;
+  return false;
+}
 
 function RowActionButton({
   row,
@@ -71,10 +87,13 @@ function RowActionButton({
 }: Readonly<{ row: ReturnJournalView; actions: HistoryActions }>) {
   const action = rowAction(row);
   if (action === null) return null;
-  const { reprint } = actions;
-  const printing = reprint.printing === row.returnId;
+  const { reprint, resend } = actions;
+  const busy =
+    (action === 'reprint' && reprint.printing === row.returnId) ||
+    (action === 'resend' && resend.sending === row.returnId);
   const onClick = (): void => {
     if (action === 'reprint') void reprint.run(row.returnId);
+    else if (action === 'resend') void resend.run(row.returnId, row.saleNumber);
     else actions.pay(row);
   };
   return (
@@ -82,12 +101,47 @@ function RowActionButton({
       type="button"
       className="v5-manager-btn v5-btn"
       aria-label={`${ACTION_LABEL[action]} ${row.saleNumber}`}
-      disabled={reprint.printing !== null && action === 'reprint'}
-      aria-busy={printing}
+      disabled={actionHeld(action, actions)}
+      aria-busy={busy}
       onClick={onClick}
     >
       {ACTION_LABEL[action]}
     </button>
+  );
+}
+
+/**
+ * RT-1498: what the local audit proves about an unresolved return: how many
+ * sends were attempted, when the last one was, and why it left the return
+ * unknown (the closed cause code, with its wording). Never a body or a status
+ * text. While unresolved, no cash is paid (a standing line).
+ */
+function UnresolvedDetail({ row }: Readonly<{ row: ReturnJournalView }>): JSX.Element | null {
+  if (!UNRESOLVED.has(row.state)) return null;
+  const cause = row.lastCause === null ? '' : UNRESOLVED_COPY.cause(row.lastCause);
+  return (
+    <div className="v5-returns-state__detail">
+      {row.lastAttemptAt === null ? (
+        <span>{UNRESOLVED_COPY.neverSent}</span>
+      ) : (
+        <>
+          <span>{UNRESOLVED_COPY.attempts(row.attemptCount)}</span>
+          <span>
+            {UNRESOLVED_COPY.lastAttemptLabel}:{' '}
+            <time dateTime={row.lastAttemptAt}>{formatReturnTime(row.lastAttemptAt)}</time>
+          </span>
+        </>
+      )}
+      {row.lastCause !== null && cause !== '' && (
+        <span>
+          {cause}{' '}
+          <span className="v5-returns-state__code">
+            {UNRESOLVED_COPY.codeLabel}: <bdi>{row.lastCause}</bdi>
+          </span>
+        </span>
+      )}
+      <strong>{UNRESOLVED_COPY.doNotPay}</strong>
+    </div>
   );
 }
 
@@ -110,6 +164,7 @@ function Row({
         {row.refusalReason !== null && (
           <span className="v5-returns-state__reason">{refusalMessage(row.refusalReason)}</span>
         )}
+        <UnresolvedDetail row={row} />
       </td>
       <td>
         <bdi className="v5-manager-num">{amountOf(row)}</bdi>
@@ -205,8 +260,23 @@ function ReprintNotice({ reprint }: Readonly<{ reprint: HistoryReprint }>): JSX.
   );
 }
 
+/** RT-1498: the last per-row resend's result; `success` only for a confirmation main reported. */
+function ResendNotice({ resend }: Readonly<{ resend: HistoryResend }>): JSX.Element | null {
+  if (resend.result === null) return null;
+  const { saleNumber, tone, text } = resend.result;
+  return (
+    <Notice tone={tone}>
+      <bdi className="v5-manager-num">{saleNumber}</bdi>: {text}
+    </Notice>
+  );
+}
+
 function hasNotice(history: ReturnHistory, actions: HistoryActions): boolean {
-  return history.checkNotice !== null || actions.reprint.result !== null;
+  return (
+    history.checkNotice !== null ||
+    actions.reprint.result !== null ||
+    actions.resend.result !== null
+  );
 }
 
 export function ReturnsHistory({
@@ -221,7 +291,7 @@ export function ReturnsHistory({
     <button
       type="button"
       className="v5-manager-btn v5-btn"
-      disabled={history.checking}
+      disabled={history.checking || actions.resend.sending !== null}
       aria-busy={history.checking}
       onClick={() => void history.checkUnresolved()}
     >
@@ -234,6 +304,7 @@ export function ReturnsHistory({
         <div className="v5-manager-panel__body v5-returns-journal__notices">
           <ReturnNotice notice={history.checkNotice} />
           <ReprintNotice reprint={actions.reprint} />
+          <ResendNotice resend={actions.resend} />
         </div>
       )}
       {state.status === 'ok' && state.rows.length > 0 ? (

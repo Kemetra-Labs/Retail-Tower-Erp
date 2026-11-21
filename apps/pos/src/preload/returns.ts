@@ -8,6 +8,8 @@ import type {
   ReturnsPayoutResponse,
   ReturnsReprintRequest,
   ReturnsReprintResponse,
+  ReturnsResendRequest,
+  ReturnsResendResponse,
   ReturnsLookupRequest,
   ReturnsLookupResponse,
   ReturnsQuoteRequest,
@@ -39,4 +41,6 @@ export const returns: ReturnsBridgeAPI = {
     ipcRenderer.invoke(RETURNS_IPC_CHANNELS.PAYOUT, req) as Promise<ReturnsPayoutResponse>,
   reprintSlip: (req: ReturnsReprintRequest) =>
     ipcRenderer.invoke(RETURNS_IPC_CHANNELS.REPRINT_SLIP, req) as Promise<ReturnsReprintResponse>,
+  resend: (req: ReturnsResendRequest) =>
+    ipcRenderer.invoke(RETURNS_IPC_CHANNELS.RESEND, req) as Promise<ReturnsResendResponse>,
 };

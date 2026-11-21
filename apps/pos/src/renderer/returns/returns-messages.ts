@@ -1,6 +1,7 @@
 import type {
   ReturnDrawerFailure,
   ReturnState,
+  ReturnUnknownCause,
   ReturnsRefusalReason,
 } from '../../shared/returns/types.js';
 import type { ReprintResult } from './payout-state.js';
@@ -183,3 +184,41 @@ const STATE_LABELS: Readonly<Record<ReturnState, string>> = Object.freeze({
 export function stateLabel(state: ReturnState): string {
   return STATE_LABELS[state];
 }
+
+const UNKNOWN_CAUSE_COPY: Readonly<Record<ReturnUnknownCause, string>> = Object.freeze({
+  timeout: 'انتهت مهلة الانتظار قبل وصول رد الخادم.',
+  network: 'انقطع الاتصال بالخادم أثناء الإرسال، ولا يُعرف هل وصل الطلب.',
+  server_5xx: 'أعاد الخادم خطأً من جهته.',
+  rate_limited: 'طلب الخادم التمهّل قبل إعادة المحاولة.',
+  pre_replay_401:
+    'لم يتعرّف الخادم على هذه الجلسة أو هذا الجهاز عند إعادة الإرسال (401). قد يكون الإرسال السابق سُجّل.',
+  pre_replay_403:
+    'لا يملك هذا الجهاز أو هذه الجلسة صلاحية الإرسال عند إعادة الإرسال (403). قد يكون الإرسال السابق سُجّل.',
+  pre_replay_404:
+    'تعذّر على الخادم إيجاد البيع، أو أن المرتجعات غير مفعّلة عليه (404). قد يكون الإرسال السابق سُجّل.',
+  confirmation_mismatch: 'رد الخادم لا يطابق المرتجع المحفوظ على هذا الجهاز.',
+  unreadable_body: 'لم يُفهم رد الخادم.',
+  local_commit_failed: 'تعذّر حفظ رد الخادم على هذا الجهاز.',
+  no_credential: 'لا توجد بيانات دخول صالحة للإرسال في الجلسة الحالية. سجّل الدخول من جديد.',
+  unexpected_status: 'رد الخادم برمز حالة غير متوقع.',
+});
+
+/**
+ * RT-1498 (RT-196 S1 remainder + the history-only part of S6) — the unresolved
+ * return's row detail and its per-row resend. PROPOSED copy: the RT-196 plan
+ * (§3.1, §3.9) fixes the action name «إعادة الإرسال» and the do-not-pay line;
+ * the cause wording is new and awaits owner copy review. Each line says only
+ * what the local audit proves (the closed cause code), and none says declined.
+ */
+export const UNRESOLVED_COPY = Object.freeze({
+  resend: 'إعادة الإرسال',
+  attemptsLabel: 'محاولات الإرسال',
+  attempts: (count: number): string => `محاولات الإرسال: ${String(count)}`,
+  lastAttemptLabel: 'آخر محاولة',
+  neverSent: 'لم يُرسل هذا المرتجع إلى الخادم بعد.',
+  doNotPay: 'النتيجة غير مؤكدة. لا تصرف أي نقد حتى تتأكد الحالة.',
+  codeLabel: 'الرمز',
+  /** The wording of a cause code; empty for a code the renderer was not taught. */
+  cause: (cause: ReturnUnknownCause): string =>
+    cause in UNKNOWN_CAUSE_COPY ? UNKNOWN_CAUSE_COPY[cause] : '',
+});

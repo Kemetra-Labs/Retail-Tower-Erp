@@ -14,7 +14,9 @@
  *   • `resolve` / `list` take no payload;
  *   • RT-15 S4 `payout`: exactly `{ returnId, action }` with a canonical UUID
  *     and an action in the closed set; `reprintSlip`: exactly `{ returnId }`.
- *     No amount can be sent: main pays the journal's server-confirmed total.
+ *     No amount can be sent: main pays the journal's server-confirmed total;
+ *   • RT-1498 `resend`: exactly `{ returnId }` with a canonical UUID. The key,
+ *     the body, the scope and the operator are derived in main from the row.
  *
  * Session, role, feature gate and every business rule live in the service.
  * The channels are not on the locked-session allowlist, so the guarded
@@ -31,6 +33,7 @@ import {
   type ReturnsPayoutRequest,
   type ReturnsQuoteRequest,
   type ReturnsReprintRequest,
+  type ReturnsResendRequest,
 } from '../../shared/returns/types.js';
 import { isUuid } from '../returns/returns-wire.js';
 
@@ -48,6 +51,7 @@ const LOOKUP_KEYS = ['saleNumber'] as const;
 const QUOTE_KEYS = ['saleNumber', 'lines'] as const;
 const PAYOUT_KEYS = ['returnId', 'action'] as const;
 const REPRINT_KEYS = ['returnId'] as const;
+const RESEND_KEYS = ['returnId'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false;
@@ -141,6 +145,13 @@ export function readReprintRequest(value: unknown): ReturnsReprintRequest | null
   return isReturnId(returnId) ? { returnId } : null;
 }
 
+/** `{ returnId }` exactly (RT-1498 `resend`), or null. */
+export function readResendRequest(value: unknown): ReturnsResendRequest | null {
+  if (!isClosedShape(value, RESEND_KEYS)) return null;
+  const { returnId } = value;
+  return isReturnId(returnId) ? { returnId } : null;
+}
+
 /** `resolve` / `list` accept no payload (undefined or `{}`). */
 function isEmptyPayload(value: unknown): boolean {
   return value === undefined || isClosedShape(value, []);
@@ -184,5 +195,11 @@ export function registerReturnsHandlers(ipcMain: IpcMain, deps: ReturnsIpcDeps):
   ipcMain.handle(RETURNS_IPC_CHANNELS.REPRINT_SLIP, (_event, request: unknown) => {
     const req = readReprintRequest(request);
     return req === null ? INVALID : service.reprintSlip(req);
+  });
+
+  // RT-1498: the answer shape is `submit`'s, so a refusal carries `ret: null`.
+  ipcMain.handle(RETURNS_IPC_CHANNELS.RESEND, (_event, request: unknown) => {
+    const req = readResendRequest(request);
+    return req === null ? { ...INVALID, ret: null } : service.resend(req);
   });
 }

@@ -11,6 +11,7 @@ import { SaleLookup } from './SaleLookup';
 import type { Outcome } from './return-flow-state.js';
 import { useReturnFlow, type ReturnFlow } from './useReturnFlow.js';
 import { useHistoryReprint } from './useHistoryReprint.js';
+import { useHistoryResend } from './useHistoryResend.js';
 import { useReturnHistory } from './useReturnHistory.js';
 
 /**
@@ -70,6 +71,7 @@ export function ReturnsScreen({ bridge, sessionEvents, sales }: ReturnsScreenPro
   const history = useReturnHistory(bridge, sessionEvents);
   const flow = useReturnFlow(bridge, history.reload);
   const reprint = useHistoryReprint(bridge);
+  const resend = useHistoryResend(bridge, history.reload);
   return (
     <>
       <FlowStep
@@ -81,7 +83,10 @@ export function ReturnsScreen({ bridge, sessionEvents, sales }: ReturnsScreenPro
           latest: (returnId) => latestIn(history.known, returnId),
         }}
       />
-      <ReturnsHistory history={history} actions={{ pay: flow.openPayout, reprint }} />
+      <ReturnsHistory
+        history={history}
+        actions={{ pay: flow.openPayout, reprint, resend, checking: history.checking }}
+      />
     </>
   );
 }
