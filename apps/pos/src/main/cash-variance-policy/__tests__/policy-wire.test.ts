@@ -5,8 +5,8 @@
  */
 import { describe, expect, it } from 'vitest';
 
-import { fallbackPolicy } from '../policy-core.js';
-import { frozenPolicyBody, readPolicyBody } from '../policy-wire.js';
+import { fallbackPolicy, type VariancePolicy } from '../policy-core.js';
+import { frozenPolicyBody, normalizeFrozenPolicy, readPolicyBody } from '../policy-wire.js';
 
 const REVISION = '0190f5a2-3b4c-7d8e-9f01-23456789abcd';
 const SERVER_TIME = '2026-11-21T10:00:00.000Z';
@@ -98,6 +98,44 @@ describe('readPolicyBody', () => {
     expect(
       readPolicyBody(body({ policyValue: { mode: 'limit', limitAmount: '1.00', currencyCode } })),
     ).toBeNull();
+  });
+});
+
+describe('normalizeFrozenPolicy', () => {
+  const LIMIT: VariancePolicy = {
+    source: 'store',
+    revisionId: REVISION.toUpperCase(),
+    mode: 'limit',
+    limitAmount: '75.5',
+    currencyCode: 'EGP',
+  };
+
+  it('lower-cases the revision id and keeps the value', () => {
+    expect(normalizeFrozenPolicy(LIMIT)).toEqual({ ...LIMIT, revisionId: REVISION });
+  });
+
+  it('accepts none for a tenant, the system default and a fallback none', () => {
+    const tenantNone: VariancePolicy = { source: 'tenant', revisionId: REVISION, mode: 'none' };
+    expect(normalizeFrozenPolicy(tenantNone)).toEqual(tenantNone);
+    const system: VariancePolicy = { source: 'system', revisionId: null, mode: 'none' };
+    expect(normalizeFrozenPolicy(system)).toEqual(system);
+    const fallbackNone: VariancePolicy = { source: 'fallback', revisionId: null, mode: 'none' };
+    expect(normalizeFrozenPolicy(fallbackNone)).toEqual(fallbackNone);
+  });
+
+  it.each<[string, VariancePolicy]>([
+    ['a store policy without a revision id', { ...LIMIT, revisionId: null }],
+    ['a revision id that is not a uuid', { ...LIMIT, revisionId: 'rev-1' }],
+    [
+      'a system policy carrying a revision id',
+      { source: 'system', revisionId: REVISION, mode: 'none' },
+    ],
+    ['a system policy that is a limit', { ...LIMIT, source: 'system', revisionId: null }],
+    ['a limit that is not an exact decimal', { ...LIMIT, limitAmount: '1e3' }],
+    ['a limit finer than four digits', { ...LIMIT, limitAmount: '1.00001' }],
+    ['a currency that is not ISO-shaped', { ...LIMIT, currencyCode: 'eg' }],
+  ])('refuses %s', (_name, policy) => {
+    expect(normalizeFrozenPolicy(policy)).toBeNull();
   });
 });
 
