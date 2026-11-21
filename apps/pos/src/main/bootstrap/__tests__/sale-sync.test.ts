@@ -17,6 +17,7 @@ const m = vi.hoisted(() => ({
   isCashierClaimRefusedResetRequested: vi.fn(),
   logSaleSyncPauseTransition: vi.fn(),
   readEngineCutoffs: vi.fn(),
+  readTenderRefsSince: vi.fn(),
   scheduleSaleSync: vi.fn(),
   resolveApiBaseUrl: vi.fn(),
   createDiscountRoleResolver: vi.fn(),
@@ -63,6 +64,9 @@ vi.mock('../../sales-sync/cashier-claim-refused-reset.js', () => ({
 }));
 vi.mock('../../sales-sync/capture-cutover.js', () => ({
   readEngineCutoffs: m.readEngineCutoffs,
+}));
+vi.mock('../../sales-sync/tender-refs-cutoff.js', () => ({
+  readTenderRefsSince: m.readTenderRefsSince,
 }));
 vi.mock('../../sales-sync/schedule-sale-sync.js', () => ({
   SALE_SYNC_DRAIN_TIMEOUT_MS: 4_000,
@@ -140,6 +144,7 @@ function makeHarness(): Harness {
   m.isCashierClaimRefusedResetRequested.mockReturnValue(false);
   m.resetCashierClaimRefusedOnStart.mockImplementation(() => events.push('reset'));
   m.readEngineCutoffs.mockReturnValue({ tendersSince: null, receiptSince: null });
+  m.readTenderRefsSince.mockReturnValue(null);
   m.scheduleSaleSync.mockImplementation(() => {
     events.push('schedule');
     return stopSaleSync;
@@ -175,7 +180,6 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     vi.clearAllMocks();
     vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDERS_SINCE', '');
     vi.stubEnv('POS_PULSE_FEATURE_SALE_RECEIPT_SINCE', '');
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '');
   });
   afterEach(() => {
     vi.unstubAllEnvs();
@@ -290,22 +294,20 @@ describe('startSaleSyncEngine (RT-900 extraction 6c)', () => {
     expect(h.logger.warn).not.toHaveBeenCalled();
   });
 
-  it('RT-363: the tender-refs cut-off is read from the environment: a valid instant, else off', () => {
+  it('RT-363: passes the tender-refs cut-off stored in the database (read on the open handle), not the environment', () => {
     const h = makeHarness();
-    const refsSince = (): unknown => {
-      m.createSaleSyncEngine.mockClear();
-      startSaleSyncEngine(h.deps, TERMINAL);
-      return engineDeps()['tenderRefsSince'];
-    };
-    expect(refsSince()).toBeNull();
-    expect(h.logger.warn).not.toHaveBeenCalled();
+    m.readTenderRefsSince.mockReturnValueOnce('2026-11-21T12:00:00.000Z');
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2020-01-01T00:00:00Z');
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(m.readTenderRefsSince).toHaveBeenCalledWith(h.deps.db, h.logger);
+    expect(engineDeps()['tenderRefsSince']).toBe('2026-11-21T12:00:00.000Z');
+  });
 
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2026-12-01T02:00:00+02:00');
-    expect(refsSince()).toBe('2026-12-01T00:00:00.000Z');
-
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', 'garbage');
-    expect(refsSince()).toBeNull();
-    expect(h.logger.warn).toHaveBeenCalledTimes(1);
+  it('RT-363: no stored row (the default) leaves the cut-off off, whatever the environment holds', () => {
+    const h = makeHarness();
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2026-12-01T00:00:00Z');
+    startSaleSyncEngine(h.deps, TERMINAL);
+    expect(engineDeps()['tenderRefsSince']).toBeNull();
   });
 
   it('runs the RT-225 support reset for this terminal before the engine exists', () => {

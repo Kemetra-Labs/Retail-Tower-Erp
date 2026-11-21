@@ -153,9 +153,9 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
   // 409). `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` / `..._RECEIPT_SINCE` only seed that first
   // write. No row (the boot write failed) = both off, with a warning.
   const { tendersSince, receiptSince } = readEngineCutoffs(db, mainLogger);
-  // RT-363 (G1): one tender per line with tenderRef/sequence. Env-only, off when unset
-  // (`tender-refs-cutoff.ts` states the operator rule); needs `tendersSince` on as well.
-  const tenderRefsSince = readTenderRefsSince(process.env, mainLogger);
+  // RT-363 (G1): one tender per line with tenderRef/sequence. The row recorded once on opt-in
+  // (migration 0066, `tender-refs-cutoff.ts`); no row = off. It needs `tendersSince` on as well.
+  const tenderRefsSince = readTenderRefsSince(db, mainLogger);
   // RT-221: the drain (and the pending / held counts) is scoped to the
   // CURRENT pairing's terminal_id, read live from the pairing status each
   // tick. After a re-pair, the earlier pairing's queued sales are held —

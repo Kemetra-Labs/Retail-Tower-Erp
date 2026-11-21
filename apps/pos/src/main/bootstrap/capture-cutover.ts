@@ -1,12 +1,16 @@
 import type { Logger } from 'pino';
 import { machineCodeOf, type DatabaseHandle } from '../db/client.js';
 import { recordCaptureCutoverOnce } from '../sales-sync/capture-cutover.js';
+import { recordTenderRefsCutoverOnce } from '../sales-sync/tender-refs-cutoff.js';
 
 /** What the boot step closes over from the composition root. */
 export interface CaptureCutoverBootDeps {
   /** The open, migrated database handle. */
   db: DatabaseHandle;
-  /** The process environment: the two `*_SINCE` variables only seed the first write. */
+  /**
+   * The process environment: the two `*_SINCE` variables only seed the first write, and the
+   * RT-363 `POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE` only opts in (the stored row wins after).
+   */
   env: Readonly<Record<string, string | undefined>>;
   mainLogger: Logger;
 }
@@ -29,5 +33,12 @@ export function recordCaptureCutoverAtBoot(deps: CaptureCutoverBootDeps): void {
     recordCaptureCutoverOnce({ db, env, now: () => new Date(), logger: mainLogger });
   } catch (err) {
     mainLogger.error({ code: machineCodeOf(err) }, 'sale_sync:capture_cutover_unrecorded');
+  }
+  // RT-363: the one-tender-per-line instant, recorded once on opt-in (migration 0066). Its own
+  // step so a failure of either write never stops the other; a failed one runs with it off.
+  try {
+    recordTenderRefsCutoverOnce({ db, env, now: () => new Date(), logger: mainLogger });
+  } catch (err) {
+    mainLogger.error({ code: machineCodeOf(err) }, 'sale_sync:tender_refs_cutover_unrecorded');
   }
 }

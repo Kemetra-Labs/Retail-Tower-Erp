@@ -185,6 +185,8 @@ export interface BuildCapturePayloadOptions {
   /**
    * RT-363 (G1): ISO instant; a sale finalized at/after it (and past `tendersSince`) sends one
    * tender per tender line with `tenderRef` and `sequence`. null/undefined = off (merged body).
+   * Read at boot from the row recorded once on opt-in (migration 0066, `tender-refs-cutoff.ts`),
+   * so it never moves under a sale that may already have been sent.
    */
   tenderRefsSince?: string | null | undefined;
   /** RT-906: the sale's resolved approver roles (`readResolvedRoles`); none by default. */

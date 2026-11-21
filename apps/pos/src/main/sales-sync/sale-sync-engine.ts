@@ -238,9 +238,10 @@ export interface SaleSyncEngineDeps {
    */
   receiptSince?: string | null | undefined;
   /**
-   * RT-363 gate (an ISO instant, `POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE`). Unset/null = the
-   * merged tender body. Set = a sale finalized at/after it (and past `tendersSince`) sends one
-   * tender per line with `tenderRef` and `sequence` (`tender-refs-cutoff.ts`).
+   * RT-363 gate (an ISO instant). Unset/null = the merged tender body. Set = a sale finalized
+   * at/after it (and past `tendersSince`) sends one tender per line with `tenderRef` and
+   * `sequence`. It is the row recorded once on opt-in (migration 0066, `tender-refs-cutoff.ts`),
+   * so it never moves.
    */
   tenderRefsSince?: string | null | undefined;
   /**
