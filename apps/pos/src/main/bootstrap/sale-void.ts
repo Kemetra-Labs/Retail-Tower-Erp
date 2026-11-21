@@ -33,6 +33,11 @@ export interface SaleVoidDeps {
   operatorEnvelopeHolder: Pick<JwtHolder, 'get'>;
   /** The pairing store: the live paired terminal id (null while unpaired or revoked). */
   pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>;
+  /**
+   * RT-1403: the sendable device-token read (null unless paired, null once revoked; never
+   * rejects) for a cashier's void. Read in process per send, never bridged.
+   */
+  getDeviceToken: () => Promise<string | null>;
   /** The one manager approval service (a void spends a single-use RT-114 approval). */
   managerApprovals: ComposeSaleVoidDeps['approvals'];
   /** The audit sink the void journal writes to. */
@@ -62,6 +67,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     operatorSessionManager,
     operatorEnvelopeHolder,
     pairingStore,
+    getDeviceToken,
     managerApprovals,
     auditEmitter,
     forwardAuditEvent,
@@ -76,9 +82,11 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
   // gets a typed `feature_disabled` refusal, never "no handler"); the service
   // re-reads `POS_PULSE_FEATURE_SALE_VOID` per call (default off). A request
   // spends a single-use RT-114 manager approval and journals the void; the
-  // send engine posts it later under the REQUESTER's own operator envelope
-  // only (the same in-process envelope reader sale sync uses), once the sale
-  // has synced. No device bearer is involved.
+  // send engine posts it later as the REQUESTER only, once the sale has
+  // synced: a manager or admin under their own operator envelope (the same
+  // in-process envelope reader sale sync uses), a cashier (RT-1403) with the
+  // device bearer (the sendable read, in process per send) plus their own
+  // `operatorUserId`.
   const saleVoidDomain = composeSaleVoid({
     db,
     http: {
@@ -86,6 +94,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
       fetch: backendFetch,
     },
     getOperatorEnvelope: createSaleSyncTokenReader(operatorSessionManager, operatorEnvelopeHolder),
+    getDeviceToken,
     getSession: () => operatorSessionManager.getCurrent(),
     getTerminalId: () => pairingStore.getCurrentTerminalId(),
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',

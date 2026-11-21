@@ -63,7 +63,9 @@ import { Idempotent } from "../../idempotency/idempotent.decorator";
 import { type CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import {
+  RecordCashierVoidRequestSchema,
   RecordVoidRequestSchema,
+  type RecordCashierVoidRequestDto,
   type RecordVoidRequestDto,
 } from "./dto/record-void-request.dto";
 import {
@@ -90,7 +92,7 @@ import {
   VoidRequesterNotEligibleError,
   VoidSelfApprovalError,
 } from "./void-approval";
-import { SaleCaptureAuthGuard } from "./sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "./sale-capture-auth.guard";
 import {
   SaleResponsibilityMismatchError,
   SaleResponsibilityOfflineRefusedError,
@@ -486,6 +488,53 @@ export class SalesController {
     @Body(new ZodValidationPipe(RecordVoidRequestSchema))
     body: RecordVoidRequestDto,
     @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    return this.recordVoidFor(request, saleRef, body, res);
+  }
+
+  /**
+   * RT-1403 (RT-530 c12029; `[GATED: contract]` approval: RT-1403 c18071; the
+   * separate route is the owner's choice, c18113). The cashier's void: the same
+   * void as `recordVoid`, requested with the paired terminal's DEVICE bearer plus
+   * the cashier's `operatorUserId`. `recordVoid` stays the manager and admin
+   * envelope route, unchanged. @DeviceBearer() makes the global
+   * FailClosedAuthGuard defer to SaleVoidAuthGuard, which runs PosDeviceAuthGuard
+   * first, then verifies the claimed cashier against a cashier admission live now
+   * on the device, and only then publishes that cashier as the actor. The
+   * per-device write limit (ADR 0009) runs AFTER the auth guard, as on captureSale
+   * (it fails open on a Redis or lookup error, so it never blocks a write the
+   * guard admitted): a device token alone could otherwise drive one admission and
+   * eligibility lookup per request without bound (review M1).
+   */
+  @Post("api/pos/v1/sales/:saleRef/cashier-void")
+  @DeviceBearer()
+  @UseGuards(SaleVoidAuthGuard, PosWriteRateLimitGuard)
+  @PosWriteRateLimitBucket("posWriteSaleVoid")
+  @Idempotent("required")
+  @Auditable("sale.voided")
+  async recordCashierVoid(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Body(new ZodValidationPipe(RecordCashierVoidRequestSchema))
+    body: RecordCashierVoidRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    // `operatorUserId` is the attribution CLAIM. The guard verified it and
+    // published the cashier as ctx.userId, the only actor recorded. It is not a
+    // void fact, so it is dropped before the service hashes the body into
+    // payload_hash: the stored hash is the one `recordVoid` would store for the
+    // same void (it stays in the idempotency fingerprint, which covers the raw
+    // body).
+    const { operatorUserId: _attributionClaim, ...voidBody } = body;
+    return this.recordVoidFor(request, saleRef, voidBody, res);
+  }
+
+  /** The void both routes record: the authenticated actor, the sale, the checks of void-approval.ts. */
+  private async recordVoidFor(
+    request: TenantContextRequest,
+    saleRef: string,
+    body: RecordVoidRequestDto,
+    res: Response,
   ): Promise<TerminalEventProjection> {
     const ctx = request.context;
     if (!ctx || ctx.tenantId === null || ctx.userId === null) {

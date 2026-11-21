@@ -61,5 +61,20 @@ export const RecordVoidRequestSchema = z
   })
   .strict();
 
+/**
+ * RT-1403 (RT-530 c12029; `[GATED]` approval: RT-1403 c18071, the separate route:
+ * c18113). The `recordCashierVoid` body: `RecordVoidRequest` plus the REQUIRED
+ * `operatorUserId` of the requesting cashier (`RecordCashierVoidRequest` in
+ * `pos-sales/sales.yaml` 1.26.0-draft). It is a claim the route guard
+ * (`SaleVoidAuthGuard`) verifies against a cashier admission live now on the
+ * paired device; the controller drops it before the service hashes the body, so
+ * the stored `payload_hash` is the one `recordVoid` would store for the same
+ * void. `recordVoid` itself does NOT accept the field (strict body).
+ */
+export const RecordCashierVoidRequestSchema = RecordVoidRequestSchema.extend({
+  operatorUserId: z.string().uuid(),
+}).strict();
+
 export type VoidApprovalDto = z.infer<typeof VoidApprovalSchema>;
 export type RecordVoidRequestDto = z.infer<typeof RecordVoidRequestSchema>;
+export type RecordCashierVoidRequestDto = z.infer<typeof RecordCashierVoidRequestSchema>;

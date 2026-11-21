@@ -7,8 +7,8 @@
  *     selling operator; the approval is bound to THIS sale and its total and
  *     is single-use (consumed in the journaling transaction);
  *   • same business day only; no second live void; no return;
- *   • a session that could never send the void (a cashier with no envelope) is
- *     refused before an approval is spent;
+ *   • a session that could never send the void (no `users.id`) is refused before an
+ *     approval is spent; since RT-1403 a cashier needs no envelope (device path);
  *   • the evidence journaled is the approval's own (approver, policy version,
  *     time), with audit events for the grant and the request.
  */
@@ -398,14 +398,39 @@ describe('who and when', () => {
     expect(sale).toMatchObject({ kind: 'sale', sale: { ineligible: 'has_return' } });
   });
 
-  it('refuses a cashier without an operator envelope before any approval is spent', async () => {
+  it('RT-1403: lets a cashier request with no operator envelope: it is sent over the device path', async () => {
     current = session('cashier', 'rana');
     envelope = null;
+    const id = await approvedId(OMAR);
+    const answer = await request('sale-1', id);
+    expect(answer).toMatchObject({ kind: 'requested', void: { waiting_for: 'sale_sync' } });
+    expect(journal.readByApproval(id)).toMatchObject({ requesterUserId: CASHIER_USER });
+    // The sender is the cashier over the device path: no envelope is read or needed.
+    expect(toVoidSender(current, TERMINAL, envelope)).toEqual({
+      via: 'device',
+      scope: SCOPE,
+      operatorUserId: CASHIER_USER,
+    });
+  });
+
+  it('refuses a session with no users.id before any approval is spent', async () => {
+    current = { ...session('cashier', 'rana'), user_id: '' };
     await expect(request('sale-1', '0190f5a2-7b3c-7d4e-8f90-0000000000aa')).resolves.toEqual({
       kind: 'refused',
       reason: 'no_operator_envelope',
     });
     expect(journal.listRecent(SCOPE, 10)).toEqual([]);
+  });
+
+  it('a manager still sends under the envelope, and none means no sender', () => {
+    const manager = session('manager', 'mona');
+    expect(toVoidSender(manager, TERMINAL, 'env')).toEqual({
+      scope: SCOPE,
+      operatorUserId: MONA.userId,
+      envelope: 'env',
+    });
+    expect(toVoidSender(manager, TERMINAL, null)).toBeNull();
+    expect(toVoidSender(manager, TERMINAL, '')).toBeNull();
   });
 
   it('lets a manager request offline (no envelope yet): the void waits for the sign-in', async () => {

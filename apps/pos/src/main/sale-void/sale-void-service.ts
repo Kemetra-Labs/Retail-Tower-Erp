@@ -130,10 +130,13 @@ function cashOf(sale: SaleRow): number | null {
   }
 }
 
-/** A session that could never send the void is refused before an approval is spent. */
+/**
+ * A session that could never send the void is refused before an approval is spent: one with no
+ * `users.id`. Since RT-1403 (RT-530 c12029) a cashier sends over the device path and no longer
+ * needs an operator envelope; a manager or admin may request offline and send once online.
+ */
 function canEverSend(session: VoidSession): boolean {
-  if (session.userId === null) return false;
-  return session.role !== 'cashier' || session.hasEnvelope;
+  return session.userId !== null;
 }
 
 export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidService {

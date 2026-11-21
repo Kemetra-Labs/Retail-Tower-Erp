@@ -120,6 +120,120 @@ describe('void client request', () => {
   });
 });
 
+const DEVICE_TOKEN = 'device-token-secret-value';
+const DEVICE_REQUEST = {
+  ...REQUEST,
+  bodyJson: buildVoidBodyJson(entryRow(), SALE_REF, 'device'),
+};
+
+describe('RT-1403 device path: the void wire body', () => {
+  it('adds the requester users.id as operatorUserId, last, and nothing else', () => {
+    const envelope = buildVoidBody(entryRow(), SALE_REF);
+    const device = buildVoidBody(entryRow(), SALE_REF, 'device');
+    expect(device).toEqual({ ...envelope, operatorUserId: REQUESTER_USER });
+    expect(Object.keys(device).at(-1)).toBe('operatorUserId');
+  });
+
+  it('never puts operatorUserId on the envelope path (an envelope carrying it is a 401)', () => {
+    expect(Object.keys(buildVoidBody(entryRow(), SALE_REF))).not.toContain('operatorUserId');
+    expect(buildVoidBodyJson(entryRow(), SALE_REF)).not.toContain('operatorUserId');
+  });
+
+  it('is byte-identical on every build, per path', () => {
+    expect(buildVoidBodyJson(entryRow(), SALE_REF, 'device')).toBe(
+      buildVoidBodyJson(entryRow(), SALE_REF, 'device'),
+    );
+  });
+
+  it('keeps the device bytes a pure extension of the envelope bytes', () => {
+    const envelopeJson = buildVoidBodyJson(entryRow(), SALE_REF);
+    const deviceJson = buildVoidBodyJson(entryRow(), SALE_REF, 'device');
+    expect(deviceJson).toBe(`${envelopeJson.slice(0, -1)},"operatorUserId":"${REQUESTER_USER}"}`);
+  });
+});
+
+describe('RT-1403 device path: the client request', () => {
+  it('POSTs the device bytes with the DEVICE bearer to the CASHIER route, with the same key', async () => {
+    const { client, fetchMock } = clientWith(() =>
+      Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'recorded',
+      replayed: false,
+      eventRef: EVENT_REF,
+    });
+    const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
+    expect(url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/cashier-void`);
+    expect(init.body).toBe(DEVICE_REQUEST.bodyJson);
+    expect(init.headers).toMatchObject({
+      'Idempotency-Key': REQUEST.idempotencyKey,
+      Authorization: `Bearer ${DEVICE_TOKEN}`,
+    });
+  });
+
+  it.each([null, ''])('sends nothing without a device token (%j)', async (token) => {
+    const { client, fetchMock } = clientWith(() => Promise.reject(new Error('must not be called')));
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, token)).toEqual({
+      kind: 'unknown',
+      category: 'no_credential',
+    });
+    expect(fetchMock).not.toHaveBeenCalled();
+  });
+
+  it('a 401 is unknown (unauthorized), never a refusal and never success', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(401, { error: { code: 'unauthorized' } })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'unknown',
+      category: 'unauthorized',
+    });
+  });
+
+  it('a 404 on the cashier route is unknown, never a terminal refusal (an older Backend-Core has no such route)', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(404, { error: { code: 'not_found' } })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'unknown',
+      category: 'server_error',
+    });
+  });
+
+  it('a 404 on the manager route stays a terminal sale_not_found (unchanged)', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(404, { error: { code: 'not_found' } })),
+    );
+    expect(await client.recordVoid(REQUEST, ENVELOPE)).toEqual({
+      kind: 'refused',
+      reason: 'sale_not_found',
+    });
+  });
+
+  it('the manager route URL is unchanged (/void), the cashier route is /cashier-void', async () => {
+    const m = clientWith(() =>
+      Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
+    );
+    await m.client.recordVoid(REQUEST, ENVELOPE);
+    expect((m.fetchMock.mock.calls[0] as [string, RequestInit])[0]).toMatch(/\/void$/);
+    const c = clientWith(() =>
+      Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
+    );
+    await c.client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN);
+    expect((c.fetchMock.mock.calls[0] as [string, RequestInit])[0]).toMatch(/\/cashier-void$/);
+  });
+
+  it('the RT-530 refusals keep their codes on the device path', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(403, { error: { code: 'void_requester_mismatch' } })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'refused',
+      reason: 'void_requester_mismatch',
+    });
+  });
+});
+
 describe('void client outcomes', () => {
   const recorded = { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF };
 
@@ -184,9 +298,19 @@ describe('void client outcomes', () => {
     [503, 'server_error'],
   ])('%i proves nothing: unknown (%s), the void stays queued', async (status, category) => {
     const { client } = clientWith(() =>
-      Promise.resolve(answer(status, { error: { code: 'refused' } })),
+      Promise.resolve(answer(status, { error: { code: 'something_else' } })),
     );
     expect(await client.recordVoid(REQUEST, ENVELOPE)).toEqual({ kind: 'unknown', category });
+  });
+
+  it('RT-1403: the device path generic 403 refused proves nothing about the void: unknown (claim_refused)', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(403, { error: { code: 'refused', message: 'Forbidden' } })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'unknown',
+      category: 'claim_refused',
+    });
   });
 
   it('a network failure or timeout is unknown (no_connection)', async () => {

@@ -24,7 +24,7 @@ import { SaleReturnsService } from "../../../../src/catalog/sales/sale-returns.s
 import { PG_POOL } from "../../../../src/database";
 import { OPERATOR_CONTEXT_RESOLVER } from "../../../../src/auth/operator-context-resolver";
 import { PosOperatorEnvelopeSaleGuard } from "../../../../src/auth/pos-operator-envelope-sale.guard";
-import { SaleCaptureAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
 import { PosOperatorAuthGuard } from "../../../../src/auth/pos-operator-auth.guard";
 import { TenantContextGuard } from "../../../../src/context/tenant-context.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
@@ -62,6 +62,9 @@ function compileSalesModule(overrideRateLimitGuard: boolean): Promise<unknown> {
     .useValue({ canActivate: () => true })
     // RT-224: captureSale's route guard, overridden like the envelope guard.
     .overrideGuard(SaleCaptureAuthGuard)
+    .useValue({ canActivate: () => true })
+    // RT-1403: recordVoid's route guard, overridden the same way.
+    .overrideGuard(SaleVoidAuthGuard)
     .useValue({ canActivate: () => true })
     .overrideGuard(PosOperatorAuthGuard)
     .useValue({ canActivate: () => true })

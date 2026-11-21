@@ -45,7 +45,7 @@
  * paths authenticate here; route-auth-markers.enforcement.spec.ts lists this
  * guard as a reviewed composite that runs PosDeviceAuthGuard.
  */
-import { type ExecutionContext, Inject, Injectable, Optional } from "@nestjs/common";
+import { type ExecutionContext, Inject, Injectable, Optional, UnauthorizedException } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 
 import { CompositePosAuthGuard, type CompositeGate } from "../../auth/composite-pos-auth.guard";
@@ -55,6 +55,12 @@ import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { TenantContextRequest } from "../../context/types";
 import type { DeviceScope } from "../../pos-cashier-admissions/device-scope";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
+import { RecordCashierVoidRequestSchema } from "./dto/record-void-request.dto";
+import {
+  SALE_VOID_CASHIER_VERIFIER,
+  type SaleVoidCashierRefusal,
+  type SaleVoidCashierVerifier,
+} from "./tracked-lines/tracked-line-cashier";
 import {
   ATTRIBUTION_REFUSAL_EVENTS,
   OPERATOR_ATTRIBUTION_VERIFIER,
@@ -131,3 +137,119 @@ export class SaleCaptureAuthGuard extends CompositePosAuthGuard {
     return userId;
   }
 }
+
+/** The refusal log's fixed `event` per cause of recordCashierVoid's cashier claim (redaction matrix §3.4 `event`). */
+export const SALE_VOID_CASHIER_REFUSAL_EVENTS: Readonly<Record<SaleVoidCashierRefusal, string>> = {
+  no_live_admission: "sale_void.operator_refused.no_live_admission",
+  membership_inactive: "sale_void.operator_refused.membership_inactive",
+  user_deleted: "sale_void.operator_refused.user_deleted",
+  role_ineligible: "sale_void.operator_refused.role_ineligible",
+  store_inactive: "sale_void.operator_refused.store_inactive",
+  store_not_accessible: "sale_void.operator_refused.store_not_accessible",
+  profile_incomplete: "sale_void.operator_refused.profile_incomplete",
+  suspended: "sale_void.operator_refused.suspended",
+};
+
+/**
+ * SaleVoidAuthGuard — `recordCashierVoid`'s credential gate (RT-1403, RT-530
+ * owner decision c12029, 2026-10-16; `[GATED: contract]` approval: RT-1403
+ * c18071; the separate route is the owner's choice, c18113).
+ *
+ * It is declared in this file, beside the captureSale gate it mirrors, so it
+ * shares that file's reviewed imports of the auth, context and cashier-admission
+ * internals (module-boundaries ratchet, RT-1453) instead of adding new ones.
+ *
+ * `recordCashierVoid` (`POST /api/pos/v1/sales/{saleRef}/cashier-void`) is the
+ * cashier counterpart of `recordVoid`, which stays the manager and admin
+ * operator-envelope route, unchanged. This route takes the DEVICE credential
+ * only, on `CompositePosAuthGuard` (RT-1229) like captureSale's device path:
+ *
+ *   a. `PosDeviceAuthGuard` resolves the bearer to an active device of an
+ *      active tenant; tenant, store and device come from that row only. An
+ *      operator envelope, a bad, revoked or missing credential: the generic 401.
+ *   b. The strict cashier-void body (a malformed body from an authenticated
+ *      device, including a missing `operatorUserId`, is the usual 400; the
+ *      handler's pipe runs it again).
+ *   c. `SaleVoidCashierVerifier` (the RT-451 S2 tracked-line rules, plus the
+ *      store suspension, RT-1403 review H2): a cashier admission of THIS device
+ *      and store for the claimed user, live at the server's current time (no
+ *      back-dating window), the live cashier eligibility rules, and no store
+ *      suspension of the cashier (`check` never refuses a suspended cashier, and
+ *      suspending does not end live admissions). A void queued while the cashier
+ *      was admitted is therefore sent only while the same cashier is admitted
+ *      again (RT-530 c12006).
+ *   d. Only then is the VERIFIED cashier published as the actor, so the
+ *      service's `requesterIsActor`, four-eyes, same-day and eligibility checks
+ *      (void-approval.ts) apply unchanged: the requester is the cashier the
+ *      device holds a live admission for.
+ *
+ * RESIDUAL RISK, stated plainly (RT-1403 review M2). This is not proof that the
+ * cashier or the manager was present. The DEVICE creates the cashier admission
+ * itself (`POST /cashier-admissions` checks no PIN on the server), so the trust
+ * here is: the device token, plus a cashier id the client states, which must be
+ * eligible, not suspended and admitted on this device (and so not live
+ * elsewhere). The approver id is checked only for its role and four-eyes
+ * (store_manager or above, not the requester, not the seller); the PIN is checked
+ * on the terminal only. Anyone who holds a device token can void any same-day
+ * sale of the store, naming an admitted cashier and an eligible manager. It is
+ * the trust level of captureSale's device path and of RT-530's approval evidence;
+ * the per-device write bucket, the audit event naming both users, and the live
+ * admission requirement bound the exposure. They do not remove it.
+ *
+ * A refused cashier claim from an AUTHENTICATED device is the generic 403
+ * `refused` (one body for every cause; to the POS a device 401 means "device
+ * revoked"), logged once with allowlisted fields and a fixed event name, never
+ * the claimed user, the token or the body.
+ *
+ * The route carries `@DeviceBearer()` so the global FailClosedAuthGuard defers
+ * here; route-auth-markers.enforcement.spec.ts lists this guard as a reviewed
+ * composite that runs PosDeviceAuthGuard. The envelope gate the composite base
+ * requires is never reachable here (the selector is always the device path) and
+ * refuses if it ever is.
+ */
+@Injectable()
+export class SaleVoidAuthGuard extends CompositePosAuthGuard {
+  // Class-referenced on the route, so reflection-instantiated: every
+  // dependency is an explicit, module-resolvable token (SalesModule), the
+  // claim verifier first.
+  constructor(
+    @Inject(SALE_VOID_CASHIER_VERIFIER) private readonly cashier: SaleVoidCashierVerifier,
+    @Inject(PosDeviceAuthGuard) device: CompositeGate,
+    @Optional() @Inject(ROOT_LOGGER) logger?: Pick<Logger, "warn">,
+  ) {
+    super(NO_ENVELOPE_PATH, device, logger);
+  }
+
+  /** The cashier route has only the device path: always the cashier selector. */
+  protected carriesCashierSelector(_request: TenantContextRequest): boolean {
+    return true;
+  }
+
+  /** The cashier void has no per-route policy. */
+  protected routeOf(_context: ExecutionContext): undefined {
+    return undefined;
+  }
+
+  /** Steps b and c: the strict body (400), then the live claim (generic 403 `refused`). */
+  protected async verifiedCashier(request: TenantContextRequest, scope: DeviceScope): Promise<string> {
+    const body = RecordCashierVoidRequestSchema.parse(request.body);
+    const verdict = await this.cashier.verify(scope, body.operatorUserId);
+    if (!verdict.ok) {
+      this.logRefusal(
+        request,
+        scope,
+        SALE_VOID_CASHIER_REFUSAL_EVENTS[verdict.cause],
+        "recordCashierVoid: operator claim refused",
+      );
+      throw this.refused();
+    }
+    return body.operatorUserId;
+  }
+}
+
+/** The envelope gate of a device-only composite: never reached, and the generic 401 if it ever is. */
+const NO_ENVELOPE_PATH: CompositeGate = {
+  canActivate: () => {
+    throw new UnauthorizedException("Unauthorized");
+  },
+};

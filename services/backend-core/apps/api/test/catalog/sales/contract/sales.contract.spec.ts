@@ -73,6 +73,8 @@ const OPERATION_IDS = [
   "recordRefundExecution",
   "readReturnByProvenance",
   "listSaleReturns",
+  // RT-1403 (RT-530 c12029): the cashier's device-only void (see sale-void-device-path.contract.spec.ts).
+  "recordCashierVoid",
 ] as const;
 
 const WRITE_OPERATION_IDS = [
@@ -82,6 +84,7 @@ const WRITE_OPERATION_IDS = [
   "recordReturn",
   "recordCreditSaleReversal",
   "recordRefundExecution",
+  "recordCashierVoid",
 ];
 
 const CAPTURE_PATH = "/api/pos/v1/sales";
@@ -348,8 +351,12 @@ describe("pos-sales/sales.yaml — operations", () => {
     }
   });
 
-  it("secures every operation with the operatorAuthorization envelope (031 D1+D2)", () => {
+  it("secures every operation with the operatorAuthorization envelope (031 D1+D2), except the device-only cashier void (RT-1403)", () => {
     for (const { op } of salesOperations()) {
+      if (op.operationId === "recordCashierVoid") {
+        expect(op.security).toEqual([{ device: [] }]);
+        continue;
+      }
       expect(op.security).toContainEqual({ operatorAuthorization: [] });
     }
   });
@@ -888,9 +895,9 @@ describe("pos-sales/sales.yaml — RT-224 device-bearer cashier capture", () => 
     ]);
   });
 
-  it("no other sale operation accepts the device bearer (only captureSale changes)", () => {
+  it("no other sale operation accepts the device bearer (only captureSale and, from RT-1403, the device-only recordCashierVoid)", () => {
     for (const { op } of salesOperations()) {
-      if (op.operationId === "captureSale") continue;
+      if (op.operationId === "captureSale" || op.operationId === "recordCashierVoid") continue;
       expect(op.security).toEqual([{ operatorAuthorization: [] }]);
     }
   });
@@ -966,6 +973,11 @@ describe("pos-sales/sales.yaml — RT-224 device-bearer cashier capture", () => 
       if (op.operationId === "recordVoid") {
         // RT-530: the void's 403 is its own approval refusal, not the device-path `Refused`.
         expect(responses(op)["403"]).toEqual({ $ref: "#/components/responses/VoidForbidden" });
+        continue;
+      }
+      if (op.operationId === "recordCashierVoid") {
+        // RT-1403: the cashier void's 403 adds the generic device-path `refused` to the void's codes.
+        expect(responses(op)["403"]).toEqual({ $ref: "#/components/responses/CashierVoidForbidden" });
         continue;
       }
       if (op.operationId === "recordReturn" || op.operationId === "recordRefund") {
@@ -2576,8 +2588,8 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | undefined;
 
   it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
-    // RT-1343 item 2 bumped the document to 1.24.0-draft and RT-1151 to 1.25.0-draft; the RT-1114 note still stands.
-    expect(salesDoc.info?.version).toBe("1.25.0-draft");
+    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft and RT-1403 to 1.26.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.26.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2631,8 +2643,8 @@ describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
     CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
 
   it("bumped to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
-    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft; the RT-1343 note still stands.
-    expect(salesDoc.info?.version).toBe("1.25.0-draft");
+    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft and RT-1403 to 1.26.0-draft; the RT-1343 note still stands.
+    expect(salesDoc.info?.version).toBe("1.26.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
     expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");
