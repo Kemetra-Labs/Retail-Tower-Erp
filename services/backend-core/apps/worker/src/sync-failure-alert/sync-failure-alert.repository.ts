@@ -37,6 +37,7 @@ const SYNC_FAILURE_ALERT_AUDIT_ACTIONS = {
   suppressed: "sync_failure_alert.suppressed",
   delivered: "sync_failure_alert.delivered",
   failed: "sync_failure_alert.failed",
+  staleClaim: "sync_failure_alert.stale_claim",
 } as const;
 
 /** One (store, condition) with open failures, as the sweep observes it. */
@@ -97,6 +98,11 @@ export interface SyncFailureAlertRepository {
   markFailed(input: OutcomeInput & { readonly errorClass: string; readonly at: Date }): Promise<void>;
   /** One audit row per window for the suppression fact. */
   recordSuppressed(tenantId: string, window: OpenWindow): Promise<void>;
+  /**
+   * Audit (once per delivery) every delivery still `claimed` after `olderThanMs`: a worker died between
+   * the claim and the send. Returns how many were newly recorded, for the metric.
+   */
+  recordStaleClaims(tenantId: string, now: Date, olderThanMs: number): Promise<number>;
 }
 
 export interface ClaimInput {
@@ -174,6 +180,9 @@ interface ObservedRow {
   condition_key: SyncFailureCondition;
   failure_count: number;
 }
+
+/** Failed attempts of one delivery that get an audit row; later ones are only in the delivery row. */
+const FAILED_AUDIT_MAX_ATTEMPTS = 3;
 
 const keyOf = (storeId: string, condition: string): string => `${storeId}|${condition}`;
 
@@ -383,15 +392,18 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
           RETURNING attempts`,
         [input.tenantId, input.deliveryId, input.errorClass, input.at],
       );
-      const attempts = r.rows[0]?.attempts ?? 0;
+      const row = r.rows[0];
+      if (row === undefined) return; // not `claimed` any more: nothing changed, so nothing to audit
+      // A provider that stays down fails the same delivery every sweep: audit the first few attempts only.
+      if (row.attempts > FAILED_AUDIT_MAX_ATTEMPTS) return;
       await this.audit(client, {
-        id: auditFactId("failed", input.deliveryId, String(attempts)),
+        id: auditFactId("failed", input.deliveryId, String(row.attempts)),
         tenantId: input.tenantId,
         storeId: input.window.storeId,
         action: SYNC_FAILURE_ALERT_AUDIT_ACTIONS.failed,
         targetType: "sync_failure_alert_delivery",
         targetId: input.deliveryId,
-        metadata: { ...this.windowMetadata(input.window), attempt: attempts, error_class: input.errorClass },
+        metadata: { ...this.windowMetadata(input.window), attempt: row.attempts, error_class: input.errorClass },
       });
     });
   }
@@ -406,8 +418,41 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
         targetType: "sync_failure_alert_window",
         targetId: window.windowId,
         metadata: this.windowMetadata(window),
-      }),
+      }).then(() => undefined),
     );
+  }
+
+  recordStaleClaims(tenantId: string, now: Date, olderThanMs: number): Promise<number> {
+    const cutoff = new Date(now.getTime() - olderThanMs);
+    return this.inTenant(tenantId, async (client) => {
+      const stale = await client.query<{
+        id: string;
+        store_id: string;
+        condition_key: string;
+        window_seq: number;
+        failure_count: number;
+      }>(
+        `SELECT d.id, w.store_id, w.condition_key, w.window_seq, w.failure_count
+           FROM sync_failure_alert_deliveries d
+           JOIN sync_failure_alert_windows w ON w.tenant_id = d.tenant_id AND w.id = d.window_id
+          WHERE d.tenant_id = $1 AND d.status = 'claimed' AND d.claimed_at < $2
+          ORDER BY d.id`,
+        [tenantId, cutoff],
+      );
+      let recorded = 0;
+      for (const d of stale.rows) {
+        recorded += await this.audit(client, {
+          id: auditFactId("stale_claim", d.id),
+          tenantId,
+          storeId: d.store_id,
+          action: SYNC_FAILURE_ALERT_AUDIT_ACTIONS.staleClaim,
+          targetType: "sync_failure_alert_delivery",
+          targetId: d.id,
+          metadata: { condition_key: d.condition_key, window_seq: d.window_seq, failure_count: d.failure_count },
+        });
+      }
+      return recorded;
+    });
   }
 
   private windowMetadata(w: OpenWindow): Record<string, unknown> {
@@ -425,8 +470,8 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
       targetId: string;
       metadata: Record<string, unknown>;
     },
-  ): Promise<void> {
-    await client.query(
+  ): Promise<number> {
+    const r = await client.query(
       `INSERT INTO audit_events
          (id, actor_user_id, actor_label, tenant_id, store_id, action, target_type, target_id, metadata)
        VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8::jsonb)
@@ -442,6 +487,7 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
         JSON.stringify(row.metadata),
       ],
     );
+    return r.rowCount ?? 0;
   }
 }
 
@@ -473,6 +519,9 @@ export class NoOpSyncFailureAlertRepository implements SyncFailureAlertRepositor
   }
   recordSuppressed(): Promise<void> {
     return this.unavailable("recordSuppressed");
+  }
+  recordStaleClaims(): Promise<number> {
+    return this.unavailable("recordStaleClaims");
   }
   private unavailable<T>(method: string): Promise<T> {
     return Promise.reject(new Error(`NoOpSyncFailureAlertRepository.${method}: no database configured`));

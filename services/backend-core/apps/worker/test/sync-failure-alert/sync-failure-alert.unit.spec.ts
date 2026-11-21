@@ -64,6 +64,7 @@ class FakeRepo implements SyncFailureAlertRepository {
   audit: string[] = [];
   /** Make the next markDelivered throw (a worker killed after the provider accepted the mail). */
   killAfterSend = false;
+  staleReported = new Set<string>();
   private n = 0;
 
   listTenantIds(): Promise<string[]> {
@@ -144,6 +145,16 @@ class FakeRepo implements SyncFailureAlertRepository {
     this.audit.push("failed");
     return Promise.resolve();
   }
+  recordStaleClaims(): Promise<number> {
+    let recorded = 0;
+    for (const d of this.deliveries.values()) {
+      if (d.status === "claimed" && !this.staleReported.has(d.id)) {
+        this.staleReported.add(d.id);
+        recorded += 1;
+      }
+    }
+    return Promise.resolve(recorded);
+  }
   recordSuppressed(): Promise<void> {
     if (!this.audit.includes("suppressed")) this.audit.push("suppressed");
     return Promise.resolve();
@@ -186,7 +197,7 @@ describe("RT-1034 SyncFailureAlertProcessor", () => {
     expect(repo.windows).toHaveLength(0);
   });
 
-  it("a send-time re-check that throws releases the claim: the retry sends it, once", async () => {
+  it("any error between the claim and the send is released as PreSendError: the retry sends it, once", async () => {
     const repo = new FakeRepo();
     const { processor, adapter } = build(repo);
     const realAuthorized = repo.authorizedEmail.bind(repo);
@@ -194,15 +205,17 @@ describe("RT-1034 SyncFailureAlertProcessor", () => {
     repo.authorizedEmail = (t, s, u) =>
       failures-- > 0 ? Promise.reject(new Error("pool timeout")) : realAuthorized(t, s, u);
     await expect(run(processor)).rejects.toBeInstanceOf(SyncFailureAlertIncompleteError);
-    expect([...repo.deliveries.values()][0]!.status).toBe("failed");
+    const row = [...repo.deliveries.values()][0]!;
+    expect(row.status).toBe("failed");
+    expect(row.errorClass).toBe("PreSendError");
     await run(processor);
     await run(processor);
     expect(adapter.sent).toHaveLength(1);
   });
 
-  it("S3 (known limit, at-most-once): a hard crash between the claim and the send loses that email, never doubles it", async () => {
+  it("S3 (the one unrecoverable case): a crash that also loses the outcome write leaves the claim stuck; the stale-claim metric reports it", async () => {
     const repo = new FakeRepo();
-    const { processor, adapter } = build(repo);
+    const { processor, adapter, outcomes } = build(repo);
     const realAuthorized = repo.authorizedEmail.bind(repo);
     let crashed = false;
     repo.authorizedEmail = (t, s, u) => {
@@ -219,6 +232,7 @@ describe("RT-1034 SyncFailureAlertProcessor", () => {
     await run(processor);
     expect(adapter.sent).toHaveLength(0); // the stuck 'claimed' row is never re-sent
     expect([...repo.deliveries.values()][0]!.status).toBe("claimed");
+    expect(outcomes.filter((o) => o === "stale")).toHaveLength(1); // reported once, not every sweep
   });
 
   it("rejects an unknown job name and a non-object payload", async () => {

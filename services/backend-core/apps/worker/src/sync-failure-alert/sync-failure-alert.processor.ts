@@ -41,7 +41,7 @@ export interface AlertEmailSender {
   send(message: AlertEmail): Promise<void>;
 }
 
-type SyncFailureAlertOutcome = "fired" | "suppressed" | "delivered" | "failed";
+type SyncFailureAlertOutcome = "fired" | "suppressed" | "delivered" | "failed" | "stale";
 export type SyncFailureAlertRecorder = (outcome: SyncFailureAlertOutcome) => void;
 
 /** A provider error's class name when it is identifier-like, else a fixed label. Never the message. */
@@ -71,6 +71,7 @@ export interface SyncFailureAlertResult {
   readonly suppressed: number;
   readonly delivered: number;
   readonly failed: number;
+  readonly staleClaims: number;
   readonly cleared: number;
   readonly failedTenants: number;
 }
@@ -106,6 +107,7 @@ class Tally {
   suppressed = 0;
   delivered = 0;
   failed = 0;
+  stale = 0;
   cleared = 0;
   tenants = 0;
   failedTenants = 0;
@@ -125,6 +127,7 @@ class Tally {
       suppressed: this.suppressed,
       delivered: this.delivered,
       failed: this.failed,
+      staleClaims: this.stale,
       cleared: this.cleared,
       failedTenants: this.failedTenants,
     };
@@ -141,6 +144,8 @@ export class SyncFailureAlertProcessor {
     private readonly record: SyncFailureAlertRecorder = () => undefined,
     private readonly clock: () => Date = () => new Date(),
     private readonly log: SyncFailureAlertLog = writeStderr,
+    /** A delivery still `claimed` this long after its claim was lost to a crash (about two intervals). */
+    private readonly staleClaimAfterMs: number = 2 * 5 * 60 * 1000,
   ) {}
 
   async process(jobName: string, data: unknown): Promise<SyncFailureAlertResult> {
@@ -165,6 +170,7 @@ export class SyncFailureAlertProcessor {
       suppressed: result.suppressed,
       delivered: result.delivered,
       failed: result.failed,
+      stale_claims: result.staleClaims,
       cleared: result.cleared,
       failed_tenants: result.failedTenants,
     });
@@ -196,6 +202,8 @@ export class SyncFailureAlertProcessor {
       if (window.justOpened) tally.note("fired");
       await this.notifyWindow(tenantId, window, tally);
     }
+    const stale = await this.repo.recordStaleClaims(tenantId, this.clock(), this.staleClaimAfterMs);
+    for (let i = 0; i < stale; i += 1) tally.note("stale");
   }
 
   private async notifyWindow(tenantId: string, window: OpenWindow, tally: Tally): Promise<void> {
@@ -226,22 +234,24 @@ export class SyncFailureAlertProcessor {
     }
     const outcome = { tenantId, window, deliveryId: claim.deliveryId };
 
-    // Send-time authorization re-check: the role or store access may have changed since listing.
-    let email: string | null;
+    // Everything between the claim and the provider call (the send-time authorization re-check and the
+    // render) is a pre-send step: if one throws, nothing was sent, so the claim is released for a retry.
+    // Only a crash that also loses the outcome write leaves the claim stuck.
+    let message: AlertEmail | null;
     try {
-      email = await this.repo.authorizedEmail(tenantId, window.storeId, recipient.userId);
+      const email = await this.repo.authorizedEmail(tenantId, window.storeId, recipient.userId);
+      message = email === null ? null : this.render(email, window);
     } catch (err) {
-      // Nothing was sent yet, so the claim can be released for a retry (a thrown error is not a crash).
       return await this.releaseClaim(outcome, err, tenantId, window, tally);
     }
-    if (email === null) {
+    if (message === null) {
       await this.repo.markFailed({ ...outcome, errorClass: "RecipientNotAuthorized", at: this.clock() });
       tally.note("failed");
       return "failed";
     }
 
     try {
-      await this.adapter.send(this.render(email, window));
+      await this.adapter.send(message);
     } catch (err) {
       const errorClass = safeErrorClass(err);
       await this.repo.markFailed({ ...outcome, errorClass, at: this.clock() });
@@ -274,7 +284,7 @@ export class SyncFailureAlertProcessor {
     window: OpenWindow,
     tally: Tally,
   ): Promise<DeliveryResult> {
-    await this.repo.markFailed({ ...outcome, errorClass: safeErrorClass(err), at: this.clock() });
+    await this.repo.markFailed({ ...outcome, errorClass: "PreSendError", at: this.clock() });
     tally.note("failed");
     tally.retryable += 1;
     this.log({

@@ -409,7 +409,9 @@ const WORKER_METRICS = [
       "Sync-failure email alert decisions, by outcome: fired (a new alert window opened for a " +
       "failure condition), suppressed (a recipient already had this window's notification), " +
       "delivered (the email provider accepted the message), failed (the provider rejected it or " +
-      "the recipient was no longer authorized). The tenant, store and recipient are never labels.",
+      "the recipient was no longer authorized), stale (a delivery claimed more than about two sweep " +
+      "intervals ago was never completed: a worker died between the claim and the send). The tenant, " +
+      "store and recipient are never labels.",
   },
 ] as const satisfies readonly WorkerMetricDef[];
 
@@ -1127,6 +1129,7 @@ export const SYNC_FAILURE_ALERT_OUTCOMES = [
   "suppressed",
   "delivered",
   "failed",
+  "stale",
 ] as const satisfies readonly string[];
 export type SyncFailureAlertOutcome = (typeof SYNC_FAILURE_ALERT_OUTCOMES)[number];
 

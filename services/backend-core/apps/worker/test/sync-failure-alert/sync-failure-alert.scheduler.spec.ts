@@ -16,6 +16,7 @@ import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import {
   DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS,
+  MAX_SYNC_FAILURE_ALERT_INTERVAL_MS,
   resolveSyncFailureAlertEnabled,
   resolveSyncFailureAlertIntervalMs,
   SYNC_FAILURE_ALERT_INTERVAL_ENV,
@@ -75,13 +76,18 @@ describe("RT-1034 SyncFailureAlertScheduler", () => {
     let retryWindowMs = 0;
     for (let n = 0; n < DEFAULT_JOB_OPTIONS.attempts - 1; n += 1) retryWindowMs += 1_000 * 2 ** n;
     expect(retryWindowMs).toBe(15_000);
-    expect(DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS + retryWindowMs).toBeLessThan(10 * 60 * 1000);
+    // The configurable maximum, not only the default, keeps the alert inside the 10-minute target.
+    expect(MAX_SYNC_FAILURE_ALERT_INTERVAL_MS + retryWindowMs).toBeLessThan(10 * 60 * 1000);
+    expect(DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS).toBeLessThanOrEqual(MAX_SYNC_FAILURE_ALERT_INTERVAL_MS);
   });
 
   it("refuses boot on an invalid interval and accepts a valid one", () => {
     expect(resolveSyncFailureAlertIntervalMs({})).toBe(DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS);
     expect(resolveSyncFailureAlertIntervalMs({ [SYNC_FAILURE_ALERT_INTERVAL_ENV]: "120000" })).toBe(120_000);
-    for (const bad of ["59999", "abc", "1.5", "-1"]) {
+    expect(resolveSyncFailureAlertIntervalMs({ [SYNC_FAILURE_ALERT_INTERVAL_ENV]: String(MAX_SYNC_FAILURE_ALERT_INTERVAL_MS) })).toBe(
+      MAX_SYNC_FAILURE_ALERT_INTERVAL_MS,
+    );
+    for (const bad of ["59999", String(MAX_SYNC_FAILURE_ALERT_INTERVAL_MS + 1), "3600000", "abc", "1.5", "-1"]) {
       expect(() => resolveSyncFailureAlertIntervalMs({ [SYNC_FAILURE_ALERT_INTERVAL_ENV]: bad })).toThrow(
         SYNC_FAILURE_ALERT_INTERVAL_ENV,
       );

@@ -279,7 +279,7 @@ exports[`RT-1211 worker metric snapshot registers exactly these instruments (sco
     "unit": undefined,
   },
   {
-    "description": "Sync-failure email alert decisions, by outcome: fired (a new alert window opened for a failure condition), suppressed (a recipient already had this window's notification), delivered (the email provider accepted the message), failed (the provider rejected it or the recipient was no longer authorized). The tenant, store and recipient are never labels.",
+    "description": "Sync-failure email alert decisions, by outcome: fired (a new alert window opened for a failure condition), suppressed (a recipient already had this window's notification), delivered (the email provider accepted the message), failed (the provider rejected it or the recipient was no longer authorized), stale (a delivery claimed more than about two sweep intervals ago was never completed: a worker died between the claim and the send). The tenant, store and recipient are never labels.",
     "kind": "counter",
     "name": "sync_failure_alert_total",
     "scope": "worker",

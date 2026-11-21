@@ -31,7 +31,7 @@ import {
   type PgTestEnv,
 } from "../../../../packages/db/__tests__/_helpers/postgres-container";
 import { RecordingEmailAdapter } from "../../src/email/email.adapter";
-import { DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS } from "../../src/sync-failure-alert/sync-failure-alert.config";
+import { MAX_SYNC_FAILURE_ALERT_INTERVAL_MS } from "../../src/sync-failure-alert/sync-failure-alert.config";
 import {
   SYNC_FAILURE_ALERT_JOB_NAME,
   SyncFailureAlertIncompleteError,
@@ -444,10 +444,11 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     console.info(`[AC3] failure_at ${r.rows[0]!.failure_at.toISOString()} delivered_at ${r.rows[0]!.delivered_at.toISOString()} sweep latency ${Math.max(...latencies)} ms`);
     // The sweep itself adds seconds at most; the schedule adds at most one interval plus the BullMQ retry
     // window (15 s), which the scheduler spec bounds against the 10-minute target.
-    expect(Math.max(...latencies) + DEFAULT_SYNC_FAILURE_ALERT_INTERVAL_MS + 15_000).toBeLessThan(10 * 60 * 1000);
+    // Asserted against the configurable CAP (a deployment may set any interval up to it), not the default.
+    expect(Math.max(...latencies) + MAX_SYNC_FAILURE_ALERT_INTERVAL_MS + 15_000).toBeLessThan(10 * 60 * 1000);
   });
 
-  it("S3 (known limit, at-most-once): a hard crash between the claim and the send loses that email, never doubles it", async () => {
+  it("S3 (the one unrecoverable case): a crash that also loses the outcome write leaves the claim stuck, reported as stale, never doubled", async () => {
     if (SKIP()) return;
     await seedSale(TENANT_A, STORE_A1, "failed-needs-repair");
     const real = new PgSyncFailureAlertRepository(env!.app);
@@ -473,6 +474,26 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     expect(adapter.sent).toHaveLength(3);
     const stuck = await admin().query(`SELECT count(*)::int AS n FROM sync_failure_alert_deliveries WHERE status = 'claimed'`);
     expect(stuck.rows[0].n).toBe(1);
+
+    // About two intervals later the stuck claim is reported once (metric outcome + a system audit row).
+    const later = new Date(T0.getTime() + 3 * MAX_SYNC_FAILURE_ALERT_INTERVAL_MS);
+    const outcomes: string[] = [];
+    const reporter = new SyncFailureAlertProcessor(
+      real,
+      adapter,
+      true,
+      (o) => outcomes.push(o),
+      () => later,
+      () => undefined,
+      2 * MAX_SYNC_FAILURE_ALERT_INTERVAL_MS,
+    );
+    await sweep(reporter);
+    await sweep(reporter);
+    expect(outcomes.filter((o) => o === "stale")).toHaveLength(1);
+    const audit = await admin().query(
+      `SELECT count(*)::int AS n FROM (${ALERT_AUDIT_SQL}) x WHERE x.action = 'sync_failure_alert.stale_claim'`,
+    );
+    expect(audit.rows[0].n).toBe(1);
   });
 
   it("a send-time re-check that throws releases the claim, and the retry sends it once", async () => {
@@ -496,6 +517,11 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     expect(adapter.sent).toHaveLength(4);
     const states = await admin().query(`SELECT DISTINCT status FROM sync_failure_alert_deliveries`);
     expect(states.rows).toEqual([{ status: "delivered" }]);
+    const released = await admin().query(
+      `SELECT count(*)::int AS n FROM (${ALERT_AUDIT_SQL}) x
+        WHERE x.action = 'sync_failure_alert.failed' AND x.metadata->>'error_class' = 'PreSendError'`,
+    );
+    expect(released.rows[0].n).toBe(1);
   });
 
   it("a window is not closed on a stale observation: the condition is re-read under the lock", async () => {

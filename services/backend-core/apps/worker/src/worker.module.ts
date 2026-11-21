@@ -186,7 +186,10 @@ import { ImportRetentionWorker } from "./catalog-import/import-retention.worker"
 import { verifyAuditRetentionRole, verifyWorkerDatabaseRole } from "./database-role-verifier";
 import { captureFinalJobFailure } from "./observability/sentry/failed-job";
 import { recordSyncFailureAlert } from "./observability/metrics/worker.metrics";
-import { resolveSyncFailureAlertEnabled } from "./sync-failure-alert/sync-failure-alert.config";
+import {
+  resolveSyncFailureAlertEnabled,
+  resolveSyncFailureAlertIntervalMs,
+} from "./sync-failure-alert/sync-failure-alert.config";
 import { SyncFailureAlertProcessor } from "./sync-failure-alert/sync-failure-alert.processor";
 import {
   NoOpSyncFailureAlertRepository,
@@ -525,6 +528,9 @@ function syncFailureAlertProcessorProviderFactory(
     adapter,
     resolveSyncFailureAlertEnabled(),
     recordSyncFailureAlert,
+    undefined,
+    undefined,
+    2 * resolveSyncFailureAlertIntervalMs(),
   );
 }
 
