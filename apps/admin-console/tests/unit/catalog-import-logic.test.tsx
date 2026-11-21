@@ -3,6 +3,7 @@ import {
   canImportCatalog,
   canPublish,
   classifyImport,
+  conflictTotal,
   errorKey,
   isZeroEffect,
   issueKey,
@@ -23,7 +24,7 @@ import { describe, expect, test } from "vitest";
 /**
  * RT-1509: the pure rules of the import workspace. The step is the server's state; a refusal is
  * sorted by status and machine code; the offered resolutions follow the documented rules; the
- * RT-1536 adapter names no conflict until the contract does.
+ * preview names the conflicts the server reports (RT-1536) and infers none.
  */
 const COUNTS = {
   ready_create: 1,
@@ -248,10 +249,27 @@ describe("the preview", () => {
       ...over,
     }) as CatalogImportPreview;
 
-  test("RT-1536 adapter: no conflict is named until the contract names one", () => {
+  const CONFLICT = {
+    product: {
+      productId: "p",
+      name: "Orange juice",
+      identifiers: [{ type: "sku", value: "SKU-1001" }],
+    },
+    rowNumbers: [14, 212],
+    reason: "field_disagreement",
+    field: "tax_category",
+  };
+
+  test("RT-1536: only the conflicts the server names are read, and they close the publish", () => {
     expect(previewConflicts(preview({}))).toBeNull();
+    expect(previewConflicts(preview({ conflicts: [] }))).toBeNull();
     expect(canPublish(preview({}))).toBe(true);
     expect(canPublish(preview({ publishable: false }))).toBe(false);
+    const named = preview({ conflicts: [CONFLICT] as never, conflictCount: 3 });
+    expect(previewConflicts(named)).toHaveLength(1);
+    expect(conflictTotal(named)).toBe(3);
+    expect(canPublish(named)).toBe(false);
+    expect(canPublish(preview({ conflictCount: 2 }))).toBe(false);
   });
 
   test("a batch with nothing to write is zero effect", () => {
@@ -264,14 +282,23 @@ describe("ConflictList renders exactly the conflicts it is given", () => {
   test("a field disagreement and a second SKU, with rows in a table and the way out in text", () => {
     render(
       <ConflictList
+        total={5}
         conflicts={[
           {
-            productName: "Orange juice",
-            sku: "SKU-1001",
+            product: {
+              productId: "p1",
+              name: "Orange juice",
+              identifiers: [{ type: "sku", value: "SKU-1001" }],
+            },
             rowNumbers: [14, 212],
-            reason: { kind: "field_disagreement", field: "tax_category" },
+            reason: "field_disagreement",
+            field: "tax_category",
           },
-          { productName: "Milk", sku: null, rowNumbers: [33, 340], reason: { kind: "second_sku" } },
+          {
+            product: { productId: "p2", name: "Milk", identifiers: [] },
+            rowNumbers: [33, 340],
+            reason: "second_sku",
+          },
         ]}
       />,
     );
@@ -281,5 +308,6 @@ describe("ConflictList renders exactly the conflicts it is given", () => {
     expect(screen.getByText(/Two different values for “Tax category”/)).toBeTruthy();
     expect(screen.getByText(/second SKU/)).toBeTruthy();
     expect(screen.getByText(/one row/)).toBeTruthy();
+    expect(screen.getByText(/first 2 of 5/)).toBeTruthy();
   });
 });

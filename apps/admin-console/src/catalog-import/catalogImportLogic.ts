@@ -12,6 +12,7 @@ import type {
   CatalogImportBatch,
   CatalogImportPreview,
   CatalogImportRow,
+  ImportConflict,
   ImportMode,
   ResolveAction,
   RowIssueCode,
@@ -315,28 +316,24 @@ export function createBlockedByIdentifier(mode: ImportMode, row: CatalogImportRo
   return mode !== "update" && row.reviewReason !== null && row.outcome.match !== "no_match";
 }
 
-// --- RT-1536 adapter -------------------------------------------------------------------
-
-/** One product that two rows change in different ways (what RT-1536 will name). */
-export interface ImportConflict {
-  productName: string;
-  sku: string | null;
-  rowNumbers: readonly number[];
-  reason: { kind: "field_disagreement"; field: string } | { kind: "second_sku" };
-}
+// --- RT-1536: conflicts the server names in the preview --------------------------------------------
 
 /**
- * The conflicts the SERVER names in the preview, or `null` while the contract has none (RT-1536 is
- * not on `main` yet). Never derived from rows or counts: the Console infers no conflicts (Jira
- * RT-1509 comment 18014). When RT-1536 lands and the client is repinned, only this function and its
- * e2e fixture change; `ConflictList` already renders this normalised shape.
+ * The conflicts the SERVER names in the preview (contract 1.0.6-draft: `conflicts[]`, the first 100,
+ * with `conflictCount` for the whole), or `null` when the preview carries none. Never derived from
+ * rows or counts: the Console infers no conflicts (Jira RT-1509 comment 18014). It is the one place
+ * the preview's conflict fields are read, so `ConflictList` and the publish gate share it.
  */
-export function previewConflicts(_preview: CatalogImportPreview): readonly ImportConflict[] | null {
-  return null;
+export function previewConflicts(preview: CatalogImportPreview): readonly ImportConflict[] | null {
+  return preview.conflicts && preview.conflicts.length > 0 ? preview.conflicts : null;
 }
 
-/** Publish is offered only for a publishable preview with no named conflict. */
+/** How many conflicts the batch has: the server's count, which can exceed the bounded list. */
+export function conflictTotal(preview: CatalogImportPreview): number {
+  return preview.conflictCount ?? preview.conflicts?.length ?? 0;
+}
+
+/** Publish is offered only for a preview the server calls publishable, with no named conflict. */
 export function canPublish(preview: CatalogImportPreview): boolean {
-  const conflicts = previewConflicts(preview);
-  return preview.publishable && (conflicts === null || conflicts.length === 0);
+  return preview.publishable && previewConflicts(preview) === null && conflictTotal(preview) === 0;
 }

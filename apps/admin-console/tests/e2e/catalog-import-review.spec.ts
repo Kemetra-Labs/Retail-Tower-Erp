@@ -21,6 +21,7 @@ import { expect, test } from "./fixtures";
  *   R2 what a row offers follows its status and mode: an error row only «exclude»; an ambiguous row
  *      has no «create new» and says why; a row with no identifier offers create and exclude.
  *   R3 a stale version (409) reloads the batch and says so; a refused decision (422) reloads the row.
+ *   P3 conflicts the server names (RT-1536) are listed and close the publish; the exit is the file.
  *   P1 the preview names what publish does: counts, products taken off the tills, unpriced new
  *      products, brands; «show changes» lists the field changes. P2 nothing to write: no publish.
  * Runs in both locales; copy comes from the catalog (`t`). axe runs on every screen.
@@ -206,4 +207,61 @@ test("P2: a batch with nothing to write has no publish button; a refused preview
   await expect(publish).toBeDisabled();
   await expect(page.getByText(t("catalogImport.preview.blockedNotPublishable"))).toBeVisible();
   await expectNoAxeViolations(page, "preview blocked");
+});
+
+test("P3: conflicts the server names are listed, publish is closed, and the exit is the file", async ({
+  page,
+  t,
+}) => {
+  const fake = await mockImportApi(page);
+  fake.batch = validatedBatch({ version: 4, counts: { ...COUNTS, needs_review: 0, error: 0 } });
+  fake.preview = previewBody({
+    publishable: false,
+    conflictCount: 3,
+    conflicts: [
+      {
+        product: {
+          productId: "0190f000-0000-7000-8000-000000000a01",
+          name: "عصير برتقال 1 لتر",
+          identifiers: [{ type: "sku", value: "SKU-1001" }],
+        },
+        rowNumbers: [14, 212],
+        reason: "field_disagreement",
+        field: "tax_category",
+      },
+      {
+        product: {
+          productId: "0190f000-0000-7000-8000-000000000a02",
+          name: "حليب كامل الدسم 1 لتر",
+          identifiers: [{ type: "sku", value: "SKU-1050" }],
+        },
+        rowNumbers: [33, 340],
+        reason: "second_sku",
+      },
+    ],
+  });
+  await page.goto(`/catalog/import/${BATCH_ID}/preview`);
+  await expect(page.getByText(t("catalogImport.preview.conflict.title"))).toBeVisible();
+  const table = page.getByRole("table", {
+    name: t("catalogImport.preview.conflict.caption", { count: 3 }),
+  });
+  await expect(table.getByRole("row", { name: /SKU-1001/ })).toContainText("14, 212");
+  await expect(
+    table.getByText(
+      t("catalogImport.preview.conflict.field", {
+        field: t("catalogImport.changes.field.tax_category"),
+      }),
+    ),
+  ).toBeVisible();
+  await expect(table.getByText(t("catalogImport.preview.conflict.secondSku"))).toBeVisible();
+  await expect(
+    page.getByText(t("catalogImport.preview.conflict.more", { shown: 2, total: 3 })),
+  ).toBeVisible();
+  const publish = page.getByRole("button", { name: t("catalogImport.preview.publish") });
+  await expect(publish).toBeDisabled();
+  await expect(page.getByText(t("catalogImport.preview.blockedConflict"))).toBeVisible();
+  await expect(
+    page.getByRole("button", { name: t("catalogImport.cancel.actionRestart") }),
+  ).toBeVisible();
+  await expectNoAxeViolations(page, "preview conflicts");
 });

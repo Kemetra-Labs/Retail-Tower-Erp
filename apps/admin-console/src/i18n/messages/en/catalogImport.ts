@@ -320,6 +320,8 @@ export const catalogImport: MessagesOf<typeof ar> = {
   "catalogImport.preview.conflict.reason": "Reason",
   "catalogImport.preview.conflict.field": "Two different values for “{field}”",
   "catalogImport.preview.conflict.secondSku": "The product would get a second SKU",
+  "catalogImport.preview.conflict.more":
+    "Showing the first {shown} of {total} conflicting products. Fix these rows and upload again to see the rest.",
   "catalogImport.preview.conflict.fix":
     "Fix your source file so each product has one row, then upload it again.",
   "catalogImport.changes.title": "Field changes",

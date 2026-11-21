@@ -13,13 +13,17 @@ import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
 import { ListState } from "@/components/ListState";
 import { type MessageKey, formatNumber, useT } from "@/i18n";
-import type { CatalogImportBatch, CatalogImportPreview } from "@/lib/catalog-import-queries";
+import type {
+  CatalogImportBatch,
+  CatalogImportPreview,
+  ImportConflict,
+} from "@/lib/catalog-import-queries";
 import { useId, useState } from "react";
 import { ConflictList } from "./ConflictList";
 import { PublishDialog } from "./PublishDialog";
 import {
-  type ImportConflict,
   canPublish,
+  conflictTotal,
   isZeroEffect,
   previewConflicts,
   undecidedCount,
@@ -41,7 +45,8 @@ const COUNT_ROWS = [
 /** Why publish is, or is not, offered: the server's verdict, a named conflict, or undecided rows. */
 function usePublishGate(batch: CatalogImportBatch, preview: CatalogImportPreview) {
   const conflicts: readonly ImportConflict[] | null = previewConflicts(preview);
-  const hasConflicts = conflicts !== null && conflicts.length > 0;
+  const total = conflictTotal(preview);
+  const hasConflicts = conflicts !== null || total > 0;
   const undecided = undecidedCount(batch.counts) > 0;
   const allowed = canPublish(preview) && !undecided;
   let blockedKey: MessageKey | null = null;
@@ -50,7 +55,7 @@ function usePublishGate(batch: CatalogImportBatch, preview: CatalogImportPreview
     else if (undecided) blockedKey = "catalogImport.preview.blockedUndecided";
     else blockedKey = "catalogImport.preview.blockedNotPublishable";
   }
-  return { conflicts: hasConflicts ? conflicts : null, allowed, blockedKey };
+  return { conflicts, total, hasConflicts, allowed, blockedKey };
 }
 
 function PreviewNotices({
@@ -232,7 +237,11 @@ function PreviewActions({
           disabled={props.locked}
           onClick={props.requestCancel}
         >
-          {t(gate.conflicts ? "catalogImport.cancel.actionRestart" : "catalogImport.cancel.action")}
+          {t(
+            gate.hasConflicts
+              ? "catalogImport.cancel.actionRestart"
+              : "catalogImport.cancel.action",
+          )}
         </button>
       </div>
     </>
@@ -292,7 +301,7 @@ function LoadedPreview({
   return (
     <div className="import-step">
       <PreviewNotices notice={notice} publish={publish} />
-      {gate.conflicts ? <ConflictList conflicts={gate.conflicts} /> : null}
+      {gate.conflicts ? <ConflictList conflicts={gate.conflicts} total={gate.total} /> : null}
       <PreviewFigures preview={preview} />
       <PreviewActions
         preview={preview}

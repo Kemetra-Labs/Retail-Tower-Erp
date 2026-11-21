@@ -318,6 +318,8 @@ export const catalogImport = {
   "catalogImport.preview.conflict.reason": "السبب",
   "catalogImport.preview.conflict.field": "قيمتان مختلفتان للحقل «{field}»",
   "catalogImport.preview.conflict.secondSku": "سيصبح للمنتج رمز SKU ثانٍ",
+  "catalogImport.preview.conflict.more":
+    "يُعرض أول {shown} من {total} منتجًا متعارضًا. أصلح هذه الصفوف ثم ارفع الملف من جديد لترى الباقي.",
   "catalogImport.preview.conflict.fix":
     "أصلح الملف الأصلي بحيث يبقى صف واحد لكل منتج، ثم ارفعه من جديد.",
   "catalogImport.changes.title": "تغييرات الحقول",

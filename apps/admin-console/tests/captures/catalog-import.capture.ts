@@ -21,8 +21,7 @@ import { type Page, test } from "../e2e/fixtures";
  * (Arabic is RTL, English is the control):
  *   step-1-upload, step-1-open-batch, step-2-map, step-3-validate, step-4-review, step-4-review-drawer,
  *   step-5-preview, step-6-publish-confirm, step-6-publish-unclear, step-7-result
- * It records what it shows; it fails only if the page crashes. The RT-1536 conflict state has no
- * capture: the contract does not carry it yet (see RT-1509 and the adapter in catalogImportLogic).
+ * plus step-5-preview-conflicts (RT-1536). It records what it shows; it fails only if the page crashes.
  */
 const OUT = process.env.CAPTURE_DIR ?? "playwright-report/captures";
 const TICKET = "RT-1509";
@@ -48,13 +47,11 @@ test("import workspace: upload and the open batch", async ({ page, appLocale, t 
   await page
     .getByRole("radio", { name: new RegExp(t("catalogImport.upload.mode.upsert")) })
     .check();
-  await page
-    .locator('input[type="file"]')
-    .setInputFiles({
-      name: "products-nov.xlsx",
-      mimeType: "application/octet-stream",
-      buffer: Buffer.from("x"),
-    });
+  await page.locator('input[type="file"]').setInputFiles({
+    name: "products-nov.xlsx",
+    mimeType: "application/octet-stream",
+    buffer: Buffer.from("x"),
+  });
   await page.getByRole("button", { name: t("catalogImport.upload.submit") }).click();
   await page.getByRole("heading", { name: t("catalogImport.open.title") }).waitFor();
   await shot(page, "step-1-open-batch", appLocale);
@@ -94,6 +91,27 @@ test("import workspace: preview, publish, result", async ({ page, appLocale, t }
   await page.getByRole("button", { name: t("catalogImport.preview.publish") }).waitFor();
   await shot(page, "step-5-preview", appLocale);
 
+  fake.preview = previewBody({
+    publishable: false,
+    conflictCount: 1,
+    conflicts: [
+      {
+        product: {
+          productId: "p1",
+          name: "عصير برتقال 1 لتر",
+          identifiers: [{ type: "sku", value: "SKU-1001" }],
+        },
+        rowNumbers: [14, 212],
+        reason: "field_disagreement",
+        field: "tax_category",
+      },
+    ],
+  });
+  await page.reload();
+  await page.getByText(t("catalogImport.preview.conflict.title")).waitFor();
+  await shot(page, "step-5-preview-conflicts", appLocale);
+  fake.preview = previewBody();
+  await page.reload();
   await page.getByRole("button", { name: t("catalogImport.preview.publish") }).click();
   await page.getByRole("dialog").waitFor();
   await shot(page, "step-6-publish-confirm", appLocale);

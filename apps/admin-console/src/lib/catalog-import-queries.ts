@@ -25,6 +25,7 @@ export type RowIssueCode = Schemas["RowIssueCode"];
 export type CanonicalField = Schemas["CanonicalField"];
 export type MappingTarget = Schemas["MappingTarget"];
 export type ProductRef = Schemas["ProductRef"];
+export type ImportConflict = Schemas["ImportConflict"];
 export type ImportIdentifier = Schemas["ImportIdentifier"];
 export type PublishSummary = Schemas["PublishSummary"];
 export type CsvDelimiter = Schemas["CsvDelimiter"];
