@@ -20,6 +20,10 @@ export const SALE_VOID_IPC_CHANNELS = {
   REQUEST: 'sale-void:request',
   LIST: 'sale-void:list',
   ACKNOWLEDGE: 'sale-void:acknowledge',
+  /** RT-1403 S2: hand the cash of a CONFIRMED void out of the drawer, once. */
+  PAY_OUT: 'sale-void:pay-out',
+  /** RT-1403 S2: record cash that left the drawer outside the gate (manager-attested, once). */
+  CASH_EXCEPTION: 'sale-void:cash-exception',
 } as const;
 
 /** The journal states (migration 0054). `refused` and `confirmed` are final. */
@@ -71,6 +75,22 @@ export const LOCAL_VOID_REFUSALS = [
   'approval_invalid',
   'approval_stale',
   'void_unavailable',
+  /**
+   * RT-1403 S2 (RT-530 c12022, c12028): why the cash of a void is NOT paid out. No cash leaves on
+   * a request alone: the void must be confirmed by Backend-Core, inside an open shift, on the
+   * void's business day and in the shift that was already open when it was requested.
+   */
+  'payout_void_not_confirmed',
+  'payout_void_refused',
+  'payout_no_cash',
+  'payout_no_open_shift',
+  'payout_wrong_day',
+  'payout_other_shift',
+  /** The cash of this sale already has its record (a payout or an exception): never twice. */
+  'payout_already_recorded',
+  /** The drawer did not open: nothing was recorded; the payout may be tried again. */
+  'payout_drawer_failed',
+  'payout_in_progress',
 ] as const;
 export type LocalVoidRefusal = (typeof LOCAL_VOID_REFUSALS)[number];
 
@@ -126,6 +146,40 @@ export interface SaleVoidAcknowledgeRequest {
 
 export type SaleVoidAcknowledgeResponse = { kind: 'acknowledged' } | SaleVoidRefused;
 
+/** Why a CONFIRMED void's cash cannot be paid out right now (the live payout gate). */
+export type SaleVoidPayoutBlock = Extract<
+  LocalVoidRefusal,
+  'payout_no_open_shift' | 'payout_wrong_day' | 'payout_other_shift' | 'payout_already_recorded'
+>;
+
+/**
+ * Why a recorded cash exception is flagged for manager reconciliation: the cash and the
+ * accounting status disagree (RT-530 c12022 item 6).
+ */
+export const SALE_VOID_MISMATCH_REASONS = [
+  /** Cash left although Backend-Core refused the void. */
+  'void_refused',
+  /** Cash left although Backend-Core has not answered (pending or unknown). */
+  'void_unconfirmed',
+  /** The void is confirmed, but the cash left outside its day or shift window. */
+  'payout_window_closed',
+] as const;
+export type SaleVoidMismatchReason = (typeof SALE_VOID_MISMATCH_REASONS)[number];
+
+/** The cash of a void, as the renderer sees it. */
+export interface SaleVoidPayoutView {
+  /** `none`: no cash has left; `paid_out`: the gated payout; `exception`: manager-attested. */
+  state: 'none' | 'paid_out' | 'exception';
+  paid_at: string | null;
+  /** Set only on an exception that disagrees with the accounting status. */
+  mismatch_reason: SaleVoidMismatchReason | null;
+  /**
+   * Set only while `state` is `none` on a confirmed void with cash: why it cannot be paid out
+   * now. Null on such a void means the payout is available.
+   */
+  blocked_reason: SaleVoidPayoutBlock | null;
+}
+
 /** One journal row as the renderer sees it. */
 export interface SaleVoidJournalView {
   void_id: string;
@@ -142,6 +196,9 @@ export interface SaleVoidJournalView {
   /** A refused row staff have not acknowledged yet (drives the banner). */
   needs_attention: boolean;
   confirmed_at: string | null;
+  /** The net cash of the voided sale: what a payout hands back (0: nothing to pay out). */
+  cash_minor: number;
+  payout: SaleVoidPayoutView;
 }
 
 export interface SaleVoidListView {
@@ -151,9 +208,32 @@ export interface SaleVoidListView {
 
 export type SaleVoidListResponse = SaleVoidListView | SaleVoidRefused;
 
+/** RT-1403 S2: pay out the cash of a confirmed void (the amount is the journal's, never sent). */
+export interface SaleVoidPayOutRequest {
+  void_id: string;
+}
+
+export type SaleVoidPayOutResponse = { kind: 'paid_out' } | SaleVoidRefused;
+
+/**
+ * RT-1403 S2: record cash that left the drawer outside the payout gate. `approval_id` is the
+ * single-use RT-114 approval (action `sale.void_cash_exception`, subject = the void) of a
+ * manager other than the requester.
+ */
+export interface SaleVoidCashExceptionRequest {
+  void_id: string;
+  approval_id: string;
+}
+
+export type SaleVoidCashExceptionResponse =
+  | { kind: 'exception_recorded'; mismatch_reason: SaleVoidMismatchReason | null }
+  | SaleVoidRefused;
+
 export interface SaleVoidBridgeAPI {
   lookup(req: SaleVoidLookupRequest): Promise<SaleVoidLookupResponse>;
   request(req: SaleVoidRequest): Promise<SaleVoidRequestResponse>;
   list(): Promise<SaleVoidListResponse>;
   acknowledge(req: SaleVoidAcknowledgeRequest): Promise<SaleVoidAcknowledgeResponse>;
+  payOut(req: SaleVoidPayOutRequest): Promise<SaleVoidPayOutResponse>;
+  recordCashException(req: SaleVoidCashExceptionRequest): Promise<SaleVoidCashExceptionResponse>;
 }

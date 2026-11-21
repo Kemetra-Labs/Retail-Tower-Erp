@@ -13,9 +13,16 @@ import { ScreenSection } from '../foundation/ScreenSection';
 import { Icon } from '../../icons/Icon';
 import type { IconName } from '../../icons/registry';
 import { useSingleFlight } from '../shift/shift-bridge';
-import { VOID_COPY, voidRefusalMessage, voidStateLabel, voidWaitingMessage } from './void-copy';
+import {
+  VOID_COPY,
+  voidMismatchMessage,
+  voidRefusalMessage,
+  voidStateLabel,
+  voidWaitingMessage,
+} from './void-copy';
 import type { VoidBridges } from './void-bridges';
 import { VoidActionDialog } from './VoidActionDialog';
+import { VoidCashExceptionDialog } from './VoidCashExceptionDialog';
 import { VoidLookup, type Found } from './VoidLookup';
 import { VoidAlert, VoidCode, VoidMoney, VoidPanel, VoidTime } from './void-parts';
 import './void.css';
@@ -75,6 +82,9 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
   const [found, setFound] = useState<Found>({ kind: 'idle' });
   const [voiding, setVoiding] = useState<SaleVoidSaleView | null>(null);
   const [outcome, setOutcome] = useState<SaleVoidJournalView | null>(null);
+  // RT-1403 S2: the void whose cash exception is being recorded, and that one just recorded.
+  const [excepting, setExcepting] = useState<SaleVoidJournalView | null>(null);
+  const [exceptionRecorded, setExceptionRecorded] = useState(false);
   // The void button that opened the dialog is gone once the sale is cleared, so
   // the screen sends focus back to the sale number field after a request.
   const lookupRef = useRef<HTMLInputElement>(null);
@@ -94,6 +104,11 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
     <ScreenSection title={VOID_COPY.title}>
       <div className="v5-void" dir="rtl" lang="ar">
         {outcome !== null && <RequestedNotice entry={outcome} />}
+        {exceptionRecorded && (
+          <Notice tone="success" testId="void-cash-exception-recorded">
+            {VOID_COPY.exceptionRecorded}
+          </Notice>
+        )}
         <div className="v5-void-cols">
           <VoidLookup
             inputRef={lookupRef}
@@ -107,9 +122,31 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
             }}
             onVoid={setVoiding}
           />
-          <HistoryPanel listed={listed} bridges={bridges} onChanged={reload} />
+          <HistoryPanel
+            listed={listed}
+            bridges={bridges}
+            onChanged={reload}
+            onException={(entry) => {
+              setExceptionRecorded(false);
+              setExcepting(entry);
+            }}
+          />
         </div>
       </div>
+      {excepting !== null && (
+        <VoidCashExceptionDialog
+          entry={excepting}
+          bridges={bridges}
+          onDismiss={() => {
+            setExcepting(null);
+          }}
+          onRecorded={() => {
+            setExcepting(null);
+            setExceptionRecorded(true);
+            reload();
+          }}
+        />
+      )}
       {voiding !== null && (
         <VoidActionDialog
           sale={voiding}
@@ -141,11 +178,15 @@ function RequestedNotice({ entry }: { entry: SaleVoidJournalView }): JSX.Element
   );
 }
 
-function HistoryPanel(props: {
+interface HistoryProps {
   listed: Listed;
   bridges: VoidBridges;
   onChanged: () => void;
-}): JSX.Element {
+  /** RT-1403 S2: open the cash exception dialog for this void. */
+  onException: (entry: SaleVoidJournalView) => void;
+}
+
+function HistoryPanel(props: HistoryProps): JSX.Element {
   return (
     <VoidPanel title={VOID_COPY.historyTitle}>
       <HistoryBody {...props} />
@@ -153,11 +194,7 @@ function HistoryPanel(props: {
   );
 }
 
-function HistoryBody(props: {
-  listed: Listed;
-  bridges: VoidBridges;
-  onChanged: () => void;
-}): JSX.Element {
+function HistoryBody(props: HistoryProps): JSX.Element {
   const { listed } = props;
   if (listed.kind === 'loading')
     return (
@@ -186,6 +223,7 @@ function HistoryBody(props: {
           entry={entry}
           bridges={props.bridges}
           onChanged={props.onChanged}
+          onException={props.onException}
         />
       ))}
     </ul>
@@ -217,6 +255,7 @@ function HistoryRow(props: {
   entry: SaleVoidJournalView;
   bridges: VoidBridges;
   onChanged: () => void;
+  onException: (entry: SaleVoidJournalView) => void;
 }): JSX.Element {
   const { entry } = props;
   const { busy, run } = useSingleFlight();
@@ -267,6 +306,103 @@ function HistoryRow(props: {
           </button>
         </div>
       )}
+      <VoidCash
+        entry={entry}
+        bridges={props.bridges}
+        onChanged={props.onChanged}
+        onException={props.onException}
+      />
     </li>
+  );
+}
+
+/** Whether the manager-attested exception is offered: the cash is not paid, and the gate cannot pay it. */
+function exceptionOffered(entry: SaleVoidJournalView): boolean {
+  const { payout } = entry;
+  if (payout.state !== 'none' || entry.cash_minor === 0) return false;
+  if (payout.blocked_reason === 'payout_already_recorded') return false;
+  return entry.state !== 'confirmed' || payout.blocked_reason !== null;
+}
+
+/**
+ * RT-1403 S2 (PROPOSED copy) — the cash of one void. A request moves no cash: once the server
+ * confirmed the void and the payout gate allows it, «صرف النقد» hands it out; otherwise the row says
+ * why, and only a manager-attested exception can record cash that left anyway.
+ */
+function VoidCash(props: {
+  entry: SaleVoidJournalView;
+  bridges: VoidBridges;
+  onChanged: () => void;
+  onException: (entry: SaleVoidJournalView) => void;
+}): JSX.Element | null {
+  const { entry } = props;
+  const { payout } = entry;
+  const { busy, run } = useSingleFlight();
+  const [error, setError] = useState<string | null>(null);
+  const payOut = (): void => {
+    setError(null);
+    run(async () => {
+      try {
+        const answer = await props.bridges.saleVoid.payOut({ void_id: entry.void_id });
+        if (answer.kind === 'refused') setError(voidRefusalMessage(answer.reason));
+      } catch {
+        setError(VOID_COPY.unavailable);
+      } finally {
+        props.onChanged();
+      }
+    });
+  };
+  if (payout.state !== 'none') {
+    return (
+      <div className="v5-void-row__full v5-void-row__cash" data-testid="void-cash">
+        <span>
+          {payout.state === 'paid_out' ? VOID_COPY.paidOut : VOID_COPY.exceptionRecordedLabel}:{' '}
+          <VoidMoney minor={entry.cash_minor} />
+        </span>
+        {payout.paid_at !== null && (
+          <p className="v5-void-row__meta">
+            {VOID_COPY.paidAt}: <VoidTime iso={payout.paid_at} />
+          </p>
+        )}
+        {payout.mismatch_reason !== null && (
+          <VoidAlert message={voidMismatchMessage(payout.mismatch_reason)} />
+        )}
+      </div>
+    );
+  }
+  if (entry.cash_minor === 0) return null;
+  const due = entry.state === 'confirmed';
+  const canPay = due && payout.blocked_reason === null;
+  return (
+    <div className="v5-void-row__full v5-void-row__cash" data-testid="void-cash">
+      {due && (
+        <span>
+          {VOID_COPY.cashDue}: <VoidMoney minor={entry.cash_minor} />
+        </span>
+      )}
+      {due && payout.blocked_reason !== null && (
+        <VoidAlert message={voidRefusalMessage(payout.blocked_reason)} />
+      )}
+      {error !== null && <VoidAlert message={error} />}
+      <div className="v5-void-row__actions">
+        {canPay && (
+          <button type="button" className="v5-void-btn v5-btn" disabled={busy} onClick={payOut}>
+            {VOID_COPY.payOut}
+          </button>
+        )}
+        {exceptionOffered(entry) && (
+          <button
+            type="button"
+            className="v5-void-btn v5-btn"
+            disabled={busy}
+            onClick={() => {
+              props.onException(entry);
+            }}
+          >
+            {VOID_COPY.exceptionAction}
+          </button>
+        )}
+      </div>
+    </div>
   );
 }

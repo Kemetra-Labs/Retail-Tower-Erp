@@ -34,6 +34,8 @@ import { resolveSessionScope } from '../../operator/resolve-session-scope.js';
 import type { AuditEvent } from '../../../shared/audit/event-shape.js';
 import type { SaleVoidRequestResponse } from '../../../shared/sale-void/types.js';
 import { createSaleVoidAudit } from '../sale-void-audit.js';
+import { createSaleVoidPayout } from '../sale-void-payout.js';
+import { createSaleVoidPayoutRepository } from '../sale-void-payout-repository.js';
 import {
   createSaleVoidRepository,
   type NewVoidEntry,
@@ -155,7 +157,27 @@ function resetState(): void {
 }
 
 function composeVoidService(db: ReturnType<typeof handleFor>, emitter: AuditSink): SaleVoidService {
+  const voidAudit = createSaleVoidAudit({
+    sink: emitter,
+    now: () => clock,
+    newEventId: () => `evt-${String((ids += 1))}`,
+  });
   return createSaleVoidService({
+    payout: createSaleVoidPayout({
+      isEnabled: () => enabled,
+      isStopped: () => false,
+      isSessionLocked: () => locked,
+      getSession: () => (current === null ? null : toVoidSession(current, TERMINAL, envelope)),
+      voids: journal,
+      payouts: createSaleVoidPayoutRepository(db),
+      openShift: () => null,
+      approvals,
+      kickDrawer: () => Promise.resolve('opened'),
+      audit: voidAudit,
+      localDayOf: (iso) => iso.slice(0, 10),
+      now: () => clock,
+      newPayoutId: () => `payout-${String((ids += 1))}`,
+    }),
     isEnabled: () => enabled,
     getSession: () => (current === null ? null : toVoidSession(current, TERMINAL, envelope)),
     isSessionLocked: () => locked,
@@ -547,5 +569,53 @@ describe('lookup, list and acknowledge', () => {
     expect(listed.voids.filter((v) => v.needs_attention).map((v) => v.void_id)).toEqual([
       refused.voidId,
     ]);
+  });
+});
+
+describe('RT-1403 S2: the cash of a void through the bridge', () => {
+  it('a journal row carries its cash and no payout; a request moves no cash', async () => {
+    await request('sale-1', await approvedId());
+    await expect(voids.list()).resolves.toMatchObject({
+      voids: [
+        {
+          state: 'pending',
+          cash_minor: 1500,
+          payout: { state: 'none', paid_at: null, mismatch_reason: null, blocked_reason: null },
+        },
+      ],
+    });
+  });
+
+  it('the bridge refuses a payout of a void that is not confirmed, and one with no shift', async () => {
+    const answer = await request('sale-1', await approvedId());
+    if (answer.kind !== 'requested') throw new Error('not requested');
+    await expect(voids.payOut({ void_id: answer.void.void_id })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'payout_void_not_confirmed',
+    });
+    journal.markConfirmed({
+      voidId: answer.void.void_id,
+      voidRef: '0190f5a2-7b3c-7d4e-8f90-0000000000d1',
+      now: clock,
+    });
+    await expect(voids.payOut({ void_id: answer.void.void_id })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'payout_no_open_shift',
+    });
+  });
+
+  it('the bridge refuses a cash exception with no shift, before the approval is spent', async () => {
+    const answer = await request('sale-1', await approvedId());
+    if (answer.kind !== 'requested') throw new Error('not requested');
+    await expect(
+      voids.recordCashException({
+        void_id: answer.void.void_id,
+        approval_id: '0190f5a2-7b3c-7d4e-8f90-0000000000ee',
+      }),
+    ).resolves.toEqual({ kind: 'refused', reason: 'payout_no_open_shift' });
+    expect(voids.cashExceptionApprovalSubject({ subjectRef: answer.void.void_id })).toEqual({
+      version: `sale-void-cash-exception:${answer.void.void_id}`,
+      amountMinor: 1500,
+    });
   });
 });

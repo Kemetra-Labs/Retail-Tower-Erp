@@ -142,7 +142,15 @@ export const AUDIT_ACTION_CATEGORIES = [
   'sale.void.requested',
   'sale.void.confirmed',
   'sale.void.refused',
-  // RT-546 (RT-534 F3, OD-534-1/2/7) — a `sales.*` / `receipts.*` bridge call
+  // RT-1403 S2 (RT-530 c12022, owner c18143) — the cash of a void leaving the drawer: the gated
+  // payout of a CONFIRMED void, a manager-attested cash-out exception (single use), and the
+  // mismatch flag raised when cash and accounting status disagree. LOCAL only: not in the central
+  // set (no Backend-Core category, endpoint or contract change). Payload ids, minor units and
+  // closed codes only. Open-set at the SQL layer (0004); recorded in migration 0069's header.
+  'sale.void.paid_out',
+  'sale.void.cash_exception_recorded',
+  'sale.void.cash_mismatch_flagged',
+  // RT-546(RT-534 F3, OD-534-1/2/7) — a `sales.*` / `receipts.*` bridge call
   // refused by the main-process role gate (`sale-access-policy.ts`): a role
   // outside the allowlist, or a cashier asking for another operator's sale.
   // Payload: the handler, the closed reason and the opaque sale id only. Open-set

@@ -62,6 +62,7 @@ function makeHarness(): Harness {
     operatorEnvelopeHolder: { marker: 'envelope-holder' },
     pairingStore: { getCurrentTerminalId },
     getDeviceToken: vi.fn(() => Promise.resolve('device-token')),
+    drawerKickTransport: { marker: 'drawer' },
     managerApprovals: { marker: 'approvals' },
     auditEmitter: { marker: 'audit-emitter' },
     forwardAuditEvent,
@@ -168,6 +169,8 @@ describe('registerSaleVoid composition (both flag states pass the same sources)'
       h.deps.operatorEnvelopeHolder,
     );
     expect(deps.approvals).toBe(h.deps.managerApprovals);
+    // RT-1403 S2: the void payout kicks the same drawer port sales and returns use.
+    expect(deps.drawer).toBe(h.deps.drawerKickTransport);
     expect(deps.auditSink).toBe(h.deps.auditEmitter);
     expect(deps.logger).toBe(h.deps.mainLogger);
 

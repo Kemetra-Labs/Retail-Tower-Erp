@@ -38,6 +38,8 @@ export interface SaleVoidDeps {
    * rejects) for a cashier's void. Read in process per send, never bridged.
    */
   getDeviceToken: () => Promise<string | null>;
+  /** RT-1403 S2: the sale drawer's hardware port (the same instance sales and returns use). */
+  drawerKickTransport: ComposeSaleVoidDeps['drawer'];
   /** The one manager approval service (a void spends a single-use RT-114 approval). */
   managerApprovals: ComposeSaleVoidDeps['approvals'];
   /** The audit sink the void journal writes to. */
@@ -68,6 +70,7 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     operatorEnvelopeHolder,
     pairingStore,
     getDeviceToken,
+    drawerKickTransport,
     managerApprovals,
     auditEmitter,
     forwardAuditEvent,
@@ -100,6 +103,8 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
     isEnabled: () => resolveFeatureFlags().saleVoid,
     approvals: managerApprovals,
+    // RT-1403 S2: the void payout kicks the SAME drawer port as sales and returns.
+    drawer: drawerKickTransport,
     auditSink: auditEmitter,
     // RT-741: `saleVoid.lookup` runs the shared RT-546 gate; its refusals are
     // `sale.access.refused`, written like the sales and receipts bridges' own.

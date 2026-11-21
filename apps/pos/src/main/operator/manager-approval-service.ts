@@ -254,10 +254,11 @@ function isManagerSession(session: OperatorSessionRecord): boolean {
  * acts directly, except the self-unlock and (RT-441) recovery, where the
  * signed-in manager approves an action on another operator's sale, and
  * (RT-530) a sale void, which ANY operator needs a different manager's
- * approval for (owner decision 4: no self-void).
+ * approval for (owner decision 4: no self-void), and (RT-1403 S2) the cash-out exception of a
+ * void, which ANY operator needs a different manager's approval for (the same rule).
  */
 function mayRequest(session: OperatorSessionRecord, kind: ManagerActionKind): boolean {
-  if (kind === 'sale.void') return true;
+  if (kind === 'sale.void' || kind === 'sale.void_cash_exception') return true;
   if (isRecoveryKind(kind)) return isManagerSession(session);
   return kind === 'session.self_unlock' || session.role === 'cashier';
 }

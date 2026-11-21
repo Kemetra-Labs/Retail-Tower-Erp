@@ -3,7 +3,9 @@ import { describe, expect, it, vi } from 'vitest';
 import { SALE_VOID_IPC_CHANNELS } from '../../../shared/sale-void/types.js';
 import {
   readAcknowledge,
+  readCashException,
   readLookup,
+  readPayOut,
   readRequest,
   registerSaleVoidHandlers,
 } from '../sale-void.js';
@@ -56,6 +58,40 @@ describe('sale void IPC validators', () => {
   });
 });
 
+describe('RT-1403 S2 payout validators', () => {
+  it("payOut: a void id only (the amount is the journal's, never sent)", () => {
+    expect(readPayOut({ void_id: 'v-1' })).toEqual({ void_id: 'v-1' });
+    for (const bad of [
+      null,
+      [],
+      {},
+      { void_id: 'v 1' },
+      { void_id: 'v-1', amount_minor: 1 },
+      { void_id: 'v-1', shift_id: 'forged' },
+    ]) {
+      expect(readPayOut(bad)).toBeNull();
+    }
+  });
+
+  it('cashException: a void id and a lower-case approval uuid, nothing else', () => {
+    expect(readCashException({ void_id: 'v-1', approval_id: APPROVAL })).toEqual({
+      void_id: 'v-1',
+      approval_id: APPROVAL,
+    });
+    for (const bad of [
+      null,
+      { void_id: 'v-1' },
+      { approval_id: APPROVAL },
+      { void_id: 'v-1', approval_id: 'nope' },
+      { void_id: 'v-1', approval_id: APPROVAL.toUpperCase() },
+      { void_id: 'v-1', approval_id: APPROVAL, amount_minor: 5 },
+      { void_id: 'v-1', approval_id: APPROVAL, mismatch_reason: 'void_refused' },
+    ]) {
+      expect(readCashException(bad)).toBeNull();
+    }
+  });
+});
+
 describe('sale void IPC handlers', () => {
   function register() {
     const handlers = new Map<string, (event: unknown, req?: unknown) => unknown>();
@@ -66,6 +102,10 @@ describe('sale void IPC handlers', () => {
       request: vi.fn((): Promise<never> => Promise.reject(new Error('boom'))),
       list: vi.fn(() => Promise.resolve({ kind: 'list' as const, voids: [] })),
       acknowledge: vi.fn(() => Promise.resolve({ kind: 'acknowledged' as const })),
+      payOut: vi.fn(() => Promise.resolve({ kind: 'paid_out' as const })),
+      recordCashException: vi.fn(() =>
+        Promise.resolve({ kind: 'exception_recorded' as const, mismatch_reason: null }),
+      ),
     };
     const logger = { warn: vi.fn() };
     registerSaleVoidHandlers(
@@ -110,5 +150,41 @@ describe('sale void IPC handlers', () => {
     expect(service.lookup).toHaveBeenCalledWith({ sale_number: 'N-1' });
     await handlers.get(SALE_VOID_IPC_CHANNELS.ACKNOWLEDGE)?.({}, { void_id: 'v-1' });
     expect(service.acknowledge).toHaveBeenCalledWith({ void_id: 'v-1' });
+  });
+
+  it('payOut and cashException pass a closed request through, and refuse anything else', async () => {
+    const { handlers, service } = register();
+    await expect(
+      Promise.resolve(handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1' })),
+    ).resolves.toEqual({ kind: 'paid_out' });
+    expect(service.payOut).toHaveBeenCalledWith({ void_id: 'v-1' });
+    await expect(
+      Promise.resolve(
+        handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1', amount_minor: 1 }),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'invalid_input' });
+    await handlers.get(SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION)?.(
+      {},
+      { void_id: 'v-1', approval_id: APPROVAL },
+    );
+    expect(service.recordCashException).toHaveBeenCalledWith({
+      void_id: 'v-1',
+      approval_id: APPROVAL,
+    });
+    await expect(
+      Promise.resolve(
+        handlers.get(SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION)?.({}, { void_id: 'v-1' }),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'invalid_input' });
+    expect(service.recordCashException).toHaveBeenCalledTimes(1);
+  });
+
+  it('a payout that throws answers void_unavailable and records nothing here', async () => {
+    const { handlers, service, logger } = register();
+    service.payOut.mockRejectedValueOnce(new Error('disk full'));
+    await expect(
+      Promise.resolve(handlers.get(SALE_VOID_IPC_CHANNELS.PAY_OUT)?.({}, { void_id: 'v-1' })),
+    ).resolves.toEqual({ kind: 'refused', reason: 'void_unavailable' });
+    expect(logger.warn).toHaveBeenCalledWith({ op: 'payOut', error: 'Error' }, 'sale_void:failed');
   });
 });

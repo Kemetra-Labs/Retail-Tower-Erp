@@ -45,6 +45,8 @@ export function journalView(overrides: Partial<SaleVoidJournalView> = {}): SaleV
     refusal_reason: null,
     needs_attention: false,
     confirmed_at: null,
+    cash_minor: 15_000,
+    payout: { state: 'none', paid_at: null, mismatch_reason: null, blocked_reason: null },
     ...overrides,
   };
 }
@@ -66,6 +68,10 @@ export function fakeSaleVoidBridge(
     list: vi.fn<SaleVoidBridgeAPI['list']>(() => Promise.resolve({ kind: 'list', voids })),
     acknowledge: vi.fn<SaleVoidBridgeAPI['acknowledge']>(() =>
       Promise.resolve({ kind: 'acknowledged' }),
+    ),
+    payOut: vi.fn<SaleVoidBridgeAPI['payOut']>(() => Promise.resolve({ kind: 'paid_out' })),
+    recordCashException: vi.fn<SaleVoidBridgeAPI['recordCashException']>(() =>
+      Promise.resolve({ kind: 'exception_recorded', mismatch_reason: null }),
     ),
   };
 }

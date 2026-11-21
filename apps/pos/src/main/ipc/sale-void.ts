@@ -12,7 +12,9 @@ import type { Logger } from 'pino';
 import {
   SALE_VOID_IPC_CHANNELS,
   type SaleVoidAcknowledgeRequest,
+  type SaleVoidCashExceptionRequest,
   type SaleVoidLookupRequest,
+  type SaleVoidPayOutRequest,
   type SaleVoidRefused,
   type SaleVoidRequest,
 } from '../../shared/sale-void/types.js';
@@ -54,8 +56,25 @@ export function readAcknowledge(value: unknown): SaleVoidAcknowledgeRequest | nu
   return isId(value['void_id']) ? { void_id: value['void_id'] } : null;
 }
 
+/** RT-1403 S2: a payout names the void only: the amount is the journal's, the shift is main's. */
+export function readPayOut(value: unknown): SaleVoidPayOutRequest | null {
+  if (!closed(value, ['void_id'])) return null;
+  return isId(value['void_id']) ? { void_id: value['void_id'] } : null;
+}
+
+/** RT-1403 S2: a cash exception names the void and its single-use approval, nothing else. */
+export function readCashException(value: unknown): SaleVoidCashExceptionRequest | null {
+  if (!closed(value, ['void_id', 'approval_id'])) return null;
+  const { void_id, approval_id } = value;
+  const valid = isId(void_id) && typeof approval_id === 'string' && APPROVAL_ID.test(approval_id);
+  return valid ? { void_id, approval_id } : null;
+}
+
 export interface SaleVoidIpcDeps {
-  service: Pick<SaleVoidService, 'lookup' | 'request' | 'list' | 'acknowledge'>;
+  service: Pick<
+    SaleVoidService,
+    'lookup' | 'request' | 'list' | 'acknowledge' | 'payOut' | 'recordCashException'
+  >;
   logger: Pick<Logger, 'warn'>;
 }
 
@@ -93,5 +112,13 @@ export function registerSaleVoidHandlers(
   ipcMain.handle(SALE_VOID_IPC_CHANNELS.ACKNOWLEDGE, (_event, request: unknown) => {
     const req = readAcknowledge(request);
     return req === null ? INVALID : run('acknowledge', () => service.acknowledge(req));
+  });
+  ipcMain.handle(SALE_VOID_IPC_CHANNELS.PAY_OUT, (_event, request: unknown) => {
+    const req = readPayOut(request);
+    return req === null ? INVALID : run('payOut', () => service.payOut(req));
+  });
+  ipcMain.handle(SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION, (_event, request: unknown) => {
+    const req = readCashException(request);
+    return req === null ? INVALID : run('cashException', () => service.recordCashException(req));
   });
 }

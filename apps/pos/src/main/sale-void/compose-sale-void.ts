@@ -10,11 +10,19 @@
  * uses), or, for a CASHIER (RT-1403, RT-530 c12029), the paired terminal's
  * device bearer (`getDeviceToken`) with the cashier's own `operatorUserId`. A
  * void is sent only while its REQUESTER is that operator.
+ *
+ * RT-1403 S2: the cash of a void leaves the drawer only through the fail-closed payout
+ * (`sale-void-payout.ts`: a confirmed void, an open shift, the void's day and shift) or a
+ * manager-attested cash exception; the cash-up counts the payout record, never the request.
  */
 import { randomUUID } from 'node:crypto';
 
 import type { DatabaseHandle } from '../db/client.js';
-import type { ManagerApprovalService } from '../operator/manager-approval-service.js';
+import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
+import type {
+  ApprovalSubjectResolver,
+  ManagerApprovalService,
+} from '../operator/manager-approval-service.js';
 import type { OperatorSessionRecord } from '../operator/session-manager.js';
 import { resolveSessionScope } from '../operator/resolve-session-scope.js';
 import type { SaleAuditEmitter } from '../sales/audit-emitter.js';
@@ -24,7 +32,9 @@ import { DEFAULT_CURRENCY_CODE } from '../sales-sync/create-sale-sync-client.js'
 import { createSaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 import { createSellingUserIdResolver } from '../sales-sync/selling-user-id.js';
 import { DRAIN_MARGIN_MS } from '../sales-sync/settled-within.js';
+import { kickReturnDrawer } from '../returns/returns-drawer.js';
 import { uuidv7 } from '../returns/uuidv7.js';
+import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 import { BusinessDayError, businessDayOf } from '../../shared/time/business-day.js';
 import { createSaleVoidAudit, type SaleVoidAuditSink } from './sale-void-audit.js';
 import {
@@ -32,6 +42,8 @@ import {
   createSaleVoidClient,
   type CreateSaleVoidClientDeps,
 } from './sale-void-client.js';
+import { createSaleVoidPayout, type DrawerResult } from './sale-void-payout.js';
+import { createSaleVoidPayoutRepository } from './sale-void-payout-repository.js';
 import {
   createSaleVoidRepository,
   type SaleVoidRepository,
@@ -64,6 +76,8 @@ export interface ComposeSaleVoidDeps {
   readonly isSessionLocked: () => boolean;
   readonly isEnabled: () => boolean;
   readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
+  /** RT-1403 S2: the sale drawer's hardware port (the same instance sales and returns use). */
+  readonly drawer: DrawerKickTransport;
   readonly auditSink: SaleVoidAuditSink;
   /**
    * RT-741: records `sale.access.refused` for the shared RT-546 gate that
@@ -109,6 +123,32 @@ export function voidBusinessDay(iso: string): string {
     if (error instanceof BusinessDayError) return `invalid:${iso}`;
     throw error;
   }
+}
+
+/**
+ * RT-1403 S2: kick the drawer for a void payout, as the closed answer the payout needs. Reuses the
+ * RT-15 wrapper (deadline; a throw or an answer outside the contract is a failure, never "opened").
+ * `no_drawer_configured` (RT-531: the terminal has no drawer) completes as `no_drawer`.
+ */
+export async function kickVoidDrawer(transport: DrawerKickTransport): Promise<DrawerResult> {
+  const outcome = await kickReturnDrawer(transport);
+  if (outcome.ok) return 'opened';
+  return outcome.reason === 'no_drawer_configured' ? 'no_drawer' : 'failed';
+}
+
+/**
+ * The manager-approval subject resolvers of the void domain, bound once the domain exists
+ * (`ref.current`): the void itself (`sale.void`, subject = the local sale id) and RT-1403 S2's
+ * cash exception (`sale.void_cash_exception`, subject = the void).
+ */
+export function saleVoidApprovalResolvers(ref: {
+  readonly current: Pick<ComposedSaleVoid, 'service'> | null;
+}): Record<'sale.void' | 'sale.void_cash_exception', ApprovalSubjectResolver> {
+  return {
+    'sale.void': (input) => ref.current?.service.approvalSubject(input) ?? null,
+    'sale.void_cash_exception': (input) =>
+      ref.current?.service.cashExceptionApprovalSubject({ subjectRef: input.subjectRef }) ?? null,
+  };
 }
 
 interface Row1 {
@@ -166,18 +206,38 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
     return toVoidSender(session, terminalId, deps.getOperatorEnvelope());
   };
 
+  const voidSession = () => {
+    const session = deps.getSession();
+    const terminalId = deps.getTerminalId();
+    if (session === null || terminalId === null) return null;
+    return toVoidSession(session, terminalId, deps.getOperatorEnvelope());
+  };
+  const shifts = createShiftCashupRepo(db);
+  const localDayOf = deps.localDayOf ?? voidBusinessDay;
+  const payout = createSaleVoidPayout({
+    isEnabled: deps.isEnabled,
+    isStopped,
+    isSessionLocked: deps.isSessionLocked,
+    getSession: voidSession,
+    voids: repo,
+    payouts: createSaleVoidPayoutRepository(db),
+    openShift: (scope) => shifts.findOpenShift(scope),
+    approvals: deps.approvals,
+    kickDrawer: () => kickVoidDrawer(deps.drawer),
+    audit,
+    localDayOf,
+    now,
+    newPayoutId: randomUUID,
+  });
+
   const service = createSaleVoidService({
     isEnabled: deps.isEnabled,
-    getSession: () => {
-      const session = deps.getSession();
-      const terminalId = deps.getTerminalId();
-      if (session === null || terminalId === null) return null;
-      return toVoidSession(session, terminalId, deps.getOperatorEnvelope());
-    },
+    getSession: voidSession,
     isSessionLocked: deps.isSessionLocked,
     access,
     sales,
     repo,
+    payout,
     hasLiveReturn: (saleId) => hasLiveReturn.get(saleId) !== undefined,
     approvals: deps.approvals,
     sellerUserIdOf,
@@ -187,7 +247,7 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
     now,
     newVoidId: randomUUID,
     newExternalId: () => `pos-pulse-void:${uuidv7()}`,
-    localDayOf: deps.localDayOf ?? voidBusinessDay,
+    localDayOf,
     captureCurrencyCode: deps.captureCurrencyCode ?? DEFAULT_CURRENCY_CODE,
     isStopped,
   });

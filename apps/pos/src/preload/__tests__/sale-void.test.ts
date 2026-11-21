@@ -33,6 +33,15 @@ describe('preload saleVoid bridge', () => {
     expect(ipcRendererInvoke).toHaveBeenLastCalledWith(SALE_VOID_IPC_CHANNELS.ACKNOWLEDGE, {
       void_id: 'v-1',
     });
+    await saleVoid.payOut({ void_id: 'v-1' });
+    expect(ipcRendererInvoke).toHaveBeenLastCalledWith(SALE_VOID_IPC_CHANNELS.PAY_OUT, {
+      void_id: 'v-1',
+    });
+    await saleVoid.recordCashException({ void_id: 'v-1', approval_id: 'a-1' });
+    expect(ipcRendererInvoke).toHaveBeenLastCalledWith(SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION, {
+      void_id: 'v-1',
+      approval_id: 'a-1',
+    });
   });
 
   it('is exposed on window.api.saleVoid', async () => {
@@ -45,6 +54,8 @@ describe('preload saleVoid bridge', () => {
       'acknowledge',
       'list',
       'lookup',
+      'payOut',
+      'recordCashException',
       'request',
     ]);
   });

@@ -19,6 +19,11 @@
  * session on a paired terminal, not locked. Shutdown (RT-198): once stopped
  * every call answers `void_unavailable` before touching the database.
  *
+ * RT-1403 S2: a request moves NO cash. The cash of a void is handed out only through `payOut` once
+ * Backend-Core confirmed the void, in an open shift, on the void's day and shift, or recorded once as a
+ * manager-attested `recordCashException` (`sale-void-payout.ts`); each journal view carries the cash
+ * and its payout state, and the shift cash-up counts the payout record.
+ *
  * RT-741: `lookup` then runs the shared RT-546 sale access gate
  * (`sale-access-policy.ts`), because it answers the sale's total, cash and
  * seller: a cashier finds only their own sale, a manager or admin any sale of
@@ -38,17 +43,23 @@ import type {
   SaleVoidAcknowledgeRequest,
   SaleVoidAcknowledgeResponse,
   SaleVoidBridgeAPI,
+  SaleVoidCashExceptionRequest,
+  SaleVoidCashExceptionResponse,
   SaleVoidJournalView,
   SaleVoidListResponse,
   SaleVoidLookupRequest,
   SaleVoidLookupResponse,
+  SaleVoidPayOutRequest,
+  SaleVoidPayOutResponse,
   SaleVoidRequest,
   SaleVoidRequestResponse,
   SaleVoidSaleView,
   SaleVoidWaitingFor,
 } from '../../shared/sale-void/types.js';
 import type { SaleVoidAudit } from './sale-void-audit.js';
+import type { SaleVoidPayoutService } from './sale-void-payout.js';
 import type { SaleVoidRepository, VoidEntry, VoidScope } from './sale-void-repository.js';
+import { admitVoidCall } from './sale-void-session.js';
 import type { VoidSender } from './sale-void-sync.js';
 
 /** How many journal rows `saleVoid.list` shows. */
@@ -78,6 +89,8 @@ export interface SaleVoidServiceDeps {
   readonly access: Pick<SaleAccessPolicy, 'admitSession' | 'admitSale'>;
   readonly sales: Pick<SalesRepository, 'findByNumber' | 'readById'>;
   readonly repo: SaleVoidRepository;
+  /** RT-1403 S2: the gated cash payout, the cash exception and the cash view of a journal row. */
+  readonly payout: SaleVoidPayoutService;
   /** True when the sale has a return that is not refused (any other state counts). */
   readonly hasLiveReturn: (saleId: string) => boolean;
   readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
@@ -107,6 +120,8 @@ export interface SaleVoidService extends SaleVoidBridgeAPI {
     subjectRef: string;
     session: { tenant_id: string; branch_id: string };
   }): ApprovalSubject | null;
+  /** RT-1403 S2: the approval subject of `sale.void_cash_exception` for void `subjectRef`, or null. */
+  cashExceptionApprovalSubject(input: { subjectRef: string }): ApprovalSubject | null;
 }
 
 type Refusal = { kind: 'refused'; reason: LocalVoidRefusal };
@@ -141,14 +156,7 @@ function canEverSend(session: VoidSession): boolean {
 
 export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidService {
   /** The admission gate: flag, live unlocked session, not shutting down. */
-  function admit(): { kind: 'ok'; session: VoidSession } | Refusal {
-    if (deps.isStopped()) return refuse('void_unavailable');
-    if (!deps.isEnabled()) return refuse('feature_disabled');
-    const session = deps.getSession();
-    if (session === null) return refuse('no_session');
-    if (deps.isSessionLocked()) return refuse('session_locked');
-    return { kind: 'ok', session };
-  }
+  const admit = (): { kind: 'ok'; session: VoidSession } | Refusal => admitVoidCall(deps);
 
   const inScope = (sale: SaleRow, scope: VoidScope): boolean =>
     sale.tenant_id === scope.tenantId &&
@@ -197,6 +205,8 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
       refusal_reason: entry.refusalReason,
       needs_attention: entry.state === 'refused' && entry.acknowledgedAt === null,
       confirmed_at: entry.confirmedAt,
+      cash_minor: entry.cashMinor,
+      payout: deps.payout.viewOf(entry),
     };
   }
 
@@ -348,6 +358,7 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
   /* The bridge methods are async so an unexpected throw is a rejected promise, never a sync throw. */
   return {
     approvalSubject,
+    cashExceptionApprovalSubject: (input) => deps.payout.cashExceptionSubject(input),
 
     // eslint-disable-next-line @typescript-eslint/require-await
     async lookup(req: SaleVoidLookupRequest): Promise<SaleVoidLookupResponse> {
@@ -388,6 +399,13 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
         .filter((row) => !listed.has(row.voidId));
       return { kind: 'list', voids: [...recent, ...olderRefused].map(journalView) };
     },
+
+    payOut: (req: SaleVoidPayOutRequest): Promise<SaleVoidPayOutResponse> =>
+      deps.payout.payOut(req),
+
+    recordCashException: (
+      req: SaleVoidCashExceptionRequest,
+    ): Promise<SaleVoidCashExceptionResponse> => deps.payout.recordCashException(req),
 
     // eslint-disable-next-line @typescript-eslint/require-await
     async acknowledge(req: SaleVoidAcknowledgeRequest): Promise<SaleVoidAcknowledgeResponse> {

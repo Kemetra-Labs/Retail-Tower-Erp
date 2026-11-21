@@ -9,6 +9,7 @@
  */
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type { AuditPayloadMap } from '../../shared/audit/payload-schemas.js';
+import type { PayoutRecord } from './sale-void-payout-repository.js';
 import type { VoidEntry } from './sale-void-repository.js';
 
 type VoidAuditCategory = Extract<AuditEvent['action_category'], `sale.void.${string}`>;
@@ -22,6 +23,12 @@ export interface SaleVoidAudit {
   requested(entry: VoidEntry): void;
   confirmed(entry: VoidEntry, replayed: boolean): void;
   refused(entry: VoidEntry): void;
+  /** RT-1403 S2: the gated payout was recorded (inside the record's transaction). */
+  paidOut(record: PayoutRecord): void;
+  /** RT-1403 S2: a manager-attested cash-out exception was recorded (same transaction). */
+  cashExceptionRecorded(record: PayoutRecord): void;
+  /** RT-1403 S2: cash and accounting status disagree; emits nothing for an unflagged record. */
+  cashMismatchFlagged(record: PayoutRecord): void;
 }
 
 export interface SaleVoidAuditDeps {
@@ -51,7 +58,65 @@ export function createSaleVoidAudit(deps: SaleVoidAuditDeps): SaleVoidAudit {
     });
   }
 
+  /** A payout event: the paying operator acts in the record's shift, on this device. */
+  function writePayout<C extends VoidAuditCategory>(
+    record: PayoutRecord,
+    category: C,
+    payload: AuditPayloadMap[C],
+  ): void {
+    deps.sink.emit({
+      event_id: deps.newEventId(),
+      tenant_id: record.scope.tenantId,
+      branch_id: record.scope.branchId,
+      originating_terminal_id: record.scope.terminalId,
+      acting_operator_id: record.paidBy.operatorId,
+      session_id: record.paidBy.sessionId,
+      shift_id: record.shiftId,
+      action_category: category,
+      created_at: deps.now(),
+      approving_supervisor_id: record.exception?.approverUserId ?? null,
+      payload: { ...payload },
+    });
+  }
+
   return {
+    paidOut(record) {
+      writePayout(record, 'sale.void.paid_out', {
+        void_id: record.voidId,
+        sale_id: record.saleId,
+        payout_id: record.payoutId,
+        amount_minor: record.amountMinor,
+        currency_code: record.currencyCode,
+        method: record.method,
+        business_date: record.businessDate,
+      });
+    },
+    cashExceptionRecorded(record) {
+      writePayout(record, 'sale.void.cash_exception_recorded', {
+        void_id: record.voidId,
+        sale_id: record.saleId,
+        payout_id: record.payoutId,
+        amount_minor: record.amountMinor,
+        currency_code: record.currencyCode,
+        void_state: record.voidState,
+        approval_id: record.exception?.approvalId ?? '',
+        policy_version: record.exception?.policyVersion ?? '',
+        requester_user_id: record.exception?.requesterUserId ?? '',
+        mismatch_reason: record.mismatchReason ?? '',
+      });
+    },
+    cashMismatchFlagged(record) {
+      if (record.mismatchReason === null) return;
+      writePayout(record, 'sale.void.cash_mismatch_flagged', {
+        void_id: record.voidId,
+        sale_id: record.saleId,
+        payout_id: record.payoutId,
+        amount_minor: record.amountMinor,
+        currency_code: record.currencyCode,
+        void_state: record.voidState,
+        mismatch_reason: record.mismatchReason,
+      });
+    },
     requested(entry) {
       write(entry, 'sale.void.requested', {
         void_id: entry.voidId,

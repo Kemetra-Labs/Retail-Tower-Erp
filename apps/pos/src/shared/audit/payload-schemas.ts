@@ -697,6 +697,49 @@ export interface SaleVoidRefusedPayload {
   policy_version: string;
 }
 
+// ─── RT-1403 S2 — the cash of a void leaving the drawer ───────────────────
+//
+// The paying operator is `acting_operator_id`, the open shift `shift_id`; an exception's approving
+// manager is `approving_supervisor_id` (users.id). Ids, minor units and closed codes only.
+
+/** `sale.void.paid_out` — the gated payout of a CONFIRMED void was recorded. */
+interface SaleVoidPaidOutPayload {
+  void_id: string;
+  sale_id: string;
+  payout_id: string;
+  amount_minor: number;
+  currency_code: string;
+  method: string;
+  business_date: string;
+}
+
+/** `sale.void.cash_exception_recorded` — manager-attested cash-out, single use. */
+interface SaleVoidCashExceptionRecordedPayload {
+  void_id: string;
+  sale_id: string;
+  payout_id: string;
+  amount_minor: number;
+  currency_code: string;
+  /** The void's state when the cash left. */
+  void_state: string;
+  approval_id: string;
+  policy_version: string;
+  requester_user_id: string;
+  /** Empty when the exception does not disagree with the accounting status. */
+  mismatch_reason: string;
+}
+
+/** `sale.void.cash_mismatch_flagged` — cash and accounting status disagree: a manager reconciles. */
+interface SaleVoidCashMismatchFlaggedPayload {
+  void_id: string;
+  sale_id: string;
+  payout_id: string;
+  amount_minor: number;
+  currency_code: string;
+  void_state: string;
+  mismatch_reason: string;
+}
+
 // ─── RT-546 — sales/receipts role gate ────────────────────────────────────
 
 /**
@@ -882,6 +925,10 @@ export type AuditPayloadMap = {
   'sale.void.requested': SaleVoidRequestedPayload;
   'sale.void.confirmed': SaleVoidConfirmedPayload;
   'sale.void.refused': SaleVoidRefusedPayload;
+  // RT-1403 S2
+  'sale.void.paid_out': SaleVoidPaidOutPayload;
+  'sale.void.cash_exception_recorded': SaleVoidCashExceptionRecordedPayload;
+  'sale.void.cash_mismatch_flagged': SaleVoidCashMismatchFlaggedPayload;
   // RT-546
   'sale.access.refused': SaleAccessRefusedPayload;
   // RT-551

@@ -21,11 +21,18 @@ import {
 } from '../sale-void-repository.js';
 import {
   APPROVAL_A,
+  APPROVAL_B,
   APPROVER_USER,
   newVoidEntry,
   REQUESTER_USER,
   SCOPE,
 } from './__helpers__/sale-void-fixture.js';
+import {
+  PAYOUT_1,
+  SHIFT_A,
+  newException,
+  newPayout,
+} from './__helpers__/sale-void-payout-fixture.js';
 
 const NOW = '2026-06-07T10:10:00.000Z';
 
@@ -125,5 +132,79 @@ describe('sale void audit events', () => {
   it('refused: a row read before its reason is stored records `unknown`', () => {
     audit.refused(row());
     expect(events[0]?.payload).toMatchObject({ reason: 'unknown' });
+  });
+});
+
+describe('sale void payout audit events (RT-1403 S2)', () => {
+  it('paid_out: the paying operator acts in the shift, with the cash and the method', () => {
+    audit.paidOut(newPayout({ method: 'no_drawer' }));
+    expect(events).toEqual([
+      {
+        event_id: 'evt-1',
+        tenant_id: SCOPE.tenantId,
+        branch_id: SCOPE.branchId,
+        originating_terminal_id: SCOPE.terminalId,
+        acting_operator_id: 'op-cashier',
+        session_id: 'sess-2',
+        shift_id: SHIFT_A,
+        action_category: 'sale.void.paid_out',
+        created_at: NOW,
+        approving_supervisor_id: null,
+        payload: {
+          void_id: 'v1',
+          sale_id: 'sale-1',
+          payout_id: PAYOUT_1,
+          amount_minor: 1500,
+          currency_code: 'EGP',
+          method: 'no_drawer',
+          business_date: '2026-06-07',
+        },
+      },
+    ]);
+  });
+
+  it('cash_exception_recorded: the approving manager is the supervisor, the approval is cited', () => {
+    audit.cashExceptionRecorded(newException());
+    expect(events[0]).toMatchObject({
+      action_category: 'sale.void.cash_exception_recorded',
+      acting_operator_id: 'op-cashier',
+      shift_id: SHIFT_A,
+      approving_supervisor_id: APPROVER_USER,
+      payload: {
+        void_id: 'v1',
+        payout_id: PAYOUT_1,
+        amount_minor: 1500,
+        void_state: 'refused',
+        approval_id: APPROVAL_B,
+        policy_version: 'rt114-2026-10-07',
+        requester_user_id: REQUESTER_USER,
+        mismatch_reason: 'void_refused',
+      },
+    });
+  });
+
+  it('cash_exception_recorded: an unflagged exception records an empty mismatch reason', () => {
+    audit.cashExceptionRecorded(newException({ voidState: 'confirmed', mismatchReason: null }));
+    expect(events[0]?.payload).toMatchObject({ void_state: 'confirmed', mismatch_reason: '' });
+  });
+
+  it('cash_mismatch_flagged: names the reason for manager reconciliation', () => {
+    audit.cashMismatchFlagged(newException({ mismatchReason: 'void_refused' }));
+    expect(events[0]).toMatchObject({
+      action_category: 'sale.void.cash_mismatch_flagged',
+      payload: {
+        void_id: 'v1',
+        sale_id: 'sale-1',
+        payout_id: PAYOUT_1,
+        amount_minor: 1500,
+        void_state: 'refused',
+        mismatch_reason: 'void_refused',
+      },
+    });
+  });
+
+  it('cash_mismatch_flagged: a record without a flag emits nothing', () => {
+    audit.cashMismatchFlagged(newException({ mismatchReason: null, voidState: 'confirmed' }));
+    expect(events).toEqual([]);
   });
 });

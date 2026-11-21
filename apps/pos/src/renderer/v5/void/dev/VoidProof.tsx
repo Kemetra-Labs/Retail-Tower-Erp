@@ -116,6 +116,9 @@ function entry([suffix, total, at, state, extra = {}]: Row): SaleVoidJournalView
     refusal_reason: null,
     needs_attention: false,
     confirmed_at: null,
+    // RT-1403 S2: the drawn proofs show no cash action (the frozen VD-Void references pre-date it).
+    cash_minor: 0,
+    payout: { state: 'none', paid_at: null, mismatch_reason: null, blocked_reason: null },
     ...extra,
   };
 }
@@ -174,6 +177,8 @@ function saleVoidBridge(state: VoidProofState): SaleVoidBridgeAPI {
       return Promise.resolve({ kind: 'requested', void: requested });
     },
     acknowledge: () => Promise.resolve({ kind: 'acknowledged' }),
+    payOut: () => Promise.resolve({ kind: 'refused', reason: 'void_unavailable' }),
+    recordCashException: () => Promise.resolve({ kind: 'refused', reason: 'void_unavailable' }),
   };
 }
 
