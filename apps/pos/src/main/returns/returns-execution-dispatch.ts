@@ -18,7 +18,7 @@ import type { RecordExecutionOutcome, ReturnsClient } from './returns-client.js'
 import type { ExecutionEntry, ReturnExecutionsRepository } from './returns-execution-repository.js';
 import type { WireRefundExecution } from './returns-wire.js';
 
-export type ExecutionDispatchOutcome =
+type ExecutionDispatchOutcome =
   | { readonly kind: 'recorded'; readonly entry: ExecutionEntry }
   | { readonly kind: 'refused'; readonly entry: ExecutionEntry }
   | { readonly kind: 'unconfirmed'; readonly entry: ExecutionEntry }

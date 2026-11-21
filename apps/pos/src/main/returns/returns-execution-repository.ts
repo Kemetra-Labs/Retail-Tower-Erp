@@ -12,7 +12,7 @@
 import type { DatabaseHandle } from '../db/client.js';
 import type { ReturnScope } from './returns-repository.js';
 
-export type ExecutionState = 'pending' | 'unknown' | 'recorded' | 'refused';
+type ExecutionState = 'pending' | 'unknown' | 'recorded' | 'refused';
 
 /** The closed codes a refused execution is recorded with (the contract's final refusals). */
 export type ExecutionRefusal = 'not_found' | 'conflict' | 'exceeds_allocation';
@@ -38,12 +38,12 @@ export interface ExecutionEntry extends Omit<NewExecution, 'now'> {
   readonly recordedAt: string | null;
 }
 
-export interface ExecutionStamp {
+interface ExecutionStamp {
   readonly executionId: string;
   readonly now: string;
 }
 
-export interface RefuseExecutionInput extends ExecutionStamp {
+interface RefuseExecutionInput extends ExecutionStamp {
   readonly reason: ExecutionRefusal;
 }
 
@@ -64,11 +64,12 @@ export interface ReturnExecutionsRepository {
   markRefused(input: RefuseExecutionInput): boolean;
 }
 
-interface Stmt {
-  run(...params: unknown[]): { changes: number };
-  get(...params: unknown[]): unknown;
-  all(...params: unknown[]): unknown[];
-}
+/** The slice of a prepared statement this repository uses. */
+type Stmt = {
+  all: (...args: unknown[]) => unknown[];
+  get: (...args: unknown[]) => unknown;
+  run: (...args: unknown[]) => { changes: number };
+};
 
 interface Row {
   execution_id: string;

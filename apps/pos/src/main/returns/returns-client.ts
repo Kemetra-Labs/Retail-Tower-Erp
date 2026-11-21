@@ -84,7 +84,7 @@ export type RecordExecutionOutcome =
   | { readonly kind: 'refused'; readonly reason: ExecutionRefusal }
   | { readonly kind: 'unknown'; readonly cause: ReturnUnknownCause };
 
-export interface RecordExecutionRequest {
+interface RecordExecutionRequest {
   readonly saleRef: string;
   readonly returnRef: string;
   /** The exact JSON body from the outbox (re-sent byte-identical). */
@@ -305,6 +305,19 @@ export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClien
     }
   }
 
+  /** POST the outboxed bytes verbatim under their Idempotency-Key (a return, an execution). */
+  function postFrozen(
+    path: string,
+    frozen: { readonly bodyJson: string; readonly idempotencyKey: string },
+    envelope: OperatorEnvelope,
+  ) {
+    const headers = {
+      'Content-Type': 'application/json',
+      'Idempotency-Key': frozen.idempotencyKey,
+    };
+    return exchange({ envelope, path, init: { method: 'POST', headers, body: frozen.bodyJson } });
+  }
+
   return {
     async readSale(saleRef: string, envelope: OperatorEnvelope): Promise<ReadSaleOutcome> {
       if (!isUuid(saleRef)) return { kind: 'refused', reason: 'returns_unavailable' };
@@ -318,18 +331,7 @@ export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClien
       envelope: OperatorEnvelope,
     ): Promise<RecordReturnOutcome> {
       if (!isUuid(request.saleRef)) return { kind: 'refused', reason: 'returns_unavailable' };
-      const answer = await exchange({
-        envelope,
-        path: `/${request.saleRef}/returns`,
-        init: {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': request.idempotencyKey,
-          },
-          body: request.bodyJson,
-        },
-      });
+      const answer = await postFrozen(`/${request.saleRef}/returns`, request, envelope);
       return isFault(answer)
         ? { kind: 'unknown', cause: answer.fault }
         : toRecordOutcome(answer, request.resend);
@@ -342,18 +344,8 @@ export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClien
       if (!isUuid(request.saleRef) || !isUuid(request.returnRef)) {
         return { kind: 'refused', reason: 'not_found' };
       }
-      const answer = await exchange({
-        envelope,
-        path: `/${request.saleRef}/returns/${request.returnRef}/executions`,
-        init: {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'Idempotency-Key': request.idempotencyKey,
-          },
-          body: request.bodyJson,
-        },
-      });
+      const path = `/${request.saleRef}/returns/${request.returnRef}/executions`;
+      const answer = await postFrozen(path, request, envelope);
       return isFault(answer)
         ? { kind: 'unknown', cause: answer.fault }
         : toExecutionOutcome(answer);

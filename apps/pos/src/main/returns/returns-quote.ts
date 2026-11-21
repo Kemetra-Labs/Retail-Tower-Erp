@@ -133,7 +133,7 @@ export function quoteReturn(sale: WireSale, lines: readonly ReturnLineInput[]): 
  * Absent on a return journaled before RT-1543 (such a return is replayed from its stored bytes and
  * never reports a refund execution).
  */
-export interface RecordReturnTender {
+interface RecordReturnTender {
   method: 'cash';
   amount: string;
   allocationRef?: string;
