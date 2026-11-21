@@ -371,7 +371,7 @@ describe('RT-1403: a cashier void goes over the device path', () => {
     await domain.sync.tick();
     expect(posted).toHaveLength(1);
     const call = posted[0];
-    expect(call?.url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/void`);
+    expect(call?.url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/cashier-void`);
     expect(call?.headers['Authorization']).toBe(`Bearer ${DEVICE_TOKEN}`);
     expect(call?.body).toMatchObject({
       operatorUserId: CASHIER.userId,

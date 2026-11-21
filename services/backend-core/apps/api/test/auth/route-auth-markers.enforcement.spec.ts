@@ -76,10 +76,11 @@ const REVIEWED_DEVICE_ATTESTED = ["PosAuditEventsController.syncBatch"];
  * same-key, same-body replay of the same device without the claim (owner
  * decision, RT-1112 c16636). Covered by voucher-cashier-auth.guard.unit.spec.ts
  * and vouchers-pos.http.integration.spec.ts.
- * RT-1403 (RT-530 c12029): SaleVoidAuthGuard (recordVoid) is the captureSale
- * model: the envelope, or the device token with an `operatorUserId` claim
- * verified as a cashier admission live at the server's now (the TLV verifier,
- * reused); covered by sale-void-auth.guard.unit.spec.ts.
+ * RT-1403 (RT-530 c12029): SaleVoidAuthGuard (recordCashierVoid) is the
+ * device-only cashier counterpart of recordVoid (which stays envelope-only):
+ * the device token with an `operatorUserId` claim verified as a cashier
+ * admission live at the server's now (the TLV verifier, reused); covered by
+ * sale-void-auth.guard.unit.spec.ts and sale-void-device-path.http.integration.spec.ts.
  */
 const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   SaleCaptureAuthGuard,
@@ -202,9 +203,9 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       // RT-224 (Option B): captureSale accepts the device bearer as an
       // alternative to the operator envelope; SaleCaptureAuthGuard runs both.
       "SalesController.captureSale",
-      // RT-1403 (RT-530 c12029): recordVoid accepts the device bearer with a live
-      // cashier claim as an alternative to the operator envelope.
-      "SalesController.recordVoid",
+      // RT-1403 (RT-530 c12029): the cashier void, device bearer with a live
+      // cashier claim (recordVoid stays envelope-only and is not marked).
+      "SalesController.recordCashierVoid",
       // RT-17 slices 2b-1 / 2b-2: the shift cash-up writes, the captureSale model.
       "ShiftCashUpController.closeShift",
       "ShiftCashUpController.openShift",

@@ -73,6 +73,8 @@ const OPERATION_IDS = [
   "recordRefundExecution",
   "readReturnByProvenance",
   "listSaleReturns",
+  // RT-1403 (RT-530 c12029): the cashier's device-only void (see sale-void-device-path.contract.spec.ts).
+  "recordCashierVoid",
 ] as const;
 
 const WRITE_OPERATION_IDS = [
@@ -82,6 +84,7 @@ const WRITE_OPERATION_IDS = [
   "recordReturn",
   "recordCreditSaleReversal",
   "recordRefundExecution",
+  "recordCashierVoid",
 ];
 
 const CAPTURE_PATH = "/api/pos/v1/sales";
@@ -348,8 +351,12 @@ describe("pos-sales/sales.yaml — operations", () => {
     }
   });
 
-  it("secures every operation with the operatorAuthorization envelope (031 D1+D2)", () => {
+  it("secures every operation with the operatorAuthorization envelope (031 D1+D2), except the device-only cashier void (RT-1403)", () => {
     for (const { op } of salesOperations()) {
+      if (op.operationId === "recordCashierVoid") {
+        expect(op.security).toEqual([{ device: [] }]);
+        continue;
+      }
       expect(op.security).toContainEqual({ operatorAuthorization: [] });
     }
   });
@@ -888,9 +895,9 @@ describe("pos-sales/sales.yaml — RT-224 device-bearer cashier capture", () => 
     ]);
   });
 
-  it("no other sale operation accepts the device bearer (only captureSale and, from RT-1403, recordVoid)", () => {
+  it("no other sale operation accepts the device bearer (only captureSale and, from RT-1403, the device-only recordCashierVoid)", () => {
     for (const { op } of salesOperations()) {
-      if (op.operationId === "captureSale" || op.operationId === "recordVoid") continue;
+      if (op.operationId === "captureSale" || op.operationId === "recordCashierVoid") continue;
       expect(op.security).toEqual([{ operatorAuthorization: [] }]);
     }
   });
@@ -966,6 +973,11 @@ describe("pos-sales/sales.yaml — RT-224 device-bearer cashier capture", () => 
       if (op.operationId === "recordVoid") {
         // RT-530: the void's 403 is its own approval refusal, not the device-path `Refused`.
         expect(responses(op)["403"]).toEqual({ $ref: "#/components/responses/VoidForbidden" });
+        continue;
+      }
+      if (op.operationId === "recordCashierVoid") {
+        // RT-1403: the cashier void's 403 adds the generic device-path `refused` to the void's codes.
+        expect(responses(op)["403"]).toEqual({ $ref: "#/components/responses/CashierVoidForbidden" });
         continue;
       }
       if (op.operationId === "recordReturn" || op.operationId === "recordRefund") {
@@ -1225,8 +1237,8 @@ describe("pos-sales/sales.yaml — RT-530 manager-approved void", () => {
     expect(info).toContain("ROLLOUT ORDER: a POS that sends no approval gets");
   });
 
-  it("the void was envelope-only at RT-530; RT-1403 adds the device bearer as a second alternative", () => {
-    expect(findOp("recordVoid")?.security).toEqual([{ operatorAuthorization: [] }, { device: [] }]);
+  it("the void stays envelope-only: no new security requirement", () => {
+    expect(findOp("recordVoid")?.security).toEqual([{ operatorAuthorization: [] }]);
   });
 });
 

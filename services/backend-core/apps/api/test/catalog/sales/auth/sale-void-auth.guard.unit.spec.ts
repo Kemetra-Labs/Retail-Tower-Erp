@@ -1,23 +1,19 @@
 /**
  * RT-1403 (RT-530 owner decision c12029; [GATED: contract] approval: RT-1403
- * c18071) — SaleVoidAuthGuard unit spec. Docker-free.
+ * c18071; the separate route: c18113) — SaleVoidAuthGuard unit spec. Docker-free.
  *
- * recordVoid accepts two alternative credentials, the captureSale model:
+ * `recordCashierVoid` is the DEVICE-only cashier counterpart of `recordVoid`
+ * (which stays the manager and admin envelope route). The guard: PosDeviceAuthGuard
+ * resolves the device, the strict cashier-void body is validated, and the cashier
+ * verifier (a cashier admission live NOW on the paired device, plus live
+ * eligibility) must accept. Only then is the verified cashier published as the
+ * actor, which is what binds the void's requester to the admitted cashier (the
+ * service's `requesterIsActor`).
  *
- *   - the operator-authorization envelope (unchanged, RT-530): the body
- *     carries no `operatorUserId`, so the guard hands the request to
- *     PosOperatorEnvelopeSaleGuard and does nothing else;
- *   - the device bearer + `operatorUserId`: the presence of the field selects
- *     this path. PosDeviceAuthGuard resolves the device, the strict void body
- *     is validated, and the cashier verifier (a cashier admission live NOW on
- *     the paired device, plus live eligibility) must accept. Only then is the
- *     verified cashier published as the actor, which is what binds the void's
- *     requester to the admitted cashier (the service's `requesterIsActor`).
- *
- * Refusals: a bad, revoked or missing device credential is the generic 401; a
- * refused cashier claim from an AUTHENTICATED device is the generic 403
- * `refused`, one body for every cause. A device 401 means "device revoked" to
- * the POS, so a refused void must never look like one.
+ * Refusals: a bad, revoked or missing device credential (an operator envelope
+ * included) is the generic 401; a refused cashier claim from an AUTHENTICATED
+ * device is the generic 403 `refused`, one body for every cause. A device 401
+ * means "device revoked" to the POS, so a refused void must never look like one.
  */
 import "reflect-metadata";
 
@@ -69,6 +65,7 @@ function voidBody(extra: Record<string, unknown> = {}): Record<string, unknown> 
       policyVersion: "v1",
       approvedAt: "2026-11-21T09:59:00.000Z",
     },
+    operatorUserId: CASHIER_ID,
     ...extra,
   };
 }
@@ -120,62 +117,41 @@ function verifier(
 }
 
 function makeGuard(opts: {
-  envelope?: { canActivate: jest.Mock };
   device?: { canActivate: jest.Mock };
   cashier?: TrackedLineCashierVerifier & { verify: jest.Mock };
 }) {
-  const envelope = opts.envelope ?? { canActivate: jest.fn(async () => true) };
   const device = opts.device ?? deviceGuardAccepting();
   const cashier = opts.cashier ?? verifier({ ok: true });
   const logger = { warn: jest.fn() };
-  const guard = new SaleVoidAuthGuard(cashier, envelope, device, logger);
-  return { guard, envelope, device, cashier, logger };
+  const guard = new SaleVoidAuthGuard(cashier, device, logger);
+  return { guard, device, cashier, logger };
 }
 
 function bearerRequest(body: unknown): FakeRequest {
   return { headers: { authorization: "Bearer device-token" }, body, requestId: "req-1" };
 }
 
-describe("SaleVoidAuthGuard — path selection", () => {
-  it("a body without operatorUserId takes the envelope path only (unchanged behaviour)", async () => {
-    const t = makeGuard({});
-    await expect(t.guard.canActivate(ctxFor(bearerRequest(voidBody())))).resolves.toBe(true);
-    expect(t.envelope.canActivate).toHaveBeenCalledTimes(1);
-    expect(t.device.canActivate).not.toHaveBeenCalled();
+describe("SaleVoidAuthGuard — the cashier route is device-only", () => {
+  it("always runs the device guard first, whatever the body carries", async () => {
+    for (const body of [voidBody(), undefined, "operatorUserId", [voidBody()]]) {
+      const t = makeGuard({});
+      await t.guard.canActivate(ctxFor(bearerRequest(body))).catch(() => undefined);
+      expect(t.device.canActivate).toHaveBeenCalledTimes(1);
+    }
+  });
+
+  it("an operator envelope (or any non-device bearer) is the device guard's generic 401, nothing else runs", async () => {
+    const t = makeGuard({ device: deviceGuardRefusing() });
+    const req = bearerRequest(voidBody());
+    await expect(t.guard.canActivate(ctxFor(req))).rejects.toBeInstanceOf(UnauthorizedException);
     expect(t.cashier.verify).not.toHaveBeenCalled();
+    expect(req.context).toBeUndefined();
   });
 
-  it("an envelope refusal propagates unchanged", async () => {
-    const refusal = new UnauthorizedException("Unauthorized");
-    const t = makeGuard({ envelope: { canActivate: jest.fn(async () => Promise.reject(refusal)) } });
-    await expect(t.guard.canActivate(ctxFor(bearerRequest(voidBody())))).rejects.toBe(refusal);
-    expect(t.device.canActivate).not.toHaveBeenCalled();
-  });
-
-  it.each([
-    ["a missing body", undefined],
-    ["an array body", [voidBody({ operatorUserId: CASHIER_ID })]],
-    ["a string body", "operatorUserId"],
-  ])("%s takes the envelope path", async (_label, body) => {
+  it("there is no envelope path: a body without operatorUserId is a 400 from the strict body, never an envelope fallback", async () => {
     const t = makeGuard({});
-    await t.guard.canActivate(ctxFor(bearerRequest(body)));
-    expect(t.envelope.canActivate).toHaveBeenCalledTimes(1);
-    expect(t.device.canActivate).not.toHaveBeenCalled();
-  });
-
-  it("operatorUserId selects the device path; the envelope guard never runs", async () => {
-    const t = makeGuard({});
-    await t.guard.canActivate(ctxFor(bearerRequest(voidBody({ operatorUserId: CASHIER_ID }))));
-    expect(t.device.canActivate).toHaveBeenCalledTimes(1);
-    expect(t.envelope.canActivate).not.toHaveBeenCalled();
-  });
-
-  it("operatorUserId: null still selects the device path (and fails validation, 400)", async () => {
-    const t = makeGuard({});
-    await expect(
-      t.guard.canActivate(ctxFor(bearerRequest(voidBody({ operatorUserId: null })))),
-    ).rejects.toBeInstanceOf(ZodError);
-    expect(t.envelope.canActivate).not.toHaveBeenCalled();
+    const { operatorUserId: _omit, ...withoutClaim } = voidBody();
+    await expect(t.guard.canActivate(ctxFor(bearerRequest(withoutClaim)))).rejects.toBeInstanceOf(ZodError);
     expect(t.cashier.verify).not.toHaveBeenCalled();
   });
 });
@@ -183,7 +159,7 @@ describe("SaleVoidAuthGuard — path selection", () => {
 describe("SaleVoidAuthGuard — device path", () => {
   it("verifies the claimed cashier against the DEVICE's scope (tenant, store, device from the device row)", async () => {
     const t = makeGuard({});
-    await t.guard.canActivate(ctxFor(bearerRequest(voidBody({ operatorUserId: CASHIER_ID }))));
+    await t.guard.canActivate(ctxFor(bearerRequest(voidBody())));
     expect(t.cashier.verify).toHaveBeenCalledTimes(1);
     expect(t.cashier.verify).toHaveBeenCalledWith(
       { tenantId: TENANT_ID, storeId: STORE_ID, deviceId: DEVICE_ID },
@@ -193,7 +169,7 @@ describe("SaleVoidAuthGuard — device path", () => {
 
   it("on success publishes the VERIFIED cashier as the actor (context + principal), keeps the device", async () => {
     const t = makeGuard({});
-    const req = bearerRequest(voidBody({ operatorUserId: CASHIER_ID }));
+    const req = bearerRequest(voidBody());
     await expect(t.guard.canActivate(ctxFor(req))).resolves.toBe(true);
     expect(req.context).toEqual({
       userId: CASHIER_ID,
@@ -213,14 +189,6 @@ describe("SaleVoidAuthGuard — device path", () => {
     expect(req.posDeviceId).toBe(DEVICE_ID);
   });
 
-  it("an unauthenticated device is a 401 and nothing else runs", async () => {
-    const t = makeGuard({ device: deviceGuardRefusing() });
-    const req = bearerRequest(voidBody({ operatorUserId: CASHIER_ID }));
-    await expect(t.guard.canActivate(ctxFor(req))).rejects.toBeInstanceOf(UnauthorizedException);
-    expect(t.cashier.verify).not.toHaveBeenCalled();
-    expect(req.context).toBeUndefined();
-  });
-
   it("an unauthenticated device with a malformed body is still a 401, never a 400", async () => {
     const t = makeGuard({ device: deviceGuardRefusing() });
     const req = bearerRequest({ operatorUserId: "not-a-uuid" });
@@ -234,11 +202,17 @@ describe("SaleVoidAuthGuard — device path", () => {
     expect(t.cashier.verify).not.toHaveBeenCalled();
   });
 
+  it("operatorUserId: null is a 400 too", async () => {
+    const t = makeGuard({});
+    await expect(
+      t.guard.canActivate(ctxFor(bearerRequest(voidBody({ operatorUserId: null })))),
+    ).rejects.toBeInstanceOf(ZodError);
+    expect(t.cashier.verify).not.toHaveBeenCalled();
+  });
+
   it("an authenticated device whose body smuggles scope fields is a 400 (strict body)", async () => {
     const t = makeGuard({});
-    const req = bearerRequest(
-      voidBody({ operatorUserId: CASHIER_ID, tenantId: TENANT_ID, createdBy: CASHIER_ID }),
-    );
+    const req = bearerRequest(voidBody({ tenantId: TENANT_ID, createdBy: CASHIER_ID }));
     await expect(t.guard.canActivate(ctxFor(req))).rejects.toBeInstanceOf(ZodError);
     expect(t.cashier.verify).not.toHaveBeenCalled();
   });
@@ -249,7 +223,7 @@ describe("SaleVoidAuthGuard — device path", () => {
       const t = makeGuard({
         cashier: verifier({ ok: false, cause } as TrackedLineCashierVerdict),
       });
-      const req = bearerRequest(voidBody({ operatorUserId: CASHIER_ID }));
+      const req = bearerRequest(voidBody());
       const err = await t.guard.canActivate(ctxFor(req)).catch((e: unknown) => e);
       expect(err).toBeInstanceOf(ForbiddenException);
       expect((err as ForbiddenException).getStatus()).toBe(403);
@@ -259,12 +233,13 @@ describe("SaleVoidAuthGuard — device path", () => {
     },
   );
 
-  it("the void is requested by the verified cashier only: the approval's requester is the service's check, not the guard's", async () => {
+  it("the approval's requester is the service's check, not the guard's: another requester still passes the guard", async () => {
     // The guard publishes the claimed-and-verified cashier. A body whose
     // approval names ANOTHER requester still passes the guard; the service
-    // refuses it (`void_requester_mismatch`), covered by void-approval.spec.ts.
+    // refuses it (`void_requester_mismatch`), covered by void-approval.spec.ts
+    // and the device-path integration spec.
     const t = makeGuard({});
-    const body = voidBody({ operatorUserId: CASHIER_ID });
+    const body = voidBody();
     (body["approval"] as Record<string, unknown>)["requesterUserId"] = MANAGER_ID;
     const req = bearerRequest(body);
     await expect(t.guard.canActivate(ctxFor(req))).resolves.toBe(true);
@@ -277,7 +252,7 @@ describe("SaleVoidAuthGuard — refusal log (redaction matrix)", () => {
 
   it("logs one warn with allowlisted fields and a closed-set event name", async () => {
     const t = makeGuard({ cashier: verifier({ ok: false, cause: "no_live_admission" }) });
-    const req = bearerRequest(voidBody({ operatorUserId: CASHIER_ID }));
+    const req = bearerRequest(voidBody());
     await t.guard.canActivate(ctxFor(req)).catch(() => undefined);
     expect(t.logger.warn).toHaveBeenCalledTimes(1);
     const fields = t.logger.warn.mock.calls[0]![0] as Record<string, unknown>;
@@ -312,7 +287,7 @@ describe("SaleVoidAuthGuard — refusal log (redaction matrix)", () => {
 
   it("a success logs nothing", async () => {
     const t = makeGuard({});
-    await t.guard.canActivate(ctxFor(bearerRequest(voidBody({ operatorUserId: CASHIER_ID }))));
+    await t.guard.canActivate(ctxFor(bearerRequest(voidBody())));
     expect(t.logger.warn).not.toHaveBeenCalled();
   });
 });

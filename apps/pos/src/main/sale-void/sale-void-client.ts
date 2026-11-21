@@ -1,16 +1,18 @@
 /**
  * RT-530 — the Backend-Core sale-void client.
  *
- *   POST /api/pos/v1/sales/{saleRef}/void
+ *   POST /api/pos/v1/sales/{saleRef}/void          (manager or admin, operator envelope)
+ *   POST /api/pos/v1/sales/{saleRef}/cashier-void  (cashier, device bearer; RT-1403)
  *
- * Auth, two alternatives (contract 1.26.0-draft). A manager or admin void uses the
- * `operatorAuthorization` scheme: `Authorization: Bearer <pos_operator envelope>`, the envelope of
- * the operator who REQUESTED the void (the server binds `approval.requesterUserId` to the
- * envelope's operator). A cashier's void (RT-1403, RT-530 c12029) uses the `device` scheme: the
- * paired terminal's device bearer plus the cashier's `operatorUserId` in the body, accepted only
- * while that cashier holds a live admission on this device. Either credential is an explicit
- * argument of the call, never read here, never logged, stored or bridged; no credential, no
- * request.
+ * Two routes, two credentials (contract 1.26.0-draft). A manager or admin void uses
+ * `/void` and the `operatorAuthorization` scheme: `Authorization: Bearer <pos_operator envelope>`,
+ * the envelope of the operator who REQUESTED the void (the server binds
+ * `approval.requesterUserId` to the envelope's operator). A cashier's void (RT-1403, RT-530
+ * c12029; the separate route is the owner's choice, c18113) uses `/cashier-void` and the `device`
+ * scheme: the paired terminal's device bearer plus the cashier's `operatorUserId` in the body,
+ * accepted only while that cashier holds a live admission on this device. Either credential is an
+ * explicit argument of the call, never read here, never logged, stored or bridged; no credential,
+ * no request.
  *
  * Outcome mapping (contract 1.8.0-draft, `sales.controller.ts`):
  *   201 / 200          -> recorded (a replay when `Idempotent-Replayed` or 200);
@@ -20,7 +22,9 @@
  *   403 void_*         -> that code (terminal: the approval did not hold)
  *   403 refused        -> unknown (claim_refused): the device path's cashier claim was refused
  *                         before the void was read; proves nothing about the void
- *   404                -> sale_not_found
+ *   404                -> sale_not_found; on `/cashier-void` -> unknown (server_error): a 404 there may
+ *                         be a Backend-Core that does not carry the route yet, which must not
+ *                         refuse the void for good (a resend replays it once the route is there)
  *   409 already_reversed -> already_reversed; any other 409 -> conflict
  *   422 void_*         -> that code
  *   401, other 403, 429, 5xx, network, timeout, no credential -> unknown
@@ -33,6 +37,9 @@ import type { ServerVoidRefusal } from '../../shared/sale-void/types.js';
 import { isUuid, parseJsonBody, readErrorCode } from '../returns/returns-wire.js';
 
 const SALES_PATH = '/api/pos/v1/sales';
+
+/** The path segment after the sale ref: the manager envelope route, or the cashier device route. */
+type VoidRoute = 'void' | 'cashier-void';
 
 /** The request timeout of every void exchange. */
 export const SALE_VOID_REQUEST_TIMEOUT_MS = 15_000;
@@ -149,7 +156,7 @@ function readEventRef(json: unknown, saleRef: string): string | null {
   return named && sameRef(body['saleRef'], saleRef) ? eventRef : null;
 }
 
-function toOutcome(answer: HttpAnswer, saleRef: string): RecordVoidOutcome {
+function toOutcome(answer: HttpAnswer, saleRef: string, route: VoidRoute): RecordVoidOutcome {
   if (answer.status === 200 || answer.status === 201) {
     const eventRef = readEventRef(answer.json, saleRef);
     if (eventRef === null) return { kind: 'unknown', category: 'unreadable_answer' };
@@ -161,6 +168,11 @@ function toOutcome(answer: HttpAnswer, saleRef: string): RecordVoidOutcome {
   // of THIS void: the claim was refused before the void was read.
   if (answer.status === 403 && code === 'refused')
     return { kind: 'unknown', category: 'claim_refused' };
+  // RT-1403: a 404 from the cashier route may be an older Backend-Core without the route: never a
+  // terminal refusal of the void (the sale ref is the one this POS stored at sync).
+  if (answer.status === 404 && route === 'cashier-void') {
+    return { kind: 'unknown', category: 'server_error' };
+  }
   const reason = classifyVoidRefusal(answer.status, code);
   if (reason !== null) return { kind: 'refused', reason };
   return { kind: 'unknown', category: answer.status === 401 ? 'unauthorized' : 'server_error' };
@@ -170,9 +182,13 @@ export function createSaleVoidClient(deps: CreateSaleVoidClientDeps): SaleVoidCl
   const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? SALE_VOID_REQUEST_TIMEOUT_MS;
 
-  async function exchange(request: RecordVoidRequest, token: string): Promise<HttpAnswer | null> {
+  async function exchange(
+    request: RecordVoidRequest,
+    token: string,
+    route: VoidRoute,
+  ): Promise<HttpAnswer | null> {
     try {
-      const response = await deps.fetch(`${root}${SALES_PATH}/${request.saleRef}/void`, {
+      const response = await deps.fetch(`${root}${SALES_PATH}/${request.saleRef}/${route}`, {
         method: 'POST',
         headers: {
           'Content-Type': 'application/json',
@@ -192,19 +208,20 @@ export function createSaleVoidClient(deps: CreateSaleVoidClientDeps): SaleVoidCl
   async function send(
     request: RecordVoidRequest,
     token: string | null,
+    route: VoidRoute,
   ): Promise<RecordVoidOutcome> {
     if (token === null || token.length === 0) {
       return { kind: 'unknown', category: 'no_credential' };
     }
     if (!isUuid(request.saleRef)) return { kind: 'refused', reason: 'sale_not_found' };
-    const answer = await exchange(request, token);
+    const answer = await exchange(request, token, route);
     return answer === null
       ? { kind: 'unknown', category: 'no_connection' }
-      : toOutcome(answer, request.saleRef);
+      : toOutcome(answer, request.saleRef, route);
   }
 
   return {
-    recordVoid: (request, envelope) => send(request, envelope),
-    recordVoidAsCashier: (request, deviceToken) => send(request, deviceToken),
+    recordVoid: (request, envelope) => send(request, envelope, 'void'),
+    recordVoidAsCashier: (request, deviceToken) => send(request, deviceToken, 'cashier-void'),
   };
 }

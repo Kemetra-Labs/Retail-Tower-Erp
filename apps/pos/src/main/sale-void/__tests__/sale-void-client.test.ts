@@ -153,7 +153,7 @@ describe('RT-1403 device path: the void wire body', () => {
 });
 
 describe('RT-1403 device path: the client request', () => {
-  it('POSTs the device bytes with the DEVICE bearer, the same route and the same key', async () => {
+  it('POSTs the device bytes with the DEVICE bearer to the CASHIER route, with the same key', async () => {
     const { client, fetchMock } = clientWith(() =>
       Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
     );
@@ -163,7 +163,7 @@ describe('RT-1403 device path: the client request', () => {
       eventRef: EVENT_REF,
     });
     const [url, init] = fetchMock.mock.calls[0] as [string, RequestInit];
-    expect(url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/void`);
+    expect(url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/cashier-void`);
     expect(init.body).toBe(DEVICE_REQUEST.bodyJson);
     expect(init.headers).toMatchObject({
       'Idempotency-Key': REQUEST.idempotencyKey,
@@ -188,6 +188,39 @@ describe('RT-1403 device path: the client request', () => {
       kind: 'unknown',
       category: 'unauthorized',
     });
+  });
+
+  it('a 404 on the cashier route is unknown, never a terminal refusal (an older Backend-Core has no such route)', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(404, { error: { code: 'not_found' } })),
+    );
+    expect(await client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN)).toEqual({
+      kind: 'unknown',
+      category: 'server_error',
+    });
+  });
+
+  it('a 404 on the manager route stays a terminal sale_not_found (unchanged)', async () => {
+    const { client } = clientWith(() =>
+      Promise.resolve(answer(404, { error: { code: 'not_found' } })),
+    );
+    expect(await client.recordVoid(REQUEST, ENVELOPE)).toEqual({
+      kind: 'refused',
+      reason: 'sale_not_found',
+    });
+  });
+
+  it('the manager route URL is unchanged (/void), the cashier route is /cashier-void', async () => {
+    const m = clientWith(() =>
+      Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
+    );
+    await m.client.recordVoid(REQUEST, ENVELOPE);
+    expect((m.fetchMock.mock.calls[0] as [string, RequestInit])[0]).toMatch(/\/void$/);
+    const c = clientWith(() =>
+      Promise.resolve(answer(201, { kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF })),
+    );
+    await c.client.recordVoidAsCashier(DEVICE_REQUEST, DEVICE_TOKEN);
+    expect((c.fetchMock.mock.calls[0] as [string, RequestInit])[0]).toMatch(/\/cashier-void$/);
   });
 
   it('the RT-530 refusals keep their codes on the device path', async () => {

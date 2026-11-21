@@ -60,17 +60,14 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
   },
   {
     call: 'saleVoidClient.recordVoidAsCashier',
-    kind: 'credential-mismatch',
-    sent: 'device',
-    requires: ['operator-envelope'],
+    kind: 'endpoint-missing',
     tickets: ['RT-1403'],
     note:
-      'The cashier device-path void (RT-530 c12029) sends the device bearer on POST ' +
-      '/api/pos/v1/sales/{saleRef}/void. Backend-Core accepts it from pos-sales/sales.yaml ' +
-      '1.26.0-draft (RT-1403), but the vendored contract is pinned at 1.25.0-draft, which names only ' +
-      'the operator envelope. Delete this entry in the POS repin that brings 1.26.0-draft in (that ' +
-      'repin needs its own source-scope-guard exemption and an owner ask). The POS sends the call only ' +
-      'under POS_PULSE_FEATURE_SALE_VOID (default off), which stays off until Backend-Core carries ' +
-      'RT-1403.',
+      'POST /api/pos/v1/sales/{saleRef}/cashier-void (recordCashierVoid, RT-530 c12029, RT-1403 ' +
+      'comment 18113) is a new device-only route of pos-sales/sales.yaml 1.26.0-draft; the vendored ' +
+      'contract is pinned at 1.25.0-draft, which does not have it. Delete this entry in the POS repin ' +
+      'to a main commit that carries 1.26.0-draft (follow-up PR after the merge; it needs its own ' +
+      'source-scope-guard exemption and an owner ask). The POS sends the call only under ' +
+      'POS_PULSE_FEATURE_SALE_VOID (default off), which stays off until Backend-Core carries RT-1403.',
   },
 ];

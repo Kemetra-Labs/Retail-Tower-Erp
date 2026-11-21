@@ -1,10 +1,11 @@
 /**
  * sale-void-device-path.http.integration.spec.ts — RT-1403 (RT-530 owner
- * decision c12029; [GATED: contract] approval: RT-1403 c18071).
+ * decision c12029; [GATED: contract] approval: RT-1403 c18071; the separate route: c18113).
  *
- * recordVoid accepts, as an alternative to the operator envelope, the paired
- * terminal's DEVICE bearer plus the requesting cashier's `operatorUserId` in
- * the body (sales.yaml 1.26.0-draft). The server accepts the claim only when
+ * `recordCashierVoid` (POST /api/pos/v1/sales/{saleRef}/cashier-void,
+ * sales.yaml 1.26.0-draft) takes the paired terminal's DEVICE bearer plus the
+ * requesting cashier's `operatorUserId` in the body. `recordVoid` stays the
+ * manager and admin envelope route, unchanged. The server accepts the claim only when
  * a cashier admission of that device and store for that user is live NOW and
  * the cashier is still eligible; the verified cashier is then the void's actor,
  * so every RT-530 check applies unchanged (requester bound to the actor,
@@ -153,7 +154,7 @@ interface VoidOverrides {
   readonly businessDate?: string;
 }
 
-/** A void body with a valid bound approval; `operatorUserId` selects the device path. */
+/** A void body with a valid bound approval; the cashier route needs `operatorUserId`. */
 function voidBody(sale: SoldSale, o: VoidOverrides = {}): Record<string, unknown> {
   const body: Record<string, unknown> = {
     sourceSystem: "pos-pulse",
@@ -179,9 +180,11 @@ function postVoid(opts: {
   bearer: string | null;
   body: Record<string, unknown>;
   key?: string;
+  /** The route: the cashier route by default; `void` is the manager envelope route. */
+  route?: "cashier-void" | "void";
 }): request.Test {
   const req = http()
-    .post(`/api/pos/v1/sales/${opts.sale.saleRef}/void`)
+    .post(`/api/pos/v1/sales/${opts.sale.saleRef}/${opts.route ?? "cashier-void"}`)
     .set("Idempotency-Key", opts.key ?? randomUUID().replace(/-/g, ""));
   if (opts.bearer !== null) req.set("Authorization", `Bearer ${opts.bearer}`);
   return req.send(opts.body);
@@ -279,7 +282,7 @@ afterEach(async () => {
   audit.payloads.length = 0;
 });
 
-describe("recordVoid — cashier device path (RT-1403)", () => {
+describe("recordCashierVoid — cashier device route (RT-1403)", () => {
   it("a live admitted cashier voids their own sale: 201, requester = approver-bound cashier, then a 200 replay", async () => {
     if (skip()) return;
     await liveAdmission();
@@ -395,11 +398,34 @@ describe("recordVoid — cashier device path (RT-1403)", () => {
     expect(res.body.error.code).toBe("void_approver_not_eligible");
   });
 
-  it("the device token without operatorUserId is read as an envelope and is the generic 401", async () => {
+  it("a body without operatorUserId from an authenticated device is the usual 400 (there is no envelope fallback)", async () => {
     if (skip()) return;
     await liveAdmission();
     const sale = await captureSale();
     const res = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale) });
+    expect(res.status).toBe(400);
+    expect(await voidRows(sale.saleRef)).toHaveLength(0);
+  });
+
+  it("the manager route recordVoid refuses the device token: generic 401, nothing recorded (it stays envelope-only)", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    const res = await postVoid({ sale, bearer: TOKEN, body: voidBody(sale), route: "void" });
+    expect(res.status).toBe(401);
+    expect(await voidRows(sale.saleRef)).toHaveLength(0);
+  });
+
+  it("the manager route recordVoid refuses a body carrying operatorUserId even with the device token: 401, nothing recorded", async () => {
+    if (skip()) return;
+    await liveAdmission();
+    const sale = await captureSale();
+    const res = await postVoid({
+      sale,
+      bearer: TOKEN,
+      body: voidBody(sale, { operatorUserId: CASHIER }),
+      route: "void",
+    });
     expect(res.status).toBe(401);
     expect(await voidRows(sale.saleRef)).toHaveLength(0);
   });

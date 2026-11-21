@@ -625,12 +625,13 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
       ),
   },
   {
-    // RT-1403 (RT-530 c12029, sales.yaml 1.26.0-draft): a CASHIER's void: the device bearer plus
-    // the cashier's own `operatorUserId` in the body (never the envelope).
+    // RT-1403 (RT-530 c12029, sales.yaml 1.26.0-draft, `recordCashierVoid`): a CASHIER's void on
+    // its own device-only route: the device bearer plus the cashier's own `operatorUserId` in the
+    // body (never the envelope). `recordVoid` above stays the manager envelope route.
     id: 'saleVoidClient.recordVoidAsCashier',
     module: 'src/main/sale-void/sale-void-client.ts',
     method: 'post',
-    pathTemplate: '/api/pos/v1/sales/{saleRef}/void',
+    pathTemplate: '/api/pos/v1/sales/{saleRef}/cashier-void',
     wiring:
       'index.ts: `getDeviceToken` = readSendableDeviceToken (paired only), sent only while the requesting cashier is the signed-in operator',
     invoke: (fetch) =>

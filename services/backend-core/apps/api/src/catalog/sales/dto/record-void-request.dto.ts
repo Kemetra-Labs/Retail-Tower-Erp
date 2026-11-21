@@ -58,18 +58,23 @@ export const RecordVoidRequestSchema = z
     /** The device-side business day of the void; must equal the sale's `business_date`. */
     businessDate: z.string().regex(DATE_RE).refine(isCalendarDay).optional(),
     approval: VoidApprovalSchema.optional(),
-    /**
-     * RT-1403 (RT-530 c12029; `[GATED]` approval: RT-1403 c18071). The
-     * `users.id` of the cashier requesting the void, on the DEVICE path only.
-     * Its presence selects the device credential (`SaleVoidAuthGuard`); it is
-     * a claim the guard verifies and the controller drops before the service
-     * hashes the body, so the stored `payload_hash` is the same on either
-     * path. The approval's `requesterUserId` is still bound to the verified
-     * cashier by the service (`void_requester_mismatch`).
-     */
-    operatorUserId: z.string().uuid().optional(),
   })
   .strict();
 
+/**
+ * RT-1403 (RT-530 c12029; `[GATED]` approval: RT-1403 c18071, the separate route:
+ * c18113). The `recordCashierVoid` body: `RecordVoidRequest` plus the REQUIRED
+ * `operatorUserId` of the requesting cashier (`RecordCashierVoidRequest` in
+ * `pos-sales/sales.yaml` 1.26.0-draft). It is a claim the route guard
+ * (`SaleVoidAuthGuard`) verifies against a cashier admission live now on the
+ * paired device; the controller drops it before the service hashes the body, so
+ * the stored `payload_hash` is the one `recordVoid` would store for the same
+ * void. `recordVoid` itself does NOT accept the field (strict body).
+ */
+export const RecordCashierVoidRequestSchema = RecordVoidRequestSchema.extend({
+  operatorUserId: z.string().uuid(),
+}).strict();
+
 export type VoidApprovalDto = z.infer<typeof VoidApprovalSchema>;
 export type RecordVoidRequestDto = z.infer<typeof RecordVoidRequestSchema>;
+export type RecordCashierVoidRequestDto = z.infer<typeof RecordCashierVoidRequestSchema>;

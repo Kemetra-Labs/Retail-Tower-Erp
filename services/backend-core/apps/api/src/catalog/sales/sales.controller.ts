@@ -63,7 +63,9 @@ import { Idempotent } from "../../idempotency/idempotent.decorator";
 import { type CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import {
+  RecordCashierVoidRequestSchema,
   RecordVoidRequestSchema,
+  type RecordCashierVoidRequestDto,
   type RecordVoidRequestDto,
 } from "./dto/record-void-request.dto";
 import {
@@ -477,15 +479,7 @@ export class SalesController {
   }
 
   @Post("api/pos/v1/sales/:saleRef/void")
-  // RT-1403 (RT-530 c12029): two alternative credentials, as on captureSale.
-  // The operator envelope is unchanged (the body carries no `operatorUserId`);
-  // the device bearer plus `operatorUserId` is the cashier's path, verified
-  // against a cashier admission live now on the paired device. @DeviceBearer()
-  // makes the global FailClosedAuthGuard defer to SaleVoidAuthGuard, which
-  // authenticates both paths. No per-device write bucket: a void is rare and
-  // the envelope path never had one.
-  @DeviceBearer()
-  @UseGuards(SaleVoidAuthGuard)
+  @UseGuards(PosOperatorEnvelopeSaleGuard)
   @Idempotent("required")
   @Auditable("sale.voided")
   async recordVoid(
@@ -494,6 +488,49 @@ export class SalesController {
     @Body(new ZodValidationPipe(RecordVoidRequestSchema))
     body: RecordVoidRequestDto,
     @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    return this.recordVoidFor(request, saleRef, body, res);
+  }
+
+  /**
+   * RT-1403 (RT-530 c12029; `[GATED: contract]` approval: RT-1403 c18071; the
+   * separate route is the owner's choice, c18113). The cashier's void: the same
+   * void as `recordVoid`, requested with the paired terminal's DEVICE bearer plus
+   * the cashier's `operatorUserId`. `recordVoid` stays the manager and admin
+   * envelope route, unchanged. @DeviceBearer() makes the global
+   * FailClosedAuthGuard defer to SaleVoidAuthGuard, which runs PosDeviceAuthGuard
+   * first, then verifies the claimed cashier against a cashier admission live now
+   * on the device, and only then publishes that cashier as the actor. No
+   * per-device write bucket: a void is rare, as on `recordVoid`.
+   */
+  @Post("api/pos/v1/sales/:saleRef/cashier-void")
+  @DeviceBearer()
+  @UseGuards(SaleVoidAuthGuard)
+  @Idempotent("required")
+  @Auditable("sale.voided")
+  async recordCashierVoid(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Body(new ZodValidationPipe(RecordCashierVoidRequestSchema))
+    body: RecordCashierVoidRequestDto,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<TerminalEventProjection> {
+    // `operatorUserId` is the attribution CLAIM. The guard verified it and
+    // published the cashier as ctx.userId, the only actor recorded. It is not a
+    // void fact, so it is dropped before the service hashes the body into
+    // payload_hash: the stored hash is the one `recordVoid` would store for the
+    // same void (it stays in the idempotency fingerprint, which covers the raw
+    // body).
+    const { operatorUserId: _attributionClaim, ...voidBody } = body;
+    return this.recordVoidFor(request, saleRef, voidBody, res);
+  }
+
+  /** The void both routes record: the authenticated actor, the sale, the checks of void-approval.ts. */
+  private async recordVoidFor(
+    request: TenantContextRequest,
+    saleRef: string,
+    body: RecordVoidRequestDto,
+    res: Response,
   ): Promise<TerminalEventProjection> {
     const ctx = request.context;
     if (!ctx || ctx.tenantId === null || ctx.userId === null) {
@@ -511,13 +548,6 @@ export class SalesController {
       // A malformed ref is a non-disclosing safe-404, never a 500 (SI-004).
       throw new NotFoundException("not_found");
     }
-    // RT-1403: `operatorUserId` is the device path's attribution CLAIM. The
-    // guard verified it and published the cashier as ctx.userId, the only
-    // actor recorded. It is not a void fact, so it is dropped before the
-    // service hashes the body into payload_hash: a void is the same payload
-    // on either path (it stays in the idempotency fingerprint, which covers
-    // the raw body).
-    const { operatorUserId: _attributionClaim, ...voidBody } = body;
     try {
       const result = await this.salesService.recordVoid({
         tenantId: ctx.tenantId,
@@ -526,7 +556,7 @@ export class SalesController {
         posDeviceId: request.posDeviceId,
         requestId: request.requestId ?? null,
         saleRef,
-        body: voidBody,
+        body,
       });
       if (result.created) {
         res.status(HttpStatus.CREATED);
