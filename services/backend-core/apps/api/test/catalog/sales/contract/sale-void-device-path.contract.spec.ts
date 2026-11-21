@@ -53,8 +53,8 @@ function schema(name: string): SchemaObject {
 }
 
 describe("pos-sales/sales.yaml — RT-1403 cashier void route", () => {
-  it("is 1.26.0-draft with a note citing the authorizations, the live-admission rule and the additive shape", () => {
-    expect(sales.info?.version).toBe("1.26.0-draft");
+  it("keeps the 1.26.0-draft note citing the authorizations, the live-admission rule and the additive shape (RT-1544 then bumped the document to 1.27.0-draft)", () => {
+    expect(sales.info?.version).toBe("1.27.0-draft");
     const info = flat(sales.info?.description);
     expect(info).toContain("RT-1403 (1.26.0-draft; [GATED: contract] owner authorization on RT-1403, comment 18071");
     expect(info).toContain("comment 12029");

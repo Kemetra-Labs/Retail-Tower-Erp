@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.26.0-draft"
+  version: "1.27.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -663,6 +663,46 @@ info:
     manager and admin operator envelope only. ROLLOUT: until this runtime is
     deployed the route answers 404; the POS MUST NOT send to it before then.
 
+    RT-1544 (1.27.0-draft; [GATED: contract] owner approval on RT-1544, comment
+    18145, 2026-11-21; RP-1 of `specs/045-return-policy`, owner decisions
+    OD-272-1..11 of RT-272 comment 12791; after RT-1403's 1.26.0-draft and
+    after RT-490's 1.13.0-draft, so it ships no competing version bump):
+    VERSIONED RETURN POLICY V1, CONTRACT ONLY. `recordReturn` lines gain two
+    OPTIONAL fields, `reasonCode` (the closed catalogue `defective`,
+    `wrong_item`, `not_as_described`, `changed_mind`, `other`) and
+    `reasonNote` (needed for `other`, and refused without a `reasonCode`),
+    through a new `RecordReturnLineRequest`.
+    `SaleReturn` gains an OPTIONAL `returnPolicy` (`SaleReturnPolicy`:
+    `revisionId`, `source`, `windowEndsOn`, `legalFloorDays`), the policy
+    revision the return was judged under. `recordReturn` gains three 422
+    codes, `return_window_expired`, `return_line_not_returnable` and
+    `return_reason_invalid` (see `ReturnUnprocessable`). The policy itself,
+    its admin read, publish and revision list, and the online
+    `return-eligibility` read are the new `return-policy.openapi.yaml`
+    1.0.0-draft; all four of its operations are contract-only. Additive: no
+    existing field, `required` list, pattern or enum changes, and a return body
+    without the new fields hashes and replays exactly as before.
+    `recordCreditSaleReversal` is unchanged (it keeps `ReturnLineRequest`), and
+    neither `Sale` nor `readSale` changes. The legal minimum window is the
+    owner's and legal's value (OD-272-5, RT-272 comment 12791); it is in no
+    contract, and enforcement stays OFF until it is set. `legalFloorDays` is
+    `integer | null`, minimum 0, with no maximum: `null` means the floor is not
+    set yet, and while it is null the System default has no window
+    (`windowEndsOn` is `null`) and a publish skips the floor check. Returns
+    must not be enabled in production until the floor is set (specs/045
+    section 10). ROLLOUT ORDER: (1) this
+    contract; (2) the Backend-Core runtime (RP-3), after its own migration
+    (RP-2): it accepts the new line fields and judges returns. Until it is
+    deployed the strict return DTO rejects `reasonCode` and `reasonNote` (400),
+    so the POS MUST NOT send them before then: Backend-Core (RP-3) before the
+    POS (RP-4). Because `SaleReturn` is `additionalProperties: false`, a client
+    that validates responses strictly must re-pin this version BEFORE RP-3
+    emits `returnPolicy` (the RT-76 order); the POS return readers read only the
+    fields they need and ignore other keys. (3) The POS (RP-4) reads
+    `return-eligibility` after `readSale`; a 404 or an unreachable read is
+    `returns_unavailable` and nothing is sent. No runtime, migration, POS or
+    Console change.
+
 servers:
   - url: https://api.example.com
 
@@ -1321,7 +1361,11 @@ paths:
         the Connector posts `reversalKind: return` (RT-16) AND settles returns
         with their refund tenders (RT-78). The RT-490 allocation fields and
         rules (R-5, R-6, R-12) apply from the F-2 runtime; until then the
-        strict DTO rejects the new fields (400).
+        strict DTO rejects the new fields (400). The RT-1544 line reason
+        fields, the `returnPolicy` echo and the three Return Policy 422 codes
+        apply from the RP-3 runtime (enforcement stays off until the owner sets
+        the legal minimum window); until then the strict DTO rejects the line
+        fields (400).
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
@@ -1495,7 +1539,8 @@ paths:
 
         The 422s are checked in the order `return_tender_mismatch`,
         `refund_instrument_not_allowed`, `refund_allocation_exceeds_tender`
-        (see `ReturnUnprocessable`), after every 400 and 409. Until the F-2 runtime the server records
+        (see `ReturnUnprocessable`), after every 400 and 409; the three Return
+        Policy 422s below are the exception and come first. Until the F-2 runtime the server records
         `method` and `amount` only, and its strict DTO rejects the three new
         fields (400). No return pricing rule changes: the frozen-economics
         pricing above and the per-line quantity cap are unchanged.
@@ -1534,6 +1579,42 @@ paths:
         the whole `returnTotal` and part of that was never collected; it is
         returned only through `recordCreditSaleReversal`. The refusal is decided after the returns gate and the sale resolve (404) and a provenance replay (200, or its 409 `conflict`), and before reversal exclusivity (409), the line checks (400, 409 `over_return`) and the tender check (422).
         Nothing is recorded.
+
+
+        Return policy (RT-1544, `return-policy.openapi.yaml`, specs/045-return-policy;
+        from the RP-3 runtime, and only while enforcement is on: it stays OFF
+        until the owner sets the legal minimum window, OD-272-5 and OD-272-6).
+        Backend-Core judges the return under the policy revision frozen on the
+        SALE (stamped at sale capture, never re-derived by an as-of lookup),
+        under the `sales` row lock. The checks run after the returns gate, the
+        sale resolve, a provenance replay, the credit-sale 403, reversal
+        exclusivity and the `lineRef` membership check (400: each `lineRef` is a
+        line of THIS sale, at most once), and before the quantity checks (400,
+        409 `over_return`), the pricing and every other 422, in this order:
+        `return_window_expired` (the return's store-day is after `windowEndsOn`,
+        the sale's business date plus the larger of the revision's `windowDays`
+        and the legal floor; the floor applies to every revision, and a sale
+        whose `windowEndsOn` is `null`, the System default while the floor is
+        not set, has no window to expire), `return_line_not_returnable` (a
+        returned line's product category is excluded by the revision, or the line
+        has no category while the excluded set is not empty; the body carries
+        `lineRef` and `reason`, `category_excluded` or `category_unknown`), then
+        `return_reason_invalid` (a line's `reasonCode` is `other` with no
+        `reasonNote`, or a line sends a `reasonNote` with no `reasonCode`). The
+        policy judges only lines that resolve on the sale: a `lineRef` that does
+        not is the 400 above, never a policy refusal. A refusal records
+        nothing. A body without line reasons is judged on the window and
+        the categories only: the line reasons are OPTIONAL in V1 and become
+        required by a later contract bump, once the POS sends them. The return
+        records the revision it was judged under, and the response echoes it as
+        `returnPolicy`; it is absent on a return recorded without a policy
+        evaluation (every return recorded before RP-3, or while enforcement is
+        off). `reasonCode` and `reasonNote` are part of the return's payload,
+        like the allocation fields: re-sending a recorded return with them
+        added, removed or changed is 409 `conflict`. A return recorded without
+        them hashes exactly as before and still replays 200, and a replay is
+        never re-judged: a later publish never changes a recorded return's
+        verdict or its `returnPolicy`.
 
 
         Idempotency: the `Idempotency-Key` header is REQUIRED and the return is
@@ -3249,8 +3330,11 @@ components:
           minItems: 1
           maxItems: 50
           items:
-            $ref: "#/components/schemas/ReturnLineRequest"
-          description: The lines returned. Each `lineRef` at most once per request.
+            $ref: "#/components/schemas/RecordReturnLineRequest"
+          description: >
+            The lines returned. Each `lineRef` at most once per request. From
+            the RP-3 runtime a line may carry a `reasonCode` and `reasonNote`
+            (RT-1544).
         refundTenders:
           type: array
           minItems: 1
@@ -3288,6 +3372,50 @@ components:
             `returnableQuantity` (else 400 / 409 `over_return`). MUST be a
             whole number when the line was sold in a whole quantity (RT-105;
             else 400 `validation_error`).
+    RecordReturnLineRequest:
+      type: object
+      additionalProperties: false
+      required: [lineRef, quantity]
+      description: >
+        One line of a `recordReturn` request (RT-1544): `ReturnLineRequest`
+        (`lineRef`, `quantity`, unchanged) plus the OPTIONAL line-level reason
+        of the Return Policy (OD-272-8). A separate schema, so that
+        `recordCreditSaleReversal`, which shares `ReturnLineRequest`, does not
+        gain the reason fields. Both reason fields are accepted from the RP-3
+        runtime; until then the strict DTO rejects them (400).
+      properties:
+        lineRef:
+          type: string
+          format: uuid
+          description: The sale line returned (`SaleLine.lineRef`). Must belong to this sale.
+        quantity:
+          type: string
+          pattern: '^[0-9]{1,13}(\.[0-9]{1,6})?$'
+          description: >
+            Quantity returned, exact-decimal string (no float), same bound as
+            the sale line's `quantity`. MUST be > 0 and ≤ the line's
+            `returnableQuantity` (else 400 / 409 `over_return`). MUST be a
+            whole number when the line was sold in a whole quantity (RT-105;
+            else 400 `validation_error`).
+        reasonCode:
+          type: string
+          enum: [defective, wrong_item, not_as_described, changed_mind, other]
+          description: >
+            OPTIONAL (OD-272-8) — why this line is returned, from the closed
+            System catalogue. A value outside the catalogue is refused by the
+            strict body (400 `validation_error`). Optional in V1; a later
+            contract bump makes it required once the POS sends it. The header
+            `reason` of the return is unchanged. A `reasonNote` sent without it
+            is refused (422 `return_reason_invalid`).
+        reasonNote:
+          type: string
+          minLength: 1
+          maxLength: 500
+          description: >
+            OPTIONAL — a free-text note for the line, valid only together with a
+            `reasonCode`: a note with no code is refused (422
+            `return_reason_invalid`). Required when `reasonCode` is `other`
+            (422 `return_reason_invalid` when it is absent or blank). No PII.
     RefundTender:
       type: object
       additionalProperties: false
@@ -3925,6 +4053,115 @@ components:
             the field was never present; see `recordReturn`, Automatic
             offers). The posting feed carries the per-line clawback
             (`posting-feed.yaml` 1.13.0-draft, OD-11 option A plus Hybrid).
+        returnPolicy:
+          $ref: "#/components/schemas/SaleReturnPolicy"
+    SaleReturnPolicy:
+      type: object
+      additionalProperties: false
+      required: [revisionId, source, windowEndsOn, legalFloorDays]
+      allOf:
+        - if:
+            properties:
+              source:
+                const: system
+            required: [source]
+          then:
+            properties:
+              revisionId:
+                type: "null"
+          else:
+            properties:
+              revisionId:
+                type: string
+        - if:
+            properties:
+              source:
+                const: system
+              legalFloorDays:
+                type: "null"
+            required: [source, legalFloorDays]
+          then:
+            properties:
+              windowEndsOn:
+                type: "null"
+          else:
+            properties:
+              windowEndsOn:
+                type: string
+      description: >
+        RT-1544 (specs/045, OD-272-3): the Return Policy the return was judged
+        under, recorded on the return and echoed here. OPTIONAL on
+        `SaleReturn`: absent on a return recorded without a policy evaluation
+        (every return recorded before the RP-3 runtime, or while enforcement
+        is off), never `null`. `revisionId` is the revision stamped on the sale
+        and is `null` exactly when `source` is `system` (the System default
+        applied: no tenant revision was in force when the sale was captured, or
+        the sale predates the policy). No tenant, store or device id. The two
+        return reads, `listSaleReturns` and `readReturnByProvenance`, share
+        `SaleReturn` and therefore carry the same optional field.
+      properties:
+        revisionId:
+          type: [string, "null"]
+          format: uuid
+          description: The tenant policy revision the sale was stamped with; `null` for the System default.
+        source:
+          type: string
+          enum: [system, tenant]
+          description: Where the applied policy comes from. V1 has no store override.
+        windowEndsOn:
+          type: [string, "null"]
+          format: date
+          description: >
+            The last store calendar day on which the sale could be returned:
+            the sale's `businessDate` plus the larger of the revision's
+            `windowDays` and the legal floor (OD-272-4, OD-272-5). `null` exactly
+            when `source` is `system` and `legalFloorDays` is `null`: the System
+            default has no window until the floor is set.
+        legalFloorDays:
+          type: [integer, "null"]
+          minimum: 0
+          description: >
+            The System-locked legal minimum window in days (OD-272-5) that
+            applied when the return was judged. `null` means the floor was not
+            set yet. The contract states no value, and no maximum: the owner or
+            legal supplies it.
+    ReturnLineNotReturnableError:
+      type: object
+      required: [error]
+      description: >
+        RT-1544. The 422 body of `return_line_not_returnable`: the canonical
+        `Error` envelope plus the line and the cause (specs/045 section 3). It
+        is the one `recordReturn` refusal whose `error` object carries more
+        than `code`, `message` and `request_id`. Every body of this shape is
+        also a valid `Error`; the 422 response keeps `Error` as its schema, so
+        its body type does not change for an existing client.
+      properties:
+        error:
+          type: object
+          required: [code, message, lineRef, reason]
+          properties:
+            code:
+              type: string
+              const: return_line_not_returnable
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            lineRef:
+              type: string
+              format: uuid
+              description: The returned sale line the policy refuses.
+            reason:
+              type: string
+              enum: [category_excluded, category_unknown]
+              description: >
+                `category_excluded`: the product's current category is excluded
+                by the policy revision (OD-272-7). `category_unknown`: the line
+                has no product, or its product has no category, while the
+                revision's excluded set is not empty.
     PromotionClawback:
       type: object
       additionalProperties: false
@@ -4322,7 +4559,12 @@ components:
       description: >
         Canonical error envelope, identical to the shared shape in
         `auth.openapi.yaml` / `outbox.openapi.yaml` (used verbatim — no extra
-        fields, no `details`). The `error.code` values encode the FR-101
+        fields, no `details`), with one exception: the 422
+        `return_line_not_returnable` of `recordReturn` (RT-1544) also carries
+        `error.lineRef` and `error.reason` (`ReturnLineNotReturnableError`).
+        The global exception filter passes only `code`, `message` and `details`
+        through, plus a few named keys, so carrying those two fields is an RP-3
+        item (a passthrough for that one code). The `error.code` values encode the FR-101
         eight-category failure set (see the per-response descriptions).
         Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) —
         they never enumerate the underlying cause.
@@ -4564,6 +4806,27 @@ components:
       description: >
         422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490).
         `error.code` is one of, in this order:
+        `return_window_expired` (RT-1544, specs/045; from the RP-3 runtime,
+        and only while enforcement is on, which stays off until the owner sets
+        the legal minimum window) — the return's store-day is after the
+        `windowEndsOn` of the revision frozen on the sale (the sale's business
+        date plus the larger of `windowDays` and the legal floor; a sale with a
+        `null` `windowEndsOn` has no window to expire);
+        `return_line_not_returnable` (RT-1544; same posture) — a returned
+        line's product category is excluded by that revision, or the line has no
+        category while the excluded set is not empty; the `error` object is
+        the `Error` envelope plus the offending `lineRef` and a `reason`,
+        `category_excluded` or `category_unknown` (the shape is named
+        `ReturnLineNotReturnableError`; the response schema stays `Error`,
+        which does not close its `error` object);
+        `return_reason_invalid` (RT-1544; same posture) — a line's `reasonCode`
+        is `other` and its `reasonNote` is absent or blank, or a line sends a
+        `reasonNote` with no `reasonCode`. A `reasonCode` outside the closed
+        catalogue never gets here: the strict body refuses it first (400
+        `validation_error`);
+        these three are checked first, after the `lineRef` membership check
+        (400) and before the quantity checks and the codes below (see
+        `recordReturn`, Return policy);
         `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from
         the RT-1337 runtime) — an automatic offer's `refund_O` would be
         negative (see `recordReturn`, Automatic offers); the return cannot be
