@@ -13,7 +13,7 @@ import { spanViolation, validateRequest, validateResponse } from "./msx.schema";
 import { MSX_GATES, MSX_LANGUAGES, MSX_DATASET_VERSION, type AnswerBody, type MsxCase } from "./msx.types";
 import { STORE_A1, STORE_A2, STORE_A3, STORE_B1, TENANT_A, TENANT_B, NAME_B1 } from "./msx.world";
 
-const PINNED_DATASET_SHA256 = "0bd2baf86c551a9e4deacb77f88483f4d38522140c601030ec7ccba681160d1a";
+const PINNED_DATASET_SHA256 = "9ba6488b3310b06c1e23ce61a6d87f61d1e435826436c453516a0a4043c2775e";
 
 /** Metrics that are money: numeric(19,4) text whose table cell carries its currency code. */
 const MONEY_METRIC = /(^|\.)total$|baselineTotal$|averageSale$/;

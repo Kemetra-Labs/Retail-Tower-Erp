@@ -5,8 +5,8 @@
  * from the code under test; a case fails when the runtime disagrees with the dataset.
  */
 import { MSX_CASES } from "./msx.cases";
+import { MSX_FEATURE_ID } from "../../../../src/ai/manager-sales/msx.constants";
 import type { CaseResult, GateVerdict, ObservedEffects, ReplayRun } from "./msx.replay.types";
-export type { CaseResult, GateVerdict, ObservedEffects, ReplayRun } from "./msx.replay.types";
 import { buildRig, type Recorded } from "./msx.replay.rig";
 import { MSX_GATES, type MsxCase, type MsxExpected, type MsxGate } from "./msx.types";
 import { STORE_A1, STORE_A2, STORE_A3, STORE_B1, TENANT_B, NAME_A1, NAME_A2, NAME_A3, NAME_B1 } from "./msx.world";
@@ -19,19 +19,19 @@ const UUID = /[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}/g;
 const ALL_STORES = [STORE_A1, STORE_A2, STORE_A3];
 const STORE_NAMES: Readonly<Record<string, string>> = { [STORE_A1]: NAME_A1, [STORE_A2]: NAME_A2, [STORE_A3]: NAME_A3 };
 
-export function labelOf(status: number, body: unknown): string {
+function labelOf(status: number, body: unknown): string {
   const b = body as { kind?: string; code?: string; error?: { code?: string } };
   if (status === 200) return b.kind === "answer" ? "200 answer" : `200 ${b.kind ?? "?"} ${b.code ?? "?"}`;
   return `${status} ${b.error?.code ?? "?"}`;
 }
 
-export function expectedLabelOf(e: MsxExpected): string {
+function expectedLabelOf(e: MsxExpected): string {
   if (e.status !== 200) return `${e.status} ${e.code}`;
   return e.kind === "answer" ? "200 answer" : `200 ${e.kind} ${e.code}`;
 }
 
 /** The ledger latency is measured by the route (a clock); it is checked as a non-negative integer, never compared. */
-export function withoutLatency(body: unknown): unknown {
+function withoutLatency(body: unknown): unknown {
   const answer = body as { kind?: string; ledger?: Record<string, unknown> };
   if (answer?.kind !== "answer" || answer.ledger === undefined) return body;
   const { latency_ms: _latency, ...ledger } = answer.ledger;
@@ -48,9 +48,11 @@ function observedEffects(r: Recorded, reads: { summary: unknown[]; byStore: unkn
   const commits = r.settlements.filter((s) => s.outcome === "ok");
   const releases = r.settlements.filter((s) => s.outcome !== "ok");
   const readCount = reads.summary.length + reads.byStore.length;
+  // An evidence failure is observed: a read was called and threw (a `.failed` event), not read off the precondition.
+  const readFailed = r.events.some((e) => e.endsWith(".failed"));
   const tokens = r.settlements.reduce((sum, s) => sum + (s.telemetry.inputTokens ?? 0) + (s.telemetry.outputTokens ?? 0), 0);
   return {
-    evidenceReads: readCount === 0 ? "none" : c.preconditions.includes("summary_read_throws") ? "attempted" : "completed",
+    evidenceReads: readCount === 0 ? "none" : readFailed ? "attempted" : "completed",
     reservation: commits.length > 0 ? "committed" : releases.length > 0 ? "released" : "none",
     releaseReason: releases[0]?.outcome ?? null,
     reserves: r.reserves.length,
@@ -81,9 +83,6 @@ function forbiddenOf(c: MsxCase): string[] {
   return [TENANT_B, STORE_B1, NAME_B1, ...hidden, ...hidden.map((id) => STORE_NAMES[id]!)];
 }
 
-const figureStrings = (c: MsxCase): string[] =>
-  c.evidence === null ? [] : c.evidence.figures.filter((f) => typeof f.value === "string" && /^\d+\.\d{4}$/.test(f.value)).map((f) => f.value as string);
-
 /** The error envelope's `request_id` is a per-request id, not tenant data. */
 function withoutRequestId(body: unknown): unknown {
   const e = (body as { error?: Record<string, unknown> }).error;
@@ -92,21 +91,70 @@ function withoutRequestId(body: unknown): unknown {
   return { error: rest };
 }
 
-function g1(c: MsxCase, status: number, body: unknown, r: Recorded, reads: { summary: unknown[]; byStore: unknown[] }): string[] {
+interface ReadInput {
+  readonly tenantId?: unknown;
+  readonly storeId?: unknown;
+  readonly context?: { readonly storeAccess?: unknown };
+}
+
+/** The caller's real store access, as the resolved context carries it. */
+function storeAccessOf(c: MsxCase): unknown {
+  return c.caller.storeAccess === "all" ? { kind: "all" } : { kind: "specific", storeIds: c.caller.storeIds };
+}
+
+const AUDIT_KEYS = ["from", "scope_mode", "store_count", "template_id", "to"];
+
+interface AnswerFacts {
+  readonly templateId: string;
+  readonly scope: { readonly mode: string; readonly storeRefs: readonly unknown[] };
+  readonly period: { readonly from: string; readonly to: string };
+}
+
+/** Every read, port input and audit event stays inside the caller's tenant and stores. */
+function g1Inputs(c: MsxCase, body: unknown, r: Recorded, reads: { summary: unknown[]; byStore: unknown[] }): string[] {
   const out: string[] = [];
+  const visible = visibleTo(c).ids;
+  const access = JSON.stringify(storeAccessOf(c));
+  for (const input of [...reads.summary, ...reads.byStore] as ReadInput[]) {
+    if (input.tenantId !== c.caller.tenantId) out.push("a read ran for another tenant");
+    if (JSON.stringify(input.context?.storeAccess) !== access) out.push("a read ran with another store access than the caller's");
+    if (typeof input.storeId === "string" && !visible.includes(input.storeId)) out.push("a read asked for a store outside the caller's scope");
+  }
+  const requested = JSON.stringify(c.request["storeIds"]);
+  for (const input of [...r.checks, ...r.reserves, ...r.budgetChecks]) {
+    if (input.tenantId !== c.caller.tenantId) out.push("a port input carries another tenant");
+    if (input.featureId !== MSX_FEATURE_ID) out.push("a port input carries another feature");
+    if (JSON.stringify(input.storeIds) !== requested) out.push("a port input carries other stores than the effective ones");
+  }
+  for (const reserve of r.reserves) if (JSON.stringify(reserve.ctx.storeAccess) !== access) out.push("a reservation ran with another store access than the caller's");
+  const answer = (body as { kind?: string }).kind === "answer" ? (body as AnswerFacts) : null;
+  for (const audit of r.audits) {
+    const meta = audit.metadata as Record<string, unknown>;
+    if (Object.keys(meta).sort().join() !== AUDIT_KEYS.join()) out.push("the audit metadata keys are not exactly template_id, scope_mode, store_count, from, to");
+    if (audit.tenant_id !== c.caller.tenantId) out.push("the audit event carries another tenant");
+    if (answer !== null) {
+      const want: Record<string, unknown> = { template_id: answer.templateId, scope_mode: answer.scope.mode, store_count: answer.scope.storeRefs.length, from: answer.period.from, to: answer.period.to };
+      for (const key of AUDIT_KEYS) if (meta[key] !== want[key]) out.push(`the audit metadata ${key} differs from the answer`);
+    }
+  }
+  return out;
+}
+
+function g1(c: MsxCase, status: number, body: unknown, r: Recorded, reads: { summary: unknown[]; byStore: unknown[] }): string[] {
+  const out = g1Inputs(c, body, r, reads);
   const seen = JSON.stringify(body);
-  const logged = JSON.stringify([reads, r.logs, r.audits, r.settlements, r.checks, r.budgetChecks, r.reserves.map((x) => ({ ...x, ctx: undefined }))]);
+  // One entry per read, port input, log line, audit event and settlement. An entry that is exactly the
+  // untrusted text is the case's own input and is skipped; every other entry is checked in full.
+  const entries: unknown[] = [...reads.summary, ...reads.byStore, ...r.logs, ...r.audits, ...r.settlements, ...r.checks, ...r.budgetChecks, ...r.reserves.map((x) => ({ ...x, ctx: undefined }))];
+  const logged = JSON.stringify(entries.filter((entry) => entry !== c.untrusted?.text));
   for (const text of forbiddenOf(c)) {
-    // A store the caller asked for by id is the caller's own input: only the response body is checked for it.
     if (seen.includes(text)) out.push(`the response carries ${text}`);
-    if (!c.untrusted && logged.includes(text)) out.push(`a log or port input carries ${text}`);
+    if (logged.includes(text)) out.push(`a log, read, port input or audit event carries ${text}`);
   }
   if (c.untrusted?.where === "question" && logged.includes(c.untrusted.text)) out.push("the question text reached a log or a port input");
   const allowed = new Set<string>(visibleTo(c).ids);
-  const unrequested = JSON.stringify(withoutRequestId(body));
-  for (const id of unrequested.match(UUID) ?? []) if (!allowed.has(id)) out.push(`the response carries the id ${id}, outside the scope`);
+  for (const id of JSON.stringify(withoutRequestId(body)).match(UUID) ?? []) if (!allowed.has(id)) out.push(`the response carries the id ${id}, outside the scope`);
   if (status === 404 && Object.keys((body as { error?: object }).error ?? {}).filter((k) => k !== "request_id").sort().join() !== "code,message") out.push("the 404 body is not the non-disclosing one");
-  if (status === 404) for (const text of figureStrings(c)) if (seen.includes(text)) out.push("a 404 carries a figure");
   return out;
 }
 
@@ -161,6 +209,10 @@ export function scoreCase(c: MsxCase, status: number, body: unknown, r: Recorded
   if (c.effects.reservation === "released" && (effects.releaseReason !== "not_attempted" || effects.commits !== 0)) failures.push("a failure must release with not_attempted and never commit");
   if (c.effects.reservation === "none" && (effects.reserves !== 0 || effects.commits + effects.releases !== 0)) failures.push("a denial or refusal must not reserve or settle");
   if (effects.providerRequests !== c.effects.providerRequests || effects.tokens !== c.effects.tokens) failures.push("a provider request or a token was counted");
+  for (const settlement of r.settlements) {
+    if (!r.granted.has(settlement.reservationId)) failures.push("a settlement is not for a granted reservation");
+    if (settlement.tenantId !== c.caller.tenantId) failures.push("a settlement carries another tenant");
+  }
   const audited = c.expected.status === 200 && c.expected.kind === "answer" ? 1 : 0;
   if (effects.auditEvents !== audited) failures.push(`audit events ${effects.auditEvents}, expected ${audited}`);
 

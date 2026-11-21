@@ -33,8 +33,9 @@ own pure assemblers (ranking, four-digit formatting) run over the synthetic fact
 
 SYNTHETIC: the session and tenant-context guards, the membership role lookup, the store-liveness query,
 the fact rows, the entitlement and budget ports (recording fakes that capture checks, reservations,
-commits and releases) and the audit queue. No provider is registered, and a `fetch` spy proves no
-network call (G-S6).
+commits and releases) and the audit queue. The no-provider guarantee is `providers: []` (the gateway has no
+route and no provider to call) plus the provider-call metric the rig records; a `fetch` spy is an extra
+check, not the guarantee (G-S6).
 
 Owner decision RT-1538 comment 18048: a store outside the caller's scope or
 unknown in the tenant, and a refused role (platform admin included), is the
@@ -60,8 +61,13 @@ MSX_REPORT_OUT=<dir> MSX_CODE_SHA=<main sha> MSX_RUN_DATE=<date> npx jest test/a
   keep the `msx.` prefix); a store with a missing or zero-sales ranking figure in a `["store","count"]`
   table; not-begun days in a `["date"]` table; T-07 as two tables (current, then `ss.baseline`) with
   `voids` and `returns` keys; the by-store source added when a summary template covers several stores;
-  the citation `fieldPath` strings of the contract's response grammar; the baseline summary read at the
-  same `asOf` as the current one; case 11 without a scope-relative notice (its selection is the whole
-  scope); case 15 in the read's order; case 30 served a world where A2 has no sales; case 32 off G-S3
-  (it reads and reserves by design). No figure, scope, charge or refusal code changed.
+  the citation `fieldPath` strings of the contract's response grammar; case 15 in the read's order;
+  case 30 served a world where A2 has no sales; case 32 off G-S3 (it reads and reserves by design);
+  G-S1 scored on every case. Review round 1: case 11 now has caller OA (two of three stores, a strict
+  subset) with the `scope_relative_ratio` notice and the G-1 and G-2 gaps; each summary read has its own
+  `asOf` (the baseline read keeps the later instant). Added received-zero lines: cases 29, 16 and 17
+  state the read's explicit zero for a currency or a day a store has no facts in. T-10 has no rank or
+  share column, so its zero row is complete and inline; the ranking templates move a store with no rank
+  to the `["store","count"]` table. Whether a zero needs a UX marker is the open item UX-13.23. No
+  scope, charge or refusal code changed.
 - `msx-eval/1` (RT-1540 part 1): the 38-case dataset, contract spec and report.

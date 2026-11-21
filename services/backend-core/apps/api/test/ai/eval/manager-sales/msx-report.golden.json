@@ -2,7 +2,7 @@
   "schema": "msx-replay-report/1",
   "dataset": {
     "version": "msx-eval/2",
-    "sha256": "0bd2baf86c551a9e4deacb77f88483f4d38522140c601030ec7ccba681160d1a",
+    "sha256": "9ba6488b3310b06c1e23ce61a6d87f61d1e435826436c453516a0a4043c2775e",
     "cases": 38
   },
   "run": {
@@ -30,8 +30,8 @@
   "gates": [
     {
       "gate": "G-S1",
-      "casesScored": 6,
-      "passing": 6,
+      "casesScored": 38,
+      "passing": 38,
       "failing": [],
       "verdict": "PASS"
     },
@@ -81,7 +81,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -112,7 +112,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -143,7 +143,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -174,7 +174,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -205,7 +205,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -236,7 +236,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -267,7 +267,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -298,7 +298,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -329,7 +329,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -360,7 +360,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -391,7 +391,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -422,7 +422,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -453,7 +453,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -484,7 +484,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -515,7 +515,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -546,7 +546,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -577,7 +577,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -763,7 +763,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -794,7 +794,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -825,7 +825,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -856,7 +856,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -887,7 +887,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -918,7 +918,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -949,7 +949,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -980,7 +980,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -1011,7 +1011,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -1042,7 +1042,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -1073,7 +1073,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -1104,7 +1104,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -1135,7 +1135,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "not_applicable",
         "G-S3": "pass",
         "G-S4": "pass",
@@ -1197,7 +1197,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",
@@ -1228,7 +1228,7 @@
       "failures": [],
       "gateFailures": [],
       "gates": {
-        "G-S1": "not_applicable",
+        "G-S1": "pass",
         "G-S2": "pass",
         "G-S3": "not_applicable",
         "G-S4": "pass",

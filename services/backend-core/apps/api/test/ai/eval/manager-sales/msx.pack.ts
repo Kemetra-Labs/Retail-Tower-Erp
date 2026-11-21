@@ -67,7 +67,9 @@ export const statement = (key: string, slots: Readonly<Record<string, { readonly
 const KPI = /^(receivedSales|voids|returns|legacyRefunds)\.(total|count)$/;
 
 /**
- * The path of a cited figure in its operation's response (the drawer's field path). A money line is
+ * The path of a cited figure in its operation's response (the drawer's field path). Hand-kept copy of
+ * the grammar whose source of truth is `src/ai/manager-sales/msx.figures.ts` (`fieldPathOf`): a drift
+ * between the two fails the replay. A money line is
  * `byCurrency[]`; every KPI cell of this dataset states its currency, so a KPI figure is always a
  * `byCurrency[]` leaf.
  */

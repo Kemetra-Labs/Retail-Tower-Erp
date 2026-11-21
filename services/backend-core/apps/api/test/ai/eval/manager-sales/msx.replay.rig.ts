@@ -42,11 +42,11 @@ import { fakeReads, managerCtx, ownerCtx, USER_ID, type FakeReads } from "../../
 import type { ResolvedContext } from "../../../../src/context/types";
 import { SAME_ORIGIN } from "../../../_helpers/same-origin";
 import type { MsxCase, MsxCaller } from "./msx.types";
-import { STORE_A1, STORE_A2, STORE_A3 } from "./msx.world";
+import { AS_OF, BASELINE_WEEK, STORE_A1, STORE_A2, STORE_A3 } from "./msx.world";
 import { REPLAY_OTHER, REPLAY_SALES } from "./msx.replay.world";
 import supertest from "supertest";
 
-export const REPLAY_PATH = "/api/v1/ai/manager-sales/explain";
+const REPLAY_PATH = "/api/v1/ai/manager-sales/explain";
 
 /** The synthetic reservation ids are sequential; the idempotency key is the unit of uniqueness. */
 const RESERVATION_PREFIX = "0191e540-0000-7000-8000-0000000000c";
@@ -66,7 +66,7 @@ export interface Recorded {
   readonly granted: Set<string>;
 }
 
-export interface ReplayRig {
+interface ReplayRig {
   readonly app: INestApplication;
   readonly reads: FakeReads;
   readonly recorded: Recorded;
@@ -93,6 +93,8 @@ export async function buildRig(testCase: MsxCase): Promise<ReplayRig> {
   const scope = testCase.caller.storeAccess === "all" ? undefined : testCase.caller.storeIds;
   const reads = fakeReads({
     ...(scope === undefined ? {} : { scope }),
+    // Each summary read has its own instant: the baseline summary is a later read than the current one.
+    summaryAsOf: (from) => (from === BASELINE_WEEK.from ? AS_OF.ssb : AS_OF.ss),
     sales: preconditions.has("store_a2_no_sales") ? REPLAY_SALES.filter((sale) => sale.store !== STORE_A2) : REPLAY_SALES,
     other: REPLAY_OTHER,
     ...(hostile === undefined ? {} : { names: hostile }),
@@ -108,20 +110,20 @@ export async function buildRig(testCase: MsxCase): Promise<ReplayRig> {
     : { allowed: true };
   const budgetDecision: AiBudgetDecision = { allowed: true };
 
-  // The sales reads record themselves; wrap them so the event log is one ordered list.
+  // The sales reads record themselves; wrap them so the event log is one ordered list, and a read
+  // that throws leaves a `.failed` event (the observed evidence failure).
+  async function logged<T>(name: string, read: () => Promise<T>): Promise<T> {
+    recorded.events.push(name);
+    try {
+      return await read();
+    } catch (err) {
+      recorded.events.push(`${name}.failed`);
+      throw err;
+    }
+  }
   const loggedReads = {
-    summary: {
-      async summary(input: Parameters<FakeReads["summary"]["summary"]>[0]) {
-        recorded.events.push("read.summary");
-        return await reads.summary.summary(input);
-      },
-    },
-    byStore: {
-      async byStore(input: Parameters<FakeReads["byStore"]["byStore"]>[0]) {
-        recorded.events.push("read.byStore");
-        return await reads.byStore.byStore(input);
-      },
-    },
+    summary: { summary: (input: Parameters<FakeReads["summary"]["summary"]>[0]) => logged("read.summary", () => reads.summary.summary(input)) },
+    byStore: { byStore: (input: Parameters<FakeReads["byStore"]["byStore"]>[0]) => logged("read.byStore", () => reads.byStore.byStore(input)) },
   };
 
   const runtime = { isEnabled: () => !preconditions.has("kill_switch_off"), isProduction: () => false };
@@ -139,7 +141,7 @@ export async function buildRig(testCase: MsxCase): Promise<ReplayRig> {
         const key = [input.tenantId, input.featureId, input.idempotencyKey].join("|");
         const held = ledger.get(key);
         if (held !== undefined) return { allowed: true, reservationId: held, entitlementVersion: 1, runnable: false };
-        const reservationId = `${RESERVATION_PREFIX}${String(ledger.size + 1).padStart(1, "0")}`;
+        const reservationId = `${RESERVATION_PREFIX}${String(ledger.size + 1)}`;
         ledger.set(key, reservationId);
         recorded.granted.add(reservationId);
         return { allowed: true, reservationId, entitlementVersion: 1, runnable: true };

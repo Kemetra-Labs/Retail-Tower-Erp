@@ -329,6 +329,8 @@ export function t05SelectedStoresCompare(): Built {
         [row("A1", A1_WEEK, RANK_WEEK_EGP.A1.averageSale), row("A2", A2_WEEK, RANK_WEEK_EGP.A2.averageSale)],
       ),
     ],
+    notices: ["scope_relative_ratio"],
+    gaps: ["G-1", "G-2"],
     condition: "fresh",
   });
 }

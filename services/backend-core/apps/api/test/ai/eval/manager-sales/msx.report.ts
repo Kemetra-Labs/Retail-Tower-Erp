@@ -239,6 +239,7 @@ function closingLines(): string[] {
     "",
     "- No model was evaluated, no provider or network was used, and no quality score exists.",
     "- The replay runs the real route over synthetic reads: the two sales reads' SQL, the tenant-context and session guards, the entitlement and budget services, and the idempotency interceptor are not exercised here (the P-06 db integration spec and the interceptor's own specs cover them).",
+    "- Same-key replay: the rig shows that a reused key is not re-run or re-charged at the ledger (the gateway maps `runnable: false`). The HTTP replay of the stored 200 is the idempotency interceptor's and is not in this rig.",
     "- Human review: not performed. Gold labels are transcribed from RT-1526 v6 section 6 and aligned to the runtime presentation, not adjudicated.",
     "",
     "## 11. Interpretations of RT-1526 v6 section 6 and alignments to the runtime",

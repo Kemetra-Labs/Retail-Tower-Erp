@@ -16,7 +16,8 @@ import { join } from "node:path";
 import { datasetHash } from "./msx.canonical";
 import { MSX_CASES } from "./msx.cases";
 import { renderMsxReport, renderMsxReportJson } from "./msx.report";
-import { replayAll, type ReplayRun } from "./msx.replay";
+import { replayAll } from "./msx.replay";
+import type { ReplayRun } from "./msx.replay.types";
 import { MSX_GATES, MSX_LANGUAGES } from "./msx.types";
 
 const GOLDEN = join(__dirname, "msx-report.golden.md");

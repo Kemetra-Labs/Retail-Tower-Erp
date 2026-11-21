@@ -108,6 +108,8 @@ export interface WorldOptions {
   readonly names?: Readonly<Record<string, string>>;
   /** The store-local business date at `asOf` (default TODAY). */
   readonly today?: string;
+  /** The `asOf` of a summary read over a range starting at `from` (default: one instant for every read). */
+  readonly summaryAsOf?: (from: string) => string;
   /** Replace the sales facts the reads serve (RT-1540 replay: the `msx.world.ts` figures). */
   readonly sales?: readonly Sale[];
   /** Replace the void, return and refund facts the reads serve. */
@@ -156,7 +158,7 @@ export function fakeReads(options: WorldOptions & { readonly fail?: "summary" | 
           from: input.from,
           to: input.to,
           dates: businessDatesOf(input.from, input.to),
-          asOf: AS_OF_SUMMARY,
+          asOf: options.summaryAsOf?.(input.from) ?? AS_OF_SUMMARY,
           stores: rows,
           facts: summaryFacts(chosen.map((s) => s.id), input.from, input.to, sales, other),
           after: input.cursor,
