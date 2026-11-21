@@ -225,26 +225,19 @@ function toRecordOutcome(answer: HttpAnswer, resend: boolean): RecordReturnOutco
 /**
  * Statuses of `recordRefundExecution` that refuse the frozen bytes for good: 409 (a different
  * payload under the same provenance) and 422 (the allocation would be over-settled) are
- * deterministic for the same bytes. A 404 counts only with the contract's own `not_found` code (a
- * route that does not exist, a proxy or a wrong base URL is not that answer). A 400 is NOT final:
- * the same `validation_error` is also returned while `evidence.paidAt` is more than 120 s ahead of
- * the server clock (a till running fast), which frozen bytes outgrow, so it stays unknown and is
- * retried with backoff; the cash was paid, so the report is never given up.
+ * deterministic for the same bytes. Neither a 404 nor a 400 is final, and both stay unknown and are
+ * retried with backoff (the cash was paid, so the report is never given up):
+ *   - 404: Backend-Core's exception filter answers an unmatched route with the same
+ *     `{ error: { code: "not_found" } }` body as the contract's non-disclosing 404, so a Backend-Core
+ *     without the executions route (or a wrong base URL behind a proxy) cannot be told from "no such
+ *     return" by its body; the same bytes succeed once the right server answers;
+ *   - 400: the same `validation_error` is also returned while `evidence.paidAt` is more than 120 s
+ *     ahead of the server clock (a till running fast), which frozen bytes outgrow.
  */
 const EXECUTION_REFUSALS: Readonly<Record<number, ExecutionRefusal>> = {
   409: 'conflict',
   422: 'exceeds_allocation',
 };
-
-/** The contract's non-disclosing 404 body: `error.code` is `not_found`. */
-const NOT_FOUND_CODE = 'not_found';
-
-function executionRefusalOf(answer: HttpAnswer): ExecutionRefusal | undefined {
-  if (answer.status === 404) {
-    return readErrorCode(answer.json) === NOT_FOUND_CODE ? 'not_found' : undefined;
-  }
-  return EXECUTION_REFUSALS[answer.status];
-}
 
 function toExecutionOutcome(answer: HttpAnswer): RecordExecutionOutcome {
   if (answer.status === 200 || answer.status === 201) {
@@ -252,7 +245,7 @@ function toExecutionOutcome(answer: HttpAnswer): RecordExecutionOutcome {
     if (execution === null) return { kind: 'unknown', cause: 'unreadable_body' };
     return { kind: 'recorded', replayed: isReplay(answer), execution };
   }
-  const reason = executionRefusalOf(answer);
+  const reason = EXECUTION_REFUSALS[answer.status];
   if (reason !== undefined) return { kind: 'refused', reason };
   const preReplay = PRE_REPLAY_CAUSES[answer.status];
   return { kind: 'unknown', cause: preReplay ?? causeOfStatus(answer.status) };

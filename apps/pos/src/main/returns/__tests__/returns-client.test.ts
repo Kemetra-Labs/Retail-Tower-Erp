@@ -377,7 +377,6 @@ describe('recordRefundExecution (RT-1543)', () => {
   });
 
   it.each([
-    [404, 'not_found', 'not_found'],
     [409, 'conflict', 'conflict'],
     [422, 'refund_execution_exceeds_allocation', 'exceeds_allocation'],
   ])('maps %i (%s) to the final refusal %s', async (status, code, reason) => {
@@ -386,13 +385,19 @@ describe('recordRefundExecution (RT-1543)', () => {
     expect(await exec(backend)).toEqual({ kind: 'refused', reason });
   });
 
-  it('keeps a 400 (it can be a till clock ahead of the server) and a 404 without the contract code unknown', async () => {
+  it('keeps a 400 (it can be a till clock ahead of the server) unknown', async () => {
     const backend = new FakeBackend();
     backend.onExecution = () => Promise.resolve(jsonResponse(400, errorBody('validation_error')));
     expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'unexpected_status' });
-    backend.onExecution = () => Promise.resolve(jsonResponse(404, { message: 'Cannot POST' }));
+  });
+
+  it('keeps EVERY 404 unknown, including the real unmatched-route body', async () => {
+    const backend = new FakeBackend();
+    // Backend-Core's exception filter answers an unmatched route with this very envelope
+    // (common/exception.filter.ts, shared/errors/envelope.ts), the same as the contract's 404.
+    backend.onExecution = () => Promise.resolve(jsonResponse(404, errorBody('not_found')));
     expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'pre_replay_404' });
-    backend.onExecution = () => Promise.resolve(jsonResponse(404, errorBody('route_missing')));
+    backend.onExecution = () => Promise.resolve(jsonResponse(404, { message: 'Cannot POST' }));
     expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'pre_replay_404' });
   });
 

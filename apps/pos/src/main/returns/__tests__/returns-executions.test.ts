@@ -346,7 +346,6 @@ describe('retries and restarts never record a second execution', () => {
 
 describe('what Backend-Core answers', () => {
   it.each([
-    [404, 'not_found', 'not_found'],
     [409, 'conflict', 'conflict'],
     [422, 'refund_execution_exceeds_allocation', 'exceeds_allocation'],
   ])(
@@ -368,7 +367,8 @@ describe('what Backend-Core answers', () => {
     [400, 'validation_error'],
     [401, 'unauthorized'],
     [403, 'forbidden'],
-    [404, 'route_missing'],
+    // The real unmatched-route (and no-such-return) body: `{ error: { code: "not_found" } }`.
+    [404, 'not_found'],
     [429, 'rate_limited'],
     [503, 'unavailable'],
   ])('%i (%s) is unknown, never success and never final', async (status, code) => {
@@ -501,7 +501,7 @@ describe('shutdown, restart and the background tick', () => {
     expect(executionRows()[0]).toMatchObject({ state: 'recorded' });
   });
 
-  it('the resolve summary counts returns only, not executions', async () => {
+  it('the resolve summary keeps its three return counts and reports the open executions apart', async () => {
     h.backend.onExecution = () => Promise.resolve(jsonResponse(503, errorBody('unavailable')));
     const returnId = await confirmedReturn(h.service);
     await h.service.payout({ returnId, action: 'start' });
@@ -511,6 +511,91 @@ describe('shutdown, restart and the background tick', () => {
       confirmed: 0,
       refused: 0,
       unresolved: 0,
+      executionsOpen: 1,
     });
+
+    h.backend.onExecution = (call, backend) => backend.recordExecutionIdempotently(call);
+    expect(await h.service.resolve()).toMatchObject({ unresolved: 0, executionsOpen: 0 });
+  });
+
+  it('a final refusal is not an open execution', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(409, errorBody('conflict')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(await h.service.resolve()).toMatchObject({ executionsOpen: 0 });
+  });
+
+  it('logs the cause and the attempt of each unknown answer, with no amount, body or envelope', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(503, errorBody('unavailable')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    await h.service.resolve();
+    const unknowns = h.logs.filter((l) => l.msg === 'returns:execution_unknown');
+    expect(unknowns).toHaveLength(2);
+    const [row] = executionRows();
+    expect(unknowns.map((l) => l.obj)).toEqual([
+      { execution_id: row?.['execution_id'], attempt: 1, cause: 'server_5xx' },
+      { execution_id: row?.['execution_id'], attempt: 2, cause: 'server_5xx' },
+    ]);
+    const text = JSON.stringify(unknowns);
+    expect(text).not.toContain('15.00');
+    expect(text).not.toContain('opaque-operator-envelope');
+    expect(text).not.toContain('allocationRef');
+  });
+
+  it('logs a lost answer with its transport cause', async () => {
+    h.backend.onExecution = networkFault;
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(h.logs.find((l) => l.msg === 'returns:execution_unknown')?.obj).toMatchObject({
+      attempt: 1,
+      cause: 'network',
+    });
+  });
+});
+
+describe('a till that cannot report (shift cash-up off)', () => {
+  const body = (): { refundTenders: { allocationRef?: string }[] } =>
+    JSON.parse(String(rows('SELECT request_body_json AS b FROM return_journal')[0]?.['b'])) as {
+      refundTenders: { allocationRef?: string }[];
+    };
+
+  it('sends a NEW return with no allocationRef: the pre-RT-1543 bytes, nothing enqueued', async () => {
+    h.state.shiftCashup = false;
+    const returnId = await confirmedReturn(h.service);
+    expect(body().refundTenders).toEqual([{ method: 'cash', amount: '15.00' }]);
+    expect(h.backend.returnCalls()[0]?.body).not.toContain('allocationRef');
+    const paid = await h.service.payout({ returnId, action: 'start' });
+    expect(paid.kind).toBe('paid_out');
+    await settle();
+    await h.service.resolve();
+    expect(executionRows()).toEqual([]);
+    expect(h.backend.executionCalls()).toEqual([]);
+    // No shift is expected here, so the no-open-shift warning is not raised either.
+    expect(h.warnings).not.toContain('returns:execution_no_open_shift');
+  });
+
+  it('a return of a till that turns it off after journaling still reports the execution it was journaled with', async () => {
+    const returnId = await confirmedReturn(h.service);
+    expect(body().refundTenders[0]?.allocationRef).toMatch(UUID_V7);
+    h.state.shiftCashup = false;
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(executionRows()).toHaveLength(1);
+    expect(h.backend.executionCalls()).toHaveLength(1);
+  });
+
+  it('with the flag on and no open shift keeps the warning and reports nothing', async () => {
+    h.state.shiftCashup = true;
+    h.state.shiftRef = null;
+    const returnId = await confirmedReturn(h.service);
+    expect(body().refundTenders[0]?.allocationRef).toMatch(UUID_V7);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(executionRows()).toEqual([]);
+    expect(h.warnings).toContain('returns:execution_no_open_shift');
   });
 });

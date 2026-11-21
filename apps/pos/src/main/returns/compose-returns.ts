@@ -81,6 +81,13 @@ export interface ComposeReturnsDeps {
    * shift and none is invented).
    */
   readonly openShiftRef: (scope: ReturnScope) => string | null;
+  /**
+   * RT-1543: true when shift cash-up is enabled for this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`,
+   * read per call). Only such a till can report a refund execution (the contract requires the
+   * shift), so only a NEW return of such a till carries an `allocationRef`. A till without it sends
+   * none, enqueues nothing, and its returns post at acceptance with untracked settlement.
+   */
+  readonly isShiftCashupEnabled: () => boolean;
 }
 
 export interface ComposedReturns {
@@ -172,7 +179,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     now,
     newReturnId: randomUUID,
     newExternalId: () => newReturnExternalId(),
-    newAllocationRef: () => uuidv7(),
+    newAllocationRef: () => (deps.isShiftCashupEnabled() ? uuidv7() : undefined),
     views,
     recordLineDetails: (returnId, details) => {
       payouts.recordLineDetails(returnId, details);

@@ -38,10 +38,20 @@ import type { ReturnExecutionsDispatcher } from './returns-execution-dispatch.js
 import type { ReturnExecutionsRepository } from './returns-execution-repository.js';
 import type { ReturnsRepository } from './returns-repository.js';
 
-export interface ResolveSummary {
+interface ReturnsTally {
   readonly confirmed: number;
   readonly refused: number;
   readonly unresolved: number;
+}
+
+export interface ResolveSummary extends ReturnsTally {
+  /**
+   * RT-1543: refund executions of this terminal still waiting to be recorded (pending or unknown)
+   * when the pass ended. They are not part of the three counts above. A number that does not fall
+   * means paid-out returns Backend-Core has not been told about. Absent when no execution outbox is
+   * composed.
+   */
+  readonly executionsOpen?: number;
 }
 
 export interface ReturnsResolver {
@@ -71,8 +81,8 @@ export interface ReturnsResolverDeps {
   readonly backoff?: BackoffPolicy;
   /**
    * RT-1543: the refund-execution outbox, drained by the same pass after the returns (same
-   * snapshot, same recheck before each send, same per-row backoff). Its rows do not count in the
-   * summary. Absent: no executions are sent.
+   * snapshot, same recheck before each send, same per-row backoff). Its open rows are reported as
+   * `executionsOpen`, apart from the returns' counts. Absent: no executions are sent.
    */
   readonly executions?: {
     readonly repo: Pick<ReturnExecutionsRepository, 'listUnrecorded'>;
@@ -85,7 +95,7 @@ export interface ReturnsResolverDeps {
   };
 }
 
-const EMPTY: ResolveSummary = { confirmed: 0, refused: 0, unresolved: 0 };
+const EMPTY: ReturnsTally = { confirmed: 0, refused: 0, unresolved: 0 };
 
 /** The retry bookkeeping both outboxes share (a journal row and an execution row). */
 interface Retryable {
@@ -191,7 +201,7 @@ function createPass(deps: ReturnsResolverDeps) {
     return { tally, stopped: false };
   }
 
-  /** RT-1543: the refund executions of this pass, after the returns (not part of the summary). */
+  /** RT-1543: the refund executions of this pass, after the returns. */
   async function executionsPass(snapshot: AuthSnapshot, backgroundTick: boolean): Promise<void> {
     const { executions } = deps;
     if (executions === undefined || executions.isStopped()) return;
@@ -202,13 +212,21 @@ function createPass(deps: ReturnsResolverDeps) {
     }
   }
 
+  /** RT-1543: the open executions now, as a summary field (none without an outbox; 0 once stopped). */
+  function openExecutions(snapshot: AuthSnapshot): { executionsOpen?: number } {
+    const { executions } = deps;
+    if (executions === undefined) return {};
+    if (executions.isStopped()) return { executionsOpen: 0 };
+    return { executionsOpen: executions.repo.listUnrecorded(snapshot.scope).length };
+  }
+
   return async function pass(
     snapshot: AuthSnapshot,
     backgroundTick: boolean,
   ): Promise<ResolveSummary> {
     const { tally, stopped } = await returnsPass(snapshot, backgroundTick);
     if (!stopped) await executionsPass(snapshot, backgroundTick);
-    return tally;
+    return { ...tally, ...openExecutions(snapshot) };
   };
 }
 

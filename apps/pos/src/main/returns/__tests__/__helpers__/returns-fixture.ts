@@ -453,6 +453,8 @@ export interface HarnessState {
   terminalId: string;
   /** RT-1543: the terminal's open shift id; null = no shift open. */
   shiftRef: string | null;
+  /** RT-1543: shift cash-up is enabled on this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`). */
+  shiftCashup: boolean;
   /** The domain clock (ISO-8601), read per call; starts at `NOW`. */
   now: string;
   /** Runs on every audit emit, before it is written (to change state mid-flow). */
@@ -494,6 +496,8 @@ export interface ReturnsHarness extends ComposedReturns {
   /** The audit rows actually committed to `audit_events`, in insert order. */
   readonly audits: AuditEvent[];
   readonly warnings: string[];
+  /** RT-1543: every warning with its structured fields, in order. */
+  readonly logs: readonly { readonly msg: string; readonly obj: Record<string, unknown> }[];
   /** Mutable session / flag / token / fault, read per call like production. */
   readonly state: HarnessState;
   close(): void;
@@ -523,6 +527,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   const handle = handleFor(db);
   const backend = new FakeBackend();
   const warnings: string[] = [];
+  const logs: { msg: string; obj: Record<string, unknown> }[] = [];
   const state: HarnessState = {
     enabled: options.enabled ?? true,
     role: options.role === undefined ? 'manager' : options.role,
@@ -531,6 +536,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     locked: false,
     terminalId: SCOPE.terminalId,
     shiftRef: SHIFT_REF,
+    shiftCashup: true,
     now: NOW,
     onAudit: null,
     failAudit: null,
@@ -566,11 +572,18 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       },
       isSessionLocked: () => state.locked,
       auditSink: whileAlive(auditSink, life),
-      logger: { warn: (_obj, msg) => warnings.push(msg), error: (_obj, msg) => warnings.push(msg) },
+      logger: {
+        warn: (obj, msg) => {
+          warnings.push(msg);
+          logs.push({ msg, obj });
+        },
+        error: (_obj, msg) => warnings.push(msg),
+      },
       now: () => state.now,
       drawer,
       printer,
       openShiftRef: () => state.shiftRef,
+      isShiftCashupEnabled: () => state.shiftCashup,
     });
     return {
       ...domain,
@@ -611,6 +624,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       return committedAudits(db);
     },
     warnings,
+    logs,
     state,
     close: () => {
       db.close();

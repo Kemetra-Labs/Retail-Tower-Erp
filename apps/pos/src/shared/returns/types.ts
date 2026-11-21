@@ -299,6 +299,11 @@ export type ReturnsResolveResponse =
       readonly confirmed: number;
       readonly refused: number;
       readonly unresolved: number;
+      /**
+       * RT-1543: refund executions still waiting to be recorded in Backend-Core (paid-out returns
+       * it has not been told about). Not part of the three counts above.
+       */
+      readonly executionsOpen?: number;
     }
   | ReturnsRefused;
 

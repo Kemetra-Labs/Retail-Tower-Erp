@@ -5,8 +5,9 @@
  * identically: the frozen body bytes, the same `Idempotency-Key` (= `externalId`).
  *
  *   recorded (201 / 200 / replay)   -> recorded, only if the answer names THIS execution
- *   refused (400 / 404 / 409 / 422) -> refused (final, logged); the frozen bytes cannot succeed
- *   anything else                   -> unknown; never success, retried with backoff
+ *   refused (409 / 422)             -> refused (final, logged); the frozen bytes cannot succeed
+ *   anything else, 400 and 404 too  -> unknown (logged with its cause and attempt); never success,
+ *                                      retried with backoff
  *
  * A send runs on behalf of one authorization snapshot (the same choke point as the return
  * dispatcher): re-checked right before the POST, which carries the snapshot's own envelope. No
@@ -133,6 +134,26 @@ class JournaledExecutionsDispatcher implements ReturnExecutionsDispatcher {
     return this.apply(current, outcome);
   }
 
+  /**
+   * Why this send left the execution unknown, and which attempt it was (ids and a closed cause
+   * only: no amount, no body, no envelope), so a stuck payout report is diagnosable from the log.
+   */
+  private logUnknown(entry: ExecutionEntry, outcome: RecordExecutionOutcome): void {
+    const attempt = entry.attemptCount + 1;
+    if (outcome.kind === 'recorded') {
+      this.deps.logger.warn(
+        { execution_id: entry.executionId, attempt },
+        'returns:execution_confirmation_mismatch',
+      );
+      return;
+    }
+    const cause = outcome.kind === 'unknown' ? outcome.cause : null;
+    this.deps.logger.warn(
+      { execution_id: entry.executionId, attempt, cause },
+      'returns:execution_unknown',
+    );
+  }
+
   private apply(entry: ExecutionEntry, outcome: RecordExecutionOutcome): ExecutionDispatchOutcome {
     const stamp = { executionId: entry.executionId, now: this.deps.now() };
     if (outcome.kind === 'recorded' && isThisExecution(entry, outcome.execution)) {
@@ -144,12 +165,7 @@ class JournaledExecutionsDispatcher implements ReturnExecutionsDispatcher {
       );
       this.deps.repo.markRefused({ ...stamp, reason: outcome.reason });
     } else {
-      if (outcome.kind === 'recorded') {
-        this.deps.logger.warn(
-          { execution_id: entry.executionId },
-          'returns:execution_confirmation_mismatch',
-        );
-      }
+      this.logUnknown(entry, outcome);
       this.deps.repo.markUnknown(stamp);
     }
     return outcomeOfState(this.deps.repo.read(entry.executionId) ?? entry);

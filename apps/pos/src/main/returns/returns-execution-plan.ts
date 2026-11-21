@@ -65,7 +65,13 @@ export function readAllocations(requestBodyJson: string): readonly PlannedAlloca
   return distinct.size === planned.length ? planned : [];
 }
 
-/** The contract's `evidence.method`: a `no_drawer` payout has no attestation but is `manual`. */
+/**
+ * The contract's `evidence.method`. Owner decision on RT-1543 ("Keep manual"): a `no_drawer` payout
+ * (the terminal has no cash drawer, RT-531, so there is no attestation step) is reported as
+ * `manual`, the only value of the closed `drawer | manual` enum that fits. It is not a manual
+ * attestation. A follow-up CONTRACT decision (a distinct `no_drawer` evidence method on
+ * `RefundExecutionEvidence`, a Backend-Core change) is owed if the difference must be reported.
+ */
 export function evidenceMethodOf(method: ReturnPayoutMethod): 'drawer' | 'manual' {
   return method === 'drawer' ? 'drawer' : 'manual';
 }

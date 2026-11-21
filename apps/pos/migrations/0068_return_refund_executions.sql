@@ -5,9 +5,9 @@
 -- GATED POS local migration if one is needed. A durable outbox is needed: the report must survive a
 -- crash, an unknown answer and a restart, and must be sent once.
 --
--- Numbering: main holds 0066. Open PR #791 (RT-388) is taking 0067; this file is 0068 on purpose.
--- The runner applies pending files by NAME (not by position), so a till that gets 0068 first applies
--- 0067 in a later build without error. Neither file touches the other's table.
+-- Numbering: 0067 is `0067_shift_variance_policy` (RT-388, #791, merged as 007d3c6ca); this file is
+-- 0068, the next number. The runner applies pending files by NAME (not by position), so the order
+-- of files never matters to a till. This file touches none of 0067's tables.
 --
 -- ## Why
 --

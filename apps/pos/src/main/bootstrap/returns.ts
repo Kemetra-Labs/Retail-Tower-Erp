@@ -99,6 +99,9 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-1543: the shift whose drawer paid, for the refund execution's evidence. None open (or
     // shift cash-up off, so none can be): no execution is reported for that payout.
     openShiftRef: openShiftRefOf(createShiftCashupRepo(db)),
+    // RT-1543: the same signal the shift-cashup bootstrap uses, read per call. Without it no till
+    // has a shift, so a new return carries no allocationRef and reports no execution.
+    isShiftCashupEnabled: () => resolveFeatureFlags().shiftCashup,
   });
   registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
   if (resolveFeatureFlags().returns) {
