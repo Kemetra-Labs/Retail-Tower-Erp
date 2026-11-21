@@ -134,10 +134,18 @@ function precedes(a: SuggestionProfile, b: SuggestionProfile): boolean {
   return compareCodeUnits(a.name, b.name) !== 0 ? compareCodeUnits(a.name, b.name) < 0 : compareCodeUnits(a.id, b.id) < 0;
 }
 
-export function suggestMapping(columns: readonly SuggestionColumn[], profiles: readonly SuggestionProfile[]): Suggestion {
+/**
+ * The suggestion for a file. `carried` (a re-upload, `import-replace-carry.ts`) are entries already decided: they are
+ * placed first and take priority, so the profile and the synonyms fill only the other columns and leave out every field
+ * a carried entry holds (`barcode` while the total stays at most 5).
+ */
+export function suggestMapping(columns: readonly SuggestionColumn[], profiles: readonly SuggestionProfile[], carried: readonly ColumnMapping[] = []): Suggestion {
   const placement = new Placement();
   const taken = new Set<number>();
-  const usable = usableColumns(columns);
+  for (const entry of carried) {
+    if (placement.tryPlace(entry.columnNumber, entry.target)) taken.add(entry.columnNumber);
+  }
+  const usable = usableColumns(columns).filter((c) => !taken.has(c.columnNumber));
   const profile = bestProfile(usable, profiles);
   let profileContributed = false;
   if (profile !== null) {

@@ -2,9 +2,9 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.6-draft. `[GATED]` contract-first; an
+ * `catalog/catalog-import.yaml` 1.0.7-draft. `[GATED]` contract-first; an
  * operation is `x-runtime-status: contract-only` until its runtime (RT-1505 part A
- * serves the upload and the batch read; part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
+ * serves the upload and the batch read; part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel; RT-1537 the file replace, the error report and the template). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
  * Structural / load-only plus AJV fixtures; no app boot and no HTTP. Pins:
  *   1. The twelve operations at their paths and methods, contract-only with a
@@ -66,7 +66,7 @@ const OPERATIONS: ReadonlyArray<{ id: string; method: Method; path: ApiPath; run
   { id: "consoleGetCatalogImportTemplate", method: "get", path: "/api/v1/catalog/import-template", runtime: /RT-1505/ },
 ];
 
-/** The operations RT-1505 and RT-1507 serve (their markers are lifted: RT-1505 part A the upload and the read, part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel); the rest stay `contract-only`. */
+/** The operations RT-1505, RT-1507 and RT-1537 serve (their markers are lifted: RT-1505 part A the upload and the read, part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel; RT-1537 the file replace, the error report and the template): all twelve. */
 const SERVED: ReadonlySet<string> = new Set([
   "consoleUploadCatalogImport",
   "consoleGetCatalogImport",
@@ -77,6 +77,9 @@ const SERVED: ReadonlySet<string> = new Set([
   "consoleGetCatalogImportPreview",
   "consolePublishCatalogImport",
   "consoleCancelCatalogImport",
+  "consoleReplaceCatalogImportFile",
+  "consoleGetCatalogImportErrorReport",
+  "consoleGetCatalogImportTemplate",
 ]);
 
 const WRITES = OPERATIONS.filter((o) => o.method !== "get");
@@ -201,9 +204,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.6-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.7-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.6-draft");
+    expect(doc.info?.version).toBe("1.0.7-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -219,7 +222,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
     if (SERVED.has(id)) {
-      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.5-draft): the runtime lifts only the markers (RT-1536, 1.0.6-draft, lifts none).
+      // RT-1505 (1.0.3-draft and 1.0.4-draft), RT-1507 (1.0.5-draft) and RT-1537 (1.0.7-draft): the runtime lifts only the markers (RT-1536, 1.0.6-draft, lifts none).
       expect(operation["x-runtime-status"]).toBeUndefined();
       expect(operation["x-runtime-note"]).toBeUndefined();
     } else {
@@ -229,23 +232,17 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(otherOperationIds.has(id)).toBe(false);
   });
 
-  it("serves exactly nine operations (RT-1505, RT-1507); the file replace, the error report and the template stay contract-only", () => {
-    expect([...SERVED].sort()).toEqual([
-      "consoleCancelCatalogImport",
-      "consoleGetCatalogImport",
-      "consoleGetCatalogImportPreview",
-      "consoleListCatalogImportRows",
-      "consolePublishCatalogImport",
-      "consoleResolveCatalogImportRow",
-      "consoleSetCatalogImportMapping",
-      "consoleUploadCatalogImport",
-      "consoleValidateCatalogImport",
-    ]);
-    expect(OPERATIONS.filter((o) => !SERVED.has(o.id)).map((o) => o.id).sort()).toEqual([
-      "consoleGetCatalogImportErrorReport",
-      "consoleGetCatalogImportTemplate",
-      "consoleReplaceCatalogImportFile",
-    ]);
+  it("serves all twelve operations (RT-1505, RT-1507, RT-1537): no contract-only marker is left", () => {
+    expect([...SERVED].sort()).toEqual(OPERATIONS.map((o) => o.id).sort());
+    expect(OPERATIONS.filter((o) => !SERVED.has(o.id))).toEqual([]);
+  });
+
+  it("states the RT-1537 text in the contract's own version note (1.0.7-draft) and adds no schema", () => {
+    expect(info()).toMatch(/\*\*1\.0\.7-draft \(RT-1537 spec 049 S5c: the file replace, the error report and\s+the template served\)\.\*\*/);
+    expect(info()).toMatch(/a retry after success is `409 version_conflict`/);
+    expect(info()).toMatch(/A request that fails the batch checks\s+never has its file parsed/);
+    expect(info()).toMatch(/the\s+formula guard is applied to every cell, headers and `issues` included/);
+    expect(info()).not.toMatch(/stay contract-only/);
   });
 
   it("states the RT-1507 text in the contract's own version note (1.0.5-draft)", () => {

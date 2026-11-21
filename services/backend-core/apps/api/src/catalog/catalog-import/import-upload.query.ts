@@ -40,6 +40,28 @@ export const UploadQuerySchema = z
 
 export type ImportUploadQuery = z.infer<typeof UploadQuerySchema>;
 
+/** The largest `version` the column holds (an INTEGER): a bigger `expected_version` can never match. */
+const VERSION_MAX = 2_147_483_647;
+
+/** `expected_version` as a digit string (never `z.coerce`: a repeated key is an array and must not coerce), 1 to the column's maximum. */
+const ExpectedVersion = z
+  .string()
+  .regex(/^\d{1,10}$/, "expected_version must be an integer")
+  .transform((digits) => Number.parseInt(digits, 10))
+  .refine((n) => n >= 1 && n <= VERSION_MAX, `expected_version must be 1 to ${VERSION_MAX}`);
+
+/** The query of `consoleReplaceCatalogImportFile`: the batch version the caller read, and the file's own parse options (no `mode`: it is kept). */
+export const ReplaceQuerySchema = z
+  .object({
+    expected_version: ExpectedVersion,
+    file_name: FileName.optional(),
+    sheet: Sheet.optional(),
+    delimiter: z.enum(["comma", "semicolon", "tab"]).optional(),
+  })
+  .strict();
+
+export type ReplaceQuery = z.infer<typeof ReplaceQuerySchema>;
+
 /**
  * The canonical query of the upload fingerprint (spec 049 §8.4, §12.1): the
  * decoded values in the fixed order `mode`, `sheet`, `delimiter`, `file_name`,

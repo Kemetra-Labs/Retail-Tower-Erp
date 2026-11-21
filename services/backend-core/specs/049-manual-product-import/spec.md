@@ -683,6 +683,45 @@ owner's acknowledgement. Contract 1.0.5-draft states each in its description tex
 - **Measured.** Publish of 5,000 new products with a SKU and a barcode each, a category and one of 50 new brands
   (about 15,000 audit rows), in one transaction on a Testcontainers Postgres: see the PR body.
 
+### 12.5 Settled in S5c (RT-1537: the file replace, the error report and the template)
+
+Contract 1.0.7-draft states each in its description text; no schema shape change, no migration, no Console change. The
+three contract-only markers are gone: all twelve operations are served. Owner delegation 2026-11-21 ("i delegate you too pr
+merge choose recomnded actions and answers"); the readings below follow the contract text, and where it was silent the
+plain reading was taken and recorded.
+
+- **Replace** (`PUT /api/v1/catalog/imports/{batchId}/file`, `catalog-import.files.service.ts`). Raw body through the upload's
+  own intake (`takeSlotAndReadBody`: the same slot, 5 MiB bound and body deadline; the passthrough matches the path with any
+  id segment so a malformed id is the guard's 400) and the same off-thread parse (`parseImportFileOffThread`, RT-1535): there
+  is no second parse path. No `Idempotency-Key` (the contract makes it idempotent by `expected_version`): a retry after success
+  is `409 version_conflict`. Order: path id and query (400), a free slot (429), the body (413 / 400), then the batch (404,
+  `import_batch_closed` for a closed or lapsed batch, `version_conflict`) on a short locked read that ends before the parse,
+  then the parse (422 / 400), then one transaction that locks the batch again, repeats the checks, deletes the rows, inserts
+  the new ones, updates the batch and writes the `catalog.import.upload` audit row (`replaced_file`, `carried_columns`).
+  The lock is never held through the parse.
+- **What the batch becomes.** `draft` at `version + 1`, the mode kept, the new file's facts and columns, `mapping` NULL,
+  `counts` and `preview_hash` NULL, the expiry moved, review decisions gone with the rows; `validation_generation` is not
+  touched (the next validate bumps it, and the row list answers 409 while the batch is a draft).
+- **Carried mapping** (`import-replace-carry.ts`, `suggestMapping`'s `carried` argument). Entries of the previous `mapping`
+  whose stored (trimmed, exact) header is unchanged, non-empty and unique in both files move to the new column number and are
+  placed first. When the batch had no mapping yet nothing is carried (the contract says the previous mapping, not its
+  suggestion). The profile and the synonyms then fill only the other columns and leave out the fields the carried entries hold
+  (`barcode` while the total stays at most 5); the profile is chosen over the columns the carried entries did not place.
+- **Gaps in the contract, plain reading.** The new file's `file_name` is the query's, `null` when absent (only the mode is
+  kept); the `file_previously_published` warning is recomputed for the new file's SHA-256.
+- **Error report** (`GET .../error-report`). The row list's state rule (`validated` or `published`, rows not purged: else
+  `409 import_batch_not_validated`), read under a share lock. Rows with status `error` or `needs_review` in row order. Columns:
+  `row_number`, `status`, `issues` (each issue `code: message`, or `code [field]: message`, joined by ` | `), then the file's
+  headers. The cells are the row list's (after the trim, empty for a blank one). BOM, CRLF, RFC 4180 quoting, and the formula
+  guard (a leading `'` before `=`, `+`, `-`, `@`, a tab or a carriage return) on every cell, headers and issue text included,
+  applied before the quoting. Name `import-errors-{batchId}.csv`.
+- **Template** (`GET /api/v1/catalog/import-template?headers=ar|en`, default `ar`). BOM, one header line in the order of the
+  canonical fields, no data row, the same for every tenant; every header is a synonym `suggestMapping` places on its field (a
+  unit test proves it for both languages). Name `import-template-{language}.csv`.
+- **Response headers.** The CSV `Content-Type` and `Content-Disposition` are set in the handler after success, never with a
+  `@Header`: Nest applies a `@Header` before the handler runs, so it would label a 404 or 409 JSON error body as CSV.
+- **Rate-limit classes** were already declared (template `cheapRead`, error report `expensiveRead`, replace `jobOrPreview`).
+
 ## 13. Acceptance criteria for this Planning item (RT-1489)
 
 - [x] Field contract, identifiers and collisions (§5, §7.1), modes (§7.2), validation and review queue (§7.3), preview,
