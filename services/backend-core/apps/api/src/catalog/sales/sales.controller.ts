@@ -90,7 +90,7 @@ import {
   VoidRequesterNotEligibleError,
   VoidSelfApprovalError,
 } from "./void-approval";
-import { SaleCaptureAuthGuard } from "./sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "./sale-capture-auth.guard";
 import {
   SaleResponsibilityMismatchError,
   SaleResponsibilityOfflineRefusedError,
@@ -477,7 +477,15 @@ export class SalesController {
   }
 
   @Post("api/pos/v1/sales/:saleRef/void")
-  @UseGuards(PosOperatorEnvelopeSaleGuard)
+  // RT-1403 (RT-530 c12029): two alternative credentials, as on captureSale.
+  // The operator envelope is unchanged (the body carries no `operatorUserId`);
+  // the device bearer plus `operatorUserId` is the cashier's path, verified
+  // against a cashier admission live now on the paired device. @DeviceBearer()
+  // makes the global FailClosedAuthGuard defer to SaleVoidAuthGuard, which
+  // authenticates both paths. No per-device write bucket: a void is rare and
+  // the envelope path never had one.
+  @DeviceBearer()
+  @UseGuards(SaleVoidAuthGuard)
   @Idempotent("required")
   @Auditable("sale.voided")
   async recordVoid(
@@ -503,6 +511,13 @@ export class SalesController {
       // A malformed ref is a non-disclosing safe-404, never a 500 (SI-004).
       throw new NotFoundException("not_found");
     }
+    // RT-1403: `operatorUserId` is the device path's attribution CLAIM. The
+    // guard verified it and published the cashier as ctx.userId, the only
+    // actor recorded. It is not a void fact, so it is dropped before the
+    // service hashes the body into payload_hash: a void is the same payload
+    // on either path (it stays in the idempotency fingerprint, which covers
+    // the raw body).
+    const { operatorUserId: _attributionClaim, ...voidBody } = body;
     try {
       const result = await this.salesService.recordVoid({
         tenantId: ctx.tenantId,
@@ -511,7 +526,7 @@ export class SalesController {
         posDeviceId: request.posDeviceId,
         requestId: request.requestId ?? null,
         saleRef,
-        body,
+        body: voidBody,
       });
       if (result.created) {
         res.status(HttpStatus.CREATED);

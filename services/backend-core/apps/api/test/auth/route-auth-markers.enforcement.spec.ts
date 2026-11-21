@@ -16,7 +16,7 @@ import request from "supertest";
 
 import { appControllers, bootDbLessApp, type DbLessApp } from "../_helpers/db-less-app";
 import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
-import { SaleCaptureAuthGuard } from "../../src/catalog/sales/sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "../../src/catalog/sales/sale-capture-auth.guard";
 import { SaleHistoryAuthGuard } from "../../src/catalog/sales/history/sale-history-auth.guard";
 import { ShiftCashUpAuthGuard } from "../../src/pos-shifts/shift-cash-up-auth.guard";
 import { TrackedLotsAuthGuard } from "../../src/catalog/sales/tracked-lines/tracked-lots-auth.guard";
@@ -76,6 +76,10 @@ const REVIEWED_DEVICE_ATTESTED = ["PosAuditEventsController.syncBatch"];
  * same-key, same-body replay of the same device without the claim (owner
  * decision, RT-1112 c16636). Covered by voucher-cashier-auth.guard.unit.spec.ts
  * and vouchers-pos.http.integration.spec.ts.
+ * RT-1403 (RT-530 c12029): SaleVoidAuthGuard (recordVoid) is the captureSale
+ * model: the envelope, or the device token with an `operatorUserId` claim
+ * verified as a cashier admission live at the server's now (the TLV verifier,
+ * reused); covered by sale-void-auth.guard.unit.spec.ts.
  */
 const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   SaleCaptureAuthGuard,
@@ -86,6 +90,7 @@ const REVIEWED_DEVICE_GUARD_COMPOSITES: readonly unknown[] = [
   TrackedLineValidationAuthGuard,
   ValidateVoucherAuthGuard,
   RedeemVoucherAuthGuard,
+  SaleVoidAuthGuard,
 ];
 
 interface MarkedRoute {
@@ -197,6 +202,9 @@ describe("route auth markers are enforced at the route (RT-129 / A9)", () => {
       // RT-224 (Option B): captureSale accepts the device bearer as an
       // alternative to the operator envelope; SaleCaptureAuthGuard runs both.
       "SalesController.captureSale",
+      // RT-1403 (RT-530 c12029): recordVoid accepts the device bearer with a live
+      // cashier claim as an alternative to the operator envelope.
+      "SalesController.recordVoid",
       // RT-17 slices 2b-1 / 2b-2: the shift cash-up writes, the captureSale model.
       "ShiftCashUpController.closeShift",
       "ShiftCashUpController.openShift",

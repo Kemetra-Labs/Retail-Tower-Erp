@@ -3,11 +3,14 @@
  *
  *   POST /api/pos/v1/sales/{saleRef}/void
  *
- * Auth is the `operatorAuthorization` scheme: `Authorization: Bearer <pos_operator
- * envelope>`, the envelope of the operator who REQUESTED the void (the server
- * binds `approval.requesterUserId` to the envelope's operator). The envelope is
- * an explicit argument of the call, never read here, never logged, stored or
- * bridged; no envelope, no request. There is no device path for a void.
+ * Auth, two alternatives (contract 1.26.0-draft). A manager or admin void uses the
+ * `operatorAuthorization` scheme: `Authorization: Bearer <pos_operator envelope>`, the envelope of
+ * the operator who REQUESTED the void (the server binds `approval.requesterUserId` to the
+ * envelope's operator). A cashier's void (RT-1403, RT-530 c12029) uses the `device` scheme: the
+ * paired terminal's device bearer plus the cashier's `operatorUserId` in the body, accepted only
+ * while that cashier holds a live admission on this device. Either credential is an explicit
+ * argument of the call, never read here, never logged, stored or bridged; no credential, no
+ * request.
  *
  * Outcome mapping (contract 1.8.0-draft, `sales.controller.ts`):
  *   201 / 200          -> recorded (a replay when `Idempotent-Replayed` or 200);
@@ -15,6 +18,8 @@
  *                         else `unknown` (a resend replays it)
  *   400                -> validation_error
  *   403 void_*         -> that code (terminal: the approval did not hold)
+ *   403 refused        -> unknown (claim_refused): the device path's cashier claim was refused
+ *                         before the void was read; proves nothing about the void
  *   404                -> sale_not_found
  *   409 already_reversed -> already_reversed; any other 409 -> conflict
  *   422 void_*         -> that code
@@ -43,7 +48,14 @@ export type UnknownCategory =
   | 'no_connection'
   | 'unauthorized'
   | 'server_error'
-  | 'unreadable_answer';
+  | 'unreadable_answer'
+  /**
+   * RT-1403: the device path's generic 403 `refused` (no live cashier admission, an ineligible
+   * cashier). It proves nothing about the void (the server refused the CLAIM before looking at
+   * it, so an earlier send may still have been recorded): the row stays unknown and is
+   * re-sent only while the cashier is the signed-in sender.
+   */
+  | 'claim_refused';
 
 export interface RecordVoidRequest {
   readonly saleRef: string;
@@ -58,6 +70,16 @@ export type RequesterEnvelope = string | null;
 
 export interface SaleVoidClient {
   recordVoid(request: RecordVoidRequest, envelope: RequesterEnvelope): Promise<RecordVoidOutcome>;
+  /**
+   * RT-1403 (RT-530 c12029): a CASHIER's void, sent with the paired terminal's DEVICE bearer.
+   * `request.bodyJson` must carry the cashier's `operatorUserId` (`buildVoidBodyJson(..,
+   * 'device')`): its presence is what selects the device credential on Backend-Core. A null
+   * or empty token is `no_credential`, no request. Same outcome table as `recordVoid`.
+   */
+  recordVoidAsCashier(
+    request: RecordVoidRequest,
+    deviceToken: string | null,
+  ): Promise<RecordVoidOutcome>;
 }
 
 export interface CreateSaleVoidClientDeps {
@@ -134,7 +156,12 @@ function toOutcome(answer: HttpAnswer, saleRef: string): RecordVoidOutcome {
     const replayed = answer.status === 200 || answer.headers.get('Idempotent-Replayed') === 'true';
     return { kind: 'recorded', replayed, eventRef };
   }
-  const reason = classifyVoidRefusal(answer.status, readErrorCode(answer.json));
+  const code = readErrorCode(answer.json);
+  // RT-1403: the device path's generic 403 `refused` (one body for every cause) is not a refusal
+  // of THIS void: the claim was refused before the void was read.
+  if (answer.status === 403 && code === 'refused')
+    return { kind: 'unknown', category: 'claim_refused' };
+  const reason = classifyVoidRefusal(answer.status, code);
   if (reason !== null) return { kind: 'refused', reason };
   return { kind: 'unknown', category: answer.status === 401 ? 'unauthorized' : 'server_error' };
 }
@@ -162,16 +189,22 @@ export function createSaleVoidClient(deps: CreateSaleVoidClientDeps): SaleVoidCl
     }
   }
 
+  async function send(
+    request: RecordVoidRequest,
+    token: string | null,
+  ): Promise<RecordVoidOutcome> {
+    if (token === null || token.length === 0) {
+      return { kind: 'unknown', category: 'no_credential' };
+    }
+    if (!isUuid(request.saleRef)) return { kind: 'refused', reason: 'sale_not_found' };
+    const answer = await exchange(request, token);
+    return answer === null
+      ? { kind: 'unknown', category: 'no_connection' }
+      : toOutcome(answer, request.saleRef);
+  }
+
   return {
-    async recordVoid(request, envelope) {
-      if (envelope === null || envelope.length === 0) {
-        return { kind: 'unknown', category: 'no_credential' };
-      }
-      if (!isUuid(request.saleRef)) return { kind: 'refused', reason: 'sale_not_found' };
-      const answer = await exchange(request, envelope);
-      return answer === null
-        ? { kind: 'unknown', category: 'no_connection' }
-        : toOutcome(answer, request.saleRef);
-    },
+    recordVoid: (request, envelope) => send(request, envelope),
+    recordVoidAsCashier: (request, deviceToken) => send(request, deviceToken),
   };
 }

@@ -40,9 +40,12 @@ export function toVoidSession(
 }
 
 /**
- * The signed-in operator as the void SENDER: needs a `users.id` and a
- * non-empty envelope (an operator who signed in online). Anyone else sends
- * nothing.
+ * The signed-in operator as the void SENDER: needs a `users.id`. A manager or
+ * admin also needs a non-empty envelope (an operator who signed in online);
+ * without one they send nothing. A CASHIER holds no envelope and sends over
+ * the device path (RT-1403, RT-530 c12029): the device bearer is read at send
+ * time, and Backend-Core accepts it only while this cashier holds a live
+ * admission on the terminal.
  */
 export function toVoidSender(
   record: OperatorSessionRecord,
@@ -51,6 +54,8 @@ export function toVoidSender(
 ): VoidSender | null {
   const operatorUserId = operatorUserIdOf(record);
   if (operatorUserId === null) return null;
+  const scope = scopeOf(record, terminalId);
+  if (record.role === 'cashier') return { via: 'device', scope, operatorUserId };
   if (envelope === null || envelope.length === 0) return null;
-  return { scope: scopeOf(record, terminalId), operatorUserId, envelope };
+  return { scope, operatorUserId, envelope };
 }

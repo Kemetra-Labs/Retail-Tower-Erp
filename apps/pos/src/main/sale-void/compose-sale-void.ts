@@ -5,10 +5,11 @@
  * primitive dependencies, and schedules the background send. Kept out of
  * `index.ts` so the wiring is unit-tested.
  *
- * The send engine's only credential is the signed-in operator's own envelope
- * (`getOperatorEnvelope`, the token reader sale sync also uses), and a void is
- * sent only while its REQUESTER is that operator: there is no device bearer in
- * this composition at all.
+ * The send engine's credential is the signed-in operator's own: a manager or
+ * admin's envelope (`getOperatorEnvelope`, the token reader sale sync also
+ * uses), or, for a CASHIER (RT-1403, RT-530 c12029), the paired terminal's
+ * device bearer (`getDeviceToken`) with the cashier's own `operatorUserId`. A
+ * void is sent only while its REQUESTER is that operator.
  */
 import { randomUUID } from 'node:crypto';
 
@@ -51,6 +52,12 @@ export interface ComposeSaleVoidDeps {
   readonly http: Omit<CreateSaleVoidClientDeps, 'timeoutMs'>;
   /** The signed-in operator's envelope, read in-process per use; never bridged. */
   readonly getOperatorEnvelope: () => string | null;
+  /**
+   * RT-1403: the paired terminal's device token for a CASHIER's void, read in process per send
+   * (the sendable read: null unless paired, null once revoked); never bridged. Never rejects.
+   * Omitted: cashier voids wait (no device credential).
+   */
+  readonly getDeviceToken?: () => Promise<string | null>;
   readonly getSession: () => OperatorSessionRecord | null;
   /** The live paired terminal id; null while unpaired or revoked. */
   readonly getTerminalId: () => string | null;
@@ -188,6 +195,8 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
   const sync = createSaleVoidSync({
     repo,
     client: createSaleVoidClient(deps.http),
+    ...(deps.getDeviceToken === undefined ? {} : { deviceToken: deps.getDeviceToken }),
+    localDayOf: deps.localDayOf ?? voidBusinessDay,
     saleRef: saleRefOf,
     audit,
     currentSender,

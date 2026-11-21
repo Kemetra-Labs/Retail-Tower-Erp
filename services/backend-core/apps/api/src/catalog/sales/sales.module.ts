@@ -58,7 +58,7 @@ import {
   PgOperatorAttributionVerifier,
   type OperatorAttributionVerifier,
 } from "./operator-attribution";
-import { SaleCaptureAuthGuard } from "./sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "./sale-capture-auth.guard";
 import { CashierEligibilityRepository } from "../../pos-cashier-admissions/cashier-eligibility";
 import { PgCashierAdmissionSelector } from "./history/sale-history-admission";
 import { PgSaleHistoryRefusalAudit } from "./history/sale-history.audit";
@@ -213,6 +213,9 @@ import { SaleQuarantineService } from "./quarantine/sale-quarantine.service";
       inject: [PG_POOL, AUTH_LOOKUP_POOL],
     },
     TrackedLineValidationAuthGuard,
+    // RT-1403: recordVoid's credential gate (the envelope, or the device bearer
+    // with a cashier claim verified by the TLV verifier above).
+    SaleVoidAuthGuard,
     // ADR 0009 (audit M-2): per-device write rate limit, layered AFTER the
     // envelope guard. A class-referenced @UseGuards enhancer is reflection-
     // instantiated, so it must use plain reflectable DI (no factory): RateLimiter

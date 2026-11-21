@@ -69,7 +69,7 @@ import {
 // (not at each spec's top) so the harness is the single point that references
 // the unbuilt module.
 import { SalesController } from "../../../../src/catalog/sales/sales.controller";
-import { SaleCaptureAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
 import { SalesService } from "../../../../src/catalog/sales/sales.service";
 import { SaleReturnsService } from "../../../../src/catalog/sales/sale-returns.service";
 import { CreditSaleReversalService } from "../../../../src/catalog/sales/credit-sale-reversal.service";
@@ -301,6 +301,10 @@ export async function startCaptureHarness(
       // admission). Covered by its unit spec and the device-operator-capture
       // integration spec; a no-op here like the other auth guards.
       .overrideGuard(SaleCaptureAuthGuard)
+      .useValue({ canActivate: () => true })
+      // RT-1403: recordVoid's route guard (envelope OR device + live cashier
+      // claim), a no-op here like captureSale's; covered by its unit spec.
+      .overrideGuard(SaleVoidAuthGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(PosOperatorAuthGuard)
       .useValue({ canActivate: () => true })

@@ -32,11 +32,24 @@ export interface RecordVoidWireBody {
   externalId: string;
   businessDate: string;
   approval: VoidApprovalWire;
+  /**
+   * RT-1403 (RT-530 c12029): the requesting cashier's `users.id`, present ONLY on the device
+   * path (a cashier's void is sent with the device bearer). Its presence is what selects that
+   * credential on Backend-Core, so an envelope body never carries it.
+   */
+  operatorUserId?: string;
 }
 
+/** Which credential carries the void: the requester's envelope, or the device bearer (cashier). */
+export type VoidCredentialPath = 'envelope' | 'device';
+
 /** The request body of one journaled void, for the sale's server reference. */
-export function buildVoidBody(entry: VoidEntry, saleRef: string): RecordVoidWireBody {
-  return {
+export function buildVoidBody(
+  entry: VoidEntry,
+  saleRef: string,
+  path: VoidCredentialPath = 'envelope',
+): RecordVoidWireBody {
+  const body: RecordVoidWireBody = {
     sourceSystem: SOURCE_SYSTEM,
     externalId: entry.externalId,
     businessDate: entry.businessDate,
@@ -51,9 +64,16 @@ export function buildVoidBody(entry: VoidEntry, saleRef: string): RecordVoidWire
       approvedAt: entry.approvedAt,
     },
   };
+  // Appended last: the envelope bytes are unchanged and the device bytes differ only by this key.
+  if (path === 'device') body.operatorUserId = entry.requesterUserId;
+  return body;
 }
 
 /** The exact bytes sent (stable key order: the object literal order above). */
-export function buildVoidBodyJson(entry: VoidEntry, saleRef: string): string {
-  return JSON.stringify(buildVoidBody(entry, saleRef));
+export function buildVoidBodyJson(
+  entry: VoidEntry,
+  saleRef: string,
+  path: VoidCredentialPath = 'envelope',
+): string {
+  return JSON.stringify(buildVoidBody(entry, saleRef, path));
 }

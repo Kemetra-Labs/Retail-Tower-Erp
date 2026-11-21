@@ -37,7 +37,11 @@ let sender: VoidSender | null;
 let saleRef: string | null;
 let stopped: boolean;
 let outcome: RecordVoidOutcome;
-let client: { recordVoid: Mock<SaleVoidClient['recordVoid']> };
+let client: {
+  recordVoid: Mock<SaleVoidClient['recordVoid']>;
+  recordVoidAsCashier: Mock<SaleVoidClient['recordVoidAsCashier']>;
+};
+let deviceToken: string | null;
 let sync: SaleVoidSync;
 
 const REQUESTER_SENDER: VoidSender = {
@@ -45,6 +49,28 @@ const REQUESTER_SENDER: VoidSender = {
   operatorUserId: REQUESTER_USER,
   envelope: 'envelope-of-the-requester',
 };
+
+/** The engine over the current journal, with any dependency overridden. */
+function makeSync(over: Partial<Parameters<typeof createSaleVoidSync>[0]> = {}): SaleVoidSync {
+  const handle = handleFor(db);
+  return createSaleVoidSync({
+    repo,
+    client,
+    deviceToken: () => Promise.resolve(deviceToken),
+    saleRef: () => saleRef,
+    audit: createSaleVoidAudit({
+      sink: { emit: (event) => audit.push(event) },
+      now: () => clock,
+      newEventId: () => `evt-${String(audit.length)}`,
+    }),
+    currentSender: () => sender,
+    transaction: (fn) => handle.transaction(fn)(),
+    now: () => clock,
+    logger: { warn: () => undefined },
+    isStopped: () => stopped,
+    ...over,
+  });
+}
 
 beforeAll(async () => {
   await initSalesSyncSql();
@@ -61,24 +87,14 @@ beforeEach(() => {
   saleRef = SALE_REF;
   stopped = false;
   outcome = { kind: 'recorded', replayed: false, eventRef: EVENT_REF };
+  deviceToken = 'device-token-of-the-till';
   client = {
     recordVoid: vi.fn<SaleVoidClient['recordVoid']>(() => Promise.resolve(outcome)),
+    recordVoidAsCashier: vi.fn<SaleVoidClient['recordVoidAsCashier']>(() =>
+      Promise.resolve(outcome),
+    ),
   };
-  sync = createSaleVoidSync({
-    repo,
-    client,
-    saleRef: () => saleRef,
-    audit: createSaleVoidAudit({
-      sink: { emit: (event) => audit.push(event) },
-      now: () => clock,
-      newEventId: () => `evt-${String(audit.length)}`,
-    }),
-    currentSender: () => sender,
-    transaction: (fn) => handle.transaction(fn)(),
-    now: () => clock,
-    logger: { warn: () => undefined },
-    isStopped: () => stopped,
-  });
+  sync = makeSync();
   repo.insert(newVoidEntry(1));
 });
 
@@ -311,5 +327,140 @@ describe('single flight, ordering and shutdown', () => {
     await pass;
     expect(repo.read('v1')?.state).toBe('confirmed');
     await expect(sync.drain(10)).resolves.toBeUndefined();
+  });
+});
+
+const CASHIER_SENDER: VoidSender = {
+  via: 'device',
+  scope: SCOPE,
+  operatorUserId: REQUESTER_USER,
+};
+
+describe('RT-1403: a cashier requester sends over the device path', () => {
+  beforeEach(() => {
+    sender = CASHIER_SENDER;
+  });
+
+  it('sends the DEVICE bytes (with operatorUserId) under the device token, never the envelope client', async () => {
+    expect(await sync.tick()).toEqual({ confirmed: 1, refused: 0, unresolved: 0 });
+    const row = repo.read('v1');
+    if (row === null) throw new Error('journaled row missing');
+    expect(client.recordVoid).not.toHaveBeenCalled();
+    expect(client.recordVoidAsCashier.mock.calls).toEqual([
+      [
+        {
+          saleRef: SALE_REF,
+          bodyJson: buildVoidBodyJson(row, SALE_REF, 'device'),
+          idempotencyKey: row.externalId,
+        },
+        'device-token-of-the-till',
+      ],
+    ]);
+    expect(buildVoidBodyJson(row, SALE_REF, 'device')).toContain(
+      `"operatorUserId":"${REQUESTER_USER}"`,
+    );
+    expect(row).toMatchObject({ state: 'confirmed', voidRef: EVENT_REF, attemptCount: 1 });
+    expect(audit.map((e) => e.action_category)).toEqual(['sale.void.confirmed']);
+  });
+
+  it('never sends a cashier row as another cashier: it waits, untouched', async () => {
+    sender = { ...CASHIER_SENDER, operatorUserId: OTHER_USER };
+    expect(await sync.tick()).toEqual({ confirmed: 0, refused: 0, unresolved: 0 });
+    expect(client.recordVoidAsCashier).not.toHaveBeenCalled();
+    expect(client.recordVoid).not.toHaveBeenCalled();
+    expect(repo.read('v1')).toMatchObject({ state: 'pending', attemptCount: 0 });
+  });
+
+  it('with no device token the client is called with null (no credential) and the row stays queued', async () => {
+    deviceToken = null;
+    outcome = { kind: 'unknown', category: 'no_credential' };
+    expect(await sync.tick()).toEqual({ confirmed: 0, refused: 0, unresolved: 1 });
+    expect(client.recordVoidAsCashier.mock.calls[0]?.[1]).toBeNull();
+    expect(repo.read('v1')).toMatchObject({ state: 'unknown', lastErrorCategory: 'no_credential' });
+  });
+
+  it('a device sender with no deviceToken reader never sends a token', async () => {
+    sync = makeSync({ deviceToken: undefined as never });
+    outcome = { kind: 'unknown', category: 'no_credential' };
+    await sync.tick();
+    expect(client.recordVoidAsCashier.mock.calls[0]?.[1]).toBeNull();
+  });
+
+  it('a refused claim (claim_refused) keeps the row unknown and re-sends the same bytes and key', async () => {
+    outcome = { kind: 'unknown', category: 'claim_refused' };
+    expect(await sync.tick()).toEqual({ confirmed: 0, refused: 0, unresolved: 1 });
+    expect(repo.read('v1')).toMatchObject({ state: 'unknown', lastErrorCategory: 'claim_refused' });
+    clock = '2026-06-07T12:00:05.000Z';
+    outcome = { kind: 'recorded', replayed: true, eventRef: EVENT_REF };
+    await sync.tick();
+    expect(repo.read('v1')).toMatchObject({ state: 'confirmed', attemptCount: 2 });
+    const calls = client.recordVoidAsCashier.mock.calls;
+    expect(calls).toHaveLength(2);
+    expect(calls[0]).toEqual(calls[1]);
+  });
+
+  it('a server refusal of the void itself is terminal on the device path too', async () => {
+    outcome = { kind: 'refused', reason: 'void_requester_mismatch' };
+    expect(await sync.tick()).toEqual({ confirmed: 0, refused: 1, unresolved: 0 });
+    expect(repo.read('v1')).toMatchObject({
+      state: 'refused',
+      refusalReason: 'void_requester_mismatch',
+    });
+  });
+});
+
+describe('RT-1403: a never-sent void whose business day has passed is refused locally', () => {
+  const dayOf = (iso: string): string => iso.slice(0, 10);
+
+  beforeEach(() => {
+    sync = makeSync({ localDayOf: dayOf });
+  });
+
+  it.each([
+    ['a cashier (device path)', CASHIER_SENDER],
+    ['a manager (envelope)', REQUESTER_SENDER],
+  ])(
+    'refuses it as void_outside_business_day, visibly, and sends nothing (%s)',
+    async (_label, who) => {
+      sender = who;
+      clock = '2026-06-08T00:30:00.000Z';
+      expect(await sync.tick()).toEqual({ confirmed: 0, refused: 1, unresolved: 0 });
+      expect(client.recordVoid).not.toHaveBeenCalled();
+      expect(client.recordVoidAsCashier).not.toHaveBeenCalled();
+      expect(repo.read('v1')).toMatchObject({
+        state: 'refused',
+        refusalReason: 'void_outside_business_day',
+        attemptCount: 0,
+        acknowledgedAt: null,
+      });
+      expect(audit.map((e) => e.action_category)).toEqual(['sale.void.refused']);
+      expect(repo.listUnacknowledgedRefused(SCOPE)).toHaveLength(1);
+    },
+  );
+
+  it('does not touch a void on its own business day', async () => {
+    sender = CASHIER_SENDER;
+    await sync.tick();
+    expect(client.recordVoidAsCashier).toHaveBeenCalledTimes(1);
+    expect(repo.read('v1')?.state).toBe('confirmed');
+  });
+
+  it('never refuses locally a void that was sent before (the server may hold it): it is re-sent', async () => {
+    sender = CASHIER_SENDER;
+    outcome = { kind: 'unknown', category: 'no_connection' };
+    await sync.tick();
+    clock = '2026-06-08T00:30:00.000Z';
+    outcome = { kind: 'recorded', replayed: true, eventRef: EVENT_REF };
+    await sync.tick();
+    expect(client.recordVoidAsCashier).toHaveBeenCalledTimes(2);
+    expect(repo.read('v1')).toMatchObject({ state: 'confirmed', attemptCount: 2 });
+  });
+
+  it('a row waiting for its sale to sync is refused too once its day has passed', async () => {
+    sender = CASHIER_SENDER;
+    saleRef = null;
+    clock = '2026-06-08T00:30:00.000Z';
+    expect(await sync.tick()).toEqual({ confirmed: 0, refused: 1, unresolved: 0 });
+    expect(repo.read('v1')?.state).toBe('refused');
   });
 });

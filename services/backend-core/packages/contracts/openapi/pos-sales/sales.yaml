@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.25.0-draft"
+  version: "1.26.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -641,6 +641,28 @@ info:
     runtime is deployed the strict capture DTO rejects the unknown field
     (400); the POS MUST NOT send it before then.
 
+
+    RT-1403 (1.26.0-draft; [GATED: contract] owner authorization on RT-1403,
+    comment 18071, for the RT-530 owner decision of comment 12029; after
+    RT-1151's 1.25.0-draft): `recordVoid` gains a second, alternative security
+    requirement, `device` (the paired terminal's device bearer), used together
+    with a new OPTIONAL body field `RecordVoidRequest.operatorUserId`, so a
+    cashier's void no longer needs an operator envelope. The server accepts
+    the claimed cashier only if a cashier admission of that device and store
+    for that user is live at the server's current time (no back-dating
+    window) and the cashier is still eligible, the rules of the tracked-line
+    validation; the verified cashier is the void's requester, so every
+    RT-530 check (requester bound to the actor, four-eyes, same business
+    day, requester and approver eligibility, the approval bound to this void,
+    nothing future-dated) applies unchanged. Additive: an added alternative
+    security requirement, an optional field and the generic `refused` 403 on
+    the device path only. The `operatorAuthorization` path, every other
+    operation and every other response are unchanged, and `operatorUserId`
+    is not part of the void's `payload_hash`. A client that does not send
+    `operatorUserId` sees no difference. ROLLOUT: until this runtime is
+    deployed the strict void DTO rejects `operatorUserId` (400); the POS MUST
+    NOT send it before then.
+
 servers:
   - url: https://api.example.com
 
@@ -958,6 +980,7 @@ paths:
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
+        - device: []
       description: >
         Create a void terminal event referencing the sale, stamping `voidedAt`
         from the server clock. The original `sales` row and its `sale_lines`
@@ -1021,6 +1044,32 @@ paths:
         single-use within a tenant. `sale_voids` records the approver and the
         evidence, and the `sale.voided` audit event carries the approver,
         requester, approval id and policy version.
+
+        Cashier device path (RT-1403, RT-530 owner decision c12029): a void
+        may instead be sent with the `device` scheme (the paired terminal's
+        device bearer) plus the cashier's `operatorUserId` in the body. The
+        presence of `operatorUserId` selects this path; without it the
+        request is an `operatorAuthorization` request exactly as before, and
+        an envelope request that carries it is refused with the generic 401.
+        On this path the device row supplies the tenant, store and device, and
+        the server accepts the void only if the device is active, a cashier
+        admission of that device and store for that user is live at the
+        server's current time, and the cashier's membership, store access and
+        account are still live. The verified cashier is the void's actor, so
+        check 4 binds `approval.requesterUserId` to the cashier holding a live
+        admission on the paired device, never to an id the client merely
+        states; checks 1 to 3 and 5 to 7 apply unchanged. A missing, invalid
+        or revoked device credential is the same generic 401. A refused
+        cashier claim from an authenticated device (no live admission, an
+        ineligible cashier, an unknown user or a user of another tenant) is
+        the generic 403 `refused`, with one body for every cause, decided
+        before any of the checks above; it is never a sign that the device was
+        revoked. A malformed body from an authenticated device is the usual
+        400. A void queued while the cashier was admitted is therefore sent
+        only while the same cashier is admitted again. Idempotency, provenance
+        dedup and the replay rules apply unchanged; the idempotency key is
+        scoped to the verified cashier, as it is to the operator on the
+        envelope path.
       parameters:
         - $ref: "#/components/parameters/SaleRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1966,8 +2015,8 @@ components:
         presented as `Authorization: Bearer <device_token>` (the same
         role-named scheme as `catalog/read-down.yaml` and
         `pos-cashier-admissions.openapi.yaml`; NOT a JWT, so `bearerFormat`
-        is omitted). Accepted on `captureSale` only, and only together with
-        `operatorUserId` in the body: the device token is device-scoped and
+        is omitted). Accepted on `captureSale` and, from RT-1403, on
+        `recordVoid`, and only together with `operatorUserId` in the body: the device token is device-scoped and
         never proves a sale's author alone. The token is hashed and matched
         against a non-revoked `devices` row of an active tenant; that row
         supplies the authoritative `(tenant_id, store_id, device_id)`. The
@@ -2949,6 +2998,26 @@ components:
             `void_outside_business_day`.
         approval:
           $ref: "#/components/schemas/VoidApproval"
+        operatorUserId:
+          type: string
+          format: uuid
+          description: >
+            RT-1403 (RT-530 owner decision c12029). The `users.id` of the
+            cashier requesting the void: the `user_id` of the cashier admission
+            the terminal holds (NOT the provider subject `operator_id`).
+            REQUIRED with the `device` scheme and MUST be absent with
+            `operatorAuthorization`: its presence selects the device path, so
+            an envelope request that carries it is refused with the generic
+            401 (an envelope is not a device credential).
+
+            It is a claim, never trusted on its own. The server accepts it only
+            when a cashier admission of the authenticated device and store for
+            this user is live at the server's current time and the cashier is
+            still eligible (membership, account, role, store and store access),
+            else the generic 403 `refused`. The verified user is the void's
+            actor, and the approval's `requesterUserId` must equal it (403
+            `void_requester_mismatch`). It is not part of the void's
+            `payload_hash`.
     VoidApproval:
       type: object
       additionalProperties: false
@@ -4258,7 +4327,14 @@ components:
         tenant, an unknown user and a revoked membership are all this);
         `credit_sale_reversal_restricted` (RT-577, from the RT-577 runtime) -
         the sale has payer responsibilities (see
-        `CreditSaleReversalRestricted`).
+        `CreditSaleReversalRestricted`);
+        `refused` (RT-1403, `device` path only) - the device credential is
+        valid, but the cashier claim (`operatorUserId`) is not accepted: no
+        live cashier admission of this device and store, an ineligible
+        cashier, an unknown user or a user of another tenant. One body for
+        every cause, decided before every other check; the cause is logged
+        server-side keyed by `request_id`, and it is never a sign that the
+        device was revoked (that is a 401).
         Deterministic; nothing is recorded.
       content:
         application/json:

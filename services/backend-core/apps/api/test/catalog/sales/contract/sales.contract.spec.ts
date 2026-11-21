@@ -888,9 +888,9 @@ describe("pos-sales/sales.yaml — RT-224 device-bearer cashier capture", () => 
     ]);
   });
 
-  it("no other sale operation accepts the device bearer (only captureSale changes)", () => {
+  it("no other sale operation accepts the device bearer (only captureSale and, from RT-1403, recordVoid)", () => {
     for (const { op } of salesOperations()) {
-      if (op.operationId === "captureSale") continue;
+      if (op.operationId === "captureSale" || op.operationId === "recordVoid") continue;
       expect(op.security).toEqual([{ operatorAuthorization: [] }]);
     }
   });
@@ -1225,8 +1225,8 @@ describe("pos-sales/sales.yaml — RT-530 manager-approved void", () => {
     expect(info).toContain("ROLLOUT ORDER: a POS that sends no approval gets");
   });
 
-  it("the void stays envelope-only: no new security requirement", () => {
-    expect(findOp("recordVoid")?.security).toEqual([{ operatorAuthorization: [] }]);
+  it("the void was envelope-only at RT-530; RT-1403 adds the device bearer as a second alternative", () => {
+    expect(findOp("recordVoid")?.security).toEqual([{ operatorAuthorization: [] }, { device: [] }]);
   });
 });
 
@@ -2576,8 +2576,8 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | undefined;
 
   it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
-    // RT-1343 item 2 bumped the document to 1.24.0-draft and RT-1151 to 1.25.0-draft; the RT-1114 note still stands.
-    expect(salesDoc.info?.version).toBe("1.25.0-draft");
+    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft and RT-1403 to 1.26.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.26.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2631,8 +2631,8 @@ describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
     CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
 
   it("bumped to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
-    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft; the RT-1343 note still stands.
-    expect(salesDoc.info?.version).toBe("1.25.0-draft");
+    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft and RT-1403 to 1.26.0-draft; the RT-1343 note still stands.
+    expect(salesDoc.info?.version).toBe("1.26.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
     expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");
