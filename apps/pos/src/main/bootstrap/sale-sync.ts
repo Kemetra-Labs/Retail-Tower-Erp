@@ -17,6 +17,7 @@ import {
 } from '../pairing/device-token.js';
 import type { PairingStore } from '../pairing/store.js';
 import { readEngineCutoffs } from '../sales-sync/capture-cutover.js';
+import { readTenderRefsSince } from '../sales-sync/tender-refs-cutoff.js';
 import {
   CASHIER_CLAIM_REFUSED_RESET_ENV,
   isCashierClaimRefusedResetRequested,
@@ -152,6 +153,9 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
   // 409). `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` / `..._RECEIPT_SINCE` only seed that first
   // write. No row (the boot write failed) = both off, with a warning.
   const { tendersSince, receiptSince } = readEngineCutoffs(db, mainLogger);
+  // RT-363 (G1): one tender per line with tenderRef/sequence. Env-only, off when unset
+  // (`tender-refs-cutoff.ts` states the operator rule); needs `tendersSince` on as well.
+  const tenderRefsSince = readTenderRefsSince(process.env, mainLogger);
   // RT-221: the drain (and the pending / held counts) is scoped to the
   // CURRENT pairing's terminal_id, read live from the pairing status each
   // tick. After a re-pair, the earlier pairing's queued sales are held —
@@ -196,6 +200,7 @@ export function startSaleSyncEngine(deps: SaleSyncDeps, pairingStatus: PairedTer
     client: saleSyncClient,
     tendersSince,
     receiptSince,
+    tenderRefsSince,
     stateRepo: saleSyncStateRepo,
     salesRepo,
     tenantId: pairingStatus.tenant_id,

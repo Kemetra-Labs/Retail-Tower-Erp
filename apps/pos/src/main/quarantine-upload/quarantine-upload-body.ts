@@ -69,8 +69,11 @@ interface BuildQuarantineUploadInput {
   readonly route: SaleRoute;
   /** The CURRENT pairing's terminal id. */
   readonly currentTerminalId: string;
-  /** The RT-79 / RT-540 cutoffs the drain builds with, so the body is the same one. */
-  readonly cutoffs: Pick<BuildCapturePayloadOptions, 'tendersSince' | 'receiptSince'>;
+  /** The RT-79 / RT-540 / RT-363 cutoffs the drain builds with, so the body is the same one. */
+  readonly cutoffs: Pick<
+    BuildCapturePayloadOptions,
+    'tendersSince' | 'receiptSince' | 'tenderRefsSince'
+  >;
   readonly resolvedRoles: ResolvedDiscountRoles;
   /** ISO instant; the `tillRecordedAt` of a held sale (it has no recorded hold time). */
   readonly now: string;
@@ -125,6 +128,7 @@ function wireBodyOf(
     payload = buildCapturePayload(input.sale, {
       tendersSince: input.cutoffs.tendersSince,
       receiptSince: input.cutoffs.receiptSince,
+      tenderRefsSince: input.cutoffs.tenderRefsSince,
       resolvedRoles: input.resolvedRoles,
     });
   } catch (err) {

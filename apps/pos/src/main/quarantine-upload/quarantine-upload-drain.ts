@@ -126,7 +126,10 @@ export interface QuarantineUploaderDeps {
   readonly routeOf: (sale: SaleRow) => SaleRoute;
   readonly rolesOf: (sale: SaleRow) => ResolvedDiscountRoles;
   /** The cutoffs the capture drain builds with (the rebuilt body must match it). */
-  readonly cutoffs: Pick<BuildCapturePayloadOptions, 'tendersSince' | 'receiptSince'>;
+  readonly cutoffs: Pick<
+    BuildCapturePayloadOptions,
+    'tendersSince' | 'receiptSince' | 'tenderRefsSince'
+  >;
   readonly now: () => Date;
   readonly isStopped: () => boolean;
   readonly backoff: AuditSyncBackoffPolicy;

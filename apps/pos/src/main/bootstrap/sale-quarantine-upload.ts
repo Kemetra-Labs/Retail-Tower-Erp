@@ -34,6 +34,7 @@ import {
   type QuarantineUploadStore,
 } from '../quarantine-upload/quarantine-upload-drain.js';
 import { readEngineCutoffs } from '../sales-sync/capture-cutover.js';
+import { readTenderRefsSince } from '../sales-sync/tender-refs-cutoff.js';
 import { saleHasLineDiscount } from '../sales-sync/discount-hold.js';
 import { NO_RESOLVED_ROLES, readResolvedRoles } from '../sales-sync/discount-role-resolutions.js';
 import {
@@ -77,7 +78,12 @@ export function startSaleQuarantineUpload(
   const { db, mainLogger } = deps;
   let stopped = false;
   const salesRepo = bindSalesRepository(db);
-  const cutoffs = readEngineCutoffs(db, mainLogger);
+  // The same cutoffs the capture drain builds with (RT-363 included), so a quarantine body
+  // equals the body the drain sent; the capture bootstrap already warned about a bad value.
+  const cutoffs = {
+    ...readEngineCutoffs(db, mainLogger),
+    tenderRefsSince: readTenderRefsSince(process.env, { warn: () => undefined }),
+  };
   const sellingUsers =
     deps.sellingUsers ??
     createSellingUserIdResolver({

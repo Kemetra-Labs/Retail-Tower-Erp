@@ -83,6 +83,7 @@ function build(
     source?: QuarantineSource;
     route?: SaleRoute;
     tendersSince?: string | null;
+    tenderRefsSince?: string | null;
   } = {},
 ) {
   return buildQuarantineUpload({
@@ -90,7 +91,11 @@ function build(
     source: over.source ?? deadLetter('permanent'),
     route: over.route ?? ENVELOPE,
     currentTerminalId: CURRENT,
-    cutoffs: { tendersSince: over.tendersSince ?? null, receiptSince: null },
+    cutoffs: {
+      tendersSince: over.tendersSince ?? null,
+      receiptSince: null,
+      tenderRefsSince: over.tenderRefsSince ?? null,
+    },
     resolvedRoles: NO_RESOLVED_ROLES,
     now: NOW,
   });
@@ -112,6 +117,38 @@ describe('quarantine upload body — the stored sale', () => {
     expect(upload.saleBody['externalId']).toBe(upload.externalId);
     expect(upload.saleBody['sourceSystem']).toBe(upload.sourceSystem);
     expect(upload.saleBody).not.toHaveProperty('operatorUserId');
+  });
+
+  it('RT-363: with the tender-refs cutoff on, it is the same per-line body the capture drain sends', () => {
+    const L1 = 'a1111111-1111-4111-8111-111111111111';
+    const L2 = 'b2222222-2222-4222-8222-222222222222';
+    const sale = saleRow({
+      tender_lines_summary_json: JSON.stringify([
+        { tender_type: 'cash', amount_applied_minor: 1000, tender_line_id: L1, sequence: 1 },
+        { tender_type: 'cash', amount_applied_minor: 500, tender_line_id: L2, sequence: 2 },
+      ]),
+    });
+    const cutoffs = {
+      tendersSince: '2026-01-01T00:00:00.000Z',
+      receiptSince: null,
+      tenderRefsSince: '2026-01-01T00:00:00.000Z',
+    };
+    const upload = uploadOf(
+      build({
+        sale,
+        tendersSince: cutoffs.tendersSince,
+        tenderRefsSince: cutoffs.tenderRefsSince,
+      }),
+    );
+    const drainBody = toWireBody(buildCapturePayload(sale, cutoffs), 'EGP');
+    expect(JSON.stringify(upload.saleBody)).toBe(JSON.stringify(drainBody));
+    expect(upload.saleBody['tenders']).toEqual([
+      { method: 'cash', amount: '10.00', tenderRef: L1, sequence: 1 },
+      { method: 'cash', amount: '5.00', tenderRef: L2, sequence: 2 },
+    ]);
+    // Option absent: the merged body, as before.
+    const merged = uploadOf(build({ sale, tendersSince: cutoffs.tendersSince }));
+    expect(merged.saleBody['tenders']).toEqual([{ method: 'cash', amount: '15.00' }]);
   });
 
   it('carries the cashier operatorUserId when the sale is a device-path sale', () => {

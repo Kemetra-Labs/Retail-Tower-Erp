@@ -469,6 +469,23 @@ describe('RT-79 — tenders on the wire (RT-10 D1; SaleTender contract)', () => 
     ]);
   });
 
+  it('RT-363: a per-line tender goes out with tenderRef AND sequence', () => {
+    const A = 'a1111111-1111-4111-8111-111111111111';
+    const B = 'b2222222-2222-4222-8222-222222222222';
+    const rest = PAYLOAD.totalMinor - 1000;
+    const split: CaptureSalePayload = {
+      ...PAYLOAD,
+      tenders: [
+        { method: 'cash', amountMinor: 1000, tenderRef: A, sequence: 1 },
+        { method: 'cash', amountMinor: rest, tenderRef: B, sequence: 2 },
+      ],
+    };
+    expect(toWireBody(split, 'EGP').tenders).toEqual([
+      { method: 'cash', amount: '10.00', tenderRef: A, sequence: 1 },
+      { method: 'cash', amount: minorUnitsToDecimalString(rest, 2), tenderRef: B, sequence: 2 },
+    ]);
+  });
+
   it('a payload without tenders has no tenders key (byte-identical to pre-RT-79)', () => {
     expect('tenders' in toWireBody(PAYLOAD, 'EGP')).toBe(false);
   });

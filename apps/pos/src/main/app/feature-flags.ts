@@ -34,8 +34,9 @@ import type { Lane } from '../config/lane-config.js';
  * as before. Every caller goes through `resolveFeatureFlags`; none parses
  * `process.env` itself (a test pins that).
  *
- * Deliberately NOT here: `SENTRY_DSN`, `POS_PULSE_FEATURE_SALE_TENDERS_SINCE` and
- * `POS_PULSE_FEATURE_SALE_RECEIPT_SINCE` (ISO instants with their own parsers in `sales-sync`), and the dev-only
+ * Deliberately NOT here: `SENTRY_DSN`, `POS_PULSE_FEATURE_SALE_TENDERS_SINCE`,
+ * `POS_PULSE_FEATURE_SALE_RECEIPT_SINCE` and `POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE` (RT-363)
+ * (ISO instants with their own parsers in `sales-sync`), and the dev-only
  * `POS_PULSE_DEV_*` bypasses (each owns its own packaged-build guard).
  */
 
