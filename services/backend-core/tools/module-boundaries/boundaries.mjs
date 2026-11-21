@@ -145,11 +145,16 @@ export function migrationTables(root) {
   const found = new Set();
   for (const name of names.sort()) {
     const sql = readFileSync(path.join(dir, name), "utf8");
-    for (const m of sql.matchAll(/^\s*CREATE TABLE(?: IF NOT EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
-      found.add(m[1]);
-    }
-    for (const m of sql.matchAll(/^\s*DROP TABLE(?: IF EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
-      found.delete(m[1]);
+    // One pass in text order, so a DROP then a CREATE of the same name inside one file keeps the table.
+    for (const m of sql.matchAll(/^\s*(CREATE TABLE(?: IF NOT EXISTS)?|DROP TABLE(?: IF EXISTS)?)\s+([^;(]+)/gim)) {
+      const isDrop = m[1].toUpperCase().startsWith("DROP");
+      // `DROP TABLE a, b CASCADE` names several tables; a CREATE names one (the capture stops at its `(`).
+      for (const part of isDrop ? m[2].split(",") : [m[2]]) {
+        const table = /^(?:public\.)?"?([a-z_][a-z0-9_]*)"?/i.exec(part.trim())?.[1];
+        if (table === undefined) continue;
+        if (isDrop) found.delete(table);
+        else found.add(table);
+      }
     }
   }
   return [...found].sort();

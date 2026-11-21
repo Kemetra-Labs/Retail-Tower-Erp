@@ -30,13 +30,12 @@ export const GOLDEN_SHA256_HEX =
 // ---------------------------------------------------------------------------
 // RT-1214 — settlement-intent request-hash vectors.
 //
-// `ReceivableService` stores sha256(canonical JSON of the intent) in
-// `idempotency_keys.request_hash`; a retry is compared byte-for-byte against
-// it. These vectors pin that serializer's exact bytes for representative and
-// stored (integration-fixture) intents. The strings were captured from the
-// receivable service's private serializer BEFORE it was pointed at the shared
-// payload-hash serializer, and are pinned as literals — never recompute them
-// from the code under test.
+// The former receivable service (removed by RT-422) stored sha256(canonical
+// JSON of the intent) in `idempotency_keys.request_hash`. These vectors pin the
+// shared serializer's exact bytes for those representative and stored
+// intents. The strings were captured from that service's private serializer
+// BEFORE it was pointed at the shared payload-hash serializer, and are pinned
+// as literals — never recompute them from the code under test.
 //
 // The `rich` vector covers the payload-hash semantics the
 // idempotency-interceptor serializer (`common/hashing/canonical-json.ts`) does NOT share: an `undefined`

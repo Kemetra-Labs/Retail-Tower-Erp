@@ -181,17 +181,17 @@ test("the checked-in module map is valid and complete against the real tree and 
   assert.doesNotThrow(() => parseModuleMap(raw, moduleDirsOf(files), { files, migrationTables: tables }));
 });
 
-test("migrationTables leaves out a table a later up migration drops, and keeps a re-created one (RT-422)", () => {
+test("migrationTables leaves out a table a later up migration drops (also several in one DROP), and keeps a re-created one (RT-422)", () => {
   const root = mkdtempSync(path.join(tmpdir(), "mt-"));
   try {
     const dir = path.join(root, "packages", "db", "drizzle");
     mkdirSync(dir, { recursive: true });
     const lines = (...l) => `${l.join("\n")}\n`;
-    writeFileSync(path.join(dir, "0001_a.sql"), lines("CREATE TABLE kept (id uuid);", "CREATE TABLE gone (id uuid);", "CREATE TABLE again (id uuid);"));
-    writeFileSync(path.join(dir, "0002_b.sql"), lines("-- DROP TABLE kept (a comment drops nothing)", "DROP TABLE gone;", "DROP TABLE IF EXISTS public.again;"));
+    writeFileSync(path.join(dir, "0001_a.sql"), lines("CREATE TABLE kept (id uuid);", "CREATE TABLE gone (id uuid);", "CREATE TABLE again (id uuid);", "CREATE TABLE gone2 (id uuid);", "CREATE TABLE gone3 (id uuid);", "CREATE TABLE recycled (id uuid);"));
+    writeFileSync(path.join(dir, "0002_b.sql"), lines("-- DROP TABLE kept (a comment drops nothing)", "DROP TABLE gone;", "DROP TABLE IF EXISTS public.again;", "DROP TABLE gone2, public.gone3 CASCADE;", "DROP TABLE recycled;", "CREATE TABLE recycled (id uuid);"));
     writeFileSync(path.join(dir, "0003_c.sql"), lines("CREATE TABLE again (id uuid);"));
     writeFileSync(path.join(dir, "0003_c.down.sql"), lines("DROP TABLE again;"));
-    assert.deepEqual(migrationTables(root), ["again", "kept"]);
+    assert.deepEqual(migrationTables(root), ["again", "kept", "recycled"]);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
