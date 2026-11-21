@@ -14,6 +14,7 @@
  * below the band. Every result state sits in one panel (`catalog-v4`).
  */
 import { type BrandListState, useCatalogBrands } from "@/brands/useBrands";
+import { CatalogImportLink } from "@/catalog-import/CatalogImportLink";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
@@ -82,6 +83,7 @@ function Shell({
         group={t("shell.nav.section.stock")}
         title={t("catalog.list.title")}
         subtitle={t.rich("catalog.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
+        actions={<CatalogImportLink scope={scope} />}
       />
       {/* A note belongs below the band, never in it (D-V9). */}
       {scope.activeStoreId ? (
