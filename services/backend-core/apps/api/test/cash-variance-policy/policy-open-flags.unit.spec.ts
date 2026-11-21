@@ -14,7 +14,7 @@ import type { PoolClient } from "pg";
 
 import { OpenPolicyFlagger, STALE_AT_RECEIPT_AFTER_MS } from "../../src/cash-variance-policy/policy-open-flags";
 import type { PolicyValue } from "../../src/cash-variance-policy/policy-value";
-import { PolicyRepository, type PolicyScopeRef, type StoredRevision } from "../../src/cash-variance-policy/policy.repository";
+import { PolicyRepository, type StoredRevision } from "../../src/cash-variance-policy/policy.repository";
 import { POLICY_FLAG_ORDER, type FrozenPolicyFact, type PolicyFlag } from "../../src/pos-shifts/shift-frozen-policy";
 
 const HOUR = 3_600_000;
@@ -56,17 +56,16 @@ function revision(seed: RevisionSeed): StoredRevision {
 
 /** A repository over `revisions` whose transaction clock reads RECEIVED_AT. */
 function fakeRepo(revisions: ReadonlyArray<StoredRevision>): PolicyRepository {
-  const inScope = (r: StoredRevision, scope: PolicyScopeRef): boolean =>
-    scope.storeId === null ? r.scope === "tenant" : r.scope === "store" && r.storeId === scope.storeId;
-  const fake: Pick<PolicyRepository, "now" | "find" | "history"> = {
+  const upTo = (scope: "tenant" | "store", storeId: string, until: Date): StoredRevision[] =>
+    revisions
+      .filter((r) => (scope === "tenant" ? r.scope === "tenant" : r.scope === "store" && r.storeId === storeId))
+      .filter((r) => r.createdAt.getTime() <= until.getTime())
+      .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1));
+  const fake: Pick<PolicyRepository, "now" | "find" | "historyBothScopes"> = {
     now: () => Promise.resolve(RECEIVED_AT),
     find: (_client, tenantId, id) => Promise.resolve(tenantId === TENANT ? (revisions.find((r) => r.id === id) ?? null) : null),
-    history: (_client, scope, until) =>
-      Promise.resolve(
-        revisions
-          .filter((r) => inScope(r, scope) && r.createdAt.getTime() <= until.getTime())
-          .sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime() || (a.id < b.id ? -1 : 1)),
-      ),
+    historyBothScopes: (_client, input, until) =>
+      Promise.resolve({ tenant: upTo("tenant", input.storeId, until), store: upTo("store", input.storeId, until) }),
   };
   return fake as PolicyRepository;
 }
@@ -237,5 +236,70 @@ describe("RT-592 stale-at-receipt: which policy counts as the one in effect at r
       "policy_revision_superseded",
       STALE,
     ]);
+  });
+});
+
+describe("RT-592 stale-at-receipt: the tenant and store histories are read together (one snapshot)", () => {
+  it("asks the repository for both scopes in one call per history read, never one call per scope", async () => {
+    const revisions = [
+      revision({ id: "old", hoursBeforeReceipt: 72, value: limit("100.00") }),
+      revision({ id: "current", hoursBeforeReceipt: 40, value: limit("50.00") }),
+    ];
+    const repo = fakeRepo(revisions);
+    const both = jest.spyOn(repo, "historyBothScopes");
+    const flags = await new OpenPolicyFlagger(repo).flags(CLIENT, {
+      tenantId: TENANT,
+      storeId: STORE,
+      openedAt: new Date(RECEIVED_AT.getTime() - 80 * HOUR).toISOString(),
+      shiftCurrencyCode: "EGP",
+      frozen: tenantFrozen("old", limit("100.00")),
+    });
+    expect(flags).toEqual(["policy_revision_superseded", STALE]);
+    // Two history reads for a late open (the superseded window, then receipt), each naming the store once.
+    expect(both).toHaveBeenCalledTimes(2);
+    for (const call of both.mock.calls) expect(call[1]).toEqual({ tenantId: TENANT, storeId: STORE });
+  });
+
+  describe("PolicyRepository.historyBothScopes", () => {
+    const row = (id: string, scope: "tenant" | "store", hoursBefore: number): Record<string, unknown> => {
+      const created = new Date(RECEIVED_AT.getTime() - hoursBefore * HOUR);
+      return {
+        id,
+        scope,
+        store_id: scope === "store" ? STORE : null,
+        kind: "set",
+        mode: "none",
+        limit_amount: null,
+        currency_code: null,
+        reason: "seed",
+        effective_until: null,
+        permanent: false,
+        approved_by_user_id: null,
+        supersedes_revision_id: null,
+        created_by_user_id: "0a000000-0000-7000-8000-0000000005a1",
+        created_at: created,
+        created_at_key: created.toISOString(),
+      };
+    };
+
+    it("issues exactly one statement that names both scopes, and splits the rows by scope in time order", async () => {
+      const query = jest.fn().mockResolvedValue({
+        rows: [row("t1", "tenant", 50), row("s1", "store", 40), row("t2", "tenant", 30)],
+      });
+      const client = { query } as unknown as PoolClient;
+      const until = new Date(RECEIVED_AT.getTime());
+
+      const result = await new PolicyRepository().historyBothScopes(client, { tenantId: TENANT, storeId: STORE }, until);
+
+      expect(query).toHaveBeenCalledTimes(1);
+      const [sql, params] = query.mock.calls[0] as [string, unknown[]];
+      expect(sql).toContain("scope = 'tenant'");
+      expect(sql).toContain("scope = 'store'");
+      expect(sql).toMatch(/UNION ALL/);
+      expect(sql).toMatch(/ORDER BY created_at ASC, id ASC/);
+      expect(params).toEqual([TENANT, STORE, until]);
+      expect(result.tenant.map((r) => r.id)).toEqual(["t1", "t2"]);
+      expect(result.store.map((r) => r.id)).toEqual(["s1"]);
+    });
   });
 });

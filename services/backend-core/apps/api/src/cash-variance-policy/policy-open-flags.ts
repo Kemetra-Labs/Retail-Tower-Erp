@@ -176,11 +176,8 @@ export class OpenPolicyFlagger {
     return !matches(effectiveAt(history, receivedAt));
   }
 
-  /** The tenant's and the store's revisions created at or before `until`. */
-  private async historyUntil(client: PoolClient, input: OpenPolicyInput, until: Date): Promise<PolicyHistory> {
-    return {
-      tenant: await this.repo.history(client, { tenantId: input.tenantId, storeId: null }, until),
-      store: await this.repo.history(client, { tenantId: input.tenantId, storeId: input.storeId }, until),
-    };
+  /** The tenant's and the store's revisions created at or before `until`, from one statement (one snapshot). */
+  private historyUntil(client: PoolClient, input: OpenPolicyInput, until: Date): Promise<PolicyHistory> {
+    return this.repo.historyBothScopes(client, { tenantId: input.tenantId, storeId: input.storeId }, until);
   }
 }

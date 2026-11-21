@@ -223,6 +223,40 @@ export class PolicyRepository {
     return r.rows.map(toRevision);
   }
 
+  /**
+   * The tenant scope's and one store's revisions created at or before `until`, oldest first, read in ONE
+   * statement (one snapshot). Two `history` calls under READ COMMITTED each take their own snapshot, so a
+   * tenant publish and a store clear that commit between them can be seen by one read and not the other,
+   * and the resolved effective policy would then match neither moment (RT-592, CodeRabbit on #774). Each
+   * branch of the UNION ALL keeps its own index range scan of the scope-history index.
+   */
+  async historyBothScopes(
+    client: PoolClient,
+    input: { readonly tenantId: string; readonly storeId: string },
+    until: Date,
+  ): Promise<{ readonly tenant: StoredRevision[]; readonly store: StoredRevision[] }> {
+    const r = await client.query<RevisionDbRow>(
+      `SELECT * FROM (
+         SELECT ${REVISION_COLUMNS}
+           FROM cash_variance_policy_revisions
+          WHERE tenant_id = $1::uuid AND scope = 'tenant' AND store_id IS NULL
+            AND created_at <= $3::timestamptz
+         UNION ALL
+         SELECT ${REVISION_COLUMNS}
+           FROM cash_variance_policy_revisions
+          WHERE tenant_id = $1::uuid AND scope = 'store' AND store_id = $2::uuid
+            AND created_at <= $3::timestamptz
+       ) both_scopes
+       ORDER BY created_at ASC, id ASC`,
+      [input.tenantId, input.storeId, until],
+    );
+    const revisions = r.rows.map(toRevision);
+    return {
+      tenant: revisions.filter((rev) => rev.scope === "tenant"),
+      store: revisions.filter((rev) => rev.scope === "store"),
+    };
+  }
+
   /** One revision of the tenant by id, of any scope, or null. */
   async find(client: PoolClient, tenantId: string, revisionId: string): Promise<StoredRevision | null> {
     const r = await client.query<RevisionDbRow>(
