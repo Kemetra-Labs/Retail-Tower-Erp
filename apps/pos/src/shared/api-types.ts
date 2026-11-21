@@ -4660,6 +4660,32 @@ export namespace PosSalesSales {
             patch?: never;
             trace?: never;
         };
+        "/api/pos/v1/sales/{saleRef}/cashier-void": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Record a void requested by an admitted cashier (device path).
+             * @description RT-1403 (RT-530 owner decision c12029; the separate route is the owner's choice, RT-1403 comment 18113). The cashier counterpart of `recordVoid`: the same void terminal event, requested by a cashier who holds no operator envelope. `recordVoid` stays manager and admin envelope only.
+             *
+             *     Credential: the `device` scheme (the paired terminal's device bearer) plus the cashier's `operatorUserId` in the body, which is REQUIRED here. The device row supplies the tenant, store and device. The server accepts the void only if the device is active, a cashier admission of that device and store for that user is live at the server's current time (no back-dating window: a void queued while the cashier was admitted is sent only while the same cashier is admitted again), and the cashier's membership, store access and account are still live, and the cashier is not suspended at the store. The verified cashier is the void's actor, so check 4 of `recordVoid` binds `approval.requesterUserId` to that cashier. A missing, invalid or revoked device credential, and an operator envelope, are the generic 401. A refused cashier claim from an authenticated device (no live admission, an ineligible or suspended cashier, an unknown user or a user of another tenant) is the generic 403 `refused`, with one body for every cause, decided before any other check; it is never a sign that the device was revoked. A malformed body from an authenticated device, including a missing `operatorUserId`, is the usual 400.
+             *
+             *     What this credential proves, plainly. It does not prove that the cashier or the approving manager was present. The DEVICE creates the cashier admission itself (`POST /cashier-admissions` checks no PIN on the server), so the trust is the device token plus a cashier id the client states, which must be eligible, not suspended and admitted on this device (and so not live on another). The approver id is checked only for its role and four-eyes (`owner`, `tenant_admin` or `store_manager` of the store, neither the requester nor the seller); the approval PIN is checked on the terminal only, the same posture as `recordVoid` and the RT-17 shift-variance approver. Anyone who holds a device token can therefore void any same-day sale of the store by naming an admitted cashier and an eligible manager. The per-device write limit, the `sale.voided` audit event (it names the approver and the requester) and the live-admission requirement bound the exposure; they do not remove it.
+             *
+             *     Everything after the credential is `recordVoid`'s, unchanged: the sale resolves (404), a provenance replay (200), credit-sale refusal (403 `credit_sale_reversal_restricted`), reversal exclusivity (409), the RT-530 manager-approval checks 1 to 7 in their order, voucher restore. Both routes call the same service, so the void's provenance `(tenant, sourceSystem, externalId)` is one space: a void recorded through either route replays (200) through the other, and `operatorUserId` is not part of the stored `payload_hash`. The `Idempotency-Key` header is REQUIRED and scoped to the verified cashier.
+             */
+            post: operations["recordCashierVoid"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/pos/v1/sales/{saleRef}/credit-reversals": {
             parameters: {
                 query?: never;
@@ -5313,6 +5339,22 @@ export namespace PosSalesSales {
                  */
                 payerRef: string;
             };
+            /** @description RT-1403. The `recordCashierVoid` body: `RecordVoidRequest` plus the REQUIRED `operatorUserId` of the requesting cashier. `voidedAt` / tenant / store / actor resolve server-side and are rejected if body-supplied (FR-061). Provenance is the event's own dedup key (FR-013). */
+            RecordCashierVoidRequest: {
+                approval?: components["schemas"]["VoidApproval"];
+                /**
+                 * Format: date
+                 * @description The device-side business day of the void (store-timezone calendar date); it must equal the sale businessDate, as on `recordVoid`. Optional in shape; a void without it is refused 422 `void_outside_business_day`.
+                 */
+                businessDate?: string;
+                externalId: string;
+                /**
+                 * Format: uuid
+                 * @description The `users.id` of the cashier requesting the void: the `user_id` of the cashier admission the terminal holds (NOT the provider subject `operator_id`). It is a claim, never trusted on its own. The server accepts it only when a cashier admission of the authenticated device and store for this user is live at the server's current time and the cashier is still eligible (membership, account, role, store and store access) and not suspended at the store, else the generic 403 `refused`. The verified user is the void's actor, and the approval's `requesterUserId` must equal it (403 `void_requester_mismatch`). It proves only that this device holds a live admission for that user: the device creates the admission itself with no server-side PIN check, so it is not proof that the cashier was present. It is not part of the void's `payload_hash`.
+                 */
+                operatorUserId: string;
+                sourceSystem: string;
+            };
             /** @description RT-490 (RT-271 R-3, R-4). One refund execution: the payout of one allocation of the path's return (see `recordRefundExecution`). Strict: the instrument, the currency, `recordedAt`, tenant, store and actor resolve server-side and are rejected if body-supplied (FR-061). Auth: the operator-authorization envelope in `Authorization: Bearer <envelope>` (`operatorAuthorization`), re-verified live per request (G-4). */
             RecordRefundExecutionRequest: {
                 /**
@@ -5754,6 +5796,15 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
+            /** @description 403 on `recordCashierVoid` (RT-1403). `error.code` is one of: `refused` - the device credential is valid, but the cashier claim (`operatorUserId`) is not accepted: no live cashier admission of this device and store, an ineligible or suspended cashier, an unknown user or a user of another tenant. One body for every cause, decided before every other check; the cause is logged server-side keyed by `request_id`, and it is never a sign that the device was revoked (that is a 401). Then the codes of `VoidForbidden`, unchanged: `void_approval_required`, `void_requester_mismatch`, `void_self_approval`, `void_requester_not_eligible`, `void_approver_not_eligible` and `credit_sale_reversal_restricted`. Deterministic; nothing is recorded. */
+            CashierVoidForbidden: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
             /** @description FR-101 `conflict` category (which subsumes the idempotency-token-mismatch case). The single wire `error.code` is `idempotency_key_conflict` — the same `Idempotency-Key` reused with a different logical payload (FR-051 / 005 FR-021c), or, on `captureSale` (RT-1206), a provenance replay under another key whose sale facts differ from the captured sale's. Deterministic, no side effects. ("idempotency-token-mismatch" is the FR-101 category label only, never a second `error.code`.) */
             Conflict: {
                 headers: {
@@ -6002,6 +6053,54 @@ export namespace PosSalesSales {
                 };
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        recordCashierVoid: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every write. 16 to 128 printable ASCII characters with no whitespace, as the interceptor enforces (RT-181); any other value is a 400. Reuses the existing `IdempotencyInterceptor` (FR-051) — keyed on `(method, route template, resolved path parameters, clientId = the authenticated operator's user id, key)`, per RT-82 K1. The same key on a DIFFERENT `saleRef` is therefore a separate operation and is never answered with another sale's stored response. An identical retry on the same route and resource replays the stored response with its stored status and `Idempotent-Replayed: true`; key-reuse with a different logical payload returns 409 `idempotency_key_conflict` (FR-051, 005 FR-021c). No new idempotency primitive is introduced. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    saleRef: components["parameters"]["SaleRef"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RecordCashierVoidRequest"];
+                };
+            };
+            responses: {
+                /** @description Provenance replay: this void was already recorded with the same provenance, through this route or `recordVoid`, and no live replay entry exists for this `Idempotency-Key`. Returns the identical terminal-event projection with `Idempotent-Replayed: true`; no duplicate record. A same-`Idempotency-Key` retry returns the stored `201` instead. */
+                200: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SaleTerminalEvent"];
+                    };
+                };
+                /** @description Void terminal event recorded for the first time. A retry with the same `Idempotency-Key` on the same sale replays this stored `201` with `Idempotent-Replayed: true`. */
+                201: {
+                    headers: {
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["SaleTerminalEvent"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["CashierVoidForbidden"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["ReversalConflict"];
+                422: components["responses"]["VoidUnprocessable"];
                 500: components["responses"]["SystemFailure"];
             };
         };
