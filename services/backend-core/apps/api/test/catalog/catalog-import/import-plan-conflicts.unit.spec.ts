@@ -81,4 +81,10 @@ describe("planPublish conflicts (RT-1536)", () => {
     const many: PlanRow[] = Array.from({ length: MAX_CONFLICT_ROWS + 10 }, (_, i) => row(2 + i, "ready_update", P1, { changes: rename(`V${i}`) }));
     expect(previewOf(planPublish(many)).conflicts[0]?.rowNumbers).toHaveLength(MAX_CONFLICT_ROWS);
   });
+
+  it("lists a conflict next to a row that still needs review (the batch is not publishable either way)", () => {
+    const plan = planPublish([row(2, "ready_update", P1, { changes: rename("A") }), row(3, "ready_update", P1, { changes: rename("B") }), row(4, "needs_review", product("p5"))]);
+    expect(plan.conflicts).toHaveLength(1);
+    expect(plan.conflictingProducts).toEqual(["p1"]);
+  });
 });
