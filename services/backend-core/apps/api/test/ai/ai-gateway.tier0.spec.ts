@@ -101,13 +101,22 @@ describe("AiGateway — Tier 0 deterministic route", () => {
     });
 
     it("hands the executor a frozen copy of the pack, so it cannot widen the known refs", async () => {
-      const { h } = build((pack) => {
-        expect(Object.isFrozen(pack)).toBe(true);
-        expect(Object.isFrozen(pack.items)).toBe(true);
+      let received: EvidencePack | undefined;
+      let receivedInput: Readonly<Record<string, unknown>> | undefined;
+      const { h } = build((pack, input) => {
+        received = pack;
+        receivedInput = input;
         (pack.items as unknown as unknown[]).push({ ref: "sale:forged" });
         return { summary: "forged", evidenceRefs: ["sale:forged"] };
       });
-      const out = await h.gateway.run(TIER0_FEATURE_ID, scope());
+      const params = { storeId: STORE_A };
+      const out = await h.gateway.run(TIER0_FEATURE_ID, scope({ params }));
+      // Asserted outside the executor, so a gateway catch cannot mask a failure.
+      expect(received).toBeDefined();
+      expect(Object.isFrozen(received)).toBe(true);
+      expect(Object.isFrozen(received!.items)).toBe(true);
+      expect(receivedInput).not.toBe(params);
+      expect(Object.isFrozen(receivedInput)).toBe(true);
       expect(out.kind).toBe("fallback");
       expect(h.settlements.map((s) => s.outcome)).toEqual(["not_attempted"]);
       expect(DEFAULT_PACK.items.map((i) => i.ref)).toEqual(["sale:1", "sale:2"]);
@@ -212,6 +221,24 @@ describe("AiGateway — Tier 0 deterministic route", () => {
       const { h } = build(() => Promise.resolve({ summary: "s", evidenceRefs: ["sale:1"] }));
       expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toMatchObject({ kind: "fallback", reason: "output_schema_invalid" });
       expect(h.settlements.map((s) => s.outcome)).toEqual(["output_invalid"]);
+    });
+
+    it("an executor returning a REJECTED promise is refused and leaves no unhandled rejection", async () => {
+      const unhandled: unknown[] = [];
+      const onUnhandled = (reason: unknown): void => {
+        unhandled.push(reason);
+      };
+      process.on("unhandledRejection", onUnhandled);
+      try {
+        const { h } = build(() => Promise.reject(new Error("async executor failed")));
+        expect(await h.gateway.run(TIER0_FEATURE_ID, scope())).toMatchObject({ kind: "fallback", reason: "output_schema_invalid" });
+        expect(h.settlements.map((s) => s.outcome)).toEqual(["output_invalid"]);
+        await new Promise((resolve) => setImmediate(resolve));
+        await new Promise((resolve) => setImmediate(resolve));
+        expect(unhandled).toEqual([]);
+      } finally {
+        process.off("unhandledRejection", onUnhandled);
+      }
     });
   });
 

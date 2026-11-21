@@ -308,9 +308,12 @@ export class AiGateway {
   ): AiGatewayResult {
     trace.routeKey = DETERMINISTIC_ROUTE_KEY;
     telemetry.routeKey = DETERMINISTIC_ROUTE_KEY;
-    // A frozen deep copy: the executor cannot mutate the pack that the
-    // cited-refs check below validates against.
-    const raw = feature.execute(deepFreeze(structuredClone(pack)), scope.params ?? {});
+    // Frozen deep copies: the executor cannot mutate the pack that the
+    // cited-refs check below validates against, nor the caller's params.
+    const raw = feature.execute(deepFreeze(structuredClone(pack)), deepFreeze(structuredClone(scope.params ?? {})));
+    // A returned promise is refused by validation below; mark it handled so a
+    // rejected one never becomes an unhandledRejection that kills the process.
+    if (isThenable(raw)) Promise.resolve(raw).catch(() => undefined);
     const validated = validateOutput(raw, feature, pack, false);
     if ("kind" in validated) return validated;
     telemetry.evidenceRefIds = validated.refs;
@@ -488,4 +491,12 @@ function deepFreeze<T>(value: T): T {
     for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
   }
   return value;
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }
