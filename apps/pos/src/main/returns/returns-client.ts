@@ -6,6 +6,8 @@
  *
  *   readSale     GET  /api/pos/v1/sales/{saleRef}
  *   recordReturn POST /api/pos/v1/sales/{saleRef}/returns
+ *   recordRefundExecution
+ *                POST /api/pos/v1/sales/{saleRef}/returns/{returnRef}/executions (RT-1543)
  *
  * Auth is the `operatorAuthorization` scheme: `Authorization: Bearer
  * <pos_operator envelope>`. The envelope is an explicit argument of every call
@@ -38,12 +40,15 @@
  * the return. Never throws.
  */
 import type { ReturnUnknownCause, ServerReturnRefusal } from '../../shared/returns/types.js';
+import type { ExecutionRefusal } from './returns-execution-repository.js';
 import {
   isUuid,
   parseJsonBody,
   readErrorCode,
+  readRefundExecutionBody,
   readSaleBody,
   readSaleReturnBody,
+  type WireRefundExecution,
   type WireSale,
   type WireSaleReturn,
 } from './returns-wire.js';
@@ -64,6 +69,29 @@ export type RecordReturnOutcome =
   | { readonly kind: 'recorded'; readonly replayed: boolean; readonly saleReturn: WireSaleReturn }
   | { readonly kind: 'refused'; readonly reason: ServerReturnRefusal }
   | { readonly kind: 'unknown'; readonly cause: ReturnUnknownCause };
+
+/**
+ * RT-1543: the answer to `recordRefundExecution`. `recorded` only when the body names this very
+ * execution; `refused` is the contract's deterministic refusal of the frozen bytes; everything
+ * else, including a lost answer, is `unknown` and never success.
+ */
+export type RecordExecutionOutcome =
+  | {
+      readonly kind: 'recorded';
+      readonly replayed: boolean;
+      readonly execution: WireRefundExecution;
+    }
+  | { readonly kind: 'refused'; readonly reason: ExecutionRefusal }
+  | { readonly kind: 'unknown'; readonly cause: ReturnUnknownCause };
+
+export interface RecordExecutionRequest {
+  readonly saleRef: string;
+  readonly returnRef: string;
+  /** The exact JSON body from the outbox (re-sent byte-identical). */
+  readonly bodyJson: string;
+  /** The execution `externalId` (`pos-pulse-refund-exec:<executionRef>`). */
+  readonly idempotencyKey: string;
+}
 
 export interface RecordReturnRequest {
   readonly saleRef: string;
@@ -94,6 +122,10 @@ export interface ReturnsClient {
     request: RecordReturnRequest,
     envelope: OperatorEnvelope,
   ): Promise<RecordReturnOutcome>;
+  recordRefundExecution(
+    request: RecordExecutionRequest,
+    envelope: OperatorEnvelope,
+  ): Promise<RecordExecutionOutcome>;
 }
 
 export interface CreateReturnsClientDeps {
@@ -190,6 +222,30 @@ function toRecordOutcome(answer: HttpAnswer, resend: boolean): RecordReturnOutco
     : { kind: 'refused', reason };
 }
 
+/**
+ * Statuses of `recordRefundExecution` that refuse the frozen bytes for good (contract order: 404
+ * is decided before the replay and is not behind the returns flag; 400, 409 and 422 are decided
+ * after it or are deterministic for the same bytes).
+ */
+const EXECUTION_REFUSALS: Readonly<Record<number, ExecutionRefusal>> = {
+  400: 'validation_error',
+  404: 'not_found',
+  409: 'conflict',
+  422: 'exceeds_allocation',
+};
+
+function toExecutionOutcome(answer: HttpAnswer): RecordExecutionOutcome {
+  if (answer.status === 200 || answer.status === 201) {
+    const execution = readRefundExecutionBody(answer.json);
+    if (execution === null) return { kind: 'unknown', cause: 'unreadable_body' };
+    return { kind: 'recorded', replayed: isReplay(answer), execution };
+  }
+  const reason = EXECUTION_REFUSALS[answer.status];
+  if (reason !== undefined) return { kind: 'refused', reason };
+  const preReplay = PRE_REPLAY_CAUSES[answer.status];
+  return { kind: 'unknown', cause: preReplay ?? causeOfStatus(answer.status) };
+}
+
 function toReadOutcome(answer: HttpAnswer): ReadSaleOutcome {
   if (answer.status === 200) {
     const sale = readSaleBody(answer.json);
@@ -265,6 +321,30 @@ export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClien
       return isFault(answer)
         ? { kind: 'unknown', cause: answer.fault }
         : toRecordOutcome(answer, request.resend);
+    },
+
+    async recordRefundExecution(
+      request: RecordExecutionRequest,
+      envelope: OperatorEnvelope,
+    ): Promise<RecordExecutionOutcome> {
+      if (!isUuid(request.saleRef) || !isUuid(request.returnRef)) {
+        return { kind: 'refused', reason: 'not_found' };
+      }
+      const answer = await exchange({
+        envelope,
+        path: `/${request.saleRef}/returns/${request.returnRef}/executions`,
+        init: {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Idempotency-Key': request.idempotencyKey,
+          },
+          body: request.bodyJson,
+        },
+      });
+      return isFault(answer)
+        ? { kind: 'unknown', cause: answer.fault }
+        : toExecutionOutcome(answer);
     },
   };
 }

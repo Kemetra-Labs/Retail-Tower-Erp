@@ -604,6 +604,24 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
         SENTINEL['operator-envelope'],
       ),
   },
+  {
+    // RT-1543: the refund execution of a completed payout (RT-490 R-3, `sales.yaml` 1.13.0-draft).
+    id: 'returnsClient.recordRefundExecution',
+    module: 'src/main/returns/returns-client.ts',
+    method: 'post',
+    pathTemplate: '/api/pos/v1/sales/{saleRef}/returns/{returnRef}/executions',
+    wiring: 'compose-returns.ts: the authorization snapshot envelope (operatorEnvelopeHolder)',
+    invoke: (fetch) =>
+      returnsClient(fetch).recordRefundExecution(
+        {
+          saleRef: SALE_REF,
+          returnRef: SALE_REF,
+          bodyJson: '{}',
+          idempotencyKey: 'pos-pulse-refund-exec:contract-conformance',
+        },
+        SENTINEL['operator-envelope'],
+      ),
+  },
   // RT-530: the queued sale void. The envelope is the requester's own (the
   // server binds `approval.requesterUserId` to it); there is no device path.
   {

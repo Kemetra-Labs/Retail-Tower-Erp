@@ -104,6 +104,12 @@ export interface ReturnsServiceDeps {
   readonly now: () => string;
   readonly newReturnId: () => string;
   readonly newExternalId: () => string;
+  /**
+   * RT-1543: mint the refund allocation's stable ref (UUIDv7) for a NEW return; it is part of the
+   * journaled body, so it never changes on a retry. Absent: the tender carries none (the
+   * pre-RT-1543 body), and the return never reports a refund execution.
+   */
+  readonly newAllocationRef?: () => string;
   /** RT-15 S4: renderer views of journal rows, with their payouts. */
   readonly views: (entries: readonly JournalEntry[]) => ReturnJournalView[];
   /**
@@ -410,7 +416,9 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
         operatorSessionId: actor.operatorSessionId,
         currencyCode: quote.currencyCode,
         quotedTotalMinor: quote.totalMinor,
-        requestBodyJson: JSON.stringify(buildRecordReturnBody(externalId, quote)),
+        requestBodyJson: JSON.stringify(
+          buildRecordReturnBody(externalId, quote, this.deps.newAllocationRef?.()),
+        ),
         lines: lines.map((l) => ({ lineRef: l.lineRef, quantity: l.quantity })),
         now: this.deps.now(),
       },

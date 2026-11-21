@@ -15,6 +15,7 @@ import {
   scheduleReturnsResolver,
   type ComposeReturnsDeps,
 } from '../returns/compose-returns.js';
+import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 import { resolveApiBaseUrl } from './env.js';
 
 /** What `registerReturns` closes over from the composition root (RT-893 extraction 5). */
@@ -73,6 +74,7 @@ export function registerReturns(deps: ReturnsDeps): void {
   // (startup + interval) re-sends `pending` / `unknown` returns with the
   // identical request; it is scheduled with the flag on and resolves pairing +
   // operator live on every tick.
+  const shiftCashup = createShiftCashupRepo(db);
   const returnsDomain = composeReturns({
     db,
     http: {
@@ -94,6 +96,9 @@ export function registerReturns(deps: ReturnsDeps): void {
     // the receipt pipeline's path selection.
     drawer: drawerKickTransport,
     printer: printPipeline,
+    // RT-1543: the shift whose drawer paid, for the refund execution's evidence. None open (or
+    // shift cash-up off, so none can be): no execution is reported for that payout.
+    openShiftRef: (scope) => shiftCashup.findOpenShift(scope)?.shiftId ?? null,
   });
   registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
   if (resolveFeatureFlags().returns) {

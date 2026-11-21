@@ -29,12 +29,19 @@ import {
   createReturnPayoutsRepository,
   type ReturnPayoutsRepository,
 } from './returns-payout-repository.js';
-import { createReturnsRepository, type JournalEntry } from './returns-repository.js';
+import { createReturnExecutionsDispatcher } from './returns-execution-dispatch.js';
+import { createExecutionEnqueuer } from './returns-execution-enqueue.js';
+import { createReturnExecutionsRepository } from './returns-execution-repository.js';
+import {
+  createReturnsRepository,
+  type JournalEntry,
+  type ReturnScope,
+} from './returns-repository.js';
 import { createReturnsResolver, type ReturnsResolver } from './returns-resolver.js';
 import { createReturnsAuthorizer, type ReturnsSession } from './returns-auth.js';
 import { createReturnsService } from './returns-service.js';
 import { toJournalView } from './returns-views.js';
-import { newReturnExternalId } from './uuidv7.js';
+import { newReturnExternalId, uuidv7 } from './uuidv7.js';
 
 export interface ReturnsLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
@@ -68,6 +75,12 @@ export interface ComposeReturnsDeps {
   readonly drawer: DrawerKickTransport;
   /** RT-15 S4: the receipt print pipeline (the same instance sales use). */
   readonly printer: Pick<PrintPipeline, 'printRendered'>;
+  /**
+   * RT-1543: the terminal's open shift id — the shift whose drawer paid — read in the paid commit,
+   * or null when none is open (then no refund execution is reported: the contract requires the
+   * shift and none is invented).
+   */
+  readonly openShiftRef: (scope: ReturnScope) => string | null;
 }
 
 export interface ComposedReturns {
@@ -128,7 +141,23 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     isStopped,
     transaction,
   });
-  const resolver = createReturnsResolver({ repo, dispatcher, authorizer, now });
+  // RT-1543: the refund-execution outbox, sent by the same snapshot rules as the returns.
+  const executions = createReturnExecutionsRepository(deps.db);
+  const executionDispatcher = createReturnExecutionsDispatcher({
+    client,
+    repo: executions,
+    authorizer,
+    isStopped,
+    now,
+    logger: deps.logger,
+  });
+  const resolver = createReturnsResolver({
+    repo,
+    dispatcher,
+    authorizer,
+    now,
+    executions: { repo: executions, dispatcher: executionDispatcher, isStopped },
+  });
   const core = createReturnsService({
     authorizer,
     captureCurrencyCode: deps.captureCurrencyCode ?? DEFAULT_CURRENCY_CODE,
@@ -143,6 +172,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     now,
     newReturnId: randomUUID,
     newExternalId: () => newReturnExternalId(),
+    newAllocationRef: () => uuidv7(),
     views,
     recordLineDetails: (returnId, details) => {
       payouts.recordLineDetails(returnId, details);
@@ -161,6 +191,17 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     isStopped,
     now,
     view: (entry) => toJournalView(entry, payouts.read(entry.returnId), now()),
+    enqueueExecutions: createExecutionEnqueuer({
+      repo: executions,
+      openShiftRef: deps.openShiftRef,
+      newExecutionRef: () => uuidv7(),
+      logger: deps.logger,
+    }),
+    reportExecutions: (actor, returnId) => {
+      executionDispatcher.sendForReturn(returnId, actor).catch((err: unknown) => {
+        deps.logger.error({ err }, 'returns:execution_kick_failed');
+      });
+    },
   });
   const service: ReturnsBridgeAPI = {
     lookup: (req) => core.lookup(req),
