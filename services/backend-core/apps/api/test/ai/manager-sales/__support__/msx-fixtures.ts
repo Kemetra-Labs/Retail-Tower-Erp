@@ -65,7 +65,7 @@ export const WORLD: readonly StoreDef[] = [
   { id: STORE_A3, name: NAME_A3 },
 ];
 
-interface Sale {
+export interface Sale {
   readonly store: string;
   readonly date: string;
   readonly ccy: string;
@@ -83,14 +83,23 @@ export const SALES: readonly Sale[] = [
   { store: STORE_A1, date: TODAY, ccy: "EGP", n: 21, amount: "1184.7500" },
 ];
 
+export interface OtherFact {
+  readonly kind: "void" | "return" | "refund";
+  readonly store: string;
+  readonly date: string;
+  readonly ccy: string;
+  readonly n: number;
+  readonly amount: string;
+}
+
 /** Voids and returns (counts and totals) in the week and in the baseline week. */
-export const OTHER_FACTS = [
+export const OTHER_FACTS: readonly OtherFact[] = [
   { kind: "void", store: STORE_A1, date: "2026-11-09", ccy: "EGP", n: 2, amount: "210.0000" },
   { kind: "return", store: STORE_A1, date: "2026-11-10", ccy: "EGP", n: 3, amount: "455.0000" },
   { kind: "void", store: STORE_A2, date: "2026-11-03", ccy: "EGP", n: 1, amount: "180.0000" },
   { kind: "return", store: STORE_A2, date: "2026-11-04", ccy: "EGP", n: 1, amount: "390.5000" },
   { kind: "return", store: STORE_A3, date: "2026-11-11", ccy: "SAR", n: 1, amount: "99.0000" },
-] as const;
+];
 
 export interface WorldOptions {
   /** The stores the caller's scope holds (default: all three). */
@@ -99,6 +108,10 @@ export interface WorldOptions {
   readonly names?: Readonly<Record<string, string>>;
   /** The store-local business date at `asOf` (default TODAY). */
   readonly today?: string;
+  /** Replace the sales facts the reads serve (RT-1540 replay: the `msx.world.ts` figures). */
+  readonly sales?: readonly Sale[];
+  /** Replace the void, return and refund facts the reads serve. */
+  readonly other?: readonly OtherFact[];
 }
 
 function inScope(options: WorldOptions): StoreDef[] {
@@ -106,11 +119,11 @@ function inScope(options: WorldOptions): StoreDef[] {
   return WORLD.filter((s) => ids.includes(s.id)).map((s) => ({ ...s, name: options.names?.[s.id] ?? s.name }));
 }
 
-const summaryFacts = (stores: readonly string[], from: string, to: string): SummaryFactRow[] => [
-  ...SALES.filter((s) => stores.includes(s.store) && s.date >= from && s.date <= to).map(
+const summaryFacts = (stores: readonly string[], from: string, to: string, sales: readonly Sale[], other: readonly OtherFact[]): SummaryFactRow[] => [
+  ...sales.filter((s) => stores.includes(s.store) && s.date >= from && s.date <= to).map(
     (s): SummaryFactRow => ({ kind: "sale", store_id: s.store, business_date: s.date, currency_code: s.ccy, k1: "synced", k2: null, k3: null, n: s.n, amount: s.amount }),
   ),
-  ...OTHER_FACTS.filter((f) => stores.includes(f.store) && f.date >= from && f.date <= to).map(
+  ...other.filter((f) => stores.includes(f.store) && f.date >= from && f.date <= to).map(
     (f): SummaryFactRow => ({ kind: f.kind, store_id: f.store, business_date: f.date, currency_code: f.ccy, k1: null, k2: null, k3: null, n: f.n, amount: f.amount }),
   ),
 ];
@@ -125,6 +138,8 @@ export interface FakeReads {
 export function fakeReads(options: WorldOptions & { readonly fail?: "summary" | "byStore" } = {}): FakeReads {
   const stores = inScope(options);
   const today = options.today ?? TODAY;
+  const sales = options.sales ?? SALES;
+  const other = options.other ?? OTHER_FACTS;
   const calls: FakeReads["calls"] = { summary: [], byStore: [] };
   return {
     calls,
@@ -143,7 +158,7 @@ export function fakeReads(options: WorldOptions & { readonly fail?: "summary" | 
           dates: businessDatesOf(input.from, input.to),
           asOf: AS_OF_SUMMARY,
           stores: rows,
-          facts: summaryFacts(chosen.map((s) => s.id), input.from, input.to),
+          facts: summaryFacts(chosen.map((s) => s.id), input.from, input.to, sales, other),
           after: input.cursor,
           pageSize: input.pageSize,
         });
@@ -166,15 +181,15 @@ export function fakeReads(options: WorldOptions & { readonly fail?: "summary" | 
         }));
         const ids = stores.map((s) => s.id);
         const facts: ByStoreFactRow[] = [
-          ...SALES.filter((s) => ids.includes(s.store) && s.date >= input.from && s.date <= input.to).map(
+          ...sales.filter((s) => ids.includes(s.store) && s.date >= input.from && s.date <= input.to).map(
             (s): ByStoreFactRow => ({ kind: "sale", period: "range", store_id: s.store, business_date: s.date, currency_code: s.ccy, n: s.n, amount: s.amount }),
           ),
           ...(compared
-            ? SALES.filter((s) => ids.includes(s.store) && s.ccy === input.currency && s.date >= baseline.from && s.date <= baseline.to).map(
+            ? sales.filter((s) => ids.includes(s.store) && s.ccy === input.currency && s.date >= baseline.from && s.date <= baseline.to).map(
                 (s): ByStoreFactRow => ({ kind: "sale", period: "baseline", store_id: s.store, business_date: s.date, currency_code: s.ccy, n: s.n, amount: s.amount }),
               )
             : []),
-          ...OTHER_FACTS.filter((f) => ids.includes(f.store) && f.date >= input.from && f.date <= input.to).map(
+          ...other.filter((f) => ids.includes(f.store) && f.date >= input.from && f.date <= input.to).map(
             (f): ByStoreFactRow => ({ kind: f.kind, period: "range", store_id: f.store, business_date: f.date, currency_code: f.ccy, n: f.n, amount: f.amount }),
           ),
         ];

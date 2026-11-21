@@ -22,10 +22,14 @@ export const NAME_A2 = "Nasr City";
 export const NAME_A3 = "Riyadh Olaya";
 export const NAME_B1 = "Zamalek Branch B1";
 
-/** The synthetic server time of the source reads (each read keeps its OWN asOf, RT-1526 §3.1). */
+/**
+ * The synthetic server time of the source reads (each read keeps its OWN asOf, RT-1526 §3.1). The
+ * baseline summary is the same read as the current one over another range, served in one request,
+ * so it carries the same instant (`msx-eval/2`).
+ */
 export const AS_OF = {
   ss: "2026-11-18T10:30:00.000Z",
-  ssb: "2026-11-18T10:30:01.000Z",
+  ssb: "2026-11-18T10:30:00.000Z",
   sbs: "2026-11-18T10:30:02.000Z",
 } as const;
 

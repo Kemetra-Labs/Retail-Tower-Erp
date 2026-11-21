@@ -4,7 +4,7 @@
  * imported from `src/`, and nothing here constructs a provider or opens a socket.
  */
 
-export const MSX_DATASET_VERSION = "msx-eval/1";
+export const MSX_DATASET_VERSION = "msx-eval/2";
 
 export const MSX_VERSIONS = {
   dataset: MSX_DATASET_VERSION,
@@ -46,7 +46,7 @@ export interface MsxCaller {
 }
 
 /** A condition the synthetic gateway or read layer is in when the request arrives. */
-export type MsxPrecondition = "kill_switch_off" | "tenant_owner_opted_out" | "summary_read_throws";
+export type MsxPrecondition = "kill_switch_off" | "tenant_owner_opted_out" | "summary_read_throws" | "store_a2_no_sales";
 
 /** What the request must do against the P-05 contract: pass, or be rejected (a deliberate failure case). */
 export type RequestValidity = "valid" | "schema_violation" | "span_violation";

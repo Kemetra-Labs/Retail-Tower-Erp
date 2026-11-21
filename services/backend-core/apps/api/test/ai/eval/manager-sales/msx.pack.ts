@@ -64,12 +64,28 @@ export const statement = (key: string, slots: Readonly<Record<string, { readonly
   slots: Object.fromEntries(Object.entries(slots).map(([name, cell]) => [name, { ref: cell.ref }])),
 });
 
+const KPI = /^(receivedSales|voids|returns|legacyRefunds)\.(total|count)$/;
+
+/**
+ * The path of a cited figure in its operation's response (the drawer's field path). A money line is
+ * `byCurrency[]`; every KPI cell of this dataset states its currency, so a KPI figure is always a
+ * `byCurrency[]` leaf.
+ */
 function fieldPathOf(figure: MsxFigure): string {
   const [, subject = "", range = ""] = figure.ref.split(":");
+  const scope = subject === "scope";
   const day = range !== "range";
-  if (figure.src === "sbs") return subject === "scope" ? figure.metric : `stores[].ranking${day ? ".days[]" : ""}.${figure.metric}`;
-  if (subject === "scope") return `scopeTotals.${day ? "days[].kpis" : "rangeTotals"}.${figure.metric}`;
-  return `stores[].${day ? "days[].kpis" : "rangeTotals"}.${figure.metric}`;
+  const kpi = KPI.exec(figure.metric);
+  if (figure.src === "sbs") {
+    if (scope) return kpi === null ? figure.metric : `rangeTotals.${kpi[1]}.byCurrency[].${kpi[2]}`;
+    if (figure.metric === "storeName" || figure.metric === "currentBusinessDate") return `stores[].${figure.metric}`;
+    return `stores[].ranking${day ? ".days[]" : ""}.${figure.metric.replace(/^ranking\./, "")}`;
+  }
+  const base = scope ? "scopeTotals" : "stores[]";
+  if (figure.metric === "currentBusinessDate") return "stores[].currentBusinessDate";
+  if (figure.metric === "businessDate") return `${base}.days[].businessDate`;
+  const leaf = kpi === null ? figure.metric : `${kpi[1]}.byCurrency[].${kpi[2]}`;
+  return `${base}${day ? ".days[].kpis" : ".rangeTotals"}.${leaf}`;
 }
 
 function sourceOf(src: SrcKey): MsxSource {
