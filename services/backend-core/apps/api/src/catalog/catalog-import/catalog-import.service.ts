@@ -53,7 +53,8 @@ import {
   writeRowResults,
 } from "./catalog-import.validate-repository";
 import { ImportBatchRefusedError } from "./import-batch-refusal";
-import { parseImportFile, type ParsedImportFile } from "./import-file-parser";
+import type { ParsedImportFile } from "./import-file-parser";
+import { parseImportFileOffThread } from "./import-parse.offthread";
 import { collectLookupKeys } from "./import-lookups";
 import { mappingProblem, profileEntries, type ColumnMapping, type ImportMode, type SetMappingBody } from "./import-mapping";
 import { previewHashOf } from "./import-preview-hash";
@@ -121,7 +122,7 @@ export class CatalogImportService {
   async upload(input: ImportWriteInput, file: ImportUpload): Promise<CatalogImportBatchBody> {
     const open = await inTenant(this.pool, input.tenantId, (client) => findOpenBatchId(client, input.tenantId));
     if (open !== null) throw new ImportBatchOpenError(open);
-    const parsed = await parseImportFile(file.bytes, { sheet: file.query.sheet ?? null, delimiter: file.query.delimiter ?? null });
+    const parsed = await parseImportFileOffThread(file.bytes, { sheet: file.query.sheet ?? null, delimiter: file.query.delimiter ?? null });
     try {
       return await inTenant(this.pool, input.tenantId, (client) => this.createBatch(client, input, file, parsed));
     } catch (err) {
