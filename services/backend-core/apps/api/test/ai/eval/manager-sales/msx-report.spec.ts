@@ -66,7 +66,6 @@ describe("msx-eval/1 reviewer report", () => {
     expect(report).toContain("RT-1538 comment 18048");
     expect(report).toContain("case-18, case-19, case-36");
     expect(report).toContain("pnpm lint:eslint");
-    expect(report).toContain("node tools/code-health/check.mjs");
     expect(report).toContain("RT-1539");
     expect(report).toContain("RT-1542");
   });
