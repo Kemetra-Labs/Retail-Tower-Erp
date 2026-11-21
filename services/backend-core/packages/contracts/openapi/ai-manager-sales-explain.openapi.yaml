@@ -197,11 +197,6 @@ paths:
       operationId: consoleExplainSales
       x-audit-action: ai.manager_sales.explain
       x-idempotency: required
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1538 (W8 P-05) contract-first. The runtime ships in RT-1539 (P-06),
-        which removes the marker; no route, ledger outcome or migration exists
-        yet.
       tags: [ai-manager-sales]
       security:
         - cookieAuth: []

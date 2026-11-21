@@ -31,7 +31,7 @@ const OUTCOME_BY_REASON: Partial<Record<AiFallbackReason, AiUsageOutcome>> = {
 };
 
 /** The ledger outcome of a finished run. */
-export function usageOutcome(result: AiGatewayResult): AiUsageOutcome {
+export function usageOutcome(result: Exclude<AiGatewayResult, { kind: "declined" }>): AiUsageOutcome {
   if (result.kind === "ok") return "ok";
   // RT-1542: a Tier-0 output that failed validation never requested a provider,
   // but it is still a validation failure, not an unattempted run. (A model run

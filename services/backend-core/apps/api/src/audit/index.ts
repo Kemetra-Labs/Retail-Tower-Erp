@@ -8,3 +8,11 @@
 export { Auditable, annotateAudit } from "./auditable.decorator";
 export { insertAuditRowInTransaction, insertAuditRowsInTransaction, readLatestAuditMetadataWithKey } from "./audit-row.writer";
 export type { TransactionalAuditRow } from "./audit-row.writer";
+/**
+ * RT-1539: a route that must emit its audit event only on SOME 200 outcomes (the Manager Sales answer,
+ * not its refusal) cannot use `@Auditable`, which fires on every 2xx. It enqueues the same job the
+ * interceptor would, through this seam.
+ */
+export { AUDIT_JOB_ENQUEUER } from "./audit-job.enqueuer";
+export type { AuditJobEnqueuer } from "./audit-job.enqueuer";
+export type { AuditJobPayload } from "./audit-job.types";
