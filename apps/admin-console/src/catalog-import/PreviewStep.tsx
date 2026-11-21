@@ -28,7 +28,7 @@ import {
   previewConflicts,
   undecidedCount,
 } from "./catalogImportLogic";
-import { fieldLabelKey, useBrowserTime } from "./importParts";
+import { changeFieldLabel, useBrowserTime } from "./importParts";
 import type { StepProps } from "./stepTypes";
 import { useImportPreview, useImportRows } from "./useCatalogImport";
 import type { PublishFlow } from "./usePublishFlow";
@@ -317,15 +317,6 @@ function LoadedPreview({
   );
 }
 
-const CHANGE_FIELDS: readonly string[] = [
-  "name",
-  "description",
-  "category",
-  "brand",
-  "tax_category",
-  "is_active",
-];
-
 /** Field-level before → after of the rows that update a product (the rows carry `fieldChanges`). */
 function ChangesDrawer({
   batch,
@@ -380,9 +371,7 @@ function FieldChangeLine({
   after,
 }: Readonly<{ field: string; before: string | null; after: string | null }>): React.JSX.Element {
   const t = useT();
-  const label = CHANGE_FIELDS.includes(field)
-    ? t(`catalogImport.changes.field.${field}` as MessageKey)
-    : t(fieldLabelKey("name"));
+  const label = changeFieldLabel(t, field);
   const none = t("catalogImport.changes.none");
   return (
     <>

@@ -6,28 +6,17 @@
  * file and replaces it, or cancels and uploads again.
  */
 import { Banner } from "@/components/Banner";
-import { type MessageKey, formatNumber, useT } from "@/i18n";
+import { formatNumber, useT } from "@/i18n";
 import type { ImportConflict } from "@/lib/catalog-import-queries";
-
-const CHANGE_FIELDS: readonly string[] = [
-  "name",
-  "description",
-  "category",
-  "brand",
-  "tax_category",
-  "is_active",
-];
+import { changeFieldLabel } from "./importParts";
 
 function ReasonText({ conflict }: Readonly<{ conflict: ImportConflict }>): React.JSX.Element {
   const t = useT();
   if (conflict.reason === "second_sku") {
     return <>{t("catalogImport.preview.conflict.secondSku")}</>;
   }
-  const field = conflict.field ?? "";
-  const label = CHANGE_FIELDS.includes(field)
-    ? t(`catalogImport.changes.field.${field}` as MessageKey)
-    : field;
-  return <>{t("catalogImport.preview.conflict.field", { field: label })}</>;
+  const field = changeFieldLabel(t, conflict.field ?? "");
+  return <>{t("catalogImport.preview.conflict.field", { field })}</>;
 }
 
 export function ConflictList({

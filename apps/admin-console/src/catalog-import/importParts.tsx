@@ -193,3 +193,20 @@ export function ValidatingNote({ rows }: Readonly<{ rows: number }>): React.JSX.
     </output>
   );
 }
+
+/** The fields a field change or a conflict names, as the server names them in `fieldChanges`. */
+const CHANGE_FIELDS: readonly string[] = [
+  "name",
+  "description",
+  "category",
+  "brand",
+  "tax_category",
+  "is_active",
+];
+
+/** The label of a changed field; a field this catalog does not know is shown as the server named it. */
+export function changeFieldLabel(t: ReturnType<typeof useT>, field: string): string {
+  return CHANGE_FIELDS.includes(field)
+    ? t(`catalogImport.changes.field.${field}` as MessageKey)
+    : field;
+}
