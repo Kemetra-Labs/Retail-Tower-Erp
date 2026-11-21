@@ -131,7 +131,9 @@ function trackValues(
     const had = product.seen.get(field);
     if (had !== undefined && had !== value) product.disagreeing.add(field);
     else product.seen.set(field, value);
-    product.statedBy.set(field, [...(product.statedBy.get(field) ?? []), row.rowNumber]);
+    const stated = product.statedBy.get(field);
+    if (stated === undefined) product.statedBy.set(field, [row.rowNumber]);
+    else stated.push(row.rowNumber);
   }
   return productId;
 }

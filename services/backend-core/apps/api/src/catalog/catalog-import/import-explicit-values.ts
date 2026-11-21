@@ -18,7 +18,10 @@ export async function explicitValues(client: PoolClient, tenantId: string, batch
   const perProduct = new Map<string, number[]>();
   for (const r of rows) {
     if ((r.status !== "ready_update" && r.status !== "unchanged") || r.outcome.matchedProduct === null) continue;
-    perProduct.set(r.outcome.matchedProduct.productId, [...(perProduct.get(r.outcome.matchedProduct.productId) ?? []), r.rowNumber]);
+    const id = r.outcome.matchedProduct.productId;
+    const numbers = perProduct.get(id);
+    if (numbers === undefined) perProduct.set(id, [r.rowNumber]);
+    else numbers.push(r.rowNumber);
   }
   const shared = [...perProduct.values()].filter((numbers) => numbers.length > 1).flat();
   const cells = await loadRowCells(client, tenantId, batch.id, shared);
