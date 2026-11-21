@@ -275,6 +275,8 @@ export interface RegisterShiftCashupIpcDeps
   /** `OperatorSessionManager.onStarted`: called with each new session. */
   onSessionStarted: (listener: (record: OperatorSessionRecord) => void) => void;
   logger: ShiftCashupBridgeLogger;
+  /** RT-388: the bounded policy refresh the bridge awaits before an open. */
+  beforeOpen?: () => Promise<void>;
   /** RT-438: manager PIN lifecycle facts, for the audit trail. */
   onManagerCredentialEvent?: (event: ManagerCredentialEvent) => void;
   /**
@@ -299,7 +301,12 @@ export function registerShiftCashupIpc(deps: RegisterShiftCashupIpcDeps): void {
     });
   const service = composeShiftCashupService({ ...deps, managerPins });
   const enrollment = createManagerPinEnrollment({ ...deps, store: managerPins });
-  const bridge = createShiftCashupBridge({ service, enrollment, logger: deps.logger });
+  const bridge = createShiftCashupBridge({
+    service,
+    enrollment,
+    logger: deps.logger,
+    ...(deps.beforeOpen === undefined ? {} : { beforeOpen: deps.beforeOpen }),
+  });
   registerShiftCashupHandlers(deps.ipcMain, { bridge });
   deps.onSessionStarted(
     createManagerOnlineRefresh({ store: managerPins, currentTerminalId: deps.currentTerminalId }),

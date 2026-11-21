@@ -121,6 +121,57 @@ describe('stored shift bodies conform to the pinned pos-shifts contract', () => 
     conformsTo({ schema: 'OpenShiftRequest', body: request.body });
   });
 
+  // RT-388: the open freezes the shift variance policy (`frozenPolicy`, accepted since 1.2.0-draft).
+  it.each([
+    [
+      'a tenant limit',
+      {
+        source: 'tenant',
+        revisionId: '0190f5a2-3b4c-7d8e-9f01-23456789abc1',
+        mode: 'limit',
+        limitAmount: '100.00',
+        currencyCode: 'EGP',
+      },
+    ],
+    ['the system default', { source: 'system', revisionId: null, mode: 'none' }],
+    [
+      'the fail-closed fallback',
+      {
+        source: 'fallback',
+        revisionId: null,
+        mode: 'limit',
+        limitAmount: '0.00',
+        currencyCode: 'EGP',
+      },
+    ],
+  ] as const)('openShift body with frozenPolicy (%s) → OpenShiftRequest', (_name, policy) => {
+    const { request } = buildOpenShiftRequest({
+      shiftId: SHIFT,
+      openedAt: '2026-10-05T08:00:00.000Z',
+      openingUserId: USER,
+      currencyCode: 'EGP',
+      openingFloatMinor: 50_000,
+      frozenPolicy: policy,
+    });
+    conformsTo({ schema: 'OpenShiftRequest', body: request.body });
+    const sent = (JSON.parse(request.body) as { frozenPolicy: Record<string, unknown> })
+      .frozenPolicy;
+    const frozen = at(SCHEMAS, 'FrozenPolicy');
+    expect(at(frozen, 'additionalProperties').value).toBe('false');
+    const declared = at(frozen, 'properties').children.map((c) => c.key);
+    expect(declared).toEqual(expect.arrayContaining(Object.keys(sent)));
+    expect(Object.keys(sent)).toEqual(expect.arrayContaining(listOf(at(frozen, 'required'))));
+    checkValue({ node: at(at(frozen, 'properties'), 'policySource'), value: sent['policySource'] });
+    const valueSchema = at(SCHEMAS, 'CashVariancePolicyValue');
+    const valueDeclared = at(valueSchema, 'properties').children.map((c) => c.key);
+    expect(valueDeclared).toEqual(
+      expect.arrayContaining(Object.keys(sent['policyValue'] as Record<string, unknown>)),
+    );
+    for (const [key, value] of Object.entries(sent['policyValue'] as Record<string, unknown>)) {
+      checkValue({ node: at(at(valueSchema, 'properties'), key), value });
+    }
+  });
+
   it('recordCashMovement body → RecordCashMovementRequest', () => {
     const { request } = buildCashMovementRequest({
       fact: {

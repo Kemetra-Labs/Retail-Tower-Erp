@@ -204,14 +204,18 @@ describe('what it refuses, writing nothing', () => {
     expect(factCounts(db)).toMatchObject({ shift_cashup_closes: 0 });
   });
 
-  it('applies the configured variance policy: the manager is the closer, so a variance past it is refused', () => {
-    const strict = serviceHarness(db, { varianceApprovalThresholdMinor: 0 });
+  it('applies the policy frozen at the open: the manager is the closer, so a variance past it is refused', () => {
+    // RT-388: the policy is frozen when the shift opens, so the shift is opened under the policy
+    // that asks (the fixture's limit 0), on a database of its own.
+    const strictDb = freshSalesSyncDb();
+    const strict = serviceHarness(strictDb, { varianceApprovalThresholdMinor: 0 });
+    const strictShiftId = strict.service.openShift({ openingFloatMinor: FLOAT }).shiftId;
     strict.state.session = managerSession();
     strict.state.clock = CLOSE_AT;
     expect(
       reasonOf(() =>
         strict.service.forceCloseShift({
-          shiftId,
+          shiftId: strictShiftId,
           countedCashMinor: FLOAT - 1,
           forcedReason: SHIFT_REASON,
           managerUserId: MANAGER,
@@ -219,6 +223,13 @@ describe('what it refuses, writing nothing', () => {
         }),
       ),
     ).toBe('variance_approval_required');
+    strictDb.close();
+  });
+
+  it('RT-388: an open that froze no limit (the system default) lets the forced close through', () => {
+    // harness (beforeEach) opened under the system default (none): nothing to approve.
+    const closed = forceClose({ countedCashMinor: FLOAT - 1 });
+    expect(closed.varianceMinor).toBe(-1);
   });
 
   it('refuses a clock before the open (clock_regressed)', () => {

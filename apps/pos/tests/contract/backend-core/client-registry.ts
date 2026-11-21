@@ -20,6 +20,7 @@
  */
 import { createBackendClient } from '../../../src/main/operator/backend-client.js';
 import { createBrandingClient } from '../../../src/main/branding/branding-client.js';
+import { createPolicyClient } from '../../../src/main/cash-variance-policy/policy-client.js';
 import { createOfferPackClient } from '../../../src/main/offers/offer-pack-client.js';
 import { createAuditSyncClient } from '../../../src/main/audit/audit-sync-client.js';
 import type { AuditEvent } from '../../../src/shared/audit/event-shape.js';
@@ -203,6 +204,9 @@ async function eachSaleHistoryCredential(
 const brandingClient = (fetch: FetchLike): ReturnType<typeof createBrandingClient> =>
   createBrandingClient({ baseUrl: BASE_URL, fetch });
 const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
+const policyClient = (fetch: FetchLike): ReturnType<typeof createPolicyClient> =>
+  createPolicyClient({ baseUrl: BASE_URL, fetch });
+const POLICY_MODULE = 'src/main/cash-variance-policy/policy-client.ts';
 const offerPackClient = (fetch: FetchLike): ReturnType<typeof createOfferPackClient> =>
   createOfferPackClient({ baseUrl: BASE_URL, fetch });
 const OFFER_PACK_MODULE = 'src/main/offers/offer-pack-client.ts';
@@ -336,6 +340,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   // RT-475: the tenant branding read-down (device token, on the shared transport).
   { module: BRANDING_MODULE, fetchCallSites: 0, surface: brandingClient },
+  // RT-388: the shift variance policy read (device token, ETag / 304, on the shared transport).
+  { module: POLICY_MODULE, fetchCallSites: 0, surface: policyClient },
   // RT-1339: the store's Offer Pack read-down (device token, ETag / 304, on the shared transport).
   { module: OFFER_PACK_MODULE, fetchCallSites: 0, surface: offerPackClient },
   // RT-1231: the D-2 audit upload (device attestation in the body, on the shared transport).
@@ -641,6 +647,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     wiring:
       'bootstrap/branding.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
     invoke: (fetch) => brandingClient(fetch).read(SENTINEL.device, null),
+  },
+  {
+    id: 'policyClient.read',
+    module: POLICY_MODULE,
+    method: 'get',
+    pathTemplate: '/api/pos/v1/store/cash-variance-policy',
+    wiring:
+      'bootstrap/variance-policy.ts: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
+    invoke: (fetch) => policyClient(fetch).read(SENTINEL.device, null),
   },
   {
     id: 'unknownItemCaptureClient.send',

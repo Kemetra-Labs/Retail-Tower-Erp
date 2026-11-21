@@ -49,6 +49,8 @@
  * No secret, no PII: ids, amounts, timestamps, the optional "no PII" movement
  * note and closed-set codes only.
  */
+import type { VariancePolicy } from '../cash-variance-policy/policy-core.js';
+import { normalizeFrozenPolicy } from '../cash-variance-policy/policy-wire.js';
 import type { DatabaseHandle } from '../db/client.js';
 import {
   insertCloseCountLink,
@@ -125,6 +127,11 @@ export interface OpenShiftView {
   openingFloatMinor: number;
   payInTotalMinor: number;
   payOutTotalMinor: number;
+  /**
+   * RT-388: the variance policy frozen at this open (migration 0067). Null for an
+   * open recorded before the upgrade: a legacy shift, evaluated with no limit.
+   */
+  frozenPolicy: VariancePolicy | null;
 }
 
 export type ShiftAuthPath = 'device' | 'envelope';
@@ -342,11 +349,52 @@ const OPEN_SHIFT_SQL = `
          (SELECT COALESCE(SUM(m.amount_minor), 0) FROM shift_cashup_movements m
            WHERE m.shift_id = o.shift_id AND m.kind = 'pay_in') AS payInTotalMinor,
          (SELECT COALESCE(SUM(m.amount_minor), 0) FROM shift_cashup_movements m
-           WHERE m.shift_id = o.shift_id AND m.kind = 'pay_out') AS payOutTotalMinor
+           WHERE m.shift_id = o.shift_id AND m.kind = 'pay_out') AS payOutTotalMinor,
+         p.policy_source AS policySource, p.policy_revision_id AS policyRevisionId,
+         p.policy_mode AS policyMode, p.limit_amount AS policyLimitAmount,
+         p.currency_code AS policyCurrencyCode
   FROM shift_cashup_opens o
+  LEFT JOIN shift_cashup_open_policies p ON p.shift_id = o.shift_id
   WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
     AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)
     AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)`;
+
+/** RT-388: the open shift's row: its totals and the columns of its frozen policy (all null: legacy). */
+type OpenShiftRow = Omit<OpenShiftView, 'frozenPolicy'> & {
+  policySource: string | null;
+  policyRevisionId: string | null;
+  policyMode: string | null;
+  policyLimitAmount: string | null;
+  policyCurrencyCode: string | null;
+};
+
+const INSERT_OPEN_POLICY_SQL = `
+  INSERT INTO shift_cashup_open_policies (shift_id, policy_source, policy_revision_id,
+    policy_mode, limit_amount, currency_code, frozen_at)
+  VALUES (?, ?, ?, ?, ?, ?, ?)`;
+
+/** The frozen policy of an open shift row, re-checked on read; null for a legacy shift. */
+function frozenPolicyOfRow(row: OpenShiftRow): VariancePolicy | null {
+  if (row.policySource === null) return null;
+  const read = normalizeFrozenPolicy({
+    source: row.policySource,
+    revisionId: row.policyRevisionId,
+    mode: row.policyMode,
+    limitAmount: row.policyLimitAmount,
+    currencyCode: row.policyCurrencyCode,
+  } as VariancePolicy);
+  // A row the CHECKs let through can only be malformed by a hand edit: fail closed
+  // as a limit-0 fallback rather than reading it as a legacy shift (no limit).
+  return (
+    read ?? {
+      source: 'fallback',
+      revisionId: null,
+      mode: 'limit',
+      limitAmount: '0',
+      currencyCode: row.currencyCode,
+    }
+  );
+}
 
 /** RT-1442: the terminal's latest shift (insertion order) has a manager closure. */
 const LATEST_SHIFT_MANAGER_CLOSED_SQL = `
@@ -488,8 +536,19 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     (db.prepare(sql) as PrepareRun).run(...params).changes;
 
   function findOpenShift(scope: ShiftScope): OpenShiftView | null {
-    const stmt = db.prepare(OPEN_SHIFT_SQL) as PrepareGet<OpenShiftView>;
-    return stmt.get(scope.tenantId, scope.branchId, scope.terminalId) ?? null;
+    const stmt = db.prepare(OPEN_SHIFT_SQL) as PrepareGet<OpenShiftRow>;
+    const row = stmt.get(scope.tenantId, scope.branchId, scope.terminalId);
+    if (row === undefined) return null;
+    return {
+      shiftId: row.shiftId,
+      openedAt: row.openedAt,
+      openingUserId: row.openingUserId,
+      currencyCode: row.currencyCode,
+      openingFloatMinor: row.openingFloatMinor,
+      payInTotalMinor: row.payInTotalMinor,
+      payOutTotalMinor: row.payOutTotalMinor,
+      frozenPolicy: frozenPolicyOfRow(row),
+    };
   }
 
   /** The terminal's open shift if it is `shiftId`, else `shift_not_open`. */
@@ -546,6 +605,19 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
         fact.openedAt,
         now,
       );
+      if (fact.frozenPolicy !== undefined) {
+        const policy = fact.frozenPolicy;
+        run(
+          INSERT_OPEN_POLICY_SQL,
+          fact.shiftId,
+          policy.source,
+          policy.revisionId,
+          policy.mode,
+          policy.mode === 'limit' ? policy.limitAmount : null,
+          policy.mode === 'limit' ? policy.currencyCode : null,
+          now,
+        );
+      }
       return enqueue({
         scope,
         ref: { factKind: 'open', shiftId: fact.shiftId, movementId: null },
