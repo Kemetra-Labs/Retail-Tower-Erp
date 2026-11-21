@@ -116,7 +116,6 @@ interface ProductValues {
   readonly seen: Map<string, string>;
   readonly statedBy: Map<string, number[]>;
   readonly disagreeing: Set<string>;
-  readonly rows: Set<number>;
 }
 
 /** Records what the row states for its product; the fields it disagrees on, against the product's earlier rows, are remembered. Returns the product id. */
@@ -126,14 +125,15 @@ function trackValues(
   explicit: ReadonlyMap<number, Readonly<Record<string, string>>>,
 ): string {
   const productId = row.outcome.matchedProduct?.productId ?? "";
-  const product = tracked.get(productId) ?? { seen: new Map(), statedBy: new Map(), disagreeing: new Set(), rows: new Set() };
+  const product = tracked.get(productId) ?? { seen: new Map(), statedBy: new Map(), disagreeing: new Set() };
   tracked.set(productId, product);
-  product.rows.add(row.rowNumber);
   for (const [field, value] of valuesOf(row, explicit)) {
     const had = product.seen.get(field);
     if (had !== undefined && had !== value) product.disagreeing.add(field);
     else product.seen.set(field, value);
-    product.statedBy.set(field, [...(product.statedBy.get(field) ?? []), row.rowNumber]);
+    const stated = product.statedBy.get(field);
+    if (stated === undefined) product.statedBy.set(field, [row.rowNumber]);
+    else stated.push(row.rowNumber);
   }
   return productId;
 }
