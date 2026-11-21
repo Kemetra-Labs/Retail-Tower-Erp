@@ -41,6 +41,20 @@ export interface PlannedUpdate {
   readonly adds: PlannedIdentifier[];
 }
 
+/** Why two or more rows cannot be merged into one update of a product (RT-1536; the reasons of the contract's `ImportConflict`). */
+export type ConflictReason = "field_disagreement" | "second_sku";
+
+/** One product the publish refuses (`import_not_publishable`), with the rows the merchant has to fix. */
+export interface PlanConflict {
+  readonly productId: string;
+  readonly product: ProductRef;
+  /** Ascending, without duplicates: every row that states a value for the product (a disagreement), or adds one of its SKUs. */
+  readonly rowNumbers: number[];
+  readonly reason: ConflictReason;
+  /** The field the rows disagree on (`field_disagreement` only). */
+  readonly field?: string;
+}
+
 export interface PublishPlan {
   /** Brands to create, each once, with the first row that names it. */
   readonly brands: Array<{ readonly name: string; readonly rowNumber: number }>;
@@ -51,6 +65,8 @@ export interface PublishPlan {
   readonly identifiersToAdd: number;
   /** Products two rows change differently: no merge is right. */
   readonly conflictingProducts: string[];
+  /** The same products with the rows and the reason (one entry per product and reason, per field for a disagreement). */
+  readonly conflicts: PlanConflict[];
   /** Products two rows validated against different states of the product: the validation is stale. */
   readonly staleProducts: string[];
   readonly rowsWithPriceNotImported: number;
@@ -95,28 +111,30 @@ function valuesOf(row: PlanRow, explicit: ReadonlyMap<number, Readonly<Record<st
   return [...values];
 }
 
-/** Whether the row's values disagree with what the product's earlier rows set; records them either way. */
-function disagrees(seen: Map<string, string>, row: PlanRow, explicit: ReadonlyMap<number, Readonly<Record<string, string>>>): boolean {
-  let differs = false;
-  for (const [field, value] of valuesOf(row, explicit)) {
-    const had = seen.get(field);
-    if (had !== undefined && had !== value) differs = true;
-    else seen.set(field, value);
-  }
-  return differs;
+/** What a product's rows have stated, field by field: the first value, and every row that stated the field. */
+interface ProductValues {
+  readonly seen: Map<string, string>;
+  readonly statedBy: Map<string, number[]>;
+  readonly disagreeing: Set<string>;
+  readonly rows: Set<number>;
 }
 
-/** Records what the row states for its product; a disagreement with the product's earlier rows is remembered. Returns the product id. */
+/** Records what the row states for its product; the fields it disagrees on, against the product's earlier rows, are remembered. Returns the product id. */
 function trackValues(
-  seenValues: Map<string, Map<string, string>>,
-  disagreeing: Set<string>,
+  tracked: Map<string, ProductValues>,
   row: PlanRow,
   explicit: ReadonlyMap<number, Readonly<Record<string, string>>>,
 ): string {
   const productId = row.outcome.matchedProduct?.productId ?? "";
-  const seen = seenValues.get(productId) ?? new Map<string, string>();
-  seenValues.set(productId, seen);
-  if (disagrees(seen, row, explicit)) disagreeing.add(productId);
+  const product = tracked.get(productId) ?? { seen: new Map(), statedBy: new Map(), disagreeing: new Set(), rows: new Set() };
+  tracked.set(productId, product);
+  product.rows.add(row.rowNumber);
+  for (const [field, value] of valuesOf(row, explicit)) {
+    const had = product.seen.get(field);
+    if (had !== undefined && had !== value) product.disagreeing.add(field);
+    else product.seen.set(field, value);
+    product.statedBy.set(field, [...(product.statedBy.get(field) ?? []), row.rowNumber]);
+  }
   return productId;
 }
 
@@ -124,6 +142,22 @@ function trackValues(
 function addsSecondSku(update: MutableUpdate): boolean {
   const skus = update.adds.filter((a) => a.type === "sku").length;
   return skus > 1 || (skus === 1 && update.product.identifiers.some((i) => i.type === "sku"));
+}
+
+/** The rows and reasons of every conflicting product, ordered by their first row (a stable list for the preview). */
+function conflictsOf(conflicting: readonly MutableUpdate[], tracked: ReadonlyMap<string, ProductValues>): PlanConflict[] {
+  const sorted = (rows: Iterable<number>): number[] => [...new Set(rows)].sort((a, b) => a - b);
+  const out: PlanConflict[] = [];
+  for (const u of conflicting) {
+    const values = tracked.get(u.productId);
+    for (const field of [...(values?.disagreeing ?? [])].sort()) {
+      out.push({ productId: u.productId, product: u.product, rowNumbers: sorted(values?.statedBy.get(field) ?? []), reason: "field_disagreement", field });
+    }
+    if (addsSecondSku(u)) {
+      out.push({ productId: u.productId, product: u.product, rowNumbers: sorted(u.adds.filter((a) => a.type === "sku").map((a) => a.rowNumber)), reason: "second_sku" });
+    }
+  }
+  return out.sort((a, b) => (a.rowNumbers[0] as number) - (b.rowNumbers[0] as number) || a.productId.localeCompare(b.productId) || a.reason.localeCompare(b.reason) || (a.field ?? "").localeCompare(b.field ?? ""));
 }
 
 const hasEffect = (row: PlanRow): boolean => row.outcome.fieldChanges.length > 0 || row.outcome.identifierAdds.length > 0;
@@ -137,8 +171,7 @@ export function planPublish(rows: readonly PlanRow[], explicit: ReadonlyMap<numb
   const brands = new Map<string, number>();
   const creates: PublishPlan["creates"] = [];
   const updates = new Map<string, MutableUpdate>();
-  const seenValues = new Map<string, Map<string, string>>();
-  const disagreeing = new Set<string>();
+  const tracked = new Map<string, ProductValues>();
   let priceNotImported = 0;
   let unchanged = 0;
   let excluded = 0;
@@ -147,13 +180,13 @@ export function planPublish(rows: readonly PlanRow[], explicit: ReadonlyMap<numb
     if (row.status === "unchanged") {
       unchanged += 1;
       // It writes nothing, but what it states for its product still counts against another row's change of it.
-      trackValues(seenValues, disagreeing, row, explicit);
+      trackValues(tracked, row, explicit);
     } else if (row.status === "excluded") excluded += 1;
     else if (row.status === "ready_create") {
       creates.push({ rowNumber: row.rowNumber, adds: row.outcome.identifierAdds });
       if (row.outcome.brandToCreate !== null && !brands.has(row.outcome.brandToCreate)) brands.set(row.outcome.brandToCreate, row.rowNumber);
     } else if (row.status === "ready_update") {
-      const productId = trackValues(seenValues, disagreeing, row, explicit);
+      const productId = trackValues(tracked, row, explicit);
       if (!hasEffect(row)) continue;
       const update = updates.get(productId) ?? startUpdate(row);
       updates.set(update.productId, update);
@@ -170,13 +203,16 @@ export function planPublish(rows: readonly PlanRow[], explicit: ReadonlyMap<numb
     changes: [...u.changes.values()],
     adds: u.adds,
   }));
+  const conflicting = [...updates.values()].filter((u) => (tracked.get(u.productId)?.disagreeing.size ?? 0) > 0 || addsSecondSku(u));
+  const conflicts = conflictsOf(conflicting, tracked);
   return {
     brands: [...brands].map(([name, rowNumber]) => ({ name, rowNumber })),
     creates,
     updates: planned,
     deactivations: planned.flatMap((u) => (u.changes.some((c) => c.field === "is_active" && c.after === "false") ? [{ rowNumber: u.rowNumbers[0] as number, product: u.product }] : [])),
     identifiersToAdd: creates.reduce((n, c) => n + c.adds.length, 0) + planned.reduce((n, u) => n + u.adds.length, 0),
-    conflictingProducts: [...updates.values()].filter((u) => disagreeing.has(u.productId) || addsSecondSku(u)).map((u) => u.productId),
+    conflictingProducts: conflicting.map((u) => u.productId),
+    conflicts,
     staleProducts: [...updates.values()].filter((u) => u.matchedTexts.size > 1).map((u) => u.productId),
     rowsWithPriceNotImported: priceNotImported,
     rowsUnchanged: unchanged,
@@ -197,6 +233,10 @@ export function summaryOf(plan: PublishPlan): Record<string, number> {
   };
 }
 
+/** The bounds of the contract's `conflicts` list and of each entry's `rowNumbers` (`conflictCount` is the unbounded total). */
+export const MAX_PREVIEW_CONFLICTS = 100;
+export const MAX_CONFLICT_ROWS = 50;
+
 /** The contract's `CatalogImportPreview` body (without the batch's own fields). */
 export function previewOf(plan: PublishPlan): {
   brandsToCreate: string[];
@@ -206,6 +246,8 @@ export function previewOf(plan: PublishPlan): {
   deactivations: Array<{ rowNumber: number; product: ProductRef }>;
   newProductsWithoutPrice: number;
   rowsWithPriceNotImported: number;
+  conflictCount: number;
+  conflicts: Array<{ product: ProductRef; rowNumbers: number[]; reason: ConflictReason; field?: string }>;
 } {
   return {
     brandsToCreate: plan.brands.map((b) => b.name),
@@ -216,5 +258,12 @@ export function previewOf(plan: PublishPlan): {
     // Every created product: none has a price, so none reaches a till until priced in Pricing (spec 049 section 6, F-4).
     newProductsWithoutPrice: plan.creates.length,
     rowsWithPriceNotImported: plan.rowsWithPriceNotImported,
+    conflictCount: plan.conflicts.length,
+    conflicts: plan.conflicts.slice(0, MAX_PREVIEW_CONFLICTS).map((c) => ({
+      product: c.product,
+      rowNumbers: c.rowNumbers.slice(0, MAX_CONFLICT_ROWS),
+      reason: c.reason,
+      ...(c.field === undefined ? {} : { field: c.field }),
+    })),
   };
 }

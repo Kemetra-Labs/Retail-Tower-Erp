@@ -2,7 +2,7 @@
  * apps/api/test/catalog/catalog-import/catalog-import.contract.spec.ts
  *
  * RT-1502 (spec 049 slice S1): the Console product import contract,
- * `catalog/catalog-import.yaml` 1.0.5-draft. `[GATED]` contract-first; an
+ * `catalog/catalog-import.yaml` 1.0.6-draft. `[GATED]` contract-first; an
  * operation is `x-runtime-status: contract-only` until its runtime (RT-1505 part A
  * serves the upload and the batch read; part B the mapping, validate and the row list; RT-1507 the review decision, the preview, the publish and the cancel). Owner decisions OD-1..OD-17 accepted (RT-1489 comment 17790).
  *
@@ -201,9 +201,9 @@ function rowFixture() {
 }
 
 describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => {
-  it("declares OpenAPI 3.1 at version 1.0.5-draft", () => {
+  it("declares OpenAPI 3.1 at version 1.0.6-draft", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.0.5-draft");
+    expect(doc.info?.version).toBe("1.0.6-draft");
   });
 
   it("declares exactly the twelve operations", () => {
@@ -219,7 +219,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
     if (SERVED.has(id)) {
-      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.5-draft): the runtime lifts only the markers.
+      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.6-draft): the runtime lifts only the markers.
       expect(operation["x-runtime-status"]).toBeUndefined();
       expect(operation["x-runtime-note"]).toBeUndefined();
     } else {
@@ -253,6 +253,15 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     expect(info()).toMatch(/two rows that would change one product differently make the\s+batch `import_not_publishable`/);
     expect(String(op("post", `${BATCH}/publish`).description)).toMatch(/never a 500/);
     expect(String(op("put", `${BATCH}/rows/{rowNumber}/resolution`).description)).toMatch(/`ambiguous` row there takes only\s+`exclude`/);
+  });
+
+  it("states the RT-1536 text in the contract's own version note (1.0.6-draft) and adds the conflict fields as optional", () => {
+    expect(info()).toMatch(/\*\*1\.0\.6-draft \(RT-1536 spec 049 S5b: the preview names the conflicts\)\.\*\*/);
+    expect(info()).toMatch(/so `previewHash` already covers them/);
+    const preview = (doc.components?.schemas as Record<string, { required?: string[]; properties?: Record<string, unknown> }>)["CatalogImportPreview"] as { required: string[]; properties: Record<string, unknown> };
+    expect(Object.keys(preview.properties)).toEqual(expect.arrayContaining(["conflictCount", "conflicts"]));
+    expect(preview.required).not.toEqual(expect.arrayContaining(["conflictCount"]));
+    expect(preview.required).not.toEqual(expect.arrayContaining(["conflicts"]));
   });
 
   it("states the RT-1505 part B text in the contract's own version note (1.0.4-draft)", () => {
