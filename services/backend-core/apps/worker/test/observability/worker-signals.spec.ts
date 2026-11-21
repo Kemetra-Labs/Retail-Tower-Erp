@@ -107,6 +107,8 @@ describe("T465 — signal presence: every worker metric is in ALLOWED_METRIC_LAB
       "sale_redrive_total",
       // RT-427: sale effects skipped instead of stalling the sale.
       "inventory_sale_effect_skipped_total",
+      // RT-1034: sync-failure email alert decisions.
+      "sync_failure_alert_total",
     ];
     expect([...WORKER_METRIC_NAMES].sort()).toEqual([...expected].sort());
   });
@@ -211,6 +213,7 @@ describe("T465 — bounded enums: queue, job_name, and error_class are documente
       "ai-usage-reservation-sweep",
       "erp-provisioning-sweep",
       "catalog-import-retention",
+      "sync-failure-alert-sweep",
     ];
     expect([...WORKER_QUEUE_NAMES].sort()).toEqual([...expected].sort());
   });

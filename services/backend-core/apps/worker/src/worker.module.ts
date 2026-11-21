@@ -89,6 +89,7 @@ import { poolOrNoOp } from "./observability/pool-or-noop";
 import { InstrumentedRedis } from "./observability/instrumented-redis";
 import { InstrumentedPool } from "./observability/instrumented-pool";
 
+import { EMAIL_ADAPTER, type EmailAdapter } from "./email/email.adapter";
 import { EmailProcessor } from "./email/email.processor";
 import { emailTransportProviders } from "./email/email.providers";
 import {
@@ -184,6 +185,15 @@ import { ImportRetentionScheduler } from "./catalog-import/import-retention.sche
 import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
 import { verifyAuditRetentionRole, verifyWorkerDatabaseRole } from "./database-role-verifier";
 import { captureFinalJobFailure } from "./observability/sentry/failed-job";
+import { recordSyncFailureAlert } from "./observability/metrics/worker.metrics";
+import { resolveSyncFailureAlertEnabled } from "./sync-failure-alert/sync-failure-alert.config";
+import { SyncFailureAlertProcessor } from "./sync-failure-alert/sync-failure-alert.processor";
+import {
+  NoOpSyncFailureAlertRepository,
+  PgSyncFailureAlertRepository,
+} from "./sync-failure-alert/sync-failure-alert.repository";
+import { SyncFailureAlertScheduler } from "./sync-failure-alert/sync-failure-alert.scheduler";
+import { SyncFailureAlertWorker } from "./sync-failure-alert/sync-failure-alert.worker";
 
 /**
  * Real BullMQ-backed factory. Constructs a `bullmq.Worker` that
@@ -492,6 +502,30 @@ export function replayPurgeProcessorProviderFactory(wrapper: AuditDbPool): Repla
     (pool) => new PgReplayPurgeRepository(pool),
   );
   return new ReplayPurgeProcessor(repo);
+}
+
+/**
+ * Factory for the `SyncFailureAlertProcessor` provider (RT-1034).
+ *
+ * Reuses the shared `AuditDbPool` wrapper (no second pool) and the `EMAIL_ADAPTER` seam
+ * (SES behind config, NoOp outside production). The alert is OFF unless
+ * `SYNC_FAILURE_ALERT_ENABLED=true`; on the no-DB path the NoOp repository lists no tenants.
+ */
+function syncFailureAlertProcessorProviderFactory(
+  wrapper: AuditDbPool,
+  adapter: EmailAdapter,
+): SyncFailureAlertProcessor {
+  const repo = poolOrNoOp(
+    wrapper.pool,
+    () => new NoOpSyncFailureAlertRepository(),
+    (pool) => new PgSyncFailureAlertRepository(pool),
+  );
+  return new SyncFailureAlertProcessor(
+    repo,
+    adapter,
+    resolveSyncFailureAlertEnabled(),
+    recordSyncFailureAlert,
+  );
 }
 
 /**
@@ -858,6 +892,20 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     ImportRetentionWorker,
     ImportRetentionScheduler,
 
+    // ── Sync-failure email alert sweep (RT-1034) ─────────────────────
+    //
+    // A repeatable job (default every 5 minutes, OFF unless
+    // SYNC_FAILURE_ALERT_ENABLED=true) that reads the existing ERP posting and
+    // sale sync failure state and sends one deduplicated email per open
+    // condition through the EmailAdapter seam. Read-only on posting state.
+    {
+      provide: SyncFailureAlertProcessor,
+      useFactory: syncFailureAlertProcessorProviderFactory,
+      inject: [AuditDbPool, EMAIL_ADAPTER],
+    },
+    SyncFailureAlertWorker,
+    SyncFailureAlertScheduler,
+
     // ── AI usage reservation sweep (RT-664, T17) ─────────────────────
     //
     // A repeatable job (default every 5 minutes) that releases every
@@ -943,6 +991,8 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     ReplayPurgeProcessor,
     ImportRetentionWorker,
     ImportRetentionProcessor,
+    SyncFailureAlertWorker,
+    SyncFailureAlertProcessor,
     ReservationSweepWorker,
     ReservationSweepProcessor,
     ProvisioningSweepWorker,

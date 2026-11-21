@@ -211,6 +211,8 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "erpnext_reconciliation_repair_total",
     // ERPNext stock reconciliation sweep — RT-179. `outcome` (closed set).
     "erpnext_stock_reconciliation_sweep_total",
+    // Sync-failure email alert — RT-1034. `outcome` (closed set).
+    "sync_failure_alert_total",
     // ERPNext stock run expiry — RT-688. Gauge `outcome` (closed set); counter unlabeled.
     "erpnext_stock_run_stranded",
     "erpnext_stock_run_expired_total",

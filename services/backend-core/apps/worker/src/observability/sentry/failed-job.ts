@@ -82,6 +82,8 @@ export const DECLARED_JOB_NAMES: ReadonlySet<string> = new Set([
   PROVISIONING_SWEEP_JOB_NAME,
   // RT-1503: the catalogue import retention job is named after its queue (no import: a module cycle).
   QUEUE_NAMES.catalogImportRetention,
+  // RT-1034: the sync-failure alert sweep is named after its queue.
+  QUEUE_NAMES.syncFailureAlertSweep,
 ]);
 
 const MASKED_JOB_NAME = "[job_name]";

@@ -118,7 +118,19 @@ describe("failedJobTags", () => {
       "outbox-retention-sweep",
       "sale-processing",
       "sale-redrive",
+      "sync-failure-alert-sweep",
     ]);
+  });
+
+  it("RT-1034: a final failure of the sync-failure alert sweep is tagged with its job name", () => {
+    const sweep = { name: "sync-failure-alert-sweep", attemptsMade: 5, opts: { attempts: 5 } };
+    expect(isFinalFailure(sweep, new Error("x"))).toBe(true);
+    expect(isFinalFailure({ ...sweep, attemptsMade: 2 }, new Error("x"))).toBe(false);
+    expect(failedJobTags("sync-failure-alert-sweep", sweep, new Error("x"))).toMatchObject({
+      queue: "sync-failure-alert-sweep",
+      job_name: "sync-failure-alert-sweep",
+      outcome: "exhausted",
+    });
   });
 
   it("keeps only the queue when BullMQ passes no job", () => {

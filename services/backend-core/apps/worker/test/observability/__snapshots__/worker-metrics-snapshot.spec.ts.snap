@@ -20,6 +20,7 @@ exports[`RT-1211 worker metric snapshot WORKER_METRIC_NAMES is exactly the regis
   "queue_retry_total",
   "redis_command_duration_seconds",
   "sale_redrive_total",
+  "sync_failure_alert_total",
   "worker_job_duration_seconds",
   "worker_processing_failure_total",
 ]
@@ -126,6 +127,12 @@ exports[`RT-1211 worker metric snapshot asserts exactly these label sets 1`] = `
       "reason",
     ],
     "metric": "sale_redrive_total",
+  },
+  {
+    "labels": [
+      "outcome",
+    ],
+    "metric": "sync_failure_alert_total",
   },
   {
     "labels": [
@@ -268,6 +275,13 @@ exports[`RT-1211 worker metric snapshot registers exactly these instruments (sco
     "description": "Items the scheduled sale re-drive sweep recovered, by reason: sale_processing (a stranded unprocessed sale was processed), sale_post_intent / reversal_intent (a missing erpnext.posting.requested event was re-emitted). The tenant and sale are in the sweep log, never a label.",
     "kind": "counter",
     "name": "sale_redrive_total",
+    "scope": "worker",
+    "unit": undefined,
+  },
+  {
+    "description": "Sync-failure email alert decisions, by outcome: fired (a new alert window opened for a failure condition), suppressed (a recipient already had this window's notification), delivered (the email provider accepted the message), failed (the provider rejected it or the recipient was no longer authorized). The tenant, store and recipient are never labels.",
+    "kind": "counter",
+    "name": "sync_failure_alert_total",
     "scope": "worker",
     "unit": undefined,
   },

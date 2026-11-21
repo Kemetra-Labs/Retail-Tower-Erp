@@ -26,6 +26,7 @@ import { ReplayPurgeWorker } from "../src/cashier-admissions/replay-purge.worker
 import { SaleRedriveWorker } from "../src/sales/sale-redrive.worker";
 import { ProvisioningSweepWorker } from "../src/erp-provisioning/provisioning-sweep.worker";
 import { ImportRetentionWorker } from "../src/catalog-import/import-retention.worker";
+import { SyncFailureAlertWorker } from "../src/sync-failure-alert/sync-failure-alert.worker";
 import { RepeatableWorker } from "../src/common/repeatable-worker";
 import { WorkerModule } from "../src/worker.module";
 
@@ -91,6 +92,7 @@ class FakeAppContext implements Partial<INestApplicationContext> {
   readonly reservationSweepWorker = new FakeRetentionWorker();
   readonly provisioningSweepWorker = new FakeRetentionWorker();
   readonly importRetentionWorker = new FakeRetentionWorker();
+  readonly syncFailureAlertWorker = new FakeRetentionWorker();
   /** Every token `bootstrap` resolved, with the fake it got back (RT-1358 guard). */
   readonly resolved = new Map<unknown, { starts: number }>();
   constructor(
@@ -111,6 +113,9 @@ class FakeAppContext implements Partial<INestApplicationContext> {
   private lookup<TInput, TResult>(token: TInput): TResult {
     if ((token as unknown) === ProvisioningSweepWorker) {
       return this.provisioningSweepWorker as unknown as TResult;
+    }
+    if ((token as unknown) === SyncFailureAlertWorker) {
+      return this.syncFailureAlertWorker as unknown as TResult;
     }
     if ((token as unknown) === ImportRetentionWorker) {
       return this.importRetentionWorker as unknown as TResult;
@@ -271,6 +276,11 @@ describe("bootstrap — happy path", () => {
     expect(ctx.importRetentionWorker.starts).toBe(1);
   });
 
+  it("RT-1034: starts the sync-failure alert worker exactly once", async () => {
+    const { ctx } = await setup();
+    expect(ctx.syncFailureAlertWorker.starts).toBe(1);
+  });
+
   it("RT-1358: starts every RepeatableWorker that WorkerModule registers", async () => {
     // A repeatable scheduler registers its job at module init, but the worker
     // only consumes the queue after an explicit start(). A worker registered
@@ -352,6 +362,9 @@ describe("bootstrap — happy path", () => {
     );
     expect(result.importRetentionWorker).toBe(
       ctx.importRetentionWorker as unknown as ImportRetentionWorker,
+    );
+    expect(result.syncFailureAlertWorker).toBe(
+      ctx.syncFailureAlertWorker as unknown as SyncFailureAlertWorker,
     );
   });
 });
