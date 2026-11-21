@@ -354,12 +354,16 @@ paths:
         before the upgrade, sends no `frozenPolicy`; such a shift's derived
         close values are `unknown`. Backend-Core records it verbatim and never
         refuses an open or a close on policy grounds: an unknown revision, a
-        superseded revision and a value that differs from the revision (or,
-        for a `limit`, from the shift's currency) are accepted, recorded and
-        flagged `policy_revision_unknown`, `policy_revision_superseded`,
-        `policy_value_mismatch` or `policy_revision_stale_at_receipt` (an
-        offline open on an older cached revision is normal, DR-8). Only a malformed `frozenPolicy` is a 400
-        `validation_error`: a missing member, a `null` `policyRevisionId`
+        superseded revision, a value that differs from the revision (or, for a
+        `limit`, from the shift's currency) and an open that arrives more than
+        24 hours after its `openedAt` on a policy that is no longer in effect
+        for the store at receipt (RT-592) are accepted, recorded and flagged
+        `policy_revision_unknown`, `policy_revision_superseded`,
+        `policy_value_mismatch` or `policy_revision_stale_at_receipt`
+        respectively (an offline open on an older cached revision is normal,
+        DR-8, and is never flagged `policy_revision_stale_at_receipt` unless it
+        arrives more than 24 hours late). Only a malformed `frozenPolicy` is a
+        400 `validation_error`: a missing member, a `null` `policyRevisionId`
         with source `tenant` or `store`, a non-null one with `system` or
         `fallback`, or a `limit` without its amount or currency.
 
