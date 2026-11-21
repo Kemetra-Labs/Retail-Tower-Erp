@@ -180,6 +180,7 @@ export function returnsProofBridge(state: ReturnsProofState): ReturnsBridgeAPI {
       (LIST[state] ?? (() => Promise.resolve({ kind: 'ok', returns: journalFor(state) })))(),
     payout: () => (PAYOUT[state] ?? never)(),
     reprintSlip: () => (REPRINT[state] ?? (() => Promise.resolve({ kind: 'printed' })))(),
+    resend: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
   };
 }
 

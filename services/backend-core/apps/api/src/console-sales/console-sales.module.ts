@@ -36,5 +36,7 @@ import { CONSOLE_SALES_SCAN_LIMIT, ConsoleSalesReadService } from "./console-sal
     ConsoleSalesByStoreService,
     { provide: CONSOLE_SALES_SCAN_LIMIT, useValue: SCAN_LIMIT_DEFAULT },
   ],
+  // RT-1539: Manager Sales Ask/Explain reads both aggregates in-process (through `index.ts`).
+  exports: [ConsoleSalesSummaryService, ConsoleSalesByStoreService],
 })
 export class ConsoleSalesModule {}

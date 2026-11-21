@@ -12,6 +12,7 @@ import type {
   ReturnsPayoutResponse,
   ReturnsQuoteResponse,
   ReturnsReprintResponse,
+  ReturnsResendResponse,
   ReturnsResolveResponse,
   ReturnsSubmitResponse,
 } from '../../../shared/returns/types.js';
@@ -89,6 +90,7 @@ export interface FakeReturnsBridge extends ReturnsBridgeAPI {
   list: Mock<() => Promise<ReturnsListResponse>>;
   payout: Mock<(req: unknown) => Promise<ReturnsPayoutResponse>>;
   reprintSlip: Mock<(req: unknown) => Promise<ReturnsReprintResponse>>;
+  resend: Mock<(req: unknown) => Promise<ReturnsResendResponse>>;
 }
 
 export function fakeBridge(): FakeReturnsBridge {
@@ -110,6 +112,9 @@ export function fakeBridge(): FakeReturnsBridge {
       }),
     ),
     reprintSlip: vi.fn(() => Promise.resolve({ kind: 'printed' as const })),
+    resend: vi.fn(() =>
+      Promise.resolve({ kind: 'unconfirmed' as const, ret: journal({ state: 'unknown' }) }),
+    ),
   };
 }
 

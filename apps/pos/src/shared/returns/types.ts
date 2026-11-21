@@ -303,8 +303,9 @@ export type ReturnsResolveResponse =
   | ReturnsRefused;
 
 /**
- * RT-196 S1 — resend ONE unresolved return (main-process service method; not
- * on `ReturnsBridgeAPI` until its §A4 review). Same answer shape as `submit`.
+ * RT-196 S1 — resend ONE unresolved return. A `returns.resend` bridge member
+ * since RT-1498 (the `returns:resend` channel, §A4 record C-1). Same answer
+ * shape as `submit`.
  */
 export interface ReturnsResendRequest {
   readonly returnId: string;
@@ -378,4 +379,10 @@ export interface ReturnsBridgeAPI {
   payout(req: ReturnsPayoutRequest): Promise<ReturnsPayoutResponse>;
   /** RT-15 S4: print a paid-out return's slip again, marked as a copy. */
   reprintSlip(req: ReturnsReprintRequest): Promise<ReturnsReprintResponse>;
+  /**
+   * RT-1498: send ONE unresolved (`pending` / `unknown`) return again: the
+   * identical journaled bytes under the same Idempotency-Key. The renderer
+   * names only the return id; everything else is derived in main.
+   */
+  resend(req: ReturnsResendRequest): Promise<ReturnsResendResponse>;
 }

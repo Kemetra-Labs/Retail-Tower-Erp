@@ -79,10 +79,10 @@ export function startSaleQuarantineUpload(
   let stopped = false;
   const salesRepo = bindSalesRepository(db);
   // The same cutoffs the capture drain builds with (RT-363 included), so a quarantine body
-  // equals the body the drain sent; the capture bootstrap already warned about a bad value.
+  // equals the body the drain sent; both read the stored rows, which never move.
   const cutoffs = {
     ...readEngineCutoffs(db, mainLogger),
-    tenderRefsSince: readTenderRefsSince(process.env, { warn: () => undefined }),
+    tenderRefsSince: readTenderRefsSince(db, mainLogger),
   };
   const sellingUsers =
     deps.sellingUsers ??

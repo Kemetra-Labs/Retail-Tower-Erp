@@ -4,11 +4,13 @@ import {
   LOCAL_RETURN_REFUSALS,
   RETURN_DRAWER_FAILURES,
   RETURN_STATES,
+  RETURN_UNKNOWN_CAUSES,
   SERVER_RETURN_REFUSALS,
 } from '../../../shared/returns/types.js';
 import {
   OUTCOME_COPY,
   PAYOUT_COPY,
+  UNRESOLVED_COPY,
   drawerFailureMessage,
   refusalMessage,
   stateLabel,
@@ -57,6 +59,41 @@ describe('journal state labels (H1)', () => {
     const labels = RETURN_STATES.map(stateLabel);
     expect(new Set(labels).size).toBe(5);
     for (const label of labels) expect(label).toMatch(/[؀-ۿ]/);
+  });
+});
+
+describe('unresolved-return copy (RT-1498, PROPOSED copy pending owner review)', () => {
+  it('words every closed cause code, distinctly, in Arabic, with no em dash', () => {
+    const lines = RETURN_UNKNOWN_CAUSES.map((cause) => UNRESOLVED_COPY.cause(cause));
+    expect(new Set(lines).size).toBe(RETURN_UNKNOWN_CAUSES.length);
+    for (const line of lines) {
+      expect(line).toMatch(/[؀-ۿ]/);
+      expect(line).not.toContain('—');
+    }
+  });
+
+  it('never reuses a refusal, outcome or payout line, and never says declined', () => {
+    const own = [
+      ...RETURN_UNKNOWN_CAUSES.map((cause) => UNRESOLVED_COPY.cause(cause)),
+      UNRESOLVED_COPY.doNotPay,
+      UNRESOLVED_COPY.neverSent,
+      UNRESOLVED_COPY.resend,
+    ];
+    const others = new Set([
+      ...ALL_REASONS.map(refusalMessage),
+      ...Object.values(OUTCOME_COPY),
+      ...Object.values(PAYOUT_COPY),
+    ]);
+    expect(own.filter((line) => others.has(line))).toEqual([]);
+    expect(own.filter((line) => line.includes('مرفوض'))).toEqual([]);
+  });
+
+  it('keeps telling the operator not to pay while the return is unresolved', () => {
+    expect(UNRESOLVED_COPY.doNotPay).toContain('لا تصرف أي نقد');
+  });
+
+  it('falls back to no wording for a cause main has not taught the renderer', () => {
+    expect(UNRESOLVED_COPY.cause('brand_new_cause' as never)).toBe('');
   });
 });
 

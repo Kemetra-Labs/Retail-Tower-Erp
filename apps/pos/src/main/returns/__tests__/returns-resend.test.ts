@@ -10,8 +10,9 @@
  *   • `sale.return.resend_requested` is attributed to the REQUESTING operator;
  *   • the answer is withheld if the session changed while it was awaited.
  *
- * `resend` is deliberately NOT on the `returns.*` bridge (`service`): a bridge
- * channel is a §A4 review item, prepared in the RT-196 notes, not wired here.
+ * RT-1498: `resend` is now a member of the `returns.*` bridge (`service`), behind
+ * the `returns:resend` channel (the §A4 review item, owner-approved in RT-1498
+ * comment 18073). The service method itself is unchanged.
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -55,10 +56,10 @@ async function unknownReturn(): Promise<string> {
 }
 
 describe('RT-196 S1 — returns resend', () => {
-  it('is not part of the returns bridge (no new IPC surface in S1)', () => {
+  it('is a member of the returns bridge service (RT-1498: the returns:resend channel)', () => {
     harness();
-    expect('resend' in h.service).toBe(false);
-    expect(typeof h.resend).toBe('function');
+    expect(typeof h.service.resend).toBe('function');
+    expect('resend' in h).toBe(false);
   });
 
   it('sends the identical bytes under the same key, at once, and confirms through the dispatcher', async () => {
@@ -68,7 +69,7 @@ describe('RT-196 S1 — returns resend', () => {
     h.state.now = secondsAfterNow(1);
     h.backend.onReturn = (call, backend) => backend.recordIdempotently(call);
 
-    const res = await h.resend({ returnId });
+    const res = await h.service.resend({ returnId });
 
     expect(res).toMatchObject({ kind: 'confirmed', ret: { state: 'confirmed' } });
     const [first, second] = h.backend.returnCalls();
@@ -88,7 +89,7 @@ describe('RT-196 S1 — returns resend', () => {
     const returnId = await unknownReturn();
     h.backend.onReturn = () => jsonResponse(503, errorBody('unavailable'));
 
-    const res = await h.resend({ returnId });
+    const res = await h.service.resend({ returnId });
 
     expect(res).toMatchObject({
       kind: 'unconfirmed',
@@ -109,7 +110,7 @@ describe('RT-196 S1 — returns resend', () => {
     h.state.role = 'admin';
     h.backend.onReturn = () => jsonResponse(503, errorBody('unavailable'));
 
-    await h.resend({ returnId });
+    await h.service.resend({ returnId });
 
     const event = h.audits.find((e) => e.action_category === 'sale.return.resend_requested');
     expect(event?.acting_operator_id).toBe('op-admin');
@@ -127,7 +128,7 @@ describe('RT-196 S1 — returns resend', () => {
       const returnId = nn(res.ret).returnId;
       const before = h.backend.returnCalls().length;
 
-      await expect(h.resend({ returnId })).resolves.toMatchObject({
+      await expect(h.service.resend({ returnId })).resolves.toMatchObject({
         kind: 'refused',
         reason: 'already_resolved',
         ret: { state },
@@ -145,7 +146,7 @@ describe('RT-196 S1 — returns resend', () => {
     const returnId = await unknownReturn();
     h.backend.onReturn = () => jsonResponse(403, errorBody('credit_sale_reversal_restricted'));
 
-    const res = await h.resend({ returnId });
+    const res = await h.service.resend({ returnId });
 
     expect(res).toMatchObject({
       kind: 'refused',
@@ -159,7 +160,7 @@ describe('RT-196 S1 — returns resend', () => {
     const returnId = await unknownReturn();
     h.backend.onReturn = () => jsonResponse(403, errorBody('forbidden'));
 
-    await expect(h.resend({ returnId })).resolves.toMatchObject({
+    await expect(h.service.resend({ returnId })).resolves.toMatchObject({
       kind: 'unconfirmed',
       ret: { state: 'unknown', lastCause: 'pre_replay_403' },
     });
@@ -169,15 +170,15 @@ describe('RT-196 S1 — returns resend', () => {
     harness();
     const returnId = await unknownReturn();
     await expect(
-      h.resend({ returnId: '0190f5a2-7b3c-7d4e-8f90-0000000000ee' }),
+      h.service.resend({ returnId: '0190f5a2-7b3c-7d4e-8f90-0000000000ee' }),
     ).resolves.toMatchObject({ kind: 'refused', reason: 'return_not_found' });
-    await expect(h.resend({ returnId: "x' OR 1=1" })).resolves.toMatchObject({
+    await expect(h.service.resend({ returnId: "x' OR 1=1" })).resolves.toMatchObject({
       kind: 'refused',
       reason: 'invalid_input',
     });
     h.state.terminalId = 'term-2';
     const before = h.backend.returnCalls().length;
-    await expect(h.resend({ returnId })).resolves.toMatchObject({
+    await expect(h.service.resend({ returnId })).resolves.toMatchObject({
       kind: 'refused',
       reason: 'return_not_found',
     });
@@ -194,7 +195,10 @@ describe('RT-196 S1 — returns resend', () => {
     h.state.locked = label === 'a locked session';
     const before = h.backend.returnCalls().length;
 
-    await expect(h.resend({ returnId })).resolves.toMatchObject({ kind: 'refused', reason });
+    await expect(h.service.resend({ returnId })).resolves.toMatchObject({
+      kind: 'refused',
+      reason,
+    });
 
     expect(h.backend.returnCalls()).toHaveLength(before);
   });
@@ -203,7 +207,7 @@ describe('RT-196 S1 — returns resend', () => {
     harness();
     const returnId = await unknownReturn();
     h.state.enabled = false;
-    await expect(h.resend({ returnId })).resolves.toMatchObject({
+    await expect(h.service.resend({ returnId })).resolves.toMatchObject({
       kind: 'refused',
       reason: 'feature_disabled',
     });
@@ -217,7 +221,7 @@ describe('RT-196 S1 — returns resend', () => {
       return backend.recordIdempotently(call);
     };
 
-    const res = await h.resend({ returnId });
+    const res = await h.service.resend({ returnId });
 
     expect(res).toEqual({ kind: 'refused', reason: 'session_changed', ret: null });
     // The return itself is confirmed locally; the next eligible operator sees it.
@@ -229,7 +233,7 @@ describe('RT-196 S1 — returns resend', () => {
     const returnId = await unknownReturn();
     h.stop();
     const before = h.audits.length;
-    await expect(h.resend({ returnId })).resolves.toMatchObject({
+    await expect(h.service.resend({ returnId })).resolves.toMatchObject({
       kind: 'refused',
       reason: 'shutting_down',
     });

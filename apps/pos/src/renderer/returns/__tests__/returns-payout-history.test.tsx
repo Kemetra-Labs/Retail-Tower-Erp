@@ -5,7 +5,7 @@ import '@testing-library/jest-dom/vitest';
 
 import type { ReturnJournalView } from '../../../shared/returns/types.js';
 import { expectNoAxeViolations } from '../../test-utils/axe-config.js';
-import { PAYOUT_COPY, refusalMessage } from '../returns-messages.js';
+import { PAYOUT_COPY, UNRESOLVED_COPY, refusalMessage } from '../returns-messages.js';
 import { usePayout } from '../usePayout.js';
 import { useReturnHistory } from '../useReturnHistory.js';
 import {
@@ -83,7 +83,7 @@ async function renderHistory() {
 }
 
 describe('history payout actions (R5)', () => {
-  it('offers exactly one fitting action per row, and none for unconfirmed rows', async () => {
+  it('offers exactly one fitting action per row: no payout action for an unconfirmed row (only its resend, RT-1498), none for a refused one', async () => {
     await renderHistory();
     expect(within(rowOf('T1-000001')).getByRole('button')).toHaveTextContent(
       PAYOUT_COPY.historyPay,
@@ -94,7 +94,9 @@ describe('history payout actions (R5)', () => {
     expect(within(rowOf('T1-000003')).getByRole('button')).toHaveTextContent(
       PAYOUT_COPY.historyReprint,
     );
-    expect(within(rowOf('T1-000004')).queryByRole('button')).toBeNull();
+    expect(within(rowOf('T1-000004')).getByRole('button')).toHaveTextContent(
+      UNRESOLVED_COPY.resend,
+    );
     expect(within(rowOf('T1-000005')).queryByRole('button')).toBeNull();
   });
 

@@ -228,6 +228,26 @@
   font-size: 13px;
 }
 
+/* RT-1498: an unresolved return's attempt history, cause and do-not-pay line. */
+.v5-returns-state__detail {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-inline-size: 320px;
+  margin-block-start: var(--space-1);
+  color: var(--color-text-muted);
+  font-size: 13px;
+}
+
+.v5-returns-state__detail strong {
+  color: var(--color-danger-emphasis);
+  font-weight: 600;
+}
+
+.v5-returns-state__code {
+  white-space: nowrap;
+}
+
 /* ── tables (the quote, the journal) ─────────────────────────────── */
 .v5-returns-table {
   inline-size: 100%;

@@ -273,6 +273,7 @@ const returnsBridge: ReturnsBridgeAPI = {
   list: () => Promise.resolve({ kind: 'ok', returns: [] }),
   payout: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
   reprintSlip: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found' }),
+  resend: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
 };
 
 const PROOF_SEARCH_HITS = 12;

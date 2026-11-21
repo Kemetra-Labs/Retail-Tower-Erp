@@ -75,8 +75,8 @@ export type { ReturnsSession } from './returns-auth.js';
 export type ReturnsCoreAPI = Omit<ReturnsBridgeAPI, 'payout' | 'reprintSlip'>;
 
 /**
- * RT-196 S1 — the per-row resend. A main-process method only: it is NOT on
- * `ReturnsBridgeAPI` (a new `returns:*` channel needs its §A4 bridge review).
+ * RT-196 S1 — the per-row resend. Reached by the renderer through the
+ * `returns:resend` channel (RT-1498, §A4 record C-1) as `ReturnsBridgeAPI.resend`.
  */
 export interface ReturnsResendAPI {
   resend(req: ReturnsResendRequest): Promise<ReturnsResendResponse>;

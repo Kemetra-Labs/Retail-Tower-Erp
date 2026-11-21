@@ -16,6 +16,10 @@
  *   6b. Tier 0 (RT-1542): a `deterministic_no_model` feature skips 7-8 and
  *      runs its pure executor on the pack instead; no provider is resolved or
  *      requested. Its output takes step 9 unchanged.
+ *   3b. Tier 0 preflight (RT-1539): an optional, pure product check of a
+ *      `deterministic_no_model` feature, between the entitlement check (3) and
+ *      the budget pre-check (4). A decline ends the run as `{ kind: "declined" }`
+ *      with nothing budgeted, reserved, read or settled.
  *  10. settle the reservation: commit a validated `ok`, release anything else
  *      (D-8: never charged); a deterministic fallback for every failure
  *      (RT-643 §5)
@@ -52,6 +56,7 @@ import {
   DETERMINISTIC_ROUTE_KEY,
   assertStrictOutputSchema,
   isDeterministicFeature,
+  type AiDeterministicDecline,
   type AiDeterministicFeatureDefinition,
   type AiFeatureDefinition,
   type AiRegisteredFeature,
@@ -87,6 +92,12 @@ interface Gated {
   readonly feature: AiRegisteredFeature;
   readonly policy: AiPolicyInput;
 }
+
+/** A Tier-0 preflight declined: nothing budgeted, reserved, read or settled (RT-1539). */
+type Declined = Extract<AiGatewayResult, { kind: "declined" }>;
+
+/** A run that reserved ends in one of these: a decline never reserves. */
+type Settled = Exclude<AiGatewayResult, { kind: "declined" }>;
 
 /** What the ledger records about a run, filled in as the run goes. */
 type MutableTelemetry = { -readonly [K in keyof AiRunTelemetry]: AiRunTelemetry[K] };
@@ -149,7 +160,7 @@ export class AiGateway {
     trace: RunTrace,
   ): Promise<AiGatewayResult> {
     const gated = await this.gate(featureId, scope, trace);
-    if (gated.kind === "fallback") return gated;
+    if (gated.kind !== "gated") return gated;
     const reserved = await this.reserve(gated, scope);
     if (typeof reserved !== "string") return reserved;
 
@@ -159,7 +170,7 @@ export class AiGateway {
       promptTemplateVersion: gated.feature.promptTemplateVersion,
       outputSchemaId: gated.feature.outputSchemaId,
     };
-    let result: AiGatewayResult;
+    let result: Settled;
     try {
       result = await this.generate(gated.feature, scope, trace, telemetry);
     } catch (error) {
@@ -171,7 +182,7 @@ export class AiGateway {
   }
 
   /** Steps 1-4: everything that must pass before any quota is reserved or evidence read. */
-  private async gate(featureId: string, scope: AiRunScope, trace: RunTrace): Promise<Fallback | Gated> {
+  private async gate(featureId: string, scope: AiRunScope, trace: RunTrace): Promise<Fallback | Declined | Gated> {
     const principal = authorizeScope(scope);
     if ("reason" in principal) return fallback(principal.reason);
     const feature = this.features.get(featureId);
@@ -179,8 +190,12 @@ export class AiGateway {
     trace.feature = feature.featureId;
 
     const policy = this.policyInput(principal, feature, scope);
-    const denied = await this.denyBeforeSpend(policy, feature);
-    return denied === null ? { kind: "gated", feature, policy } : fallback(denied);
+    const denied = await this.denyOnEntitlement(policy);
+    if (denied !== null) return fallback(denied);
+    const decline = this.preflight(feature, scope);
+    if (decline !== null) return { kind: "declined", decline };
+    const overBudget = await this.denyOnBudget(policy, feature);
+    return overBudget === null ? { kind: "gated", feature, policy } : fallback(overBudget);
   }
 
   /**
@@ -209,7 +224,7 @@ export class AiGateway {
   private async settleRun(run: {
     readonly tenantId: string;
     readonly reservationId: string;
-    readonly result: AiGatewayResult;
+    readonly result: Settled;
     readonly telemetry: AiRunTelemetry;
     readonly trace: RunTrace;
     readonly scope: AiRunScope;
@@ -256,7 +271,7 @@ export class AiGateway {
     scope: AiRunScope,
     trace: RunTrace,
     telemetry: MutableTelemetry,
-  ): Promise<AiGatewayResult> {
+  ): Promise<Settled> {
     const pack = await this.buildEvidence(feature, scope);
     if (pack === null) return fallback("evidence_unavailable");
     if (isDeterministicFeature(feature)) return this.executeDeterministic(feature, scope, pack, trace, telemetry);
@@ -305,7 +320,7 @@ export class AiGateway {
     pack: EvidencePack,
     trace: RunTrace,
     telemetry: MutableTelemetry,
-  ): AiGatewayResult {
+  ): Settled {
     trace.routeKey = DETERMINISTIC_ROUTE_KEY;
     telemetry.routeKey = DETERMINISTIC_ROUTE_KEY;
     // Frozen deep copies: the executor cannot mutate the pack that the
@@ -328,16 +343,15 @@ export class AiGateway {
     };
   }
 
-  /** Steps 2-4. The first deny ends evaluation; a throw or unknown state fails closed. */
-  private async denyBeforeSpend(
-    policy: AiPolicyInput,
-    feature: AiRegisteredFeature,
-  ): Promise<AiFallbackReason | null> {
+  /** Steps 2-3: kill switch, then entitlement. A throw or unknown state fails closed. */
+  private async denyOnEntitlement(policy: AiPolicyInput): Promise<AiFallbackReason | null> {
     if (!this.deps.runtime.isEnabled()) return "feature_disabled_system";
-
     const entitlement = await this.attempt(() => this.deps.entitlement.check(policy));
-    if (entitlement?.allowed !== true) return this.denyReason(entitlement);
+    return entitlement?.allowed === true ? null : this.denyReason(entitlement);
+  }
 
+  /** Step 4: the budget pre-check. */
+  private async denyOnBudget(policy: AiPolicyInput, feature: AiRegisteredFeature): Promise<AiFallbackReason | null> {
     const budget = await this.attempt(() =>
       this.deps.budget.check({
         ...policy,
@@ -347,6 +361,27 @@ export class AiGateway {
       }),
     );
     return budget?.allowed === true ? null : this.denyReason(budget);
+  }
+
+  /**
+   * Step 3b (RT-1539): an optional Tier-0 `preflight`, after the kill switch and
+   * entitlement and before budget and reserve. Pure and synchronous on a frozen
+   * copy of the params; a throw, a promise or a malformed result throws here,
+   * which `run` records as `internal_error` with nothing reserved.
+   */
+  private preflight(feature: AiRegisteredFeature, scope: AiRunScope): AiDeterministicDecline | null {
+    if (!isDeterministicFeature(feature) || feature.preflight === undefined) return null;
+    const raw: unknown = feature.preflight(deepFreeze(structuredClone(scope.params ?? {})));
+    if (isThenable(raw)) {
+      Promise.resolve(raw).catch(() => undefined);
+      throw new Error("preflight must be synchronous");
+    }
+    if (raw === null) return null;
+    const code = (raw as { code?: unknown } | undefined)?.code;
+    if (typeof raw !== "object" || typeof code !== "string" || code.length === 0) {
+      throw new Error("preflight returned a malformed result");
+    }
+    return { code };
   }
 
   /** A throwing port yields null, which the caller reads as `entitlement_unavailable`. */
@@ -449,7 +484,7 @@ export class AiGateway {
 
   /** One metric and one log line per run; business-class fields only (E-5). */
   private report(trace: RunTrace, scope: AiRunScope, result: AiGatewayResult): void {
-    const outcome = result.kind === "ok" ? "ok" : result.reason;
+    const outcome = result.kind === "ok" ? "ok" : result.kind === "declined" ? "declined" : result.reason;
     this.contain(() => this.deps.metrics.recordRun({ feature: trace.feature, outcome }));
     this.contain(() => this.log(trace, scope, result, outcome));
   }
