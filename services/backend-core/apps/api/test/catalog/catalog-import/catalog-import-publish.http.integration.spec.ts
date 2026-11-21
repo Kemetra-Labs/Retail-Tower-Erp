@@ -380,6 +380,8 @@ describe("two rows that change one product", () => {
     expect(batch.counts).toMatchObject({ ready_update: 2 });
     const preview = (await c.preview(SES_OWNER_ALL, batch.batchId).expect(200)).body;
     expect(preview.productsToUpdate).toBe(1);
+    // RT-1536: rows that agree are no conflict, and the preview agrees with the publish below.
+    expect(preview).toMatchObject({ publishable: true, conflictCount: 0, conflicts: [] });
     const res = await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)).expect(200);
     expect(res.body.summary).toMatchObject({ productsUpdated: 1 });
     const name = await h.env().admin.query<{ name: string }>(`SELECT name FROM tenant_products WHERE id = $1`, [product]);
@@ -391,6 +393,10 @@ describe("two rows that change one product", () => {
   it("refuses them with import_not_publishable when they disagree", async () => {
     if (skip()) return;
     const { batch, product, u } = await twoRows("Other $u");
+    // RT-1536: the preview refuses what the publish refuses, and names the product, the rows and the field.
+    const preview = (await c.preview(SES_OWNER_ALL, batch.batchId).expect(200)).body;
+    expect(preview).toMatchObject({ publishable: false, previewHash: batch.previewHash, conflictCount: 1 });
+    expect(preview.conflicts).toEqual([{ product: expect.objectContaining({ productId: product }), rowNumbers: [2, 3], reason: "field_disagreement", field: "name" }]);
     c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "import_not_publishable");
     const name = await h.env().admin.query<{ name: string }>(`SELECT name FROM tenant_products WHERE id = $1`, [product]);
     expect(name.rows[0]!.name).toBe(`RT1507 Twice ${u}`);
@@ -479,6 +485,9 @@ describe("one SKU per product (OD-1) across rows", () => {
     const product = await seedProductA(admin, { name: `RT1507 Barcodes ${u}`, barcodes: [`97${u}01`, `97${u}02`] });
     const batch = await c.validated(`SKU,Barcode,Name,Tax Category\nSKU-ONE-${u},97${u}01,,\nSKU-TWO-${u},97${u}02,,\n`);
     expect(batch.counts).toMatchObject({ ready_update: 2 });
+    const preview = (await c.preview(SES_OWNER_ALL, batch.batchId).expect(200)).body;
+    expect(preview).toMatchObject({ publishable: false, conflictCount: 1 });
+    expect(preview.conflicts).toEqual([{ product: expect.objectContaining({ productId: product }), rowNumbers: [2, 3], reason: "second_sku" }]);
     c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "import_not_publishable");
     const skus = await admin.query(`SELECT 1 FROM product_aliases WHERE product_id = $1 AND identifier_type = 'sku'`, [product]);
     expect(skus.rowCount).toBe(0);
@@ -507,6 +516,10 @@ describe("a row that restates a value another row changes", () => {
     const product = await seedProductA(admin, { name: `RT1507 Restate ${u}`, sku: `RS-${u}`, barcode: `95${u}01` });
     const batch = await c.validated(`SKU,Barcode,Name,Tax Category,Active\nRS-${u},,,,false\n,95${u}01,,,true\n`);
     expect(batch.counts).toMatchObject({ ready_update: 1, unchanged: 1 });
+    // The unchanged row is in no update's row list, yet the preview must name it (RT-1536).
+    const preview = (await c.preview(SES_OWNER_ALL, batch.batchId).expect(200)).body;
+    expect(preview).toMatchObject({ publishable: false, conflictCount: 1 });
+    expect(preview.conflicts).toEqual([{ product: expect.objectContaining({ productId: product }), rowNumbers: [2, 3], reason: "field_disagreement", field: "is_active" }]);
     c.expectError(await c.publish(SES_OWNER_ALL, batch.batchId, bodyOf(batch)), 409, "import_not_publishable");
     const active = await admin.query<{ is_active: boolean }>(`SELECT is_active FROM tenant_products WHERE id = $1`, [product]);
     expect(active.rows[0]!.is_active).toBe(true);
