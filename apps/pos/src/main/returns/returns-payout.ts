@@ -98,6 +98,7 @@ import type {
   PayoutRow,
   ReturnPayoutsRepository,
 } from './returns-payout-repository.js';
+import type { EnqueueExecutions } from './returns-execution-enqueue.js';
 import type { JournalEntry, ReturnScope, ReturnsRepository } from './returns-repository.js';
 import { renderReturnSlip, slipTotalsAgree, type ReturnSlipVariant } from './returns-slip.js';
 
@@ -131,6 +132,13 @@ export interface ReturnsPayoutDeps {
   readonly now: () => string;
   /** The renderer view of a journal row, with its payout. */
   readonly view: (entry: JournalEntry) => ReturnJournalView;
+  /**
+   * RT-1543: outbox the refund executions of the payout just completed. Runs inside the paid
+   * commit's transaction. Absent: nothing is reported (no outbox composed).
+   */
+  readonly enqueueExecutions?: EnqueueExecutions;
+  /** RT-1543: start sending the return's executions (not awaited). */
+  readonly reportExecutions?: (actor: AuthSnapshot, returnId: string) => void;
 }
 
 export interface ReturnsPayoutAPI {
@@ -529,24 +537,45 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
     if (isLost(paid)) return this.refusePayout(actor, paid.lost, entry);
     if (paid !== 'completed') return this.refusePayout(actor, NOT_COMPLETED[paid], entry);
     this.releaseSlot(entry.returnId);
+    this.afterPaidOut(actor, entry.returnId);
     const ret = this.viewOf(entry);
     const printed = await this.printSlip(actor, this.paidOut(entry.returnId), { kind: 'original' });
     const slip = printed.ok ? 'printed' : 'failed';
     return { kind: 'paid_out', ret, method, slip } as const;
   }
 
+  /**
+   * RT-1543: report the payout now instead of at the next resolver tick. Not awaited and never
+   * throwing: the outbox rows are already committed, so a send that does not run (a lost actor,
+   * a stop) is simply picked up by the resolver.
+   */
+  private afterPaidOut(actor: AuthSnapshot, returnId: string): void {
+    if (this.deps.isStopped()) return;
+    try {
+      this.deps.reportExecutions?.(actor, returnId);
+    } catch {
+      // The resolver sends it later.
+    }
+  }
+
   /** The payout row paid + header paid_out + the `paid_out` audit, in one transaction. */
   private completePayout(actor: AuthSnapshot, entry: JournalEntry, method: ReturnPayoutMethod) {
     return this.deps.transaction(() => {
+      const now = this.deps.now();
       const done = this.deps.payouts.complete({
         returnId: entry.returnId,
         operatorId: actor.operatorId,
         operatorName: actor.displayName ?? null,
         sessionId: actor.operatorSessionId,
         method,
-        now: this.deps.now(),
+        now,
       });
-      if (done === 'completed') this.deps.audit.paidOut(actor, entry, method);
+      if (done === 'completed') {
+        this.deps.audit.paidOut(actor, entry, method);
+        // RT-1543: the refund executions are outboxed with the payout, in this transaction, at
+        // the payout's own `paid_at` (never a second clock read).
+        this.deps.enqueueExecutions?.(entry, method, now);
+      }
       return done;
     });
   }

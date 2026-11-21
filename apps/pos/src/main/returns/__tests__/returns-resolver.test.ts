@@ -109,7 +109,7 @@ describe('returns resolver', () => {
   it('crash between send and confirm: the resend replays and confirms exactly once', async () => {
     const returnId = await submitWithLostAnswer();
 
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 1,
       refused: 0,
       unresolved: 0,
@@ -167,13 +167,13 @@ describe('returns resolver', () => {
   it('a refusal on resend is final; a still-lost answer stays unknown', async () => {
     await submitWithLostAnswer();
     h.backend.onReturn = () => jsonResponse(503, errorBody('internal_error'));
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 0,
       refused: 0,
       unresolved: 1,
     });
     h.backend.onReturn = () => jsonResponse(409, errorBody('already_reversed'));
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 0,
       refused: 1,
       unresolved: 0,
@@ -196,7 +196,7 @@ describe('returns resolver', () => {
     const ready = { ...h.state };
     block(h.state);
     await expect(h.resolver.tick()).resolves.toBeNull();
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 0,
       refused: 0,
       unresolved: 1,
@@ -220,7 +220,7 @@ describe('returns resolver', () => {
       change(h.state); // happens while the first resend is in flight
       return backend.recordIdempotently(call);
     };
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 1,
       refused: 0,
       unresolved: 1,
@@ -276,7 +276,7 @@ describe('returns resolver', () => {
     async (status, code) => {
       const returnId = await submitWithLostAnswer();
       h.backend.onReturn = () => jsonResponse(status, errorBody(code));
-      await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+      await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
         confirmed: 0,
         refused: 0,
         unresolved: 1,
@@ -302,7 +302,7 @@ describe('returns resolver', () => {
   it('passes are single-flight: a concurrent pass shares the running one', async () => {
     await submitWithLostAnswer();
     const [a, b] = await Promise.all([h.resolver.resolveOnce(ACTOR), h.resolver.tick()]);
-    expect(a).toEqual({ confirmed: 1, refused: 0, unresolved: 0 });
+    expect(a).toMatchObject({ confirmed: 1, refused: 0, unresolved: 0 });
     expect(b).toBeNull();
     const [c, d] = await Promise.all([
       h.resolver.resolveOnce(ACTOR),
@@ -317,7 +317,7 @@ describe('returns resolver', () => {
     h.state.role = 'cashier';
     await expect(h.service.resolve()).resolves.toEqual({ kind: 'refused', reason: 'role_denied' });
     h.state.role = 'admin';
-    await expect(h.service.resolve()).resolves.toEqual({
+    await expect(h.service.resolve()).resolves.toMatchObject({
       kind: 'ok',
       confirmed: 1,
       refused: 0,
@@ -357,7 +357,7 @@ describe('returns resolver — shutdown (Codex P2 on 4efae9b)', () => {
     const txAfterClose = vi.spyOn(h.handle, 'transaction');
     post.release();
 
-    await expect(passing).resolves.toEqual({ confirmed: 0, refused: 0, unresolved: 1 });
+    await expect(passing).resolves.toMatchObject({ confirmed: 0, refused: 0, unresolved: 1 });
     await drained;
     expect(order).toEqual(['pass', 'drain']);
     expect(dbAfterClose).not.toHaveBeenCalled();
@@ -374,7 +374,7 @@ describe('returns resolver — shutdown (Codex P2 on 4efae9b)', () => {
       h.stop();
       return backend.recordIdempotently(call);
     };
-    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toEqual({
+    await expect(h.resolver.resolveOnce(ACTOR)).resolves.toMatchObject({
       confirmed: 0,
       refused: 0,
       unresolved: 2,

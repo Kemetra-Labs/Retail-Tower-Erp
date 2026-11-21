@@ -37,6 +37,8 @@ import {
   type SeedSyncedSaleInput,
 } from './__helpers__/returns-fixture.js';
 
+const UUID_V7 = /^[0-9a-f]{8}-[0-9a-f]{4}-7[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/;
+
 beforeAll(async () => {
   await initReturnsSql();
 });
@@ -403,7 +405,14 @@ describe('submit', () => {
       sourceSystem: 'pos-pulse',
       externalId,
       lines: [{ lineRef: LINE_A, quantity: '1' }],
-      refundTenders: [{ method: 'cash', amount: '15.00' }],
+      // RT-1543: a NEW return carries the allocation's stable ref (UUIDv7) in the journaled body.
+      refundTenders: [
+        {
+          method: 'cash',
+          amount: '15.00',
+          allocationRef: expect.stringMatching(UUID_V7) as string,
+        },
+      ],
     });
   });
 

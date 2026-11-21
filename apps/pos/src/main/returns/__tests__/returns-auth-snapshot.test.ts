@@ -106,7 +106,11 @@ describe('A5: the envelope on the wire is the admitted snapshot’s own', () => 
     };
     h.state.now = secondsAfterNow(30); // the next background tick (past both rows' backoff)
 
-    await expect(h.resolver.tick()).resolves.toEqual({ confirmed: 1, refused: 0, unresolved: 1 });
+    await expect(h.resolver.tick()).resolves.toMatchObject({
+      confirmed: 1,
+      refused: 0,
+      unresolved: 1,
+    });
 
     expect(authorizations()).toEqual([`Bearer ${ENVELOPE}`]);
   });

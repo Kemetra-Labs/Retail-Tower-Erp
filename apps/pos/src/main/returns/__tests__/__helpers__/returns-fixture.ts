@@ -55,6 +55,8 @@ export const SALE_REF = '0190f5a2-7b3c-7d4e-8f90-a1b2c3d4e5f6';
 export const LINE_A = '0190f5a2-7b3c-7d4e-8f90-00000000000a';
 export const LINE_B = '0190f5a2-7b3c-7d4e-8f90-00000000000b';
 export const RETURN_REF = '0190f5a2-7b3c-7d4e-8f90-0000000000ff';
+/** RT-1543: the terminal's open shift (the shift whose drawer pays) in the harness. */
+export const SHIFT_REF = '0190f5a2-7b3c-7d4e-8f90-0000000000c3';
 export const NOW = '2026-10-04T10:00:00.000Z';
 
 /** `NOW` plus `seconds`, as the ISO-8601 stamp the domain clock returns. */
@@ -231,6 +233,28 @@ export interface RecordedCall {
   readonly body: string | undefined;
 }
 
+/** RT-1543: how the fake answers `recordRefundExecution`; defaults to the idempotent recorder. */
+export type ExecutionResponder = (
+  call: RecordedCall,
+  backend: FakeBackend,
+) => Response | Promise<Response>;
+
+/** The execution a fake Backend-Core has recorded (the contract's `RefundExecution` fields). */
+export interface RecordedExecution {
+  readonly executionRef: string;
+  readonly returnRef: string;
+  readonly saleRef: string;
+  readonly allocationRef: string;
+  readonly sourceSystem: string;
+  readonly externalId: string;
+  readonly instrument: 'cash';
+  readonly amount: string;
+  readonly currencyCode: string;
+  readonly outcome: 'settled';
+  readonly evidence: { method: string; paidAt: string; shiftRef: string };
+  readonly recordedAt: string;
+}
+
 export type ReturnResponder = (
   call: RecordedCall,
   backend: FakeBackend,
@@ -266,6 +290,10 @@ export class FakeBackend {
   sale: ContractSale | Response = saleBody();
   /** How `recordReturn` answers; defaults to the idempotent recorder below. */
   onReturn: ReturnResponder = (call, backend) => backend.recordIdempotently(call);
+  /** RT-1543: how `recordRefundExecution` answers; defaults to the idempotent recorder. */
+  onExecution: ExecutionResponder = (call, backend) => backend.recordExecutionIdempotently(call);
+  /** RT-1543: executions recorded so far, by Idempotency-Key. */
+  readonly executions = new Map<string, RecordedExecution>();
   /** Runs while a readSale GET is in flight (to change the session mid-request). */
   onRead: (() => void) | null = null;
   /** When set, the `readSale` answer per requested saleRef (else `sale`). */
@@ -281,7 +309,10 @@ export class FakeBackend {
       if (this.readLatency !== null) await this.readLatency();
       return this.answerRead(call);
     },
-    POST: async (call) => await this.onReturn(call, this),
+    POST: async (call) =>
+      call.url.endsWith('/executions')
+        ? await this.onExecution(call, this)
+        : await this.onReturn(call, this),
   };
 
   readonly fetch = async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
@@ -314,8 +345,38 @@ export class FakeBackend {
     return jsonResponse(201, created);
   }
 
+  /** 201 the first time an execution key is seen; a same-key retry replays it. */
+  recordExecutionIdempotently(call: RecordedCall): Response {
+    const key = call.headers['Idempotency-Key'] ?? '';
+    const existing = this.executions.get(key);
+    if (existing !== undefined) {
+      return jsonResponse(201, existing, { 'Idempotent-Replayed': 'true' });
+    }
+    const match = /\/sales\/([^/]+)\/returns\/([^/]+)\/executions$/.exec(call.url);
+    const body = JSON.parse(call.body ?? '{}') as Omit<
+      RecordedExecution,
+      'returnRef' | 'saleRef' | 'instrument' | 'currencyCode' | 'recordedAt'
+    >;
+    const created: RecordedExecution = {
+      ...body,
+      saleRef: match?.[1] ?? SALE_REF,
+      returnRef: match?.[2] ?? RETURN_REF,
+      instrument: 'cash',
+      currencyCode: 'EGP',
+      recordedAt: '2026-10-04T10:00:03.000Z',
+    };
+    this.executions.set(key, created);
+    return jsonResponse(201, created);
+  }
+
+  /** The return POSTs (`.../returns`), never the executions' (RT-1543). */
   returnCalls(): RecordedCall[] {
-    return this.calls.filter((c) => c.method === 'POST');
+    return this.calls.filter((c) => c.method === 'POST' && !c.url.endsWith('/executions'));
+  }
+
+  /** RT-1543: the execution POSTs, in order. */
+  executionCalls(): RecordedCall[] {
+    return this.calls.filter((c) => c.method === 'POST' && c.url.endsWith('/executions'));
   }
 }
 
@@ -390,6 +451,10 @@ export interface HarnessState {
   locked: boolean;
   /** The live paired terminal id. */
   terminalId: string;
+  /** RT-1543: the terminal's open shift id; null = no shift open. */
+  shiftRef: string | null;
+  /** RT-1543: shift cash-up is enabled on this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`). */
+  shiftCashup: boolean;
   /** The domain clock (ISO-8601), read per call; starts at `NOW`. */
   now: string;
   /** Runs on every audit emit, before it is written (to change state mid-flow). */
@@ -431,6 +496,8 @@ export interface ReturnsHarness extends ComposedReturns {
   /** The audit rows actually committed to `audit_events`, in insert order. */
   readonly audits: AuditEvent[];
   readonly warnings: string[];
+  /** RT-1543: every warning with its structured fields, in order. */
+  readonly logs: readonly { readonly msg: string; readonly obj: Record<string, unknown> }[];
   /** Mutable session / flag / token / fault, read per call like production. */
   readonly state: HarnessState;
   close(): void;
@@ -460,6 +527,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   const handle = handleFor(db);
   const backend = new FakeBackend();
   const warnings: string[] = [];
+  const logs: { msg: string; obj: Record<string, unknown> }[] = [];
   const state: HarnessState = {
     enabled: options.enabled ?? true,
     role: options.role === undefined ? 'manager' : options.role,
@@ -467,6 +535,8 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     paired: true,
     locked: false,
     terminalId: SCOPE.terminalId,
+    shiftRef: SHIFT_REF,
+    shiftCashup: true,
     now: NOW,
     onAudit: null,
     failAudit: null,
@@ -502,10 +572,18 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       },
       isSessionLocked: () => state.locked,
       auditSink: whileAlive(auditSink, life),
-      logger: { warn: (_obj, msg) => warnings.push(msg), error: (_obj, msg) => warnings.push(msg) },
+      logger: {
+        warn: (obj, msg) => {
+          warnings.push(msg);
+          logs.push({ msg, obj });
+        },
+        error: (_obj, msg) => warnings.push(msg),
+      },
       now: () => state.now,
       drawer,
       printer,
+      openShiftRef: () => state.shiftRef,
+      isShiftCashupEnabled: () => state.shiftCashup,
     });
     return {
       ...domain,
@@ -546,6 +624,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       return committedAudits(db);
     },
     warnings,
+    logs,
     state,
     close: () => {
       db.close();

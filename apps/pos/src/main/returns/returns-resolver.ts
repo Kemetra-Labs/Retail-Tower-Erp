@@ -34,12 +34,24 @@ import {
 import { settledWithin } from '../sales-sync/settled-within.js';
 import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
 import type { ReturnsDispatcher } from './returns-dispatch.js';
-import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
+import type { ReturnExecutionsDispatcher } from './returns-execution-dispatch.js';
+import type { ReturnExecutionsRepository } from './returns-execution-repository.js';
+import type { ReturnsRepository } from './returns-repository.js';
 
-export interface ResolveSummary {
+interface ReturnsTally {
   readonly confirmed: number;
   readonly refused: number;
   readonly unresolved: number;
+}
+
+export interface ResolveSummary extends ReturnsTally {
+  /**
+   * RT-1543: refund executions of this terminal still waiting to be recorded (pending or unknown)
+   * when the pass ended. They are not part of the three counts above. A number that does not fall
+   * means paid-out returns Backend-Core has not been told about. Absent when no execution outbox is
+   * composed.
+   */
+  readonly executionsOpen?: number;
 }
 
 export interface ReturnsResolver {
@@ -67,9 +79,30 @@ export interface ReturnsResolverDeps {
   readonly now: () => string;
   /** Per-row backoff for `unknown` rows (default: the sale-sync policy). */
   readonly backoff?: BackoffPolicy;
+  /**
+   * RT-1543: the refund-execution outbox, drained by the same pass after the returns (same
+   * snapshot, same recheck before each send, same per-row backoff). Its open rows are reported as
+   * `executionsOpen`, apart from the returns' counts. Absent: no executions are sent.
+   */
+  readonly executions?: {
+    readonly repo: Pick<ReturnExecutionsRepository, 'listUnrecorded'>;
+    readonly dispatcher: Pick<ReturnExecutionsDispatcher, 'send' | 'idle'>;
+    /**
+     * True once the return domain is stopping: the pass reads the outbox only while it is live
+     * (this part runs after the returns' awaits, when the DB may already be closed).
+     */
+    readonly isStopped: () => boolean;
+  };
 }
 
-const EMPTY: ResolveSummary = { confirmed: 0, refused: 0, unresolved: 0 };
+const EMPTY: ReturnsTally = { confirmed: 0, refused: 0, unresolved: 0 };
+
+/** The retry bookkeeping both outboxes share (a journal row and an execution row). */
+interface Retryable {
+  readonly state: string;
+  readonly lastAttemptAt: string | null;
+  readonly attemptCount: number;
+}
 
 /**
  * True when a background tick may re-send `entry` at `nowMs`: always for a row
@@ -78,7 +111,7 @@ const EMPTY: ResolveSummary = { confirmed: 0, refused: 0, unresolved: 0 };
  * unreadable stamp, or one in the future (the clock moved backwards, e.g. an
  * NTP correction of a fast RTC), is due: fail towards liveness, never starve.
  */
-function isDue(entry: JournalEntry, nowMs: number, policy: BackoffPolicy): boolean {
+function isDue(entry: Retryable, nowMs: number, policy: BackoffPolicy): boolean {
   if (entry.state !== 'unknown' || entry.lastAttemptAt === null) return true;
   const waited = nowMs - Date.parse(entry.lastAttemptAt);
   return waited < 0 || !(waited < backoffMs(policy, entry.attemptCount));
@@ -138,20 +171,17 @@ class PassTracker {
 function createPass(deps: ReturnsResolverDeps) {
   const policy = deps.backoff ?? SALE_SYNC_BACKOFF_POLICY;
 
-  /** This pass's rows: all unresolved, or (background) only those due. */
-  function rowsFor(snapshot: AuthSnapshot, backgroundTick: boolean) {
-    const all = deps.repo.listUnresolved(snapshot.scope);
+  /** This pass's rows: all, or (background) only those due; the rest are still backing off. */
+  function dueOf<T extends Retryable>(all: readonly T[], backgroundTick: boolean) {
     if (!backgroundTick) return { rows: all, waiting: 0 };
     const nowMs = Date.parse(deps.now());
     const rows = all.filter((entry) => isDue(entry, nowMs, policy));
     return { rows, waiting: all.length - rows.length };
   }
 
-  return async function pass(
-    snapshot: AuthSnapshot,
-    backgroundTick: boolean,
-  ): Promise<ResolveSummary> {
-    const { rows, waiting } = rowsFor(snapshot, backgroundTick);
+  /** The returns of this pass; `stopped` when the actor lost authorization part-way. */
+  async function returnsPass(snapshot: AuthSnapshot, backgroundTick: boolean) {
+    const { rows, waiting } = dueOf(deps.repo.listUnresolved(snapshot.scope), backgroundTick);
     // Rows still backing off stay unresolved.
     const tally = { ...EMPTY, unresolved: waiting };
     for (const [index, entry] of rows.entries()) {
@@ -159,13 +189,44 @@ function createPass(deps: ReturnsResolverDeps) {
       // Not sent: the pass's actor lost authorization (sign-out, switch, lock,
       // unpairing…). Stop; this row and the rest wait for a later pass.
       if (outcome.kind === 'deferred') {
-        return { ...tally, unresolved: tally.unresolved + rows.length - index };
+        return {
+          tally: { ...tally, unresolved: tally.unresolved + rows.length - index },
+          stopped: true,
+        };
       }
       if (outcome.kind === 'confirmed') tally.confirmed += 1;
       else if (outcome.kind === 'refused') tally.refused += 1;
       else tally.unresolved += 1;
     }
-    return tally;
+    return { tally, stopped: false };
+  }
+
+  /** RT-1543: the refund executions of this pass, after the returns. */
+  async function executionsPass(snapshot: AuthSnapshot, backgroundTick: boolean): Promise<void> {
+    const { executions } = deps;
+    if (executions === undefined || executions.isStopped()) return;
+    const { rows } = dueOf(executions.repo.listUnrecorded(snapshot.scope), backgroundTick);
+    for (const entry of rows) {
+      const outcome = await executions.dispatcher.send(entry, snapshot);
+      if (outcome.kind === 'deferred' || executions.isStopped()) return;
+    }
+  }
+
+  /** RT-1543: the open executions now, as a summary field (none without an outbox, or once stopped). */
+  function openExecutions(snapshot: AuthSnapshot): { executionsOpen?: number } {
+    const { executions } = deps;
+    // After stop the DB may be closed: the count is unknown, so the field is absent (never 0).
+    if (executions === undefined || executions.isStopped()) return {};
+    return { executionsOpen: executions.repo.listUnrecorded(snapshot.scope).length };
+  }
+
+  return async function pass(
+    snapshot: AuthSnapshot,
+    backgroundTick: boolean,
+  ): Promise<ResolveSummary> {
+    const { tally, stopped } = await returnsPass(snapshot, backgroundTick);
+    if (!stopped) await executionsPass(snapshot, backgroundTick);
+    return { ...tally, ...openExecutions(snapshot) };
   };
 }
 
@@ -174,7 +235,15 @@ export function createReturnsResolver(deps: ReturnsResolverDeps): ReturnsResolve
   const pass = createPass(deps);
 
   return {
-    drain: (timeoutMs) => passes.drain(timeoutMs),
+    // RT-1543: a post-payout execution send is not a pass; shutdown waits for it too.
+    drain: async (timeoutMs) => {
+      const idle = deps.executions?.dispatcher.idle();
+      // Both waits share the one deadline, so shutdown never waits for twice the bound.
+      await Promise.all([
+        passes.drain(timeoutMs),
+        idle === undefined ? undefined : settledWithin(idle, timeoutMs),
+      ]);
+    },
     resolveOnce: (snapshot) => passes.onDemand(() => pass(snapshot, false)),
     tick: () => {
       // The pass's authorization snapshot, taken once at its start.

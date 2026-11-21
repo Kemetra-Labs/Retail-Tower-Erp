@@ -120,6 +120,19 @@ const readSaleLine = readObject<WireSaleLine>({
   promotion: optional(readObject<WireSaleLinePromotion>({ discountAmount: str })),
 });
 
+/** RT-1543: the fields of `RefundExecution` the till matches against its own row. */
+export interface WireRefundExecution {
+  executionRef: string;
+  returnRef: string;
+  allocationRef: string;
+}
+
+const readRefundExecution = readObject<WireRefundExecution>({
+  executionRef: uuid,
+  returnRef: uuid,
+  allocationRef: uuid,
+});
+
 const readSale = readObject<WireSale>({
   saleRef: uuid,
   currencyCode: currency,
@@ -167,6 +180,11 @@ export function readSaleBody(json: unknown): WireSale | null {
 /** The needed `SaleReturn` fields, or null when any is missing or mistyped. */
 export function readSaleReturnBody(json: unknown): WireSaleReturn | null {
   return readWith(json, readSaleReturn);
+}
+
+/** The needed `RefundExecution` fields, or null when any is missing or mistyped. */
+export function readRefundExecutionBody(json: unknown): WireRefundExecution | null {
+  return readWith(json, readRefundExecution);
 }
 
 /** `error.code` from the canonical `Error` envelope, or null. */

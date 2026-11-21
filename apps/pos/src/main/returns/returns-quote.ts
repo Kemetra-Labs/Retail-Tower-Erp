@@ -127,25 +127,45 @@ export function quoteReturn(sale: WireSale, lines: readonly ReturnLineInput[]): 
   };
 }
 
+/**
+ * One refund tender of the body. RT-1543: `allocationRef` is the allocation's own stable identity,
+ * minted when the return is journaled and carried in the stored body, so a retry never changes it.
+ * Absent on a return journaled before RT-1543 (such a return is replayed from its stored bytes and
+ * never reports a refund execution).
+ */
+interface RecordReturnTender {
+  method: 'cash';
+  amount: string;
+  allocationRef?: string;
+}
+
 /** The `RecordReturnRequest` body the till sends (cash-only tender = the quote). */
 export interface RecordReturnBody {
   sourceSystem: string;
   externalId: string;
   lines: { lineRef: string; quantity: string }[];
-  refundTenders: { method: 'cash'; amount: string }[];
+  refundTenders: RecordReturnTender[];
 }
 
+/**
+ * Build the body of a NEW return. With `allocationRef` the one refund tender carries it (every
+ * tender or none: there is one); without it the tender is exactly the pre-RT-1543 shape.
+ */
 export function buildRecordReturnBody(
   externalId: string,
   quote: ReturnQuoteView,
+  allocationRef?: string,
 ): RecordReturnBody {
   const exponent = exponentFor(quote.currencyCode);
+  const tender: RecordReturnTender = {
+    method: 'cash',
+    amount: minorUnitsToDecimalString(quote.totalMinor, exponent),
+    ...(allocationRef === undefined ? {} : { allocationRef }),
+  };
   return {
     sourceSystem: RETURN_SOURCE_SYSTEM,
     externalId,
     lines: quote.lines.map((l) => ({ lineRef: l.lineRef, quantity: String(l.quantity) })),
-    refundTenders: [
-      { method: 'cash', amount: minorUnitsToDecimalString(quote.totalMinor, exponent) },
-    ],
+    refundTenders: [tender],
   };
 }

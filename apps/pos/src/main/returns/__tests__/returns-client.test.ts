@@ -332,3 +332,103 @@ describe('AC7 — Backend-Core only, never ERPNext / Frappe', () => {
     }
   });
 });
+
+describe('recordRefundExecution (RT-1543)', () => {
+  const EXEC_KEY = 'pos-pulse-refund-exec:0190f5a2-7b3c-7d4e-8f90-0000000000e1';
+  const RETURN_REF = '0190f5a2-7b3c-7d4e-8f90-0000000000ff';
+  const request = {
+    saleRef: SALE_REF,
+    returnRef: RETURN_REF,
+    bodyJson: '{"frozen":"bytes"}',
+    idempotencyKey: EXEC_KEY,
+  };
+  const ANSWER = {
+    executionRef: '0190f5a2-7b3c-7d4e-8f90-0000000000e1',
+    returnRef: RETURN_REF,
+    saleRef: SALE_REF,
+    allocationRef: '0190f5a2-7b3c-7d4e-8f90-0000000000a1',
+  };
+
+  function exec(backend: FakeBackend, token: string | null = ENVELOPE) {
+    const client = createReturnsClient({ baseUrl: BASE_URL, fetch: backend.fetch, timeoutMs: 50 });
+    return client.recordRefundExecution(request, token);
+  }
+
+  it('posts the frozen bytes under the key with the envelope, to the executions path', async () => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.resolve(jsonResponse(201, ANSWER));
+    expect(await exec(backend)).toMatchObject({ kind: 'recorded', replayed: false });
+    const call = backend.executionCalls()[0];
+    expect(call?.url).toBe(
+      `${BASE_URL}/api/pos/v1/sales/${SALE_REF}/returns/${RETURN_REF}/executions`,
+    );
+    expect(call?.body).toBe(request.bodyJson);
+    expect(call?.headers['Idempotency-Key']).toBe(EXEC_KEY);
+    expect(call?.headers['Authorization']).toBe(`Bearer ${ENVELOPE}`);
+  });
+
+  it('reads a 200 or an Idempotent-Replayed answer as a replay', async () => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.resolve(jsonResponse(200, ANSWER));
+    expect(await exec(backend)).toMatchObject({ kind: 'recorded', replayed: true });
+    backend.onExecution = () =>
+      Promise.resolve(jsonResponse(201, ANSWER, { 'Idempotent-Replayed': 'true' }));
+    expect(await exec(backend)).toMatchObject({ kind: 'recorded', replayed: true });
+  });
+
+  it.each([
+    [409, 'conflict', 'conflict'],
+    [422, 'refund_execution_exceeds_allocation', 'exceeds_allocation'],
+  ])('maps %i (%s) to the final refusal %s', async (status, code, reason) => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody(code)));
+    expect(await exec(backend)).toEqual({ kind: 'refused', reason });
+  });
+
+  it('keeps a 400 (it can be a till clock ahead of the server) unknown', async () => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.resolve(jsonResponse(400, errorBody('validation_error')));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'unexpected_status' });
+  });
+
+  it('keeps EVERY 404 unknown, including the real unmatched-route body', async () => {
+    const backend = new FakeBackend();
+    // Backend-Core's exception filter answers an unmatched route with this very envelope
+    // (common/exception.filter.ts, shared/errors/envelope.ts), the same as the contract's 404.
+    backend.onExecution = () => Promise.resolve(jsonResponse(404, errorBody('not_found')));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'pre_replay_404' });
+    backend.onExecution = () => Promise.resolve(jsonResponse(404, { message: 'Cannot POST' }));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'pre_replay_404' });
+  });
+
+  it.each<[number, ReturnUnknownCause]>([
+    [401, 'pre_replay_401'],
+    [403, 'pre_replay_403'],
+    [429, 'rate_limited'],
+    [500, 'server_5xx'],
+    [418, 'unexpected_status'],
+  ])('maps %i to unknown (%s), never success', async (status, cause) => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody('x')));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause });
+  });
+
+  it('is unknown on a lost answer, an unreadable body and no credential (no request)', async () => {
+    const backend = new FakeBackend();
+    backend.onExecution = () => Promise.reject(new TypeError('network'));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'network' });
+    backend.onExecution = () => Promise.resolve(jsonResponse(201, { executionRef: 1 }));
+    expect(await exec(backend)).toEqual({ kind: 'unknown', cause: 'unreadable_body' });
+    const quiet = new FakeBackend();
+    expect(await exec(quiet, null)).toEqual({ kind: 'unknown', cause: 'no_credential' });
+    expect(quiet.calls).toEqual([]);
+  });
+
+  it('never sends a request for a malformed ref', async () => {
+    const backend = new FakeBackend();
+    const client = createReturnsClient({ baseUrl: BASE_URL, fetch: backend.fetch });
+    const out = await client.recordRefundExecution({ ...request, returnRef: 'x/../y' }, ENVELOPE);
+    expect(out).toEqual({ kind: 'refused', reason: 'not_found' });
+    expect(backend.calls).toEqual([]);
+  });
+});
