@@ -294,6 +294,8 @@
     "price_zone_memberships",
     "price_zones",
     "pricing_revision_stores",
-    "pricing_revisions"
+    "pricing_revisions",
+    "sync_failure_alert_deliveries",
+    "sync_failure_alert_windows"
   ]
 }

@@ -840,6 +840,7 @@ idempotent, so restarts and replicas share one schedule.
 | ERPNext stock reconciliation run sweep (RT-179) | 24 h | `ERPNEXT_STOCK_RECONCILIATION_SWEEP_INTERVAL_MS` |
 | Cashier-admission replay purge (RT-209) | 1 h | `CASHIER_ADMISSION_REPLAY_PURGE_INTERVAL_MS` |
 | Catalogue import expiry and retention (RT-1503) | 1 h | `CATALOG_IMPORT_RETENTION_INTERVAL_MS` |
+| Sync-failure email alert (RT-1034) | 5 min, **off** | `SYNC_FAILURE_ALERT_SWEEP_INTERVAL_MS` (at least `60000`); the alert only runs with `SYNC_FAILURE_ALERT_ENABLED=true` |
 
 The stock sweep creates one `scheduled` stock reconciliation run for every store
 that has an active `stock` warehouse map. A store is skipped when it already has

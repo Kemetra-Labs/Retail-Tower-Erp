@@ -52,6 +52,7 @@ import { ReplayPurgeWorker } from "./cashier-admissions/replay-purge.worker";
 import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
 import { SaleRedriveWorker } from "./sales/sale-redrive.worker";
 import { ProvisioningSweepWorker } from "./erp-provisioning/provisioning-sweep.worker";
+import { SyncFailureAlertWorker } from "./sync-failure-alert/sync-failure-alert.worker";
 import { WorkerModule } from "./worker.module";
 
 /**
@@ -123,6 +124,7 @@ export async function bootstrap(
   reservationSweepWorker: ReservationSweepWorker;
   provisioningSweepWorker: ProvisioningSweepWorker;
   importRetentionWorker: ImportRetentionWorker;
+  syncFailureAlertWorker: SyncFailureAlertWorker;
   /** Test hook: invoke the registered shutdown sequence. */
   triggerShutdown: (signal: "SIGTERM" | "SIGINT") => Promise<void>;
 }> {
@@ -165,6 +167,8 @@ export async function bootstrap(
   const provisioningSweepWorker = app.get(ProvisioningSweepWorker);
   // RT-1503: the catalogue import expiry and retention job (same reason).
   const importRetentionWorker = app.get(ImportRetentionWorker);
+  // RT-1034: the sync-failure email alert sweep (OFF unless enabled by config).
+  const syncFailureAlertWorker = app.get(SyncFailureAlertWorker);
   emailWorker.start();
   auditWorker.start();
   saleWorker.start();
@@ -176,6 +180,7 @@ export async function bootstrap(
   reservationSweepWorker.start();
   provisioningSweepWorker.start();
   importRetentionWorker.start();
+  syncFailureAlertWorker.start();
 
   writeLine(stderr, {
     level: "info",
@@ -229,6 +234,7 @@ export async function bootstrap(
     reservationSweepWorker,
     provisioningSweepWorker,
     importRetentionWorker,
+    syncFailureAlertWorker,
     triggerShutdown: shutdown,
   };
 }

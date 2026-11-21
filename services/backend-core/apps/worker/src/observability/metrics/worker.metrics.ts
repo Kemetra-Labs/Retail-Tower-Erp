@@ -93,6 +93,8 @@ export const WORKER_QUEUE_NAMES = [
   QUEUE_NAMES.erpProvisioningSweep,
   // RT-1503: catalogue import expiry and retention.
   QUEUE_NAMES.catalogImportRetention,
+  // RT-1034: sync-failure email alert sweep.
+  QUEUE_NAMES.syncFailureAlertSweep,
 ] as const satisfies readonly string[];
 export type WorkerQueueName = (typeof WORKER_QUEUE_NAMES)[number];
 
@@ -398,6 +400,17 @@ const WORKER_METRICS = [
       "identity, RT-451). The tenant, sale and line are in the inventory.sale_effect.skipped " +
       "warn log, never labels.",
   },
+  // RT-1034: emitted by SyncFailureAlertProcessor per (window, recipient) decision.
+  {
+    name: "sync_failure_alert_total",
+    kind: "counter",
+    labels: ["outcome"],
+    description:
+      "Sync-failure email alert decisions, by outcome: fired (a new alert window opened for a " +
+      "failure condition), suppressed (a recipient already had this window's notification), " +
+      "delivered (the email provider accepted the message), failed (the provider rejected it or " +
+      "the recipient was no longer authorized). The tenant, store and recipient are never labels.",
+  },
 ] as const satisfies readonly WorkerMetricDef[];
 
 export type WorkerMetricName = (typeof WORKER_METRICS)[number]["name"];
@@ -480,6 +493,7 @@ const _erpnextPostingReversalDeferredDeadLetter = instrumentOf<Counter>(
   "counter",
 );
 const _saleRedrive = instrumentOf<Counter>("sale_redrive_total", "counter");
+const _syncFailureAlert = instrumentOf<Counter>("sync_failure_alert_total", "counter");
 const _inventorySaleEffectSkipped = instrumentOf<Counter>(
   "inventory_sale_effect_skipped_total",
   "counter",
@@ -1105,4 +1119,21 @@ export function registerOutboxPendingGauge(
       _outboxPending.removeCallback(callback);
     },
   };
+}
+
+/** Closed `outcome` label set for sync_failure_alert_total (RT-1034). */
+export const SYNC_FAILURE_ALERT_OUTCOMES = [
+  "fired",
+  "suppressed",
+  "delivered",
+  "failed",
+] as const satisfies readonly string[];
+export type SyncFailureAlertOutcome = (typeof SYNC_FAILURE_ALERT_OUTCOMES)[number];
+
+/**
+ * Add one to sync_failure_alert_total{outcome} (RT-1034). Emission site:
+ * SyncFailureAlertProcessor. A SIGNAL: emission MUST NOT alter the alert's outcome.
+ */
+export function recordSyncFailureAlert(outcome: SyncFailureAlertOutcome): void {
+  _syncFailureAlert.add(1, { outcome });
 }
