@@ -9,3 +9,4 @@
 #
 # Example:
 #   RT-123 intentional: POST /api/v1/example added the new required request header 'X-Example'
+RT-1403 consumer:POS intentional (owner authorization RT-1403 comment 18071 for the RT-530 owner decision comment 12029: the cashier void takes the device bearer as a second credential; additive, the envelope path is unchanged; the POS sends it only under POS_PULSE_FEATURE_SALE_VOID, default off, and is repinned to this contract after the merge): in API POST /api/pos/v1/sales/{saleRef}/void the endpoint scheme security `device` was added to the API [api-security-added].
