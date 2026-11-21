@@ -77,13 +77,22 @@ info:
       6. entitlement and tenant owner opt-out (D-5): `not_entitled`,
          `trial_expired`, `grace_read_only`, `feature_disabled_tenant`,
          `entitlement_unavailable` as 200 `unavailable`;
-      7. spend and quota pre-check, then one request-quota reservation:
-         `quota_exhausted`, `spend_cap_reached`, `free_credit_exhausted` as
-         200 `unavailable`, before any evidence read.
+      7. deterministic intent match (`msx-match/1`, model-free): a product
+         refusal (`refusal`: finance, forecast, write, unsupported) ends
+         here, before the quota check and the reservation, with no read and
+         no charge;
+      8. for a matched template only: spend and quota pre-check, then one
+         request-quota reservation: `quota_exhausted`, `spend_cap_reached`,
+         `free_credit_exhausted` as 200 `unavailable`, before any evidence
+         read.
 
-    Only after step 7 does the deterministic intent match (`msx-match/1`)
-    and the evidence build run. A product refusal (`refusal`) ends at the
-    match step, before the reservation. A request that is invalid, denied,
+    Only after step 8 does the evidence build run. So a caller with
+    exhausted quota who asks an unsupported question receives the
+    `refusal`, not `quota_exhausted` (RT-1526 §2.1 steps 4-5, §4.2). The
+    `Idempotency-Key` presence and replay checks (400
+    `idempotency_key_required` / 409 / 425) and `scope_too_large` (400) run
+    with request validation, before step 0: nothing read, nothing reserved.
+    A request that is invalid, denied,
     refused or unsupported reads no evidence and is never charged. A failed
     evidence read is `unavailable` / `evidence_unavailable`, with no partial
     figure, and its reservation is released (D-8).
