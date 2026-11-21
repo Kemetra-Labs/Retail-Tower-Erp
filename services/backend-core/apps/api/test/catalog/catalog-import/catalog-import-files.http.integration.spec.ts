@@ -437,7 +437,7 @@ describe("error report", () => {
     await setMapping(batch.batchId, 1, batch.suggestedMapping).expect(200);
     await validate(batch.batchId, 2).expect(200);
     const res = await rawGet(`${IMPORTS}/${batch.batchId}/error-report`, SES_OWNER_ALL).expect(200);
-    expect((res.body as Buffer).toString("utf8")).toBe("﻿row_number,status,issues,SKU,Name,Tax Category\r\n");
+    expect((res.body as Buffer).toString("utf8")).toBe("\uFEFFrow_number,status,issues,SKU,Name,Tax Category\r\n");
   });
 
   it("is 409 import_batch_not_validated for a draft and for a cancelled batch, 404 for an absent or another tenant's batch and a store role", async () => {

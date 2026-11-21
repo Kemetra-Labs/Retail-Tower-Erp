@@ -8,7 +8,7 @@
  *   first and the quoting second, so the `'` is inside the quotes.
  */
 
-export const CSV_BOM = "﻿";
+export const CSV_BOM = "\uFEFF";
 
 const FORMULA_TRIGGERS: ReadonlySet<string> = new Set(["=", "+", "-", "@", "\t", "\r"]);
 

@@ -117,7 +117,7 @@ describe("GET /api/v1/catalog/import-template", () => {
 
 describe("GET /api/v1/catalog/imports/{batchId}/error-report", () => {
   it("serves the service's CSV bytes with the BOM, no-store and the disposition", async () => {
-    const csv = "﻿row_number,status,issues\r\n2,error,x\r\n";
+    const csv = "\uFEFFrow_number,status,issues\r\n2,error,x\r\n";
     files.errorReport.mockResolvedValue({ csv, disposition: `attachment; filename="import-errors-${BATCH}.csv"; filename*=UTF-8''import-errors-${BATCH}.csv` });
     const res = await raw(request(server()).get(`${IMPORTS}/${BATCH.toUpperCase()}/error-report`)).expect(200);
     expect([...(res.body as Buffer).subarray(0, 3)]).toEqual([0xef, 0xbb, 0xbf]);
