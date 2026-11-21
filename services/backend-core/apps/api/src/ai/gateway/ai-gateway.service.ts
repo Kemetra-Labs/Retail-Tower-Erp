@@ -308,7 +308,9 @@ export class AiGateway {
   ): AiGatewayResult {
     trace.routeKey = DETERMINISTIC_ROUTE_KEY;
     telemetry.routeKey = DETERMINISTIC_ROUTE_KEY;
-    const raw = feature.execute(pack, scope.params ?? {});
+    // A frozen deep copy: the executor cannot mutate the pack that the
+    // cited-refs check below validates against.
+    const raw = feature.execute(deepFreeze(structuredClone(pack)), scope.params ?? {});
     const validated = validateOutput(raw, feature, pack, false);
     if ("kind" in validated) return validated;
     telemetry.evidenceRefIds = validated.refs;
@@ -317,6 +319,8 @@ export class AiGateway {
       output: validated.output,
       evidenceRefs: validated.refs,
       routeKey: DETERMINISTIC_ROUTE_KEY,
+      // Exact, not estimated: Tier 0 makes no provider request, so zero is the
+      // true count. The ledger telemetry carries no token fields at all.
       usage: { inputTokens: 0, outputTokens: 0, reported: true },
     };
   }
@@ -475,4 +479,13 @@ export class AiGateway {
       "ai gateway run",
     );
   }
+}
+
+/** Recursively freezes a plain-data value (the cloned evidence pack). */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
 }

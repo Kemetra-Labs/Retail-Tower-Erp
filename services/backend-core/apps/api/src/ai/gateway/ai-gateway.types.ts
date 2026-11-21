@@ -228,7 +228,7 @@ export interface AiBudgetPort {
  */
 export interface AiBudgetInput extends AiPolicyInput {
   readonly routeKey: string;
-  readonly providerCost?: "zero" | "metered";
+  readonly providerCost?: "zero";
 }
 
 export interface AiEvidenceBuildInput {

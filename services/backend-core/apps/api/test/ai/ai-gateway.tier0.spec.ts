@@ -100,6 +100,19 @@ describe("AiGateway — Tier 0 deterministic route", () => {
       expect(seen).toEqual([DEFAULT_PACK, { day: "2026-11-01" }]);
     });
 
+    it("hands the executor a frozen copy of the pack, so it cannot widen the known refs", async () => {
+      const { h } = build((pack) => {
+        expect(Object.isFrozen(pack)).toBe(true);
+        expect(Object.isFrozen(pack.items)).toBe(true);
+        (pack.items as unknown as unknown[]).push({ ref: "sale:forged" });
+        return { summary: "forged", evidenceRefs: ["sale:forged"] };
+      });
+      const out = await h.gateway.run(TIER0_FEATURE_ID, scope());
+      expect(out.kind).toBe("fallback");
+      expect(h.settlements.map((s) => s.outcome)).toEqual(["not_attempted"]);
+      expect(DEFAULT_PACK.items.map((i) => i.ref)).toEqual(["sale:1", "sale:2"]);
+    });
+
     it("commits exactly one request unit with the existing-schema ledger shape: ok, no provider, no model, no tokens", async () => {
       const { h } = build();
       await h.gateway.run(TIER0_FEATURE_ID, scope({ idempotencyKey: "rt1542-tier0-key-0001", correlationId: "corr-t0" }));
@@ -283,7 +296,8 @@ describe("AiGateway — Tier 0 deterministic route", () => {
       const budget = new FailClosedAiBudget();
       const input = { tenantId: "t", userId: "u", featureId: "f", storeIds: [], routeKey: "r" };
       await expect(budget.check(input)).resolves.toEqual({ allowed: false, reason: "entitlement_unavailable" });
-      await expect(budget.check({ ...input, providerCost: "metered" })).resolves.toEqual({ allowed: false, reason: "entitlement_unavailable" });
+      // Only the exact "zero" marker passes; a forged or unknown value is denied.
+      await expect(budget.check({ ...input, providerCost: "metered" as never })).resolves.toEqual({ allowed: false, reason: "entitlement_unavailable" });
       await expect(budget.check({ ...input, providerCost: "zero" })).resolves.toEqual({ allowed: true });
     });
   });

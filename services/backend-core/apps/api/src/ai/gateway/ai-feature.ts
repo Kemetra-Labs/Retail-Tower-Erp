@@ -61,7 +61,9 @@ export interface AiDeterministicFeatureDefinition<T = unknown> {
   readonly extractEvidenceRefs: (output: T) => readonly string[];
   /**
    * Pure and synchronous: `(evidencePack, input) => output`. `input` is the
-   * caller's already-validated `AiRunScope.params`. A throw, or an output that
+   * caller's raw `AiRunScope.params`: the Gateway does not validate it, so the
+   * executor must treat it as untrusted. `evidencePack` is a frozen copy, so the
+   * executor cannot widen the set of known refs. A throw, or an output that
    * fails validation, ends in a fallback and releases the reservation.
    */
   readonly execute: (pack: EvidencePack, input: Readonly<Record<string, unknown>>) => unknown;
