@@ -219,7 +219,7 @@ describe("catalog-import contract — operations (RT-1502, spec 049 S1)", () => 
     const operation = op(method, path);
     expect(operation.operationId).toBe(id);
     if (SERVED.has(id)) {
-      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.6-draft): the runtime lifts only the markers.
+      // RT-1505 (1.0.3-draft and 1.0.4-draft) and RT-1507 (1.0.5-draft): the runtime lifts only the markers (RT-1536, 1.0.6-draft, lifts none).
       expect(operation["x-runtime-status"]).toBeUndefined();
       expect(operation["x-runtime-note"]).toBeUndefined();
     } else {
