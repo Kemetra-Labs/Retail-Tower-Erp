@@ -121,9 +121,10 @@ describe('per-row resend (RT-1498)', () => {
     const { bridge, user } = await mount();
     bridge.resend.mockResolvedValueOnce({ kind: 'refused', reason: 'offline', ret: null });
     await user.click(within(history()).getByRole('button', { name: `${RESEND} T1-000002` }));
-    expect(await within(history()).findByRole('alert')).toHaveTextContent(
-      refusalMessage('offline'),
-    );
+    const notice = await within(history()).findByRole('alert');
+    expect(notice).toHaveTextContent(refusalMessage('offline'));
+    // Several rows can be unresolved: the answer names the sale it is about.
+    expect(notice).toHaveTextContent('T1-000002');
   });
 
   it('a rejected call is unknown, never success', async () => {

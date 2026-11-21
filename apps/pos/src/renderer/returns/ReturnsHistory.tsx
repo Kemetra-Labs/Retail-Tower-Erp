@@ -93,7 +93,7 @@ function RowActionButton({
     (action === 'resend' && resend.sending === row.returnId);
   const onClick = (): void => {
     if (action === 'reprint') void reprint.run(row.returnId);
-    else if (action === 'resend') void resend.run(row.returnId);
+    else if (action === 'resend') void resend.run(row.returnId, row.saleNumber);
     else actions.pay(row);
   };
   return (
@@ -263,7 +263,12 @@ function ReprintNotice({ reprint }: Readonly<{ reprint: HistoryReprint }>): JSX.
 /** RT-1498: the last per-row resend's result; `success` only for a confirmation main reported. */
 function ResendNotice({ resend }: Readonly<{ resend: HistoryResend }>): JSX.Element | null {
   if (resend.result === null) return null;
-  return <Notice tone={resend.result.tone}>{resend.result.text}</Notice>;
+  const { saleNumber, tone, text } = resend.result;
+  return (
+    <Notice tone={tone}>
+      <bdi className="v5-manager-num">{saleNumber}</bdi>: {text}
+    </Notice>
+  );
 }
 
 function hasNotice(history: ReturnHistory, actions: HistoryActions): boolean {

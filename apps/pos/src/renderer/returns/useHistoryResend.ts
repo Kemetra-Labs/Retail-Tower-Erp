@@ -12,13 +12,15 @@ import { OUTCOME_COPY, refusalMessage } from './returns-messages.js';
  * decides that a return was recorded.
  */
 interface ResendResult {
+  /** The sale the answer is about (several rows can be unresolved at once). */
+  readonly saleNumber: string;
   /** `success` only for a confirmation main reported; everything else is `danger`. */
   readonly tone: 'success' | 'danger';
   readonly text: string;
 }
 
 export interface HistoryResend {
-  readonly run: (returnId: string) => Promise<void>;
+  readonly run: (returnId: string, saleNumber: string) => Promise<void>;
   /** The return being resent now, if any. */
   readonly sending: string | null;
   /** The last resend's result, for the notice above the list. */
@@ -26,18 +28,22 @@ export interface HistoryResend {
 }
 
 /** One answer (or a rejected call) as its own closed result. */
-function resendResult(res: ReturnsResendResponse | typeof CALL_FAILED): ResendResult {
-  if (res === CALL_FAILED) return { tone: 'danger', text: OUTCOME_COPY.submitFailed };
+function resendResult(
+  res: ReturnsResendResponse | typeof CALL_FAILED,
+  saleNumber: string,
+): ResendResult {
+  if (res === CALL_FAILED) return { saleNumber, tone: 'danger', text: OUTCOME_COPY.submitFailed };
   switch (res.kind) {
     case 'confirmed':
       return {
+        saleNumber,
         tone: 'success',
         text: res.replayed ? OUTCOME_COPY.replayed : OUTCOME_COPY.confirmed,
       };
     case 'unconfirmed':
-      return { tone: 'danger', text: OUTCOME_COPY.stillUnconfirmed };
+      return { saleNumber, tone: 'danger', text: OUTCOME_COPY.stillUnconfirmed };
     case 'refused':
-      return { tone: 'danger', text: refusalMessage(res.reason) };
+      return { saleNumber, tone: 'danger', text: refusalMessage(res.reason) };
   }
 }
 
@@ -50,13 +56,13 @@ export function useHistoryResend(
   const [result, setResult] = useState<ResendResult | null>(null);
 
   const run = useCallback(
-    (returnId: string) =>
+    (returnId: string, saleNumber: string) =>
       once('resend', async () => {
         setSending(returnId);
         setResult(null);
         try {
           const res = await attempt(() => bridge.resend({ returnId }));
-          setResult(resendResult(res));
+          setResult(resendResult(res, saleNumber));
           // The journal is the truth after any answer, including a lost one.
           await reload();
         } finally {
