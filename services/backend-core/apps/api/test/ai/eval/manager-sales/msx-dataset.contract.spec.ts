@@ -1,5 +1,5 @@
 /**
- * RT-1540 (W8 P-07 part 1) — the pinned `msx-eval/1` dataset contract.
+ * RT-1540 (W8 P-07) — the pinned `msx-eval/2` dataset contract.
  *
  * Fixtures only: every body is synthetic and is validated here against the real
  * P-05 OpenAPI schemas on `main` (RT-1538). The dataset hash is pinned as a
@@ -13,7 +13,7 @@ import { spanViolation, validateRequest, validateResponse } from "./msx.schema";
 import { MSX_GATES, MSX_LANGUAGES, MSX_DATASET_VERSION, type AnswerBody, type MsxCase } from "./msx.types";
 import { STORE_A1, STORE_A2, STORE_A3, STORE_B1, TENANT_A, TENANT_B, NAME_B1 } from "./msx.world";
 
-const PINNED_DATASET_SHA256 = "e26e07f6d2d8ecab8a3980635670e1f0c32aa44640995789ddb95daaeafc5309";
+const PINNED_DATASET_SHA256 = "9ba6488b3310b06c1e23ce61a6d87f61d1e435826436c453516a0a4043c2775e";
 
 /** Metrics that are money: numeric(19,4) text whose table cell carries its currency code. */
 const MONEY_METRIC = /(^|\.)total$|baselineTotal$|averageSale$/;
@@ -27,9 +27,9 @@ const stripBidi = (text: string): string => BIDI_CONTROLS.reduce((acc, c) => acc
 const answers = MSX_CASES.filter((c) => c.expected.status === 200 && c.expected.kind === "answer");
 const bodyOf = (c: MsxCase): unknown => ("body" in c.expected ? c.expected.body : undefined);
 
-describe("msx-eval/1 dataset", () => {
+describe("msx-eval/2 dataset", () => {
   it("has exactly 38 unique cases, ids case-01..case-38, mapped to RT-1526 v6 section 6 rows 1..38", () => {
-    expect(MSX_DATASET_VERSION).toBe("msx-eval/1");
+    expect(MSX_DATASET_VERSION).toBe("msx-eval/2");
     expect(MSX_CASES).toHaveLength(38);
     expect(MSX_CASES.map((c) => c.id)).toEqual(Array.from({ length: 38 }, (_, i) => `case-${String(i + 1).padStart(2, "0")}`));
     expect(new Set(MSX_CASES.map((c) => c.id)).size).toBe(38);
@@ -150,13 +150,16 @@ describe("msx-eval/1 dataset", () => {
       expect(spanViolation({ from: "2026-10-02", to: "2026-10-01" })).toBe(true);
     });
 
-    it("case 10 states rankable=false in the pack and answers with a sentence: no table, no rank cell", () => {
+    it("case 10 holds rankable=false in the pack and answers with a one-store sentence and a one-row table: no rank or share cell", () => {
       const c = caseOf("case-10");
       expect((c.evidence?.figures ?? []).find((f) => f.metric === "rankable")?.value).toBe(false);
       const body = bodyOf(c) as AnswerBody;
-      expect(body.blocks.map((b) => b.type)).toEqual(["statement"]);
-      expect(body.citations.map((x) => x.ref).some((ref) => /ranking\.rank$/.test(ref))).toBe(false);
-      expect(body.citations.some((x) => x.ref.endsWith(":rankable"))).toBe(true);
+      expect(body.blocks.map((b) => b.type)).toEqual(["statement", "table"]);
+      const statement = body.blocks[0];
+      expect(statement).toMatchObject({ key: "msx.t04.single_store" });
+      expect(Object.keys(statement?.type === "statement" ? statement.slots : {})).toEqual(["store", "received_sales", "count"]);
+      expect(body.citations.map((x) => x.ref).some((ref) => /ranking\.(rank|share)$/.test(ref))).toBe(false);
+      expect(body.citations.some((x) => x.ref.endsWith(":rankable"))).toBe(false);
     });
   });
 
@@ -210,7 +213,8 @@ describe("msx-eval/1 dataset", () => {
         const e = c.expected;
         const endsEarly = e.status !== 200 || e.kind === "refusal" || (e.kind === "unavailable" && e.code !== "evidence_unavailable");
         if (endsEarly) expect(c.effects).toMatchObject({ evidenceReads: "none", reservation: "none" });
-        if (c.gates.includes("G-S3") && c.id !== "case-32") expect(endsEarly).toBe(true);
+        if (c.gates.includes("G-S3")) expect(endsEarly).toBe(true);
+        if (c.id === "case-32") expect(c.gates).not.toContain("G-S3");
       }
       expect(caseOf("case-32").effects).toMatchObject({ evidenceReads: "attempted", reservation: "released" });
       expect(caseOf("case-32").preconditions).toContain("summary_read_throws");
@@ -267,14 +271,17 @@ describe("msx-eval/1 dataset", () => {
       }
     });
 
-    it("G-S2: notices follow the figures (multi_currency, day_in_progress, day_not_begun, scope_relative_ratio) and received_only is always present", () => {
+    it("G-S2: notices follow the figures (multi_currency, day_in_progress, a date-only table for day_not_begun, scope_relative_ratio for a strict subset) and received_only is always present", () => {
       for (const c of answers) {
         const body = bodyOf(c) as AnswerBody;
         const figures = c.evidence?.figures ?? [];
         const currencies = new Set(body.blocks.flatMap((b) => (b.type === "table" ? b.rows.flat().flatMap((cell) => (cell.currency ? [cell.currency] : [])) : [])));
-        const inProgress = figures.some((f) => (f.metric === "dayState" && f.value === "so_far") || (f.metric === "currentBusinessDate" && body.period.to >= String(f.value)));
-        const notBegun = figures.some((f) => f.metric === "dayState" && f.value === "not_begun");
-        const scopeRelative = body.scope.mode === "stores" && figures.some((f) => /ranking\.(share|rank)$/.test(f.metric));
+        const inProgress = figures.some((f) => f.metric === "currentBusinessDate" && body.period.to >= String(f.value));
+        // A not-begun day is a row of a table whose only column is the date (never a zero, never a short row).
+        const notBegun = body.blocks.some((b) => b.type === "table" && b.columns.length === 1 && b.columns[0] === "date");
+        // Share and rank are "of your whole scope": the notice applies to a strict subset of the caller's stores.
+        const visible = c.caller.storeAccess === "all" ? 3 : c.caller.storeIds.length;
+        const scopeRelative = body.scope.mode === "stores" && body.scope.storeRefs.length < visible && figures.some((f) => /ranking\.(share|rank)$/.test(f.metric));
         expect(body.notices).toContain("received_only");
         expect({ id: c.id, multi: body.notices.includes("multi_currency") }).toEqual({ id: c.id, multi: currencies.size > 1 });
         expect({ id: c.id, inProgress: body.notices.includes("day_in_progress") }).toEqual({ id: c.id, inProgress });
