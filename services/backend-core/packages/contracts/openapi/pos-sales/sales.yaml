@@ -670,7 +670,8 @@ info:
     VERSIONED RETURN POLICY V1, CONTRACT ONLY. `recordReturn` lines gain two
     OPTIONAL fields, `reasonCode` (the closed catalogue `defective`,
     `wrong_item`, `not_as_described`, `changed_mind`, `other`) and
-    `reasonNote` (needed for `other`), through a new `RecordReturnLineRequest`.
+    `reasonNote` (needed for `other`, and refused without a `reasonCode`),
+    through a new `RecordReturnLineRequest`.
     `SaleReturn` gains an OPTIONAL `returnPolicy` (`SaleReturnPolicy`:
     `revisionId`, `source`, `windowEndsOn`, `legalFloorDays`), the policy
     revision the return was judged under. `recordReturn` gains three 422
@@ -684,7 +685,12 @@ info:
     `recordCreditSaleReversal` is unchanged (it keeps `ReturnLineRequest`), and
     neither `Sale` nor `readSale` changes. The legal minimum window is the
     owner's and legal's value (OD-272-5, RT-272 comment 12791); it is in no
-    contract, and enforcement stays OFF until it is set. ROLLOUT ORDER: (1) this
+    contract, and enforcement stays OFF until it is set. `legalFloorDays` is
+    `integer | null`, minimum 0, with no maximum: `null` means the floor is not
+    set yet, and while it is null the System default has no window
+    (`windowEndsOn` is `null`) and a publish skips the floor check. Returns
+    must not be enabled in production until the floor is set (specs/045
+    section 10). ROLLOUT ORDER: (1) this
     contract; (2) the Backend-Core runtime (RP-3), after its own migration
     (RP-2): it accepts the new line fields and judges returns. Until it is
     deployed the strict return DTO rejects `reasonCode` and `reasonNote` (400),
@@ -1581,17 +1587,23 @@ paths:
         Backend-Core judges the return under the policy revision frozen on the
         SALE (stamped at sale capture, never re-derived by an as-of lookup),
         under the `sales` row lock. The checks run after the returns gate, the
-        sale resolve, a provenance replay, the credit-sale 403 and reversal
-        exclusivity, and before the line checks (400, 409 `over_return`), the
-        pricing and every other 422, in this order: `return_window_expired`
-        (the return's store-day is after `windowEndsOn`, the sale's business
-        date plus `windowDays`; the legal floor applies to every revision),
-        `return_line_not_returnable` (a returned line's product category is
-        excluded by the revision, or the line has no category while the excluded
-        set is not empty; the body carries `lineRef` and `reason`,
-        `category_excluded` or `category_unknown`), then `return_reason_invalid`
-        (a line's `reasonCode` is `other` with no `reasonNote`). A refusal
-        records nothing. A body without line reasons is judged on the window and
+        sale resolve, a provenance replay, the credit-sale 403, reversal
+        exclusivity and the `lineRef` membership check (400: each `lineRef` is a
+        line of THIS sale, at most once), and before the quantity checks (400,
+        409 `over_return`), the pricing and every other 422, in this order:
+        `return_window_expired` (the return's store-day is after `windowEndsOn`,
+        the sale's business date plus the larger of the revision's `windowDays`
+        and the legal floor; the floor applies to every revision, and a sale
+        whose `windowEndsOn` is `null`, the System default while the floor is
+        not set, has no window to expire), `return_line_not_returnable` (a
+        returned line's product category is excluded by the revision, or the line
+        has no category while the excluded set is not empty; the body carries
+        `lineRef` and `reason`, `category_excluded` or `category_unknown`), then
+        `return_reason_invalid` (a line's `reasonCode` is `other` with no
+        `reasonNote`, or a line sends a `reasonNote` with no `reasonCode`). The
+        policy judges only lines that resolve on the sale: a `lineRef` that does
+        not is the 400 above, never a policy refusal. A refusal records
+        nothing. A body without line reasons is judged on the window and
         the categories only: the line reasons are OPTIONAL in V1 and become
         required by a later contract bump, once the POS sends them. The return
         records the revision it was judged under, and the response echoes it as
@@ -3393,15 +3405,17 @@ components:
             System catalogue. A value outside the catalogue is refused by the
             strict body (400 `validation_error`). Optional in V1; a later
             contract bump makes it required once the POS sends it. The header
-            `reason` of the return is unchanged.
+            `reason` of the return is unchanged. A `reasonNote` sent without it
+            is refused (422 `return_reason_invalid`).
         reasonNote:
           type: string
           minLength: 1
           maxLength: 500
           description: >
-            OPTIONAL — a free-text note for the line. Required when
-            `reasonCode` is `other` (422 `return_reason_invalid` when it is
-            absent or blank). No PII.
+            OPTIONAL — a free-text note for the line, valid only together with a
+            `reasonCode`: a note with no code is refused (422
+            `return_reason_invalid`). Required when `reasonCode` is `other`
+            (422 `return_reason_invalid` when it is absent or blank). No PII.
     RefundTender:
       type: object
       additionalProperties: false
@@ -4045,19 +4059,35 @@ components:
       type: object
       additionalProperties: false
       required: [revisionId, source, windowEndsOn, legalFloorDays]
-      if:
-        properties:
-          source:
-            const: system
-        required: [source]
-      then:
-        properties:
-          revisionId:
-            type: "null"
-      else:
-        properties:
-          revisionId:
-            type: string
+      allOf:
+        - if:
+            properties:
+              source:
+                const: system
+            required: [source]
+          then:
+            properties:
+              revisionId:
+                type: "null"
+          else:
+            properties:
+              revisionId:
+                type: string
+        - if:
+            properties:
+              source:
+                const: system
+              legalFloorDays:
+                type: "null"
+            required: [source, legalFloorDays]
+          then:
+            properties:
+              windowEndsOn:
+                type: "null"
+          else:
+            properties:
+              windowEndsOn:
+                type: string
       description: >
         RT-1544 (specs/045, OD-272-3): the Return Policy the return was judged
         under, recorded on the return and echoed here. OPTIONAL on
@@ -4079,20 +4109,22 @@ components:
           enum: [system, tenant]
           description: Where the applied policy comes from. V1 has no store override.
         windowEndsOn:
-          type: string
+          type: [string, "null"]
           format: date
           description: >
             The last store calendar day on which the sale could be returned:
-            the sale's `businessDate` plus the revision's `windowDays` (OD-272-4),
-            never earlier than the legal floor allows.
+            the sale's `businessDate` plus the larger of the revision's
+            `windowDays` and the legal floor (OD-272-4, OD-272-5). `null` exactly
+            when `source` is `system` and `legalFloorDays` is `null`: the System
+            default has no window until the floor is set.
         legalFloorDays:
-          type: integer
+          type: [integer, "null"]
           minimum: 0
-          maximum: 365
           description: >
-            The System-locked legal minimum window (OD-272-5) that applied when
-            the return was judged. The contract carries no value for it: the
-            owner or legal supplies it.
+            The System-locked legal minimum window in days (OD-272-5) that
+            applied when the return was judged. `null` means the floor was not
+            set yet. The contract states no value, and no maximum: the owner or
+            legal supplies it.
     ReturnLineNotReturnableError:
       type: object
       required: [error]
@@ -4527,7 +4559,12 @@ components:
       description: >
         Canonical error envelope, identical to the shared shape in
         `auth.openapi.yaml` / `outbox.openapi.yaml` (used verbatim — no extra
-        fields, no `details`). The `error.code` values encode the FR-101
+        fields, no `details`), with one exception: the 422
+        `return_line_not_returnable` of `recordReturn` (RT-1544) also carries
+        `error.lineRef` and `error.reason` (`ReturnLineNotReturnableError`).
+        The global exception filter passes only `code`, `message` and `details`
+        through, plus a few named keys, so carrying those two fields is an RP-3
+        item (a passthrough for that one code). The `error.code` values encode the FR-101
         eight-category failure set (see the per-response descriptions).
         Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) —
         they never enumerate the underlying cause.
@@ -4773,7 +4810,8 @@ components:
         and only while enforcement is on, which stays off until the owner sets
         the legal minimum window) — the return's store-day is after the
         `windowEndsOn` of the revision frozen on the sale (the sale's business
-        date plus `windowDays`, never below the legal floor);
+        date plus the larger of `windowDays` and the legal floor; a sale with a
+        `null` `windowEndsOn` has no window to expire);
         `return_line_not_returnable` (RT-1544; same posture) — a returned
         line's product category is excluded by that revision, or the line has no
         category while the excluded set is not empty; the `error` object is
@@ -4782,11 +4820,13 @@ components:
         `ReturnLineNotReturnableError`; the response schema stays `Error`,
         which does not close its `error` object);
         `return_reason_invalid` (RT-1544; same posture) — a line's `reasonCode`
-        is `other` and its `reasonNote` is absent or blank. A `reasonCode`
-        outside the closed catalogue never gets here: the strict body refuses
-        it first (400 `validation_error`);
-        these three are checked first, before the line checks and the codes
-        below (see `recordReturn`, Return policy);
+        is `other` and its `reasonNote` is absent or blank, or a line sends a
+        `reasonNote` with no `reasonCode`. A `reasonCode` outside the closed
+        catalogue never gets here: the strict body refuses it first (400
+        `validation_error`);
+        these three are checked first, after the `lineRef` membership check
+        (400) and before the quantity checks and the codes below (see
+        `recordReturn`, Return policy);
         `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from
         the RT-1337 runtime) — an automatic offer's `refund_O` would be
         negative (see `recordReturn`, Automatic offers); the return cannot be

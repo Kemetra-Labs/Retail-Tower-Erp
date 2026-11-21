@@ -28,6 +28,7 @@ import addFormats from "ajv-formats";
 import {
   allContracts,
   contractDocument,
+  contractReader,
   type OperationObject,
   type OpenApiDocument,
   type SchemaObject,
@@ -37,11 +38,14 @@ const CONTRACT_ID = "sales";
 const RETURNS_PATH = "/api/pos/v1/sales/{saleRef}/returns";
 
 let sales: OpenApiDocument;
+let returnPolicy: OpenApiDocument;
 const ajv = new Ajv({ strict: false, allErrors: true });
 addFormats(ajv);
 
 beforeAll(() => {
-  sales = contractDocument(allContracts(), CONTRACT_ID);
+  const contracts = allContracts();
+  sales = contractDocument(contracts, CONTRACT_ID);
+  returnPolicy = contractDocument(contracts, "return-policy.openapi");
   ajv.addSchema(sales as object, CONTRACT_ID);
 });
 
@@ -105,8 +109,22 @@ const LEGACY_RETURN = {
   reason: null,
 } as const;
 
-const POLICY = { revisionId: REVISION, source: "tenant", windowEndsOn: "2026-12-06", legalFloorDays: 3 } as const;
-const POLICY_SYSTEM = { revisionId: null, source: "system", windowEndsOn: "2026-11-25", legalFloorDays: 3 } as const;
+// A clearly synthetic, test-only floor, NOT a legal value: the contract states none and has no maximum.
+const SYNTHETIC_FLOOR_DAYS = 1234;
+const POLICY = {
+  revisionId: REVISION,
+  source: "tenant",
+  windowEndsOn: "2026-12-06",
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
+} as const;
+const POLICY_SYSTEM = {
+  revisionId: null,
+  source: "system",
+  windowEndsOn: "2026-11-25",
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
+} as const;
+const POLICY_NULL_FLOOR = { ...POLICY, legalFloorDays: null } as const;
+const POLICY_SYSTEM_NULL_FLOOR = { revisionId: null, source: "system", windowEndsOn: null, legalFloorDays: null } as const;
 
 function withLine(extra: Record<string, unknown>): unknown {
   return { ...LEGACY_REQUEST, lines: [{ lineRef: LINE, quantity: "1", ...extra }] };
@@ -128,6 +146,15 @@ describe("pos-sales/sales.yaml — RT-1544 Return Policy contract", () => {
     expect(info).toContain("Backend-Core (RP-3) before the POS (RP-4)");
     expect(info).toContain("enforcement stays OFF");
     expect(info).toContain("`recordCreditSaleReversal` is unchanged");
+  });
+
+  it("the info states the nullable floor and that returns are not enabled in production before it is set", () => {
+    const info = flat(sales.info?.description);
+    expect(info).toContain("`legalFloorDays` is `integer | null`, minimum 0, with no maximum");
+    expect(info).toContain("`null` means the floor is not set yet");
+    expect(info).toContain("(`windowEndsOn` is `null`) and a publish skips the floor check");
+    expect(info).toContain("Returns must not be enabled in production until the floor is set (specs/045 section 10)");
+    expect(info).toContain("refused without a `reasonCode`");
   });
 
   it("keeps the RT-1403 note: the version moved on, the earlier note stands", () => {
@@ -172,12 +199,26 @@ describe("pos-sales/sales.yaml — RT-1544 line reasons on recordReturn", () => 
     expect(props("RecordReturnLineRequest")["reasonCode"]).toMatchObject({ type: "string", enum: CATALOGUE });
   });
 
-  it("reasonNote is a bounded string; `other` needs it (422), the header reason stays", () => {
+  it("reasonNote is a bounded string; `other` needs it and a note alone is refused (both 422), the header reason stays", () => {
     expect(props("RecordReturnLineRequest")["reasonNote"]).toMatchObject({ type: "string", minLength: 1, maxLength: 500 });
     const note = flat((props("RecordReturnLineRequest")["reasonNote"] as { description?: string }).description);
     expect(note).toContain("`other`");
     expect(note).toContain("`return_reason_invalid`");
+    expect(note).toContain("a note with no code is refused (422 `return_reason_invalid`)");
+    const code = flat((props("RecordReturnLineRequest")["reasonCode"] as { description?: string }).description);
+    expect(code).toContain("A `reasonNote` sent without it is refused (422 `return_reason_invalid`)");
     expect(props("RecordReturnRequest")["reason"]).toMatchObject({ type: "string", minLength: 1, maxLength: 500 });
+  });
+
+  it("both return_reason_invalid causes are stated on recordReturn and on the 422, and neither is a schema rule (the 422 stays reachable)", () => {
+    const text422 = flat(sales.components?.responses?.["ReturnUnprocessable"]?.description);
+    expect(text422).toContain("is `other` and its `reasonNote` is absent or blank, or a line sends a `reasonNote` with no `reasonCode`");
+    const policy = flat(recordReturn().description);
+    expect(policy).toContain("`reasonCode` is `other` with no `reasonNote`, or a line sends a `reasonNote` with no `reasonCode`");
+    // Both bodies pass the strict schema: the refusal is Backend-Core's 422, not a 400.
+    const v = validator("RecordReturnRequest");
+    expect(v(withLine({ reasonCode: "other" }))).toBe(true);
+    expect(v(withLine({ reasonNote: "A note with no code" }))).toBe(true);
   });
 
   it("RecordReturnRequest keeps its required list and gains no other field", () => {
@@ -248,11 +289,30 @@ describe("pos-sales/sales.yaml — RT-1544 SaleReturn.returnPolicy", () => {
     expect(Object.keys(s.properties ?? {}).sort()).toEqual(["legalFloorDays", "revisionId", "source", "windowEndsOn"]);
     const p = props("SaleReturnPolicy");
     expect(p["source"]).toMatchObject({ type: "string", enum: ["system", "tenant"] });
-    expect(p["windowEndsOn"]).toMatchObject({ type: "string", format: "date" });
-    expect(p["legalFloorDays"]).toMatchObject({ type: "integer", minimum: 0, maximum: 365 });
-    for (const keyword of ["const", "enum", "default", "example", "examples"]) {
-      expect(p["legalFloorDays"]![keyword]).toBeUndefined();
+    expect(p["windowEndsOn"]).toMatchObject({ type: ["string", "null"], format: "date" });
+  });
+
+  it("the legal floor is integer-or-null, minimum 0, and the schema itself states no value: no const, enum, default, example or maximum", () => {
+    const floor = props("SaleReturnPolicy")["legalFloorDays"]!;
+    expect(Object.keys(floor).sort()).toEqual(["description", "minimum", "type"]);
+    expect(floor["type"]).toEqual(["integer", "null"]);
+    expect(floor["minimum"]).toBe(0);
+    for (const keyword of ["const", "enum", "default", "example", "examples", "maximum", "exclusiveMaximum"]) {
+      expect(floor[keyword]).toBeUndefined();
     }
+    expect(flat(floor["description"])).toContain("`null` means the floor was not set yet");
+  });
+
+  it("SaleReturnPolicy is identical to AppliedReturnPolicy of return-policy.openapi.yaml: properties, required list and if/then (descriptions aside)", () => {
+    const here = contractReader(sales);
+    const there = contractReader(returnPolicy);
+    const left = here.shape(schema("SaleReturnPolicy")) as Record<string, unknown>;
+    const right = there.shape(there.schema("AppliedReturnPolicy")) as Record<string, unknown>;
+    expect(left["properties"]).toEqual(right["properties"]);
+    expect(left["required"]).toEqual(right["required"]);
+    expect(left["allOf"]).toEqual(right["allOf"]);
+    expect(left["additionalProperties"]).toEqual(right["additionalProperties"]);
+    expect(left).toEqual(right);
   });
 
   it("the shared SaleReturn carries the field on the two return reads as well", () => {
@@ -266,6 +326,9 @@ describe("pos-sales/sales.yaml — RT-1544 SaleReturn.returnPolicy", () => {
     expect({ ok: v(LEGACY_RETURN), errors: v.errors }).toEqual({ ok: true, errors: null });
     expect(v({ ...LEGACY_RETURN, returnPolicy: POLICY })).toBe(true);
     expect(v({ ...LEGACY_RETURN, returnPolicy: POLICY_SYSTEM })).toBe(true);
+    // A floor that is not set yet: the null-floor System echo has no window end.
+    expect(v({ ...LEGACY_RETURN, returnPolicy: POLICY_NULL_FLOOR })).toBe(true);
+    expect(v({ ...LEGACY_RETURN, returnPolicy: POLICY_SYSTEM_NULL_FLOOR })).toBe(true);
   });
 
   it.each([
@@ -275,6 +338,11 @@ describe("pos-sales/sales.yaml — RT-1544 SaleReturn.returnPolicy", () => {
     ["a date-time windowEndsOn", { ...POLICY, windowEndsOn: "2026-12-06T00:00:00Z" }],
     ["a missing legal floor", { revisionId: REVISION, source: "tenant", windowEndsOn: "2026-12-06" }],
     ["an extra key", { ...POLICY, windowDays: 14 }],
+    ["a negative floor", { ...POLICY, legalFloorDays: -1 }],
+    ["a fractional floor", { ...POLICY, legalFloorDays: 1.5 }],
+    ["a system policy with a null floor but a window end", { ...POLICY_SYSTEM_NULL_FLOOR, windowEndsOn: "2026-11-25" }],
+    ["a system policy with a floor but no window end", { ...POLICY_SYSTEM, windowEndsOn: null }],
+    ["a tenant policy with no window end", { ...POLICY, windowEndsOn: null }],
   ])("refuses returnPolicy with %s", (_name, returnPolicy) => {
     expect(validator("SaleReturn")({ ...LEGACY_RETURN, returnPolicy })).toBe(false);
   });
@@ -303,10 +371,29 @@ describe("pos-sales/sales.yaml — RT-1544 return policy refusals", () => {
     expect(text).toContain("only while enforcement is on, which stays off until the owner sets the legal minimum window");
   });
 
-  it("the policy checks run after the credit and reversal checks and before the line checks (the plan's order)", () => {
+  it("the policy checks run after the credit, reversal and lineRef membership checks, and before the quantity checks", () => {
     const text = flat(recordReturn().description);
-    expect(text).toMatch(/after the returns gate, the sale resolve, a provenance replay, the credit-sale 403 and reversal exclusivity/);
-    expect(text).toMatch(/before the line checks/);
+    expect(text).toContain(
+      "after the returns gate, the sale resolve, a provenance replay, the credit-sale 403, reversal exclusivity and the `lineRef` membership check (400: each `lineRef` is a line of THIS sale, at most once)",
+    );
+    expect(text).toContain("before the quantity checks (400, 409 `over_return`), the pricing and every other 422");
+    expect(flat(sales.components?.responses?.["ReturnUnprocessable"]?.description)).toContain(
+      "after the `lineRef` membership check (400) and before the quantity checks",
+    );
+  });
+
+  it("the policy judges only lines that resolve on the sale: an unknown lineRef is the 400, never a policy refusal", () => {
+    const text = flat(recordReturn().description);
+    expect(text).toContain(
+      "The policy judges only lines that resolve on the sale: a `lineRef` that does not is the 400 above, never a policy refusal",
+    );
+    // lineRef membership is still the existing 400 rule of recordReturn.
+    expect(text).toContain("Each `lineRef` must be a line of THIS sale and appear at most once per request");
+  });
+
+  it("the window check uses the larger of windowDays and the floor, and has no window to expire when windowEndsOn is null", () => {
+    const text422 = flat(sales.components?.responses?.["ReturnUnprocessable"]?.description);
+    expect(text422).toContain("the larger of `windowDays` and the legal floor; a sale with a `null` `windowEndsOn` has no window to expire");
   });
 
   it("recordReturn still declares exactly its statuses (no new status)", () => {
@@ -334,6 +421,15 @@ describe("pos-sales/sales.yaml — RT-1544 return policy refusals", () => {
 // ===========================================================================
 // 5. Additive only
 // ===========================================================================
+describe("pos-sales/sales.yaml — RT-1544 Error envelope exception", () => {
+  it("the Error description names the one extended body and that the exception filter passthrough is RP-3 work", () => {
+    const text = flat(schema("Error").description);
+    expect(text).toContain("with one exception: the 422 `return_line_not_returnable` of `recordReturn` (RT-1544) also carries `error.lineRef` and `error.reason` (`ReturnLineNotReturnableError`)");
+    expect(text).toContain("The global exception filter passes only `code`, `message` and `details` through, plus a few named keys");
+    expect(text).toContain("an RP-3 item (a passthrough for that one code)");
+  });
+});
+
 describe("pos-sales/sales.yaml — RT-1544 changes nothing else", () => {
   it("keeps every operation it had (no operation added or removed)", () => {
     const ids = Object.values(sales.paths ?? {})

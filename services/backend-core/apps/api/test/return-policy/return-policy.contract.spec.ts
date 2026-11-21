@@ -21,8 +21,9 @@
  *      `reason`, `windowDays` 0..365, the excluded category set, the refusal
  *      codes.
  *   4. The effective read, the revision and the eligibility projections are
- *      strict; the legal floor is a bounded integer with NO value written in
- *      the contract (no `const`, `enum` or `default`).
+ *      strict; the legal floor is `integer | null` with NO value written in
+ *      the contract (no `const`, `enum`, `default`, `example` or maximum), and
+ *      a null floor means no window (`windowDays` / `windowEndsOn` null).
  *   5. AJV fixtures: valid payloads pass, each invalid one fails, including
  *      every structural rule expressed with `if` / `then`.
  */
@@ -151,23 +152,32 @@ const USER = "0190f5a2-3b4c-7d8e-9f01-000000000004";
 const SALE = "0190f5a2-3b4c-7d8e-9f01-0000000000d1";
 const LINE_1 = "0190f5a2-3b4c-7d8e-9f01-0000000000e1";
 const LINE_2 = "0190f5a2-3b4c-7d8e-9f01-0000000000e2";
-// A test-only floor: the contract itself carries no value (OD-272-5, owner/legal).
-const FLOOR = 3;
+// A clearly synthetic, test-only floor. It is NOT a legal value: the contract carries none
+// (OD-272-5, owner/legal), and the schema has no maximum, so it may exceed 365 days.
+const SYNTHETIC_FLOOR_DAYS = 1234;
 
 const SYSTEM_EFFECTIVE = {
   source: "system",
   revisionId: null,
-  windowDays: FLOOR,
+  windowDays: SYNTHETIC_FLOOR_DAYS,
   excludedCategoryIds: [],
-  legalFloorDays: FLOOR,
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
+} as const;
+const SYSTEM_EFFECTIVE_NULL_FLOOR = {
+  source: "system",
+  revisionId: null,
+  windowDays: null,
+  excludedCategoryIds: [],
+  legalFloorDays: null,
 } as const;
 const TENANT_EFFECTIVE = {
   source: "tenant",
   revisionId: REV_2,
   windowDays: 14,
   excludedCategoryIds: [CAT_A, CAT_B],
-  legalFloorDays: FLOOR,
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
 } as const;
+const TENANT_EFFECTIVE_NULL_FLOOR = { ...TENANT_EFFECTIVE, legalFloorDays: null } as const;
 
 const REVISION_1 = {
   revisionId: REV_1,
@@ -193,6 +203,11 @@ const REVISION_2 = {
 } as const;
 
 const TENANT_POLICY_SYSTEM = { effective: SYSTEM_EFFECTIVE, latestRevision: null, latestRevisionId: null } as const;
+const TENANT_POLICY_SYSTEM_NULL_FLOOR = {
+  effective: SYSTEM_EFFECTIVE_NULL_FLOOR,
+  latestRevision: null,
+  latestRevisionId: null,
+} as const;
 const TENANT_POLICY_PUBLISHED = {
   effective: TENANT_EFFECTIVE,
   latestRevision: REVISION_2,
@@ -210,9 +225,16 @@ const APPLIED = {
   revisionId: REV_2,
   source: "tenant",
   windowEndsOn: "2026-12-06",
-  legalFloorDays: FLOOR,
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
 } as const;
-const APPLIED_SYSTEM = { revisionId: null, source: "system", windowEndsOn: "2026-11-25", legalFloorDays: FLOOR } as const;
+const APPLIED_NULL_FLOOR = { ...APPLIED, legalFloorDays: null } as const;
+const APPLIED_SYSTEM = {
+  revisionId: null,
+  source: "system",
+  windowEndsOn: "2026-11-25",
+  legalFloorDays: SYNTHETIC_FLOOR_DAYS,
+} as const;
+const APPLIED_SYSTEM_NULL_FLOOR = { revisionId: null, source: "system", windowEndsOn: null, legalFloorDays: null } as const;
 
 const ELIGIBILITY_BODY = {
   saleRef: SALE,
@@ -272,10 +294,27 @@ describe("return-policy — document and operations", () => {
     expect(info).toContain("1.27.0-draft");
   });
 
-  it("does not invent the legal minimum window: the info says it is the owner's and carries no number for it", () => {
+  it("does not invent the legal minimum window: the info says it is the owner's, nullable, and not to be enabled in production before it is set", () => {
     const info = flat(doc.info?.description);
     expect(info).toContain("OD-272-5");
     expect(info).toMatch(/owner or legal supplies the value/i);
+    expect(info).toContain("`legalFloorDays` is `integer | null`");
+    expect(info).toContain("`null` means the floor is not set yet");
+    expect(info).toContain("a publish skips the floor check");
+    expect(info).toContain("`windowDays: null`");
+    expect(info).toContain("`windowEndsOn: null`");
+    expect(info).toContain("Returns must not be enabled in production until the floor is set (specs/045 section 10)");
+    // Evaluation uses the larger of the two; windowDays stays the published value.
+    expect(info).toContain("evaluation uses the larger of `windowDays` and the floor");
+  });
+
+  it("the eligibility read follows the same returns gate as recordReturn, named as on main (POS_RETURNS_ENABLED)", () => {
+    for (const text of [flat(doc.info?.description), flat(op(ELIGIBILITY).description)]) {
+      expect(text).toContain("`POS_RETURNS_ENABLED`");
+      expect(text).toContain("same deployment gate as `recordReturn`");
+    }
+    expect(flat(op(ELIGIBILITY).description)).toContain("`catalog/sales/returns-gate.ts`");
+    expect(flat(op(ELIGIBILITY).description)).toContain("`listSaleReturns`, `readReturnByProvenance` and `recordRefundExecution` are not behind that gate");
   });
 });
 
@@ -402,6 +441,8 @@ describe("return-policy — publish", () => {
     expect(text).toContain("expectedRevisionId");
     // Applied at publish and at evaluation (OD-272-5).
     expect(text).toContain("legal floor");
+    // A null floor skips the check.
+    expect(text).toContain("with `legalFloorDays` `null` this check is skipped");
   });
 
   it("the list is a keyset page, newest first", () => {
@@ -461,13 +502,35 @@ describe("return-policy — projections", () => {
     }
   });
 
-  it("the legal floor is a bounded integer with no value in the contract (OD-272-5: owner or legal supplies it)", () => {
+  it("the legal floor is exactly integer-or-null, minimum 0: no const, enum, default, example or maximum (OD-272-5)", () => {
     const floor = schema("LegalFloorDays");
-    expect(floor).toMatchObject({ type: "integer", minimum: 0, maximum: 365 });
-    for (const keyword of ["const", "enum", "default", "example", "examples"]) {
+    expect(Object.keys(floor).sort()).toEqual(["description", "minimum", "type"]);
+    expect(floor["type"]).toEqual(["integer", "null"]);
+    expect(floor["minimum"]).toBe(0);
+    for (const keyword of ["const", "enum", "default", "example", "examples", "maximum", "exclusiveMaximum"]) {
       expect(floor[keyword]).toBeUndefined();
     }
     expect(flat(floor.description)).toContain("System-locked");
+    expect(flat(floor.description)).toContain("`null` means the floor is not set yet");
+  });
+
+  it("no schema of this contract writes a floor value: every legalFloorDays is the LegalFloorDays reference", () => {
+    for (const [name, s] of Object.entries(doc.components?.schemas ?? {})) {
+      const property = (s.properties as Record<string, unknown> | undefined)?.["legalFloorDays"];
+      if (property !== undefined) expect({ name, property }).toEqual({ name, property: { $ref: "#/components/schemas/LegalFloorDays" } });
+    }
+  });
+
+  it("windowDays is the published value (0..365) on a revision and a publish; the effective read may carry the floor or null", () => {
+    expect(schema("EffectiveReturnPolicy").properties?.["windowDays"]).toMatchObject({ type: ["integer", "null"], minimum: 0 });
+    expect(schema("EffectiveReturnPolicy").properties?.["windowDays"]?.["maximum"]).toBeUndefined();
+    expect(flat(schema("EffectiveReturnPolicy").description)).toContain("`windowDays` is the PUBLISHED value; evaluation uses the larger of `windowDays` and `legalFloorDays`");
+    expect(schema("ReturnPolicyRevision").properties?.["windowDays"]).toEqual({ $ref: "#/components/schemas/WindowDays" });
+  });
+
+  it("windowEndsOn is a nullable date, null exactly for a System sale with no floor", () => {
+    expect(schema("AppliedReturnPolicy").properties?.["windowEndsOn"]).toMatchObject({ type: ["string", "null"], format: "date" });
+    expect(flat(schema("AppliedReturnPolicy").description)).toContain("`windowEndsOn` is `null` exactly when `source` is `system` and `legalFloorDays` is `null`");
   });
 
   it("the returned applied-policy object is exactly the RP-1 echo: revisionId, source, windowEndsOn, legalFloorDays", () => {
@@ -492,10 +555,13 @@ describe("return-policy — projections", () => {
 describe("return-policy — AJV fixtures", () => {
   it.each([
     ["EffectiveReturnPolicy", SYSTEM_EFFECTIVE],
+    ["EffectiveReturnPolicy", SYSTEM_EFFECTIVE_NULL_FLOOR],
     ["EffectiveReturnPolicy", TENANT_EFFECTIVE],
+    ["EffectiveReturnPolicy", TENANT_EFFECTIVE_NULL_FLOOR],
     ["ReturnPolicyRevision", REVISION_1],
     ["ReturnPolicyRevision", REVISION_2],
     ["TenantReturnPolicy", TENANT_POLICY_SYSTEM],
+    ["TenantReturnPolicy", TENANT_POLICY_SYSTEM_NULL_FLOOR],
     ["TenantReturnPolicy", TENANT_POLICY_PUBLISHED],
     ["ReturnPolicyRevisionPage", { items: [REVISION_2, REVISION_1], nextCursor: null }],
     ["ReturnPolicyRevisionPage", { items: [REVISION_2], nextCursor: "abc_DEF-1" }],
@@ -503,8 +569,11 @@ describe("return-policy — AJV fixtures", () => {
     ["PublishReturnPolicyRequest", { ...PUBLISH, expectedRevisionId: null, windowDays: 0, excludedCategoryIds: [] }],
     ["PublishReturnPolicyRequest", { ...PUBLISH, windowDays: 365 }],
     ["AppliedReturnPolicy", APPLIED],
+    ["AppliedReturnPolicy", APPLIED_NULL_FLOOR],
     ["AppliedReturnPolicy", APPLIED_SYSTEM],
+    ["AppliedReturnPolicy", APPLIED_SYSTEM_NULL_FLOOR],
     ["ReturnEligibility", ELIGIBILITY_BODY],
+    ["ReturnEligibility", { ...ELIGIBILITY_BODY, returnPolicy: APPLIED_SYSTEM_NULL_FLOOR }],
   ] as const)("%s accepts %j", (name, value) => {
     const v = validator(name);
     expect({ ok: v(value), errors: v.errors }).toEqual({ ok: true, errors: null });
@@ -528,6 +597,11 @@ describe("return-policy — AJV fixtures", () => {
     ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, revisionId: null }, "a tenant policy with no revision id"],
     ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, source: "store" }, "a store source (V1 has no store override)"],
     ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, legalFloorDays: undefined }, "no legal floor"],
+    ["EffectiveReturnPolicy", { ...SYSTEM_EFFECTIVE_NULL_FLOOR, windowDays: 5 }, "a system policy with a null floor but a window"],
+    ["EffectiveReturnPolicy", { ...SYSTEM_EFFECTIVE, windowDays: null }, "a system policy with a floor but no window"],
+    ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, windowDays: null }, "a tenant policy with no published window"],
+    ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, legalFloorDays: -1 }, "a negative floor"],
+    ["EffectiveReturnPolicy", { ...TENANT_EFFECTIVE, legalFloorDays: "7" }, "a string floor"],
     ["ReturnPolicyRevision", { ...REVISION_2, state: "pending" }, "an unknown state"],
     ["ReturnPolicyRevision", without(REVISION_2, "createdByUserId"), "an unattributed revision"],
     ["TenantReturnPolicy", { ...TENANT_POLICY_SYSTEM, latestRevisionId: REV_1 }, "a system read with a revision id"],
@@ -535,6 +609,10 @@ describe("return-policy — AJV fixtures", () => {
     ["AppliedReturnPolicy", without(APPLIED, "windowEndsOn"), "no windowEndsOn"],
     ["AppliedReturnPolicy", { ...APPLIED, windowEndsOn: "2026-12-06T00:00:00Z" }, "a date-time windowEndsOn"],
     ["AppliedReturnPolicy", { ...APPLIED, legalFloorDays: -1 }, "a negative floor"],
+    ["AppliedReturnPolicy", { ...APPLIED, legalFloorDays: 1.5 }, "a fractional floor"],
+    ["AppliedReturnPolicy", { ...APPLIED_SYSTEM_NULL_FLOOR, windowEndsOn: "2026-11-25" }, "a system echo with a null floor but a window end"],
+    ["AppliedReturnPolicy", { ...APPLIED_SYSTEM, windowEndsOn: null }, "a system echo with a floor but no window end"],
+    ["AppliedReturnPolicy", { ...APPLIED, windowEndsOn: null }, "a tenant echo with no window end"],
     ["AppliedReturnPolicy", { ...APPLIED_SYSTEM, revisionId: REV_1 }, "a system echo with a revision id"],
     ["AppliedReturnPolicy", { ...APPLIED, revisionId: null }, "a tenant echo with no revision id"],
     [

@@ -61,15 +61,20 @@ info:
     values are contract text, not fields of a response.
 
 
-    **The legal floor (OD-272-5).** A System-locked minimum window, applied at
-    publish (a `windowDays` below it is `422
+    **The legal floor (OD-272-5).** A System-locked minimum window in days,
+    applied at publish (a `windowDays` below it is `422
     return_policy_window_below_legal_floor`) AND at evaluation, so the law
-    protects old revisions too. The owner or legal supplies the value; this
-    contract carries no number for it, and `legalFloorDays` has no `const`,
-    `enum` or `default`. A tenant that never published has the System default:
-    `windowDays` equal to the floor and no excluded category (OD-272-6).
-    Returns are not enabled in an environment until the floor is set, and
-    enforcement stays OFF until then.
+    protects old revisions too: evaluation uses the larger of `windowDays` and
+    the floor, while a revision's `windowDays` stays the value that was
+    published. The owner or legal supplies the value; this contract states
+    none. `legalFloorDays` is `integer | null`, minimum 0, with no `const`,
+    `enum`, `default`, `example` or maximum. `null` means the floor is not set
+    yet. While it is `null`: a publish skips the floor check; the System
+    default has `windowDays: null` (no window), because the System default is
+    the floor with no excluded category (OD-272-6); and the eligibility read
+    answers `windowEndsOn: null` for a sale under the System default. Returns
+    must not be enabled in production until the floor is set (specs/045
+    section 10), and enforcement stays OFF until then.
 
 
     **Revisions (OD-272-1).** Every change is an immutable revision in one
@@ -89,7 +94,11 @@ info:
     return and then calls `posGetSaleReturnEligibility`. V1 needs no POS policy
     cache: returns are online only, so the policy is `online_only` in RT-284
     terms. Backend-Core still re-decides in `recordReturn`. The read is a new
-    operation, so `readSale`'s response does not change.
+    operation, so `readSale`'s response does not change. From RP-3 it sits
+    behind the same deployment gate as `recordReturn`, `POS_RETURNS_ENABLED`
+    (default off: 404 `not_found`, as `returns-gate.ts` implements it today for
+    `recordReturn` and `recordCreditSaleReversal`); the other return reads and
+    `recordRefundExecution` are not behind it.
 
 
     **Audit.** A publish writes one `audit_events` row, `return_policy.published`
@@ -223,8 +232,9 @@ paths:
         `Idempotency-Key` (a same-key retry replays the stored response with
         `Idempotent-Replayed: true`); (3) the body (`400 validation_error`);
         (4) under a lock on the tenant's policy chain, `expectedRevisionId`
-        (`409 return_policy_changed_concurrently`); (5) the legal floor: a
-        `windowDays` below it is `422 return_policy_window_below_legal_floor`;
+        (`409 return_policy_changed_concurrently`); (5) the legal floor, when it is set: a
+        `windowDays` below it is `422 return_policy_window_below_legal_floor`
+        (with `legalFloorDays` `null` this check is skipped);
         (6) every `excludedCategoryIds` entry must be a category of the
         tenant, else `422 return_policy_category_invalid`; (7) write the
         revision, its excluded categories and its `return_policy.published`
@@ -288,7 +298,12 @@ paths:
       description: >
         The same authentication and scope as `readSale`: the operator
         envelope, re-verified live per request, supplies the tenant and store;
-        a sale outside that scope is the non-disclosing 404. Answers the policy
+        a sale outside that scope is the non-disclosing 404. From the RP-3
+        runtime the route is behind the same deployment gate as `recordReturn`,
+        `POS_RETURNS_ENABLED` (`catalog/sales/returns-gate.ts`, read per
+        request, default off: 404 `not_found`, nothing read), so it follows the
+        returns rollout; `listSaleReturns`, `readReturnByProvenance` and
+        `recordRefundExecution` are not behind that gate. Answers the policy
         revision frozen on the sale and, for each sale line, whether the policy
         lets it be returned. `returnPolicy` is the one `SaleReturn.returnPolicy`
         will carry: `revisionId` (`null` for the System default), `source`,
@@ -440,13 +455,15 @@ components:
         `windowDays`. `0` means the same business day only. A publish below
         the legal floor is 422.
     LegalFloorDays:
-      type: integer
+      type: [integer, "null"]
       minimum: 0
-      maximum: 365
       description: >
         The System-locked legal minimum window in days (OD-272-5), applied at
-        publish and at evaluation. The owner or legal supplies the value: this
-        contract carries none, and a client must not assume one.
+        publish and at evaluation (the larger of `windowDays` and the floor
+        decides). `null` means the floor is not set yet: a publish then skips
+        the floor check and the System default has no window. The owner or
+        legal supplies the value: this contract states none and no maximum, and
+        a client must not assume one.
     ExcludedCategoryIds:
       type: array
       uniqueItems: true
@@ -475,25 +492,43 @@ components:
       type: object
       additionalProperties: false
       required: [source, revisionId, windowDays, excludedCategoryIds, legalFloorDays]
-      if:
-        properties:
-          source:
-            const: system
-        required: [source]
-      then:
-        properties:
-          revisionId:
-            type: "null"
-          excludedCategoryIds:
-            maxItems: 0
-      else:
-        properties:
-          revisionId:
-            type: string
+      allOf:
+        - if:
+            properties:
+              source:
+                const: system
+            required: [source]
+          then:
+            properties:
+              revisionId:
+                type: "null"
+              excludedCategoryIds:
+                maxItems: 0
+          else:
+            properties:
+              revisionId:
+                type: string
+        - if:
+            properties:
+              source:
+                const: system
+              legalFloorDays:
+                type: "null"
+            required: [source, legalFloorDays]
+          then:
+            properties:
+              windowDays:
+                type: "null"
+          else:
+            properties:
+              windowDays:
+                type: integer
       description: >
         The policy in force. `revisionId` is `null` exactly when `source` is
-        `system`; a `system` policy has `windowDays` equal to `legalFloorDays`
-        and no excluded category (OD-272-6).
+        `system`. `windowDays` is the PUBLISHED value; evaluation uses the
+        larger of `windowDays` and `legalFloorDays`. A `system` policy has no
+        excluded category and its `windowDays` is the floor, so it is `null`
+        exactly while `legalFloorDays` is `null` (OD-272-5, OD-272-6).
       properties:
         source:
           $ref: "#/components/schemas/ReturnPolicySource"
@@ -501,7 +536,12 @@ components:
           type: [string, "null"]
           format: uuid
         windowDays:
-          $ref: "#/components/schemas/WindowDays"
+          type: [integer, "null"]
+          minimum: 0
+          description: >
+            The published window in store calendar days (OD-272-4), 0 to 365 on
+            a `tenant` policy. On a `system` policy it is the legal floor, which
+            has no maximum, or `null` while the floor is not set.
         excludedCategoryIds:
           $ref: "#/components/schemas/ExcludedCategoryIds"
         legalFloorDays:
@@ -641,24 +681,43 @@ components:
       type: object
       additionalProperties: false
       required: [revisionId, source, windowEndsOn, legalFloorDays]
-      if:
-        properties:
-          source:
-            const: system
-        required: [source]
-      then:
-        properties:
-          revisionId:
-            type: "null"
-      else:
-        properties:
-          revisionId:
-            type: string
+      allOf:
+        - if:
+            properties:
+              source:
+                const: system
+            required: [source]
+          then:
+            properties:
+              revisionId:
+                type: "null"
+          else:
+            properties:
+              revisionId:
+                type: string
+        - if:
+            properties:
+              source:
+                const: system
+              legalFloorDays:
+                type: "null"
+            required: [source, legalFloorDays]
+          then:
+            properties:
+              windowEndsOn:
+                type: "null"
+          else:
+            properties:
+              windowEndsOn:
+                type: string
       description: >
         The policy that applies to a sale, the same four fields
-        `SaleReturn.returnPolicy` echoes (`pos-sales/sales.yaml`). `revisionId`
-        is the revision stamped on the sale, `null` exactly when `source` is
-        `system`.
+        `SaleReturn.returnPolicy` echoes (`pos-sales/sales.yaml`; a contract
+        test keeps the two schemas identical). `revisionId` is the revision
+        stamped on the sale, `null` exactly when `source` is `system`.
+        `windowEndsOn` is `null` exactly when `source` is `system` and
+        `legalFloorDays` is `null`: the System default has no window until the
+        floor is set.
       properties:
         revisionId:
           type: [string, "null"]
@@ -666,12 +725,14 @@ components:
         source:
           $ref: "#/components/schemas/ReturnPolicySource"
         windowEndsOn:
-          type: string
+          type: [string, "null"]
           format: date
           description: >
             The last store calendar day on which the sale can be returned: its
-            business date plus the revision's `windowDays`, never earlier than
-            the legal floor allows.
+            business date plus the larger of the revision's `windowDays` and the
+            legal floor (OD-272-4, OD-272-5). `null` exactly when `source` is
+            `system` and `legalFloorDays` is `null`: the System default has no
+            window until the floor is set.
         legalFloorDays:
           $ref: "#/components/schemas/LegalFloorDays"
     ReturnLineVerdict:
@@ -841,7 +902,8 @@ components:
     PublishUnprocessable:
       description: >
         422, `error.code` one of: `return_policy_window_below_legal_floor`
-        (`windowDays` is below the System-locked legal floor, OD-272-5);
+        (`windowDays` is below the System-locked legal floor, OD-272-5; never
+        returned while the floor is not set);
         `return_policy_category_invalid` (an `excludedCategoryIds` entry is not a
         category of the tenant). Nothing is written.
       content:
