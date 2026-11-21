@@ -39,6 +39,7 @@ import type { Request, Response } from "express";
 import { RawBodyTimeoutError, readRawBody } from "../../common/raw-body";
 import type { TenantContextRequest } from "../../context";
 import { MAX_FILE_BYTES } from "./catalog-import.limits";
+import type { ImportReplace } from "./catalog-import.files.service";
 import type { ImportUpload } from "./catalog-import.service";
 import {
   IMPORT_UPLOAD_GATE,
@@ -51,15 +52,19 @@ import { canonicalQuery, UploadQuerySchema } from "./import-upload.query";
 /** `POST /api/v1/catalog/imports`, case-insensitive with an optional trailing slash, as Express routing is. */
 const UPLOAD_PATH_RE = /^\/api\/v1\/catalog\/imports\/?$/i;
 
+/** `PUT /api/v1/catalog/imports/{batchId}/file` (RT-1537), any path segment as the id so a malformed id is the guard's 400, never a parsed body. */
+const REPLACE_PATH_RE = /^\/api\/v1\/catalog\/imports\/[^/]+\/file\/?$/i;
+
 /** The same pattern as the contract's `IdempotencyKey`: 16 to 128 printable ASCII characters, no whitespace. */
 const KEY_RE = /^[\x21-\x7E]{16,128}$/;
 
 /** A request the intake has read: the upload for the handler, and the slot it holds until its work is done. */
-export type ImportUploadRequest = Request & { importUpload?: ImportUpload; importUploadSlot?: ImportUploadSlot };
+export type ImportUploadRequest = Request & { importUpload?: ImportUpload; importReplace?: ImportReplace; importUploadSlot?: ImportUploadSlot };
 
 /** Express middleware: keep the global body parsers off the upload route (registered before them, as `logoUploadPassthrough`). */
 export function importUploadPassthrough(req: Request, _res: Response, next: () => void): void {
-  if (req.method === "POST" && UPLOAD_PATH_RE.test(req.path)) req.headers["content-type"] = "application/octet-stream";
+  const raw = (req.method === "POST" && UPLOAD_PATH_RE.test(req.path)) || (req.method === "PUT" && REPLACE_PATH_RE.test(req.path));
+  if (raw) req.headers["content-type"] = "application/octet-stream";
   next();
 }
 
@@ -95,33 +100,42 @@ export class ImportUploadIntakeGuard implements CanActivate {
     const res = http.getResponse<Response>();
     checkKey(req);
     const query = UploadQuerySchema.parse(req.query);
-    const slot = this.gate.tryAcquire(tenantOf(req));
-    if (slot === null) throw busy(res);
-    // The slot is held until the response is done AND the handler's parse and write are done (the handler's `finally`):
-    // a client that aborts mid-parse does not free it.
-    res.once("finish", () => slot.responseEnded());
-    res.once("close", () => slot.responseEnded());
-    req.importUploadSlot = slot;
-    const bytes = await this.readBody(req, res);
-    const sha256 = createHash("sha256").update(bytes).digest("hex");
+    const { bytes, sha256 } = await takeSlotAndReadBody(this.gate, req, res);
     req.importUpload = { bytes, sha256, query };
     req.body = { fileSha256: sha256, query: canonicalQuery(query) };
     return true;
   }
+}
 
-  /** The body, within the deadline and the size limit; a body that is too slow closes the connection. */
-  private async readBody(req: ImportUploadRequest, res: Response): Promise<Buffer> {
-    try {
-      return await readRawBody(req, {
-        maxBytes: MAX_FILE_BYTES,
-        tooLargeMessage: "The file is larger than 5 MiB.",
-        unwiredMessage: "import upload body was consumed by a body parser (importUploadPassthrough not wired)",
-        timeoutMs: this.gate.bodyDeadlineMs,
-      });
-    } catch (err) {
-      if (err instanceof RawBodyTimeoutError) res.setHeader("Connection", "close");
-      throw err;
-    }
+/**
+ * The part of the intake both file routes share (the upload and, RT-1537, the replace): take the tenant's slot (429 with
+ * the body unread), hold it until the response is done AND the handler's work is done, then read the body (413 / 400) and
+ * hash it.
+ */
+export async function takeSlotAndReadBody(gate: ImportUploadGate, req: ImportUploadRequest, res: Response): Promise<{ bytes: Buffer; sha256: string }> {
+  const slot = gate.tryAcquire(tenantOf(req));
+  if (slot === null) throw busy(res);
+  // The slot is held until the response is done AND the handler's parse and write are done (the handler's `finally`):
+  // a client that aborts mid-parse does not free it.
+  res.once("finish", () => slot.responseEnded());
+  res.once("close", () => slot.responseEnded());
+  req.importUploadSlot = slot;
+  const bytes = await readBody(gate, req, res);
+  return { bytes, sha256: createHash("sha256").update(bytes).digest("hex") };
+}
+
+/** The body, within the deadline and the size limit; a body that is too slow closes the connection. */
+async function readBody(gate: ImportUploadGate, req: ImportUploadRequest, res: Response): Promise<Buffer> {
+  try {
+    return await readRawBody(req, {
+      maxBytes: MAX_FILE_BYTES,
+      tooLargeMessage: "The file is larger than 5 MiB.",
+      unwiredMessage: "import upload body was consumed by a body parser (importUploadPassthrough not wired)",
+      timeoutMs: gate.bodyDeadlineMs,
+    });
+  } catch (err) {
+    if (err instanceof RawBodyTimeoutError) res.setHeader("Connection", "close");
+    throw err;
   }
 }
 

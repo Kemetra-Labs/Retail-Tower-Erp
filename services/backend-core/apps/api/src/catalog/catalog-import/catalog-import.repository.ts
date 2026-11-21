@@ -8,7 +8,8 @@
 import type { PoolClient } from "pg";
 
 import { BATCH_TTL_DAYS, PREVIOUSLY_PUBLISHED_DAYS } from "./catalog-import.limits";
-import { BATCH_COLUMNS, type BatchRow, type BatchWarningBody, type ColumnMappingBody, type ImportColumnBody } from "./catalog-import.projections";
+import { BATCH_COLUMNS, type BatchRow, type BatchWarningBody, type ColumnMappingBody } from "./catalog-import.projections";
+import type { FileFacts } from "./import-file-facts";
 import type { StagedCell } from "./staged-cell";
 
 /** The partial unique index that allows one open batch per tenant (0124). */
@@ -38,20 +39,11 @@ export async function findPreviouslyPublished(client: PoolClient, tenantId: stri
 }
 
 /** What a new batch is created from. */
-export interface NewBatch {
+export interface NewBatch extends FileFacts {
   readonly id: string;
   readonly tenantId: string;
   readonly actorUserId: string;
   readonly mode: string;
-  readonly fileName: string | null;
-  readonly fileSize: number;
-  readonly fileSha256: string;
-  readonly fileKind: string;
-  readonly sheetName: string | null;
-  readonly csvDelimiter: string | null;
-  readonly dataRowCount: number;
-  readonly columns: readonly ImportColumnBody[];
-  readonly parserVersion: string;
   readonly warnings: readonly BatchWarningBody[];
   /** The mapping suggestion shown to the merchant (stored, never recomputed on read) and the profile it drew on. */
   readonly suggestedMapping: readonly ColumnMappingBody[];

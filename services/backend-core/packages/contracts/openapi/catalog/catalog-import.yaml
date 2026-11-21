@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core Catalog — Console product import (CSV / XLSX)
-  version: "1.0.6-draft"
+  version: "1.0.7-draft"
   description: >
     Jira RT-1502 (spec 049 slice S1). A merchant onboards or refreshes the
     Tenant Catalogue from a spreadsheet: **Upload → Map → Validate → Review →
@@ -11,13 +11,13 @@ info:
     decision OD-1..OD-17 on 2026-11-19 (RT-1489 comment 17790).
 
 
-    **Posture.** `1.0.6-draft`, `[GATED]` contract-first. An operation
+    **Posture.** `1.0.7-draft`, `[GATED]` contract-first. An operation
     without a runtime carries `x-runtime-status: contract-only`: the batch
     tables ship in RT-1503 (S2) and the routes in RT-1505 (S4: the upload and
     the batch read are served since part A; the mapping, validate and the row
     list since part B) and RT-1507 (S5: the review decision, the preview, the
     publish and the cancel), which remove the markers. The file replace, the
-    error report and the template stay contract-only. The Admin Console repins to this file in RT-1506
+    error report and the template are served since RT-1537 (S5c). The Admin Console repins to this file in RT-1506
     (S6).
 
 
@@ -65,6 +65,37 @@ info:
     selection rule and its tie-break, the validation rules below, the answer
     of the row list to a batch whose rows were purged, and the 422
     `mapping_invalid` of a `saveProfileName` that no column can carry.
+
+
+    **1.0.7-draft (RT-1537 spec 049 S5c: the file replace, the error report and
+    the template served).** Additive only: no field, status or code is
+    removed, renamed or changed, and no schema shape changes.
+    `consoleReplaceCatalogImportFile`, `consoleGetCatalogImportErrorReport` and
+    `consoleGetCatalogImportTemplate` lose their `contract-only` markers.
+    Description text only. **Replace:** the order of checks is the batch (404),
+    closed or lapsed (409 `import_batch_closed`), `expected_version` (409
+    `version_conflict`), then the file (413, then the 422 refusals of the
+    upload, parsed by the same off-thread parser), and the batch is checked
+    again in the write's transaction. A request that fails the batch checks
+    never has its file parsed. The body is a file, so a malformed `batchId`
+    or query is a 400 before the body is read. Idempotent by
+    `expected_version`: a retry after success is `409 version_conflict`. The
+    new file's `file_name` is the query's, or `null` when absent (only the
+    mode is kept), the `file_previously_published` warning is computed for
+    the new file, and when the batch had no mapping yet nothing is carried
+    (the carried entries come from the previous `mapping`, not from its
+    suggestion); the profile suggestion is chosen over the columns the
+    carried entries did not place. A replace takes one of the upload slots
+    (`429 rate_limited` when none is free). **Error report:** the
+    `issues` cell lists each issue as `code: message`, or `code [field]:
+    message` when it names a field, separated by ` | `; the source cells are
+    the row list's (after the trim, empty for a blank cell); lines end with
+    CRLF, a field with a comma, quote or line break is quoted, and the
+    formula guard is applied to every cell, headers and `issues` included,
+    before the quoting. The file name is `import-errors-{batchId}.csv`.
+    **Template:** the file name is `import-template-{language}.csv`; each
+    header is a synonym the auto-mapping recognises, in the order of the
+    canonical fields.
 
 
     **1.0.6-draft (RT-1536 spec 049 S5b: the preview names the conflicts).**
@@ -476,10 +507,6 @@ paths:
       security:
         - cookieAuth: []
       x-audit-action: catalog.import.upload
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         Re-upload (spec 049 §8.1): replaces the parsed rows of an open
         (`draft` or `validated`) batch with the new file, keeps the mode,
@@ -948,10 +975,6 @@ paths:
       tags: [catalog-import-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         A UTF-8 CSV with a BOM, one line per `error` or `needs_review` row
         in `rowNumber` order: `row_number`, `status`, `issues` (each issue's
@@ -998,10 +1021,6 @@ paths:
       tags: [catalog-import-console]
       security:
         - cookieAuth: []
-      x-runtime-status: contract-only
-      x-runtime-note: >
-        RT-1502 (spec 049 S1) contract-first. The runtime ships in RT-1505
-        (S4), which removes the marker.
       description: >
         A UTF-8 CSV with a BOM and one header line naming every canonical
         field in the chosen language (each header is a synonym the
