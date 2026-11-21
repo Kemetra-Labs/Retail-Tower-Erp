@@ -12,6 +12,7 @@ import { branding } from "./ar/branding";
 import { brands } from "./ar/brands";
 import { cashPolicy } from "./ar/cashPolicy";
 import { catalog } from "./ar/catalog";
+import { catalogImport } from "./ar/catalogImport";
 import { common } from "./ar/common";
 import { counts } from "./ar/counts";
 import { devices } from "./ar/devices";
@@ -71,6 +72,7 @@ export const AR_MODULES = {
   aiPlan,
   branding,
   catalog,
+  catalogImport,
   metrics,
   salesDaily,
   salesByStore,
@@ -110,6 +112,7 @@ export const ar = {
   ...aiPlan,
   ...branding,
   ...catalog,
+  ...catalogImport,
   ...metrics,
   ...salesDaily,
   ...salesByStore,

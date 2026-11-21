@@ -11,6 +11,7 @@ import { branding } from "./en/branding";
 import { brands } from "./en/brands";
 import { cashPolicy } from "./en/cashPolicy";
 import { catalog } from "./en/catalog";
+import { catalogImport } from "./en/catalogImport";
 import { common } from "./en/common";
 import { counts } from "./en/counts";
 import { devices } from "./en/devices";
@@ -71,6 +72,7 @@ export const EN_MODULES = {
   aiPlan,
   branding,
   catalog,
+  catalogImport,
   metrics,
   salesDaily,
   salesByStore,
@@ -110,6 +112,7 @@ export const en: MessagesOf<typeof ar> = {
   ...aiPlan,
   ...branding,
   ...catalog,
+  ...catalogImport,
   ...metrics,
   ...salesDaily,
   ...salesByStore,
