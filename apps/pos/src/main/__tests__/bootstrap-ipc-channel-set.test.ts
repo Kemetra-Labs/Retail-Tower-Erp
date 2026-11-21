@@ -313,6 +313,7 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'returns:list',
   'returns:payout',
   'returns:reprintSlip',
+  'returns:resend',
   'shiftCashup:open',
   'shiftCashup:payIn',
   'shiftCashup:payOut',

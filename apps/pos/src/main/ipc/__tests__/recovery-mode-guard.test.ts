@@ -22,14 +22,18 @@ function fakeIpcMain() {
 }
 
 describe('recovery-mode guard', () => {
-  it.each(['cart:create', 'payments:start', 'tender:apply', 'vouchers:validate', 'returns:submit'])(
-    'refuses %s in recovery mode',
-    async (channel) => {
-      const fake = fakeIpcMain();
-      createRecoveryModeGuardedIpcMain(fake.ipcMain, () => true).handle(channel, () => 'ran');
-      await expect(fake.invoke(channel)).rejects.toBeInstanceOf(RecoveryModeError);
-    },
-  );
+  it.each([
+    'cart:create',
+    'payments:start',
+    'tender:apply',
+    'vouchers:validate',
+    'returns:submit',
+    'returns:resend',
+  ])('refuses %s in recovery mode', async (channel) => {
+    const fake = fakeIpcMain();
+    createRecoveryModeGuardedIpcMain(fake.ipcMain, () => true).handle(channel, () => 'ran');
+    await expect(fake.invoke(channel)).rejects.toBeInstanceOf(RecoveryModeError);
+  });
 
   it.each([
     'recovery:list-held',

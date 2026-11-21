@@ -7,12 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
-import type {
-  ReturnJournalView,
-  ReturnsBridgeAPI,
-  ReturnsResendRequest,
-  ReturnsResendResponse,
-} from '../../shared/returns/types.js';
+import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
 import type { PrintPipeline } from '../receipts/print-pipeline.js';
@@ -77,12 +72,6 @@ export interface ComposeReturnsDeps {
 
 export interface ComposedReturns {
   readonly service: ReturnsBridgeAPI;
-  /**
-   * RT-196 S1: resend one unresolved return. Deliberately NOT a member of
-   * `service` (the `returns.*` bridge): no IPC channel exists for it until the
-   * §A4 bridge review (see the RT-196 S1 notes).
-   */
-  readonly resend: (req: ReturnsResendRequest) => Promise<ReturnsResendResponse>;
   readonly resolver: ReturnsResolver;
   /**
    * Latch the domain stopped (RT-198): every `returns.*` call answers
@@ -181,11 +170,13 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     list: () => core.list(),
     payout: (req) => payout.payout(req),
     reprintSlip: (req) => payout.reprintSlip(req),
+    // RT-1498: the `returns:resend` bridge member (RT-196 S1; §A4 record C-1).
+    resend: (req) => core.resend(req),
   };
   const stop = (): void => {
     stopped = true;
   };
-  return { service, resend: (req) => core.resend(req), resolver, stop };
+  return { service, resolver, stop };
 }
 
 /**

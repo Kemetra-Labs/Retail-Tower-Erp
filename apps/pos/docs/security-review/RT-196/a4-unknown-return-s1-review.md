@@ -28,7 +28,20 @@ main-only audit categories, and the PREPARED (NOT WIRED) returns:resend channel 
 | D-4 | Audit payloads | `attempt_unknown`: `return_id`, `sale_id`, `attempt_no`, `cause`, `operation`. `resend_requested`: `return_id`. Ids and closed codes only; no body, envelope or PIN; the emitter's forbidden-key scan applies. | `returns-unknown-cause.test.ts`, `returns-resend.test.ts` |
 | D-5 | Credential handling | Unchanged: the envelope is read only by the authorizer, passed as an argument, never logged, audited, stored or bridged. The client now returns a closed `cause` instead of a bare `unknown`. | `returns-client.test.ts` |
 
-## 3. PREPARED, NOT WIRED — `returns:resend` (needs owner §A4 approval)
+## 3. `returns:resend` — WIRED in RT-1498
+
+> **Update (RT-1498, 2026-11-21).** The owner approved the §A4 bridge review item in RT-1498
+> comment 18073, and the channel is now wired exactly as listed below: items 1 to 7 are done, and
+> item 8 is `ipc/__tests__/returns-resend.test.ts`, `preload/__tests__/returns.test.ts`, the
+> `bootstrap-ipc-channel-set` pin and the recovery-mode guard test. The service method and the
+> controls A4-1 to A4-9 are unchanged. The renderer names only `{ returnId }`; it gets
+> `ReturnsResendResponse` (= `ReturnsSubmitResponse`). Still open and **not** wired here: the
+> status read, close and needs-support (RT-196 S5, which needs the Backend-Core read, the
+> dispositions table and an approval kind). Section 3 is kept as written below for the record.
+> The verdict in section 1 (agent-assessed, not an independent human review) is unchanged and
+> now also covers this channel.
+
+(Original S1 text.) PREPARED, NOT WIRED — `returns:resend` (needed owner §A4 approval)
 
 | # | Channel | Direction | Payload (closed shape) | Answer |
 | :-- | :-- | :-- | :-- | :-- |
