@@ -4,7 +4,8 @@
 > This file proposes options and a recommendation. It is not a ratified decision and authorizes no code,
 > OpenAPI, migration or Jira status change. Horizon: **Post-Pilot**. Conditional, opt-in capability.
 >
-> **Baseline:** `origin/main` `924482fb0` (2026-11-21). Read-only inspection of
+> **Baseline:** `main` at `924482fb0` (2026-11-21). Decision numbers 461–718, CR05/CR06, F02/F03 and G2 come from
+> Confluence, not the repo; 470 and 602–636 do not appear in specs 041–043 and were taken from Confluence 23855106. Read-only inspection of
 > `packages/db/src/schema/pricing/pricing.ts` and `specs/041-pricing-domain/{spec,data-model}.md`. No runtime exercised.
 >
 > **Sources:** W1 workshop P01–P12 (Confluence 83034148, P02–P06 and its reconciliation table);
@@ -48,12 +49,16 @@ this record builds on `price_events`, not on the older anchor.
 
 | Option | Effect |
 | --- | --- |
-| **A (recommended)** | Add a nullable `price_cohort_id` to the price-event key and its exclusion constraints. `NULL` means the ordinary price. The resolver gains an optional `cohort` input. Same Book → Zone → Store precedence, applied inside the chosen cohort. |
+| **A (recommended)** | Add a nullable `price_cohort_id` to the price-event key and its exclusion constraints. `NULL` means the ordinary price. The resolver gains an optional `cohort` input. Same precedence (Store > Zone > Book), applied inside the chosen cohort. |
 | B | A separate cohort price table and a resolver overlay. Creates a second price authority and a second revision story. |
 | C | Model each cohort as its own Retail Item. Contradicts P03 and CR05; breaks sale, return and inventory identity. |
 
 **Recommendation A.** It reuses the existing events, immutability trigger, Change Set lifecycle and revision fan-out.
-Uniqueness follows by construction: at most one active event per `(…, product, sell_unit, price_kind, cohort)`.
+Uniqueness follows once the exclusion constraints are rebuilt with the cohort in the key as
+`coalesce(price_cohort_id, nil-uuid)`, the same way the key already uses `coalesce(price_zone_id, store_id, nil-uuid)`.
+A bare nullable column is not enough: in a GiST `EXCLUDE … WITH =` a NULL never conflicts, so two overlapping ordinary
+events would both be accepted and decisions 498–500 would break for merchants who never opt in. The rebuild is in
+follow-up slice 2 (§8). Result: at most one active event per `(…, product, sell_unit, price_kind, cohort-or-ordinary)`.
 
 Resolver rules under A:
 
