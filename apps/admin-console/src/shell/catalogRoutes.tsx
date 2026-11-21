@@ -12,6 +12,14 @@
 import { lazyPage } from "@/shell/lazyPage";
 import { Route } from "react-router";
 
+const CatalogImportUpload = lazyPage(
+  () => import("@/catalog-import/CatalogImportUpload"),
+  "CatalogImportUpload",
+);
+const CatalogImportWorkspace = lazyPage(
+  () => import("@/catalog-import/CatalogImportWorkspace"),
+  "CatalogImportWorkspace",
+);
 const CatalogProductDetail = lazyPage(
   () => import("@/catalog/CatalogProductDetail"),
   "CatalogProductDetail",
@@ -28,6 +36,9 @@ const CatalogProductList = lazyPage(
 export const catalogRoutes = (
   <>
     <Route path="catalog/products" element={<CatalogProductList />} />
+    {/* RT-1509 (spec 049 S7): the product import workspace; the route carries the batch id (D2). */}
+    <Route path="catalog/import" element={<CatalogImportUpload />} />
+    <Route path="catalog/import/:batchId/:step?" element={<CatalogImportWorkspace />} />
     <Route path="catalog/products/:productId" element={<CatalogProductDetail />} />
     <Route path="catalog/products/:productId/edit" element={<CatalogProductEdit />} />
   </>

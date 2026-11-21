@@ -20,6 +20,7 @@
  */
 import { apiClient } from "@/generated/client";
 import type { TenantBrandingSchema } from "@/generated/schema";
+import { RAW_UPLOAD, rawResult as result } from "./raw-upload";
 
 type Schemas = TenantBrandingSchema.components["schemas"];
 
@@ -33,21 +34,6 @@ export type LogoRejectionCode = Schemas["LogoRejectionCode"];
 export type ScreenRendition = Schemas["ScreenRendition"];
 export type ReceiptRendition = Schemas["ReceiptRendition"];
 export type ScreenSlot = ScreenRendition["slot"];
-
-/** The contract's raw-body upload: the File itself, never a serialized copy. */
-const RAW_UPLOAD = {
-  bodySerializer: (file: unknown) => file as Blob,
-  headers: { "Content-Type": "application/octet-stream" },
-};
-
-function result<T>(r: { data?: T; error?: unknown; response: Response }) {
-  return {
-    status: r.response.status,
-    data: r.data,
-    error: r.error,
-    retryAfter: r.response.headers.get("retry-after"),
-  };
-}
 
 /** GET the tenant's branding: display name, `revision`, and the logo or `null`. */
 export async function consoleGetTenantLogo(tenantId: string) {

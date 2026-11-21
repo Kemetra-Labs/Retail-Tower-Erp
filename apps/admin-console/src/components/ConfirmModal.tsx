@@ -46,6 +46,14 @@ export interface ConfirmModalProps {
   doneLabel: string;
   /** The commit button; null when there is nothing to commit (loading, blocked, finished). */
   commit: { label: string; disabled: boolean; busy: boolean; onClick: () => void } | null;
+  /**
+   * RT-1509 (D8): `destructive` (the default, every earlier caller) is the red `.btn-destructive`;
+   * `primary` is the strong neutral button for a consequential action that is not a deletion
+   * (publishing an import).
+   */
+  commitVariant?: "destructive" | "primary";
+  /** Further actions after the commit (RT-1509: «تحديث الحالة» beside «إعادة الإرسال»). Inside the Tab trap. */
+  extraActions?: React.ReactNode;
   /** `finished`: the action was recorded, not merely cancelled. */
   onClose: (finished: boolean) => void;
   children: React.ReactNode;
@@ -58,6 +66,8 @@ export function ConfirmModal({
   cancelLabel,
   doneLabel,
   commit,
+  commitVariant = "destructive",
+  extraActions,
   onClose,
   children,
 }: Readonly<ConfirmModalProps>): React.JSX.Element {
@@ -117,7 +127,7 @@ export function ConfirmModal({
           {commit && !finished ? (
             <GatedButton
               type="button"
-              className="btn-destructive"
+              className={commitVariant === "primary" ? "btn-primary" : "btn-destructive"}
               disabled={commit.disabled}
               busy={commit.busy}
               onClick={commit.onClick}
@@ -125,6 +135,7 @@ export function ConfirmModal({
               {commit.label}
             </GatedButton>
           ) : null}
+          {extraActions}
         </div>
       </dialog>
     </div>
