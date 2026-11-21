@@ -33,6 +33,7 @@
  *     Engine hooks become closed-set log lines (P7).
  */
 import type { PairedTerminal, PairedWorkers } from '../app/paired-workers.js';
+import { fallbackPolicy } from '../cash-variance-policy/policy-core.js';
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 import type { DatabaseHandle } from '../db/client.js';
@@ -86,9 +87,14 @@ export interface ComposeShiftCashupServiceDeps extends Pick<
   | 'pairingEpoch'
   | 'managerPins'
   | 'now'
-  | 'varianceApprovalThresholdMinor'
 > {
   db: DatabaseHandle;
+  /**
+   * RT-388: the policy an open freezes. Absent, every open freezes the fail-closed
+   * fallback (`limit 0`, DR-6): a composition that forgot it asks for approval rather
+   * than letting a variance through. A close does not use it (it reads the frozen policy).
+   */
+  resolvePolicy?: ShiftCashupServiceDeps['resolvePolicy'];
   /** The terminal's capture currency; defaults to the sale-sync capture's. */
   currencyCode?: string;
   /** Defaults to a UUIDv7. */
@@ -153,9 +159,8 @@ export function composeShiftCashupService(deps: ComposeShiftCashupServiceDeps): 
     sources: createShiftCashupSources(deps.db),
     status: createShiftCashupStatusReader(deps.db),
     currencyCode: deps.currencyCode ?? DEFAULT_CURRENCY_CODE,
-    ...(deps.varianceApprovalThresholdMinor === undefined
-      ? {}
-      : { varianceApprovalThresholdMinor: deps.varianceApprovalThresholdMinor }),
+    resolvePolicy:
+      deps.resolvePolicy ?? (({ shiftCurrencyCode }) => fallbackPolicy(shiftCurrencyCode)),
     now: deps.now,
     newId: deps.newId ?? (() => uuidv7()),
   });

@@ -1,0 +1,101 @@
+/**
+ * RT-388 — the Backend-Core shift variance policy client
+ * (`cash-variance-policy.openapi.yaml`, `posGetCashVariancePolicy`):
+ *
+ *   read  GET /api/pos/v1/store/cash-variance-policy   (device bearer, If-None-Match)
+ *
+ * Backend-Core only. Built on the shared transport (RT-880), so the bearer,
+ * the timeout, the byte cap and the request id are the transport's. The device
+ * token is an explicit argument read by the caller in-process; the client never
+ * reads, logs, stores or bridges it. No token, no request.
+ *
+ * Outcome mapping:
+ *   200 readable                      → ok (policy + the ETag header, or null)
+ *   200 off-contract / not JSON       → unreadable
+ *   304 to a conditional read         → not_modified
+ *   304 to an unconditional read      → unreadable (off-contract, never "unchanged")
+ *   401                               → unauthorized
+ *   any other status                  → server_error
+ *   network / timeout / no token      → unreachable
+ * Never throws.
+ */
+import {
+  createBackendTransport,
+  statusOutcome,
+  type BackendAnswer,
+  type FetchLike,
+} from '../http/transport.js';
+import { readPolicyBody, type WirePolicy } from './policy-wire.js';
+
+export const POLICY_PATH = '/api/pos/v1/store/cash-variance-policy';
+const POLICY_REQUEST_TIMEOUT_MS = 10_000;
+/** A policy answer is a few hundred bytes. */
+const POLICY_MAX_BODY_BYTES = 16 * 1024;
+
+export type PolicyReadOutcome =
+  | { readonly kind: 'ok'; readonly policy: WirePolicy; readonly etag: string | null }
+  | { readonly kind: 'not_modified' }
+  | { readonly kind: 'unauthorized' }
+  | { readonly kind: 'unreadable' }
+  | { readonly kind: 'server_error' }
+  | { readonly kind: 'unreachable' };
+
+export interface PolicyClient {
+  read(deviceToken: string, ifNoneMatch: string | null): Promise<PolicyReadOutcome>;
+}
+
+export interface PolicyClientDeps {
+  readonly baseUrl: string;
+  readonly fetch: FetchLike;
+}
+
+/** The answer to a status other than 200 / 304: 401 is the device's, any other is the server's. */
+const STATUS_OUTCOMES: Readonly<Partial<Record<number, PolicyReadOutcome>>> = {
+  401: { kind: 'unauthorized' },
+};
+const SERVER_ERROR: PolicyReadOutcome = { kind: 'server_error' };
+
+/**
+ * Backend-Core's strong ETag (a quoted SHA-256) is the only value its `If-None-Match` accepts; any
+ * other is a 400. The cache has no maximum age, so an ETag that does not match (an intermediary
+ * weakened or rewrote it, or it is empty) is never kept: the next read is unconditional.
+ */
+const STRONG_ETAG = /^"[0-9a-f]{64}"$/;
+
+/** A 200 answer: the policy and its ETag, or `unreadable` when it is off-contract. */
+function okOutcome(answer: BackendAnswer): PolicyReadOutcome {
+  const policy = readPolicyBody(answer.json);
+  if (policy === null) return { kind: 'unreadable' };
+  const etag = answer.headers?.['etag'];
+  return { kind: 'ok', policy, etag: etag !== undefined && STRONG_ETAG.test(etag) ? etag : null };
+}
+
+export function createPolicyClient(deps: PolicyClientDeps): PolicyClient {
+  const transport = createBackendTransport({
+    baseUrl: deps.baseUrl,
+    fetch: deps.fetch,
+    timeoutMs: POLICY_REQUEST_TIMEOUT_MS,
+    maxBodyBytes: POLICY_MAX_BODY_BYTES,
+  });
+
+  return {
+    async read(deviceToken, ifNoneMatch) {
+      const answer = await transport.send({
+        method: 'GET',
+        path: POLICY_PATH,
+        bearer: deviceToken,
+        headers: {
+          Accept: 'application/json',
+          ...(ifNoneMatch === null ? {} : { 'If-None-Match': ifNoneMatch }),
+        },
+        readHeaders: ['etag'],
+      });
+      if (answer === null) return { kind: 'unreachable' };
+      if (answer.status === 200) return okOutcome(answer);
+      if (answer.status === 304) {
+        return ifNoneMatch === null ? { kind: 'unreadable' } : { kind: 'not_modified' };
+      }
+      return statusOutcome(answer.status, STATUS_OUTCOMES, SERVER_ERROR);
+    },
+  };
+}

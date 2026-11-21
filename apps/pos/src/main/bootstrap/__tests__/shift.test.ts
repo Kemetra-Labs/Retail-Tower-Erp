@@ -9,6 +9,7 @@ const m = vi.hoisted(() => ({
   managerIdentityOf: vi.fn(),
   resolveSessionScope: vi.fn(),
   resolveApiBaseUrl: vi.fn(),
+  registerVariancePolicy: vi.fn(),
 }));
 
 // The flag gate of the shift sync engine is the real `registerShiftSync`; only its engine factory
@@ -31,6 +32,7 @@ vi.mock('../../operator/resolve-session-scope.js', () => ({
   resolveSessionScope: m.resolveSessionScope,
 }));
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
+vi.mock('../variance-policy.js', () => ({ registerVariancePolicy: m.registerVariancePolicy }));
 
 import { registerShift } from '../shift.js';
 import type { ShiftDeps } from '../shift.js';
@@ -127,6 +129,10 @@ beforeEach(() => {
   m.managerIdentityOf.mockReturnValue('manager-identity');
   m.resolveSessionScope.mockReturnValue('session-scope');
   m.startShiftSync.mockReturnValue(() => Promise.resolve(true));
+  m.registerVariancePolicy.mockReturnValue({
+    resolvePolicy: 'resolve-policy',
+    refreshBeforeOpen: 'refresh-before-open',
+  });
   vi.stubEnv(FLAG, undefined);
 });
 
@@ -157,6 +163,13 @@ describe('registerShift, flag off (the default)', () => {
     registerShift(h.deps);
     expect(h.pairedWorkersRegister).not.toHaveBeenCalled();
     expect(ipcDeps().enabled).toBe(false);
+  });
+
+  it('RT-388: wires no policy read and hands the IPC no policy seams', () => {
+    registerShift(makeHarness().deps);
+    expect(m.registerVariancePolicy).not.toHaveBeenCalled();
+    expect(ipcDeps()).not.toHaveProperty('resolvePolicy');
+    expect(ipcDeps()).not.toHaveProperty('beforeOpen');
   });
 });
 
@@ -228,6 +241,24 @@ describe('registerShift, flag on', () => {
     const drainNow = (): Promise<boolean> => Promise.resolve(true);
     start.onDrainNow(drainNow);
     expect(h.drainRef.current).toBe(drainNow);
+  });
+
+  it('RT-388: wires the policy read on the shift deps and hands its seams to the IPC registration', () => {
+    const h = makeHarness();
+    registerShift(h.deps);
+    expect(m.registerVariancePolicy).toHaveBeenCalledTimes(1);
+    const wired = m.registerVariancePolicy.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(wired.db).toBe(h.deps.db);
+    expect(wired.pairingStore).toBe(h.deps.pairingStore);
+    expect(wired.pairedWorkersLatch).toBe(h.deps.pairedWorkersLatch);
+    expect(wired.workerRegistry).toBe(h.deps.workerRegistry);
+    expect(wired.operatorSessionManager).toBe(h.deps.operatorSessionManager);
+    expect(wired.backendFetch).toBe(h.deps.backendFetch);
+    expect(wired.readSendableDeviceToken).toBe(h.deps.readSendableDeviceToken);
+    expect(wired.apiBaseUrl).toBe('https://backend.example.test');
+    const deps = ipcDeps();
+    expect(deps.resolvePolicy).toBe('resolve-policy');
+    expect(deps.beforeOpen).toBe('refresh-before-open');
   });
 
   it('hands the IPC registration enabled=true and a live isEnabled that follows the flag', () => {

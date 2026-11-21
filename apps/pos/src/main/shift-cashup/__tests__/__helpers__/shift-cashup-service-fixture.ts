@@ -13,6 +13,11 @@ import {
   seedSale,
 } from '../../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import type { ManagerPinVerdict } from '../../../operator/manager-pin-store.js';
+import type { VariancePolicy } from '../../../cash-variance-policy/policy-core.js';
+import {
+  knownExponentFor,
+  minorUnitsToDecimalString,
+} from '../../../sales-sync/create-sale-sync-client.js';
 import { composeShiftCashupService, type ShiftCashupSession } from '../../compose-shift-cashup.js';
 import type { ShiftCashupManager, ShiftCashupService } from '../../shift-cashup-service.js';
 import { createShiftCashupRepo, type ShiftScope } from '../../shift-cashup-repo.js';
@@ -98,6 +103,32 @@ export interface ServiceHarness {
     manager: ShiftCashupManager | null;
     /** RT-1004: how many manager-envelope facts the service recorded. */
     envelopeFacts: number;
+    /**
+     * RT-388: the policy the till resolves at each open (the cached policy, or the
+     * fallback). Mutable: a change after an open must not touch that open's shift.
+     */
+    policy: VariancePolicy;
+    /** RT-388: every resolution the service asked for. */
+    policyCalls: Array<{ scope: ShiftScope; shiftCurrencyCode: string }>;
+  };
+}
+
+/**
+ * The fixture's historic knob as a RT-388 policy: `null` is the system default
+ * (never asks), a number `n` is a `limit` of n minor units of `currencyCode`.
+ */
+export function policyFromThreshold(
+  thresholdMinor: number | null,
+  currencyCode: string,
+): VariancePolicy {
+  if (thresholdMinor === null) return { source: 'system', revisionId: null, mode: 'none' };
+  const exponent = knownExponentFor(currencyCode) ?? 2;
+  return {
+    source: 'tenant',
+    revisionId: '0190f5a2-3b4c-7d8e-9f01-23456789abc1',
+    mode: 'limit',
+    limitAmount: minorUnitsToDecimalString(thresholdMinor, exponent),
+    currencyCode,
   };
 }
 
@@ -130,15 +161,22 @@ export function serviceHarness(
     listCalls: [],
     manager: null,
     envelopeFacts: 0,
+    policy: policyFromThreshold(
+      options.varianceApprovalThresholdMinor === undefined
+        ? 0
+        : options.varianceApprovalThresholdMinor,
+      options.currencyCode ?? 'EGP',
+    ),
+    policyCalls: [],
   };
   let ids = 0;
   const service = composeShiftCashupService({
     db: handleFor(db),
     ...(options.currencyCode === undefined ? {} : { currencyCode: options.currencyCode }),
-    varianceApprovalThresholdMinor:
-      options.varianceApprovalThresholdMinor === undefined
-        ? 0
-        : options.varianceApprovalThresholdMinor,
+    resolvePolicy: (input) => {
+      state.policyCalls.push(input);
+      return state.policy;
+    },
     isEnabled: () => state.enabled,
     getSession: () => state.session,
     getManager: () => state.manager,

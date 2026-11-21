@@ -171,6 +171,23 @@ describe('createShiftSyncClient — outcome mapping', () => {
 
   it.each([
     ['201 first record', answer({ status: 201 }), { kind: 'ok' }],
+    [
+      '201 whose open carries the RT-592 flag policy_revision_stale_at_receipt (flagged, never refused)',
+      new Response(
+        JSON.stringify({
+          shiftId: S1,
+          status: 'open',
+          frozenPolicy: {
+            policySource: 'tenant',
+            policyRevisionId: '0190f5a2-3b4c-7d8e-9f01-23456789abc1',
+            policyValue: { mode: 'none' },
+            policyFlags: ['policy_revision_stale_at_receipt', 'a_flag_a_later_contract_adds'],
+          },
+        }),
+        { status: 201 },
+      ),
+      { kind: 'ok' },
+    ],
     ['200 natural-key replay', answer({ status: 200, headers: REPLAYED }), { kind: 'ok' }],
     ['201 key replay', answer({ status: 201, headers: REPLAYED }), { kind: 'ok' }],
     ['500', answer({ status: 500 }), { kind: 'transient' }],

@@ -10,6 +10,7 @@
  */
 import { describe, expect, it } from 'vitest';
 
+import { fallbackPolicy, type VariancePolicy } from '../../cash-variance-policy/policy-core.js';
 import {
   buildCashMovementRequest,
   buildCloseShiftRequest,
@@ -98,6 +99,99 @@ describe('buildOpenShiftRequest', () => {
       }),
     );
     expect(built.fact).toEqual(OPEN);
+  });
+
+  describe('frozenPolicy (RT-388)', () => {
+    const REVISION = '0190f5a2-3b4c-7d8e-9f01-23456789abc1';
+    const TENANT_LIMIT: VariancePolicy = {
+      source: 'tenant',
+      revisionId: REVISION,
+      mode: 'limit',
+      limitAmount: '100.00',
+      currencyCode: 'EGP',
+    };
+
+    it('adds the contract FrozenPolicy object to the body and keeps it on the fact', () => {
+      const built = buildOpenShiftRequest({ ...OPEN, frozenPolicy: TENANT_LIMIT });
+      expect(JSON.parse(built.request.body)).toEqual({
+        shiftId: SHIFT,
+        openedAt: '2026-10-05T08:00:00.000Z',
+        openingUserId: USER,
+        currencyCode: 'EGP',
+        openingFloat: '500.00',
+        operatorUserId: USER,
+        frozenPolicy: {
+          policySource: 'tenant',
+          policyRevisionId: REVISION,
+          policyValue: { mode: 'limit', limitAmount: '100.00', currencyCode: 'EGP' },
+        },
+      });
+      expect(built.fact.frozenPolicy).toEqual(TENANT_LIMIT);
+    });
+
+    it('omits frozenPolicy entirely for an open that froze none (the legacy bytes)', () => {
+      const built = buildOpenShiftRequest(OPEN);
+      expect(built.request.body).not.toContain('frozenPolicy');
+      expect('frozenPolicy' in built.fact).toBe(false);
+    });
+
+    it('sends the system default as source system, null revision id, mode none', () => {
+      const built = buildOpenShiftRequest({
+        ...OPEN,
+        frozenPolicy: { source: 'system', revisionId: null, mode: 'none' },
+      });
+      expect((JSON.parse(built.request.body) as { frozenPolicy: unknown }).frozenPolicy).toEqual({
+        policySource: 'system',
+        policyRevisionId: null,
+        policyValue: { mode: 'none' },
+      });
+    });
+
+    it('sends the fail-closed fallback as source fallback, null revision id, limit 0', () => {
+      const built = buildOpenShiftRequest({ ...OPEN, frozenPolicy: fallbackPolicy('EGP') });
+      expect((JSON.parse(built.request.body) as { frozenPolicy: unknown }).frozenPolicy).toEqual({
+        policySource: 'fallback',
+        policyRevisionId: null,
+        policyValue: { mode: 'limit', limitAmount: '0.00', currencyCode: 'EGP' },
+      });
+    });
+
+    it('lower-cases the revision id', () => {
+      const built = buildOpenShiftRequest({
+        ...OPEN,
+        frozenPolicy: { ...TENANT_LIMIT, revisionId: REVISION.toUpperCase() },
+      });
+      expect(built.fact.frozenPolicy?.revisionId).toBe(REVISION);
+    });
+
+    it.each<{ name: string; policy: VariancePolicy }>([
+      {
+        name: 'a tenant policy without a revision id',
+        policy: { ...TENANT_LIMIT, revisionId: null },
+      },
+      {
+        name: 'a revision id that is not a uuid',
+        policy: { ...TENANT_LIMIT, revisionId: 'rev-1' },
+      },
+      {
+        name: 'a fallback with a revision id',
+        policy: { ...fallbackPolicy('EGP'), revisionId: REVISION },
+      },
+      {
+        name: 'a system policy with a revision id',
+        policy: { source: 'system', revisionId: REVISION, mode: 'none' },
+      },
+      {
+        name: 'a system policy that is a limit',
+        policy: { ...TENANT_LIMIT, source: 'system', revisionId: null },
+      },
+      { name: 'a limit that is not a decimal', policy: { ...TENANT_LIMIT, limitAmount: '1e3' } },
+      { name: 'a lower-case policy currency', policy: { ...TENANT_LIMIT, currencyCode: 'egp' } },
+    ])('refuses $name', ({ policy }) => {
+      expect(invalidReason(() => buildOpenShiftRequest({ ...OPEN, frozenPolicy: policy }))).toBe(
+        'invalid_policy',
+      );
+    });
   });
 
   it('sends and keeps every id in lower case', () => {

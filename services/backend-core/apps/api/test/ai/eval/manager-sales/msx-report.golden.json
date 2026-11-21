@@ -1,0 +1,1254 @@
+{
+  "schema": "msx-replay-report/1",
+  "dataset": {
+    "version": "msx-eval/2",
+    "sha256": "9ba6488b3310b06c1e23ce61a6d87f61d1e435826436c453516a0a4043c2775e",
+    "cases": 38
+  },
+  "run": {
+    "runDate": "fixture",
+    "codeSha": "fixture"
+  },
+  "versions": {
+    "contract": "1.0.0-draft",
+    "templates": "msx-templates/1",
+    "match": "msx-match/1",
+    "pack": "msx-pack/1",
+    "planning": "RT-1526 v6 (Confluence 87457808)"
+  },
+  "totals": {
+    "cases": 38,
+    "passing": 38,
+    "reserves": 25,
+    "commits": 24,
+    "committedUnits": 24,
+    "releases": 1,
+    "auditEvents": 24,
+    "providerRequests": 0,
+    "tokens": 0
+  },
+  "gates": [
+    {
+      "gate": "G-S1",
+      "casesScored": 38,
+      "passing": 38,
+      "failing": [],
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G-S2",
+      "casesScored": 24,
+      "passing": 24,
+      "failing": [],
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G-S3",
+      "casesScored": 13,
+      "passing": 13,
+      "failing": [],
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G-S4",
+      "casesScored": 38,
+      "passing": 38,
+      "failing": [],
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G-S5",
+      "casesScored": 4,
+      "passing": 4,
+      "failing": [],
+      "verdict": "PASS"
+    },
+    {
+      "gate": "G-S6",
+      "casesScored": 38,
+      "passing": 38,
+      "failing": [],
+      "verdict": "PASS"
+    }
+  ],
+  "cases": [
+    {
+      "id": "case-01",
+      "section6": 1,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-02",
+      "section6": 2,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-03",
+      "section6": 3,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-04",
+      "section6": 4,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-05",
+      "section6": 5,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-06",
+      "section6": 6,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-07",
+      "section6": 7,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-08",
+      "section6": 8,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-09",
+      "section6": 9,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-10",
+      "section6": 10,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-11",
+      "section6": 11,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-12",
+      "section6": 12,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-13",
+      "section6": 13,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-14",
+      "section6": 14,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-15",
+      "section6": 15,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-16",
+      "section6": 16,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-17",
+      "section6": 17,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-18",
+      "section6": 18,
+      "expected": "404 not_found",
+      "observed": "404 not_found",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-19",
+      "section6": 19,
+      "expected": "404 not_found",
+      "observed": "404 not_found",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-20",
+      "section6": 20,
+      "expected": "400 validation_error",
+      "observed": "400 validation_error",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-21",
+      "section6": 21,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "pass",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-22",
+      "section6": 22,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "pass",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-23",
+      "section6": 23,
+      "expected": "200 refusal finance_source_absent",
+      "observed": "200 refusal finance_source_absent",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "pass",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-24",
+      "section6": 24,
+      "expected": "200 refusal finance_source_absent",
+      "observed": "200 refusal finance_source_absent",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-25",
+      "section6": 25,
+      "expected": "200 refusal finance_source_absent",
+      "observed": "200 refusal finance_source_absent",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-26",
+      "section6": 26,
+      "expected": "200 refusal forecast_not_supported",
+      "observed": "200 refusal forecast_not_supported",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-27",
+      "section6": 27,
+      "expected": "200 refusal write_action_not_supported",
+      "observed": "200 refusal write_action_not_supported",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-28",
+      "section6": 28,
+      "expected": "200 refusal unsupported_question",
+      "observed": "200 refusal unsupported_question",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-29",
+      "section6": 29,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-30",
+      "section6": 30,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-31",
+      "section6": 31,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-32",
+      "section6": 32,
+      "expected": "200 unavailable evidence_unavailable",
+      "observed": "200 unavailable evidence_unavailable",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "attempted",
+        "reservation": "released",
+        "releaseReason": "not_attempted",
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 1,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-33",
+      "section6": 33,
+      "expected": "200 unavailable feature_disabled_system",
+      "observed": "200 unavailable feature_disabled_system",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-34",
+      "section6": 34,
+      "expected": "200 unavailable feature_disabled_tenant",
+      "observed": "200 unavailable feature_disabled_tenant",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 1,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-35",
+      "section6": 35,
+      "expected": "400 validation_error",
+      "observed": "400 validation_error",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-36",
+      "section6": 36,
+      "expected": "404 not_found",
+      "observed": "404 not_found",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "not_applicable",
+        "G-S3": "pass",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "none",
+        "reservation": "none",
+        "releaseReason": null,
+        "reserves": 0,
+        "budgetChecks": 0,
+        "entitlementChecks": 0,
+        "commits": 0,
+        "releases": 0,
+        "committedUnits": 0,
+        "auditEvents": 0,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-37",
+      "section6": 37,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "pass",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    },
+    {
+      "id": "case-38",
+      "section6": 38,
+      "expected": "200 answer",
+      "observed": "200 answer",
+      "passed": true,
+      "failures": [],
+      "gateFailures": [],
+      "gates": {
+        "G-S1": "pass",
+        "G-S2": "pass",
+        "G-S3": "not_applicable",
+        "G-S4": "pass",
+        "G-S5": "not_applicable",
+        "G-S6": "pass"
+      },
+      "effects": {
+        "evidenceReads": "completed",
+        "reservation": "committed",
+        "releaseReason": null,
+        "reserves": 1,
+        "budgetChecks": 1,
+        "entitlementChecks": 1,
+        "commits": 1,
+        "releases": 0,
+        "committedUnits": 1,
+        "auditEvents": 1,
+        "providerRequests": 0,
+        "tokens": 0
+      }
+    }
+  ]
+}

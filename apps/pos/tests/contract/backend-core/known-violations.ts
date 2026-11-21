@@ -47,6 +47,18 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'paths (RT-869). RT-1046 vendors it under its own exemption and deletes this entry.',
   },
   {
+    call: 'policyClient.read',
+    kind: 'endpoint-missing',
+    tickets: ['RT-388', 'RT-1046'],
+    note:
+      'GET /api/pos/v1/store/cash-variance-policy (posGetCashVariancePolicy, device bearer) is real ' +
+      '(RT-387, cash-variance-policy.openapi.yaml). It is not vendored: the file also holds the ' +
+      'Console /api/v1/tenants/{tenant_id}/cash-variance-policy routes, and pinning it regenerates ' +
+      'src/shared/api-types.ts (a forbidden path without an owner-approved branch exemption). Until ' +
+      'then policy-wire.ts reads the 200 body strictly against the contract text. Vendor the file ' +
+      'under its own exemption and delete this entry.',
+  },
+  {
     call: 'unknownItemCaptureClient.send',
     kind: 'endpoint-missing',
     tickets: ['RT-1490', 'RT-1046'],
@@ -57,5 +69,17 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'carry (RT-869). When it is vendored, expect a credential-mismatch: the contract still names ' +
       'the legacy `clerkJwt` scheme, but the route is guarded by PosOperatorAuthGuard, which accepts ' +
       'only the pos_operator envelope this client sends (the same credential as the sale read).',
+  },
+  {
+    call: 'saleVoidClient.recordVoidAsCashier',
+    kind: 'endpoint-missing',
+    tickets: ['RT-1403'],
+    note:
+      'POST /api/pos/v1/sales/{saleRef}/cashier-void (recordCashierVoid, RT-530 c12029, RT-1403 ' +
+      'comment 18113) is a new device-only route of pos-sales/sales.yaml 1.26.0-draft; the vendored ' +
+      'contract is pinned at 1.25.0-draft, which does not have it. Delete this entry in the POS repin ' +
+      'to a main commit that carries 1.26.0-draft (follow-up PR after the merge; it needs its own ' +
+      'source-scope-guard exemption and an owner ask). The POS sends the call only under ' +
+      'POS_PULSE_FEATURE_SALE_VOID (default off), which stays off until Backend-Core carries RT-1403.',
   },
 ];

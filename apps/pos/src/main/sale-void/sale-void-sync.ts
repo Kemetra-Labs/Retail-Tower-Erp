@@ -1,14 +1,14 @@
 /**
  * RT-530 — send the journaled voids and record what Backend-Core said.
  *
- * A void is sent ONLY under its REQUESTER's own operator envelope: while the
- * operator who requested it is the signed-in operator, holding an envelope
- * (online), on this paired terminal. The server binds `approval.requesterUserId`
- * to the envelope's operator, so a void sent under anyone else's envelope would
- * be refused; this engine never tries. There is no device path for a void. A
- * row whose requester is not that operator, or whose sale has not synced to
- * Backend-Core yet (no server reference), is skipped untouched and keeps
- * waiting: nothing is dropped.
+ * A void is sent ONLY by its REQUESTER, as the signed-in operator on this paired terminal:
+ * a manager or admin under their own operator envelope (online); a cashier (RT-1403, RT-530
+ * c12029) over the device path, with the device bearer and their own `operatorUserId`, which
+ * Backend-Core binds to the cashier holding a live admission on this device. The server binds
+ * `approval.requesterUserId` to that actor, so a void sent by anyone else would be refused;
+ * this engine never tries. A row whose requester is not that operator, or whose sale has not
+ * synced to Backend-Core yet (no server reference), is skipped untouched and keeps waiting:
+ * nothing is dropped.
  *
  *   recorded (201 / 200 / replay)  -> confirmed; audit confirmed
  *   refused (a terminal code)      -> refused;   audit refused; visible to staff
@@ -37,14 +37,30 @@ import type { SaleVoidClient, RecordVoidOutcome } from './sale-void-client.js';
 import type { SaleVoidRepository, VoidEntry, VoidScope } from './sale-void-repository.js';
 import { buildVoidBodyJson } from './sale-void-wire.js';
 
-/** The signed-in operator who may send voids right now. */
-export interface VoidSender {
-  readonly scope: VoidScope;
-  /** The operator's provider-neutral `users.id`, lower-case. */
-  readonly operatorUserId: string;
-  /** The operator's envelope; never empty. */
-  readonly envelope: string;
-}
+/**
+ * The signed-in operator who may send voids right now.
+ *
+ * RT-1403 (RT-530 c12029): a manager or admin sends under their own operator ENVELOPE (online);
+ * a CASHIER holds no envelope and sends over the DEVICE path (`via: 'device'`): the device bearer
+ * plus their own `operatorUserId`, which Backend-Core binds to the cashier holding a live
+ * admission on this terminal. The path follows the sender's role, and a row is only ever sent by
+ * its own requester, so a row's bytes follow its requester's role.
+ */
+export type VoidSender =
+  | {
+      readonly via?: 'envelope';
+      readonly scope: VoidScope;
+      /** The operator's provider-neutral `users.id`, lower-case. */
+      readonly operatorUserId: string;
+      /** The operator's envelope; never empty. */
+      readonly envelope: string;
+    }
+  | {
+      readonly via: 'device';
+      readonly scope: VoidScope;
+      /** The cashier's provider-neutral `users.id` (their admission's `user_id`), lower-case. */
+      readonly operatorUserId: string;
+    };
 
 export interface SaleVoidSyncLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
@@ -55,8 +71,13 @@ export interface SaleVoidSyncDeps {
     SaleVoidRepository,
     'listUnresolved' | 'read' | 'recordAttempt' | 'markUnknown' | 'markConfirmed' | 'markRefused'
   >;
-  readonly client: Pick<SaleVoidClient, 'recordVoid'>;
-  /** The sale's stored Backend-Core reference, or null while it has not synced. */
+  readonly client: Pick<SaleVoidClient, 'recordVoid' | 'recordVoidAsCashier'>;
+  /**
+   * RT-1403: the paired terminal's device token for a cashier's send, read in process per use
+   * (never stored, logged or bridged). Never rejects; null = no credential (the row waits).
+   * Omitted: no device credential.
+   */
+  readonly deviceToken?: () => Promise<string | null>;
   readonly saleRef: (scope: VoidScope, saleId: string) => string | null;
   readonly audit: Pick<SaleVoidAudit, 'confirmed' | 'refused'>;
   /** The live eligible sender (signed in, unlocked is NOT required, online envelope), or null. */
@@ -167,6 +188,26 @@ export function createSaleVoidSync(deps: SaleVoidSyncDeps): SaleVoidSync {
     return sameUser(sender.operatorUserId, entry.requesterUserId) ? sender : null;
   }
 
+  /** The one POST of a row, under the sender's own credential (the bytes follow the path). */
+  async function sendUnder(
+    sender: VoidSender,
+    entry: VoidEntry,
+    saleRef: string,
+  ): Promise<RecordVoidOutcome> {
+    const request = { saleRef, idempotencyKey: entry.externalId };
+    if (sender.via === 'device') {
+      const token = deps.deviceToken === undefined ? null : await deps.deviceToken();
+      return deps.client.recordVoidAsCashier(
+        { ...request, bodyJson: buildVoidBodyJson(entry, saleRef, 'device') },
+        token,
+      );
+    }
+    return deps.client.recordVoid(
+      { ...request, bodyJson: buildVoidBodyJson(entry, saleRef) },
+      sender.envelope,
+    );
+  }
+
   /** Send one row; false stops the pass (the sender is gone). */
   async function sendOne(entry: VoidEntry, tally: Tally): Promise<boolean> {
     const sender = senderFor(entry);
@@ -177,14 +218,7 @@ export function createSaleVoidSync(deps: SaleVoidSyncDeps): SaleVoidSync {
       return true;
     }
     deps.repo.recordAttempt({ voidId: entry.voidId, now: deps.now() });
-    const outcome = await deps.client.recordVoid(
-      {
-        saleRef,
-        bodyJson: buildVoidBodyJson(entry, saleRef),
-        idempotencyKey: entry.externalId,
-      },
-      sender.envelope,
-    );
+    const outcome = await sendUnder(sender, entry, saleRef);
     // Stopped while the POST was in flight: touch nothing local (the DB may be
     // closed). The row stays as it was; the next start re-sends it.
     if (deps.isStopped()) return false;

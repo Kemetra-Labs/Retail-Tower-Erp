@@ -94,3 +94,54 @@ export class PgTrackedLineCashierVerifier implements TrackedLineCashierVerifier 
     );
   }
 }
+
+/**
+ * RT-1403 (Opus review H2) — the cashier claim of `recordCashierVoid`: the TLV
+ * rules above PLUS the store suspension (RT-1138).
+ *
+ * `CashierEligibilityReader.check` never refuses a suspended cashier on purpose
+ * (a sale rung before the suspension must still sync; see cashier-eligibility.ts),
+ * and suspending a cashier does not end their live admissions. A void is a NEW
+ * money-moving request made now, so a cashier suspended at the store must not make
+ * one even while an earlier admission is still live: `suspended` refuses, with the
+ * same generic 403 `refused` as every other cause.
+ */
+export type SaleVoidCashierRefusal = TrackedLineCashierRefusal | "suspended";
+
+export type SaleVoidCashierVerdict =
+  | { readonly ok: true }
+  | { readonly ok: false; readonly cause: SaleVoidCashierRefusal };
+
+export interface SaleVoidCashierVerifier {
+  verify(scope: DeviceScope, userId: string): Promise<SaleVoidCashierVerdict>;
+}
+
+export const SALE_VOID_CASHIER_VERIFIER = Symbol.for("api.sales.saleVoidCashierVerifier");
+
+export class PgSaleVoidCashierVerifier implements SaleVoidCashierVerifier {
+  constructor(
+    /** The NOBYPASSRLS domain pool (PG_POOL): every read runs under the device's tenant. */
+    private readonly pool: Pool,
+    private readonly eligibility: CashierEligibilityReader = new CashierEligibilityRepository(),
+  ) {}
+
+  verify(scope: DeviceScope, userId: string): Promise<SaleVoidCashierVerdict> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: scope.tenantId, isPlatformAdmin: false },
+      async (client): Promise<SaleVoidCashierVerdict> => {
+        const live = await client.query<{ live: boolean }>(LIVE_ADMISSION_SQL, [
+          scope.tenantId,
+          scope.storeId,
+          scope.deviceId,
+          userId,
+        ]);
+        if (live.rows[0]?.live !== true) return { ok: false, cause: "no_live_admission" };
+        const eligibility = await this.eligibility.check(client, scope, userId);
+        if (!eligibility.eligible) return { ok: false, cause: eligibility.reason };
+        if (await this.eligibility.isSuspended(client, scope, userId)) return { ok: false, cause: "suspended" };
+        return { ok: true };
+      },
+    );
+  }
+}

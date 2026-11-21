@@ -5,6 +5,13 @@
  *
  * Gold-label rule: a builder only places a literal figure into a cell with its
  * ref. It never computes one (RT-1526 §2.4).
+ *
+ * `msx-eval/2` aligns the PRESENTATION to the P-06 runtime (RT-1540 comment 18101): bare
+ * `COLUMN_COPY` column and slot keys (statement block keys keep the `msx.` prefix), a store with
+ * no figure in a ranking column goes to a `["store","count"]` table, not-begun days to a
+ * `["date"]` table, T-07 states voids and returns in two tables (current, then `ss.baseline`), a
+ * summary template over several stores also cites the by-store read for the store names, and a
+ * currency line a store lacks is an explicit received zero. No figure and no refusal code moved.
  */
 import { assemble, Pack, statement, table } from "./msx.pack";
 import type { AnswerBlock, AnswerBody, MsxEvidence, TableCell } from "./msx.types";
@@ -39,6 +46,8 @@ export interface Built {
 }
 
 const R = "range";
+/** The read's explicit received zero of a currency line a store has no facts in. */
+const ZERO = "0.0000";
 const WEEK_PERIOD = { from: WEEK.from, to: WEEK.to } as const;
 const ALL_STORES = [STORE_A1, STORE_A2, STORE_A3] as const;
 
@@ -62,17 +71,21 @@ export function t01ScopeWeek(): Built {
     storeRefs: ALL_STORES,
     period: WEEK_PERIOD,
     sources: ["ss"],
-    blocks: [table(["msx.col.received_sales", "msx.col.count"], rows)],
+    blocks: [table(["received_sales", "count"], rows)],
     notices: ["multi_currency"],
     condition: "mixed_currency",
   });
 }
 
-/** T-01 for two selected stores in two currencies: per-store lines, no subset total (case 29, gap G-1). */
+/**
+ * T-01 for two selected stores in two currencies: per-store lines, no subset total (case 29, gap
+ * G-1). A currency line a store lacks is the read's explicit received zero, and the store names come
+ * from the by-store read (the summary carries none).
+ */
 export function t01SelectedStoresMixedCurrency(): Built {
   const p = new Pack();
-  const line = (key: "A1" | "A3", total: string, count: number, ccy: string): TableCell[] => [
-    p.fact("ss", STORE[key].id, R, "storeName", STORE[key].name),
+  const line = (key: "A1" | "A3", ccy: string, total: string, count: number): TableCell[] => [
+    p.fact("sbs", STORE[key].id, R, "storeName", STORE[key].name),
     p.money("ss", STORE[key].id, R, "receivedSales.total", total, ccy),
     p.fact("ss", STORE[key].id, R, "receivedSales.count", count, ccy),
   ];
@@ -81,11 +94,11 @@ export function t01SelectedStoresMixedCurrency(): Built {
     mode: "stores",
     storeRefs: [STORE_A1, STORE_A3],
     period: WEEK_PERIOD,
-    sources: ["ss"],
+    sources: ["ss", "sbs"],
     blocks: [
       table(
-        ["msx.col.store", "msx.col.received_sales", "msx.col.count"],
-        [line("A1", A1_WEEK.total, A1_WEEK.count, "EGP"), line("A3", A3_WEEK.total, A3_WEEK.count, "SAR")],
+        ["store", "received_sales", "count"],
+        [line("A1", "EGP", A1_WEEK.total, A1_WEEK.count), line("A1", "SAR", ZERO, 0), line("A3", "EGP", ZERO, 0), line("A3", "SAR", A3_WEEK.total, A3_WEEK.count)],
       ),
     ],
     notices: ["multi_currency"],
@@ -108,7 +121,7 @@ export function t01StoreToday(): Built {
     storeRefs: [STORE_A1],
     period: { from: TODAY, to: TODAY },
     sources: ["ss"],
-    blocks: [table(["msx.col.received_sales", "msx.col.count"], [row])],
+    blocks: [table(["received_sales", "count"], [row])],
     notices: ["day_in_progress"],
     condition: "stale_day_in_progress",
   });
@@ -127,7 +140,7 @@ export function t01StoreWeekControlsOnly(): Built {
     storeRefs: [STORE_A1],
     period: WEEK_PERIOD,
     sources: ["ss"],
-    blocks: [table(["msx.col.received_sales", "msx.col.count"], [row])],
+    blocks: [table(["received_sales", "count"], [row])],
     notices: ["parameters_from_controls_only"],
     condition: "fresh",
   });
@@ -153,7 +166,7 @@ export function t02StoreWeek(key: "A1" | "A2"): Built {
     storeRefs: [id],
     period: WEEK_PERIOD,
     sources: ["ss"],
-    blocks: [table(["msx.col.business_date", "msx.col.received_sales", "msx.col.count"], rows)],
+    blocks: [table(["date", "received_sales", "count"], rows)],
     condition: "fresh",
   });
 }
@@ -171,9 +184,7 @@ export function t02FutureDays(): Built {
     p.money("ss", STORE_A1, day, "receivedSales.total", total, "EGP"),
     p.fact("ss", STORE_A1, day, "receivedSales.count", count, "EGP"),
   ]);
-  for (const day of ["2026-11-19", "2026-11-20"]) {
-    rows.push([p.fact("ss", STORE_A1, day, "businessDate", day), p.fact("ss", STORE_A1, day, "dayState", "not_begun")]);
-  }
+  const notBegun = ["2026-11-19", "2026-11-20"].map((day): TableCell[] => [p.fact("ss", STORE_A1, day, "businessDate", day)]);
   p.fact("ss", STORE_A1, R, "currentBusinessDate", TODAY);
   return assemble(p, {
     templateId: "T-02",
@@ -181,34 +192,26 @@ export function t02FutureDays(): Built {
     storeRefs: [STORE_A1],
     period: { from: "2026-11-16", to: "2026-11-20" },
     sources: ["ss"],
-    blocks: [table(["msx.col.business_date", "msx.col.received_sales", "msx.col.count"], rows)],
+    blocks: [table(["date", "received_sales", "count"], rows), table(["date"], notBegun)],
     notices: ["day_in_progress", "day_not_begun"],
     condition: "future_days",
   });
 }
 
-const T03_COLUMNS = [
-  "msx.col.subject",
-  "msx.col.voids_count",
-  "msx.col.voids_total",
-  "msx.col.returns_count",
-  "msx.col.returns_total",
-  "msx.col.legacy_refunds_count",
-  "msx.col.legacy_refunds_total",
-];
+const T03_COLUMNS = ["voids", "total", "returns", "total", "legacy_refunds", "total"];
 
-function t03Row(p: Pack, subject: string, label: TableCell, facts: MoneyFacts, ccy: string): TableCell[] {
+function t03Row(p: Pack, subject: string, label: TableCell | null, facts: MoneyFacts, ccy: string): TableCell[] {
   const metric = (name: "voids" | "returns" | "legacyRefunds"): TableCell[] => [
     p.fact("ss", subject, R, `${name}.count`, facts[name].count, ccy),
     p.money("ss", subject, R, `${name}.total`, facts[name].total, ccy),
   ];
-  return [label, ...metric("voids"), ...metric("returns"), ...metric("legacyRefunds")];
+  return [...(label === null ? [] : [label]), ...metric("voids"), ...metric("returns"), ...metric("legacyRefunds")];
 }
 
 /** T-03 for the whole scope over MONTH: one row per currency, no "net sales" (case 6). */
 export function t03ScopeMonth(): Built {
   const p = new Pack();
-  const rows = (["EGP", "SAR"] as const).map((ccy) => t03Row(p, "scope", p.fact("ss", "scope", R, "currencyCode", ccy, ccy), MONTH_FACTS[ccy], ccy));
+  const rows = (["EGP", "SAR"] as const).map((ccy) => t03Row(p, "scope", null, MONTH_FACTS[ccy], ccy));
   return assemble(p, {
     templateId: "T-03",
     mode: "all_in_scope",
@@ -225,21 +228,22 @@ export function t03ScopeMonth(): Built {
 export function t03SelectedStoresMonth(): Built {
   const p = new Pack();
   const rows = (["A1", "A2"] as const).map((key) =>
-    t03Row(p, STORE[key].id, p.fact("ss", STORE[key].id, R, "storeName", STORE[key].name), MONTH_FACTS[key], "EGP"),
+    t03Row(p, STORE[key].id, p.fact("sbs", STORE[key].id, R, "storeName", STORE[key].name), MONTH_FACTS[key], "EGP"),
   );
   return assemble(p, {
     templateId: "T-03",
     mode: "stores",
     storeRefs: [STORE_A1, STORE_A2],
     period: { from: MONTH.from, to: MONTH.to },
-    sources: ["ss"],
-    blocks: [table(T03_COLUMNS, rows)],
+    sources: ["ss", "sbs"],
+    blocks: [table(["store", ...T03_COLUMNS], rows)],
     gaps: ["G-1"],
     condition: "fresh",
   });
 }
 
-const RANK_COLUMNS = ["msx.col.store", "msx.col.rank", "msx.col.received_sales", "msx.col.count", "msx.col.share"];
+const RANK_COLUMNS = ["store", "rank", "received_sales", "count", "share"];
+const COUNT_COLUMNS = ["store", "count"];
 
 function rankedRow(p: Pack, key: "A1" | "A2", week: StoreWeek, name: TableCell): TableCell[] {
   const id = STORE[key].id;
@@ -265,18 +269,15 @@ function noSalesRow(p: Pack, key: StoreKey, ccy: string): TableCell[] {
 export function t04ScopeRanking(a2Raw: string = NAME_A2, a2Shown: string = a2Raw): Built {
   const p = new Pack();
   const a2Name = { ...p.fact("sbs", STORE_A2, R, "storeName", a2Raw), value: a2Shown };
-  const rows = [
-    rankedRow(p, "A1", A1_WEEK, p.fact("sbs", STORE_A1, R, "storeName", NAME_A1)),
-    rankedRow(p, "A2", A2_WEEK, a2Name),
-    noSalesRow(p, "A3", "EGP"),
-  ];
+  const rows = [rankedRow(p, "A1", A1_WEEK, p.fact("sbs", STORE_A1, R, "storeName", NAME_A1)), rankedRow(p, "A2", A2_WEEK, a2Name)];
+  const noSales = [noSalesRow(p, "A3", "EGP")];
   return assemble(p, {
     templateId: "T-04",
     mode: "all_in_scope",
     storeRefs: ALL_STORES,
     period: WEEK_PERIOD,
     sources: ["sbs"],
-    blocks: [table(RANK_COLUMNS, rows)],
+    blocks: [table(RANK_COLUMNS, rows), table(COUNT_COLUMNS, noSales)],
     condition: a2Raw === NAME_A2 ? "fresh" : "hostile_store_name",
   });
 }
@@ -286,17 +287,18 @@ export function t04SingleStore(): Built {
   const p = new Pack();
   const slots = {
     store: p.fact("sbs", STORE_A1, R, "storeName", NAME_A1),
-    total: p.money("sbs", STORE_A1, R, "ranking.total", A1_WEEK.total, "EGP"),
+    received_sales: p.money("sbs", STORE_A1, R, "ranking.total", A1_WEEK.total, "EGP"),
     count: p.fact("sbs", STORE_A1, R, "ranking.count", A1_WEEK.count, "EGP"),
-    rankable: p.flag("sbs", "scope", R, "rankable", false),
   };
+  // `rankable = false` is a pack flag the template reads; no cell or slot states it.
+  p.flag("sbs", "scope", R, "rankable", false);
   return assemble(p, {
     templateId: "T-04",
     mode: "store",
     storeRefs: [STORE_A1],
     period: WEEK_PERIOD,
     sources: ["sbs"],
-    blocks: [statement("msx.t04.single_store", slots)],
+    blocks: [statement("msx.t04.single_store", slots), table(["store", "received_sales", "count"], [[slots.store, slots.received_sales, slots.count]])],
     condition: "fresh",
   });
 }
@@ -323,7 +325,7 @@ export function t05SelectedStoresCompare(): Built {
     sources: ["sbs"],
     blocks: [
       table(
-        ["msx.col.store", "msx.col.received_sales", "msx.col.count", "msx.col.average_sale", "msx.col.share_of_scope", "msx.col.rank_of_scope"],
+        ["store", "received_sales", "count", "average_sale", "share", "rank"],
         [row("A1", A1_WEEK, RANK_WEEK_EGP.A1.averageSale), row("A2", A2_WEEK, RANK_WEEK_EGP.A2.averageSale)],
       ),
     ],
@@ -347,14 +349,19 @@ export function t06ScopeChange(): Built {
     mode: "all_in_scope",
     storeRefs: ALL_STORES,
     period: { ...WEEK_PERIOD, baseline: BASELINE },
-    sources: ["sbs", "ssb"],
-    blocks: [table(["msx.col.current_total", "msx.col.baseline_total"], [row])],
+    sources: ["ssb", "sbs"],
+    blocks: [table(["received_sales", "baseline_total"], [row])],
     gaps: ["G-3"],
     condition: "fresh",
   });
 }
 
-/** T-07: what changed per store (sorted by delta, sorting only), voids and returns of both periods, and the causal decline (case 13). */
+/**
+ * T-07: what changed per store (sorted by delta, sorting only; a store with no EGP sales in the
+ * count table), then the voids and returns of the current period and of the baseline period, each
+ * its own table with the same bare keys (the baseline table cites `ss.baseline` refs), and the
+ * causal decline (case 13).
+ */
 export function t07ScopeChangeExplain(): Built {
   const p = new Pack();
   const storeRow = (key: "A1" | "A2", week: StoreWeek): TableCell[] => {
@@ -367,26 +374,30 @@ export function t07ScopeChangeExplain(): Built {
     ];
   };
   const stores = [storeRow("A2", A2_WEEK), storeRow("A1", A1_WEEK)];
-  const facts: AnswerBlock = table(
-    ["msx.col.voids_current", "msx.col.voids_baseline", "msx.col.returns_current", "msx.col.returns_baseline"],
-    [
+  const voidsReturns = (src: "ss" | "ssb", period: "current" | "baseline"): AnswerBlock =>
+    table(
+      ["voids", "returns"],
       [
-        p.money("ss", "scope", R, "voids.total", CHANGE_WEEK_EGP.voids.current, "EGP"),
-        p.money("ssb", "scope", R, "voids.total", CHANGE_WEEK_EGP.voids.baseline, "EGP"),
-        p.money("ss", "scope", R, "returns.total", CHANGE_WEEK_EGP.returns.current, "EGP"),
-        p.money("ssb", "scope", R, "returns.total", CHANGE_WEEK_EGP.returns.baseline, "EGP"),
+        [
+          p.money(src, "scope", R, "voids.total", CHANGE_WEEK_EGP.voids[period], "EGP"),
+          p.money(src, "scope", R, "returns.total", CHANGE_WEEK_EGP.returns[period], "EGP"),
+        ],
       ],
-    ],
-  );
+    );
   return assemble(p, {
     templateId: "T-07",
     mode: "all_in_scope",
     storeRefs: ALL_STORES,
     period: { ...WEEK_PERIOD, baseline: BASELINE },
-    sources: ["sbs", "ss", "ssb"],
-    blocks: [table(["msx.col.store", "msx.col.received_sales", "msx.col.baseline_total", "msx.col.delta_ratio"], stores), facts],
+    sources: ["ss", "ssb", "sbs"],
+    blocks: [
+      table(["store", "received_sales", "baseline_total", "delta_ratio"], stores),
+      table(COUNT_COLUMNS, [noSalesRow(p, "A3", "EGP")]),
+      voidsReturns("ss", "current"),
+      voidsReturns("ssb", "baseline"),
+    ],
     declined: ["causal_not_supported"],
-    gaps: ["G-6"],
+    gaps: ["G-3", "G-6"],
     condition: "fresh",
   });
 }
@@ -405,12 +416,16 @@ export function t08SelectedStoresBestDay(): Built {
     storeRefs: [STORE_A1, STORE_A2],
     period: WEEK_PERIOD,
     sources: ["sbs"],
-    blocks: [table(["msx.col.store", "msx.col.best_day", "msx.col.best_day_total"], [row("A1"), row("A2")])],
+    blocks: [table(["store", "best_day", "total"], [row("A1"), row("A2")])],
     condition: "fresh",
   });
 }
 
-/** T-09: average sale per store in SAR; no scope average (case 15, gap G-4). */
+/**
+ * T-09: average sale per store in SAR; no scope average (case 15, gap G-4). The stores are in the
+ * by-store read's own order for SAR (the ranked store first, then the unranked by store id), and the
+ * two stores with no SAR sale are in the count table.
+ */
 export function t09ScopeAverageSar(): Built {
   const p = new Pack();
   const sar = [
@@ -421,30 +436,42 @@ export function t09ScopeAverageSar(): Built {
   return assemble(p, {
     templateId: "T-09",
     mode: "all_in_scope",
-    storeRefs: ALL_STORES,
+    storeRefs: [STORE_A3, STORE_A1, STORE_A2],
     period: WEEK_PERIOD,
     sources: ["sbs"],
-    blocks: [table(["msx.col.store", "msx.col.average_sale", "msx.col.count"], [noSalesRow(p, "A1", "SAR"), noSalesRow(p, "A2", "SAR"), sar])],
+    blocks: [table(["store", "average_sale", "count"], [sar]), table(COUNT_COLUMNS, [noSalesRow(p, "A1", "SAR"), noSalesRow(p, "A2", "SAR")])],
     gaps: ["G-4"],
     condition: "fresh",
   });
 }
 
-/** T-10 for the whole scope today: why a figure is partial (case 16, gap G-5). */
+const T10_COLUMNS = ["store", "date", "received_sales", "count"];
+
+/** One T-10 row: the store, its own business date at `asOf`, and the received figures the by-store read states. */
+function t10Row(p: Pack, key: StoreKey, total: string, count: number): TableCell[] {
+  const id = STORE[key].id;
+  return [
+    p.fact("sbs", id, R, "storeName", STORE[key].name),
+    p.fact("sbs", id, R, "currentBusinessDate", TODAY),
+    p.money("sbs", id, R, "ranking.total", total, "EGP"),
+    p.fact("sbs", id, R, "ranking.count", count, "EGP"),
+  ];
+}
+
+/**
+ * T-10 for the whole scope today: why a figure is partial (case 16, gap G-5). Each store shows its
+ * own business date and the received figures; a store with no sale yet shows the read's zero count.
+ */
 export function t10ScopeWhyPartial(): Built {
   const p = new Pack();
-  const rows = (["A1", "A2", "A3"] as const).map((key) => [
-    p.fact("sbs", STORE[key].id, R, "storeName", STORE[key].name),
-    p.fact("ss", STORE[key].id, R, "currentBusinessDate", TODAY),
-    p.fact("sbs", STORE[key].id, TODAY, "dayState", "so_far"),
-  ]);
+  const rows = [t10Row(p, "A1", A1_TODAY.total, A1_TODAY.count), t10Row(p, "A2", ZERO, 0), t10Row(p, "A3", ZERO, 0)];
   return assemble(p, {
     templateId: "T-10",
     mode: "all_in_scope",
     storeRefs: ALL_STORES,
     period: { from: TODAY, to: TODAY },
-    sources: ["ss", "sbs"],
-    blocks: [table(["msx.col.store", "msx.col.current_business_date", "msx.col.day_state"], rows)],
+    sources: ["sbs"],
+    blocks: [table(T10_COLUMNS, rows)],
     notices: ["day_in_progress"],
     gaps: ["G-5"],
     condition: "partial_received_only",
@@ -454,19 +481,13 @@ export function t10ScopeWhyPartial(): Built {
 /** T-10 with a conclusive claim declined: the figure is shown only with its notices (case 17). */
 export function t10StoreNotConclusive(): Built {
   const p = new Pack();
-  const row = [
-    p.fact("sbs", STORE_A1, R, "storeName", NAME_A1),
-    p.money("ss", STORE_A1, R, "receivedSales.total", A1_TODAY.total, "EGP"),
-    p.fact("sbs", STORE_A1, TODAY, "dayState", "so_far"),
-  ];
-  p.fact("ss", STORE_A1, R, "currentBusinessDate", TODAY);
   return assemble(p, {
     templateId: "T-10",
     mode: "store",
     storeRefs: [STORE_A1],
     period: { from: TODAY, to: TODAY },
-    sources: ["ss", "sbs"],
-    blocks: [table(["msx.col.store", "msx.col.received_sales", "msx.col.day_state"], [row])],
+    sources: ["sbs"],
+    blocks: [table(T10_COLUMNS, [t10Row(p, "A1", A1_TODAY.total, A1_TODAY.count)])],
     notices: ["day_in_progress"],
     declined: ["partial_data_not_conclusive"],
     gaps: ["G-5"],
@@ -474,7 +495,10 @@ export function t10StoreNotConclusive(): Built {
   });
 }
 
-/** T-12: the stores with no received sales, from `storesWithoutSales` and the zero count (case 30). */
+/**
+ * T-12: the stores with no received sales (case 30). The statement and a one-cell table state the
+ * `storesWithoutSales` count; the store itself is in the count table with its zero count.
+ */
 export function t12StoresWithoutSales(): Built {
   const p = new Pack();
   const count = p.fact("sbs", "scope", R, "storesWithoutSales", 1);
@@ -484,7 +508,7 @@ export function t12StoresWithoutSales(): Built {
     storeRefs: [STORE_A1, STORE_A2],
     period: WEEK_PERIOD,
     sources: ["sbs"],
-    blocks: [statement("msx.t12.stores_without_sales", { count }), table(["msx.col.store", "msx.col.count"], [noSalesRow(p, "A2", "EGP")])],
+    blocks: [statement("msx.t12.stores_without_sales", { count }), table(["count"], [[count]]), table(COUNT_COLUMNS, [noSalesRow(p, "A2", "EGP")])],
     condition: "missing_facts",
   });
 }

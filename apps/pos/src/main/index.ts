@@ -1520,8 +1520,7 @@ singleInstanceReady
       }
     }
 
-    // RT-530 — the manager-approved sale void: `saleVoid:*` IPC and the flag-gated background send
-    // (RT-893 extraction 5; see `bootstrap/sale-void.ts`).
+    // RT-530 — sale void: `saleVoid:*` IPC and the flag-gated send; RT-1403 device path (bootstrap/sale-void.ts).
     registerSaleVoid({
       guardedIpcMain,
       db,
@@ -1529,6 +1528,7 @@ singleInstanceReady
       operatorSessionManager,
       operatorEnvelopeHolder,
       pairingStore,
+      getDeviceToken: readSendableDeviceToken,
       managerApprovals,
       auditEmitter,
       forwardAuditEvent,

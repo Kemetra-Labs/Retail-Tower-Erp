@@ -37,6 +37,8 @@
  * A refused fact throws `ShiftFactInvalidError` naming the field and a closed
  * reason — never the value (P7).
  */
+import type { VariancePolicy } from '../cash-variance-policy/policy-core.js';
+import { frozenPolicyBody, normalizeFrozenPolicy } from '../cash-variance-policy/policy-wire.js';
 import {
   knownExponentFor,
   minorUnitsToDecimalString,
@@ -62,6 +64,11 @@ export interface ShiftOpenFact {
   openingUserId: string;
   currencyCode: string;
   openingFloatMinor: number;
+  /**
+   * RT-388: the shift variance policy frozen with this open (`FrozenPolicy`).
+   * Absent for an open that froze none: it is then omitted from the body.
+   */
+  frozenPolicy?: VariancePolicy;
 }
 
 /** `CashMovement`: a pay-in or pay-out on an open shift. */
@@ -126,6 +133,7 @@ export type ShiftFactInvalidReason =
   | 'invalid_note'
   | 'invalid_sale_count'
   | 'invalid_refund_refs'
+  | 'invalid_policy'
   | 'cashup_inconsistent';
 
 export interface ShiftFactProblem {
@@ -239,6 +247,14 @@ function request(key: { kind: ShiftFactKind; id: string }, body: object): ShiftW
   };
 }
 
+/** RT-388: the open's frozen policy, normalised, or nothing; a malformed one is refused. */
+function frozenPolicyOf(input: ShiftOpenFact): { frozenPolicy?: VariancePolicy } {
+  if (input.frozenPolicy === undefined) return {};
+  const frozenPolicy = normalizeFrozenPolicy(input.frozenPolicy);
+  if (frozenPolicy === null) refuse({ reason: 'invalid_policy', field: 'frozenPolicy' });
+  return { frozenPolicy };
+}
+
 /** The `openShift` body and key (device path: `operatorUserId` = the opening user). */
 export function buildOpenShiftRequest(input: ShiftOpenFact): BuiltShiftFact<ShiftOpenFact> {
   const exponent = currencyExponent({ field: 'currencyCode', value: input.currencyCode });
@@ -248,6 +264,7 @@ export function buildOpenShiftRequest(input: ShiftOpenFact): BuiltShiftFact<Shif
     openingUserId: lowerUuid({ field: 'openingUserId', value: input.openingUserId }),
     currencyCode: input.currencyCode,
     openingFloatMinor: input.openingFloatMinor,
+    ...frozenPolicyOf(input),
   };
   const openingFloat = decimal({
     field: 'openingFloatMinor',
@@ -262,6 +279,9 @@ export function buildOpenShiftRequest(input: ShiftOpenFact): BuiltShiftFact<Shif
     currencyCode: fact.currencyCode,
     openingFloat,
     operatorUserId: fact.openingUserId,
+    ...(fact.frozenPolicy === undefined
+      ? {}
+      : { frozenPolicy: frozenPolicyBody(fact.frozenPolicy) }),
   };
   return { fact, request: request({ kind: 'open', id: fact.shiftId }, body) };
 }

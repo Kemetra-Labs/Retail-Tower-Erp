@@ -2,8 +2,10 @@
  * RT-530 — the composed void domain, from a manager approval to Backend-Core
  * and back, with a fake `fetch`: a void is requested with a real approval, held
  * until its sale has synced and its REQUESTER is signed in online, sent under
- * that requester's own envelope only (never another operator's, never a device
- * bearer), and a refusal by Backend-Core (for example its business day) stays visible.
+ * that requester's own credential only (a manager's envelope; since RT-1403 a
+ * cashier's device bearer plus their own `operatorUserId`; never another
+ * operator's), and a refusal by Backend-Core (for example its business day)
+ * stays visible.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest';
 import type { Database as SqlJsDatabase } from 'sql.js';
@@ -260,7 +262,7 @@ describe('a void flows from the approval to Backend-Core under the requester env
     expect(posted).toHaveLength(1);
   });
 
-  it('never sends anything but the void route, and never a device credential', async () => {
+  it('never sends anything but the void route, and a manager never uses a device credential', async () => {
     markSaleSynced();
     await monaRequestsVoid();
     await domain.sync.tick();
@@ -316,6 +318,119 @@ describe('a void flows from the approval to Backend-Core under the requester env
     expect(posted[1]?.body).toEqual(posted[0]?.body);
     expect(posted[1]?.headers['Idempotency-Key']).toBe(posted[0]?.headers['Idempotency-Key']);
     await expect(listed()).resolves.toMatchObject({ voids: [{ state: 'confirmed' }] });
+  });
+});
+
+const CASHIER = { userId: '0190f5a2-3b4c-7d8e-9f01-0000000000cc' };
+const DEVICE_TOKEN = 'device-token-of-the-till';
+
+function cashierSession(id: string): OperatorSessionRecord {
+  return {
+    id,
+    operator_id: `op-${id}`,
+    display_name: `Cashier ${id}`,
+    role: 'cashier',
+    tenant_id: SCOPE.tenantId,
+    branch_id: SCOPE.branchId,
+    started_at: T0,
+    backend_session_id: '',
+    last_activity_at: T0,
+    lock_state: 'active',
+    locked_at: null,
+    user_id: CASHIER.userId,
+  };
+}
+
+describe('RT-1403: a cashier void goes over the device path', () => {
+  let deviceToken: string | null;
+
+  beforeEach(() => {
+    deviceToken = DEVICE_TOKEN;
+    envelopes = {};
+    domain = composeSaleVoid({ ...deps, getDeviceToken: () => Promise.resolve(deviceToken) });
+    ref.domain = domain;
+    current = cashierSession('rana');
+  });
+
+  /** The cashier asks Omar (a manager) to approve, then requests the void. */
+  async function cashierRequestsVoid() {
+    const granted = await approvals.request({
+      action_kind: 'sale.void',
+      subject_ref: 'sale-1',
+      reason_code: 'sale_void',
+      approver_ref: managerRef('Omar'),
+      pin: OMAR.pin,
+    });
+    if (granted.kind !== 'approved') throw new Error(`not approved: ${granted.reason}`);
+    return domain.service.request({ sale_id: 'sale-1', approval_id: granted.approvalId });
+  }
+
+  it('sends the void with the DEVICE bearer and the cashier operatorUserId, with no envelope at all', async () => {
+    markSaleSynced();
+    expect(await cashierRequestsVoid()).toMatchObject({ kind: 'requested' });
+    await domain.sync.tick();
+    expect(posted).toHaveLength(1);
+    const call = posted[0];
+    expect(call?.url).toBe(`https://api.example.test/api/pos/v1/sales/${SALE_REF}/cashier-void`);
+    expect(call?.headers['Authorization']).toBe(`Bearer ${DEVICE_TOKEN}`);
+    expect(call?.body).toMatchObject({
+      operatorUserId: CASHIER.userId,
+      approval: { requesterUserId: CASHIER.userId, approverUserId: OMAR.userId },
+    });
+    await expect(listed()).resolves.toMatchObject({
+      voids: [{ state: 'confirmed', waiting_for: null }],
+    });
+  });
+
+  it('keeps the void queued while the device token is unavailable, then sends it', async () => {
+    markSaleSynced();
+    await cashierRequestsVoid();
+    deviceToken = null;
+    await domain.sync.tick();
+    expect(posted).toHaveLength(0);
+    await expect(listed()).resolves.toMatchObject({ voids: [{ state: 'unknown' }] });
+    deviceToken = DEVICE_TOKEN;
+    clock = '2026-06-07T10:31:00.000Z';
+    await domain.sync.tick();
+    expect(posted).toHaveLength(1);
+    await expect(listed()).resolves.toMatchObject({ voids: [{ state: 'confirmed' }] });
+  });
+
+  it('a refused claim (the generic 403) keeps the cashier void unknown and re-sends the same bytes', async () => {
+    markSaleSynced();
+    await cashierRequestsVoid();
+    answer = () =>
+      new Response(JSON.stringify({ error: { code: 'refused', message: 'Forbidden' } }), {
+        status: 403,
+      });
+    await domain.sync.tick();
+    await expect(listed()).resolves.toMatchObject({ voids: [{ state: 'unknown' }] });
+    answer = () =>
+      new Response(JSON.stringify({ kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF }), {
+        status: 200,
+      });
+    clock = '2026-06-07T10:31:00.000Z';
+    await domain.sync.tick();
+    expect(posted).toHaveLength(2);
+    expect(posted[1]?.body).toEqual(posted[0]?.body);
+    expect(posted[1]?.headers['Idempotency-Key']).toBe(posted[0]?.headers['Idempotency-Key']);
+    await expect(listed()).resolves.toMatchObject({ voids: [{ state: 'confirmed' }] });
+  });
+
+  it('is sent only while its own cashier is the signed-in sender', async () => {
+    markSaleSynced();
+    await cashierRequestsVoid();
+    current = session('mona', MONA.userId);
+    envelopes = { mona: 'envelope-of-mona' };
+    await domain.sync.tick();
+    expect(posted).toHaveLength(0);
+    await expect(listed()).resolves.toMatchObject({
+      voids: [{ state: 'pending', waiting_for: 'requester_sign_in' }],
+    });
+    current = cashierSession('rana');
+    await domain.sync.tick();
+    expect(posted).toHaveLength(1);
+    expect(posted[0]?.headers['Authorization']).toBe(`Bearer ${DEVICE_TOKEN}`);
   });
 });
 

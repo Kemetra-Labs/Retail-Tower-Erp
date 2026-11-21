@@ -61,6 +61,7 @@ function makeHarness(): Harness {
     operatorSessionManager: { getCurrent },
     operatorEnvelopeHolder: { marker: 'envelope-holder' },
     pairingStore: { getCurrentTerminalId },
+    getDeviceToken: vi.fn(() => Promise.resolve('device-token')),
     managerApprovals: { marker: 'approvals' },
     auditEmitter: { marker: 'audit-emitter' },
     forwardAuditEvent,
@@ -88,6 +89,16 @@ beforeEach(() => {
 
 afterEach(() => {
   vi.unstubAllEnvs();
+});
+
+describe('registerSaleVoid, the cashier device path (RT-1403)', () => {
+  it('hands the sendable device-token READ to the domain (a function, never a token value)', async () => {
+    const h = makeHarness();
+    registerSaleVoid(h.deps);
+    const getDeviceToken = composed()['getDeviceToken'] as () => Promise<string | null>;
+    expect(getDeviceToken).toBe(h.deps.getDeviceToken);
+    await expect(getDeviceToken()).resolves.toBe('device-token');
+  });
 });
 
 describe('registerSaleVoid, flag off (the default)', () => {

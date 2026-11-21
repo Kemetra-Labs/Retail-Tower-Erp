@@ -58,7 +58,7 @@ import {
   PgOperatorAttributionVerifier,
   type OperatorAttributionVerifier,
 } from "./operator-attribution";
-import { SaleCaptureAuthGuard } from "./sale-capture-auth.guard";
+import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "./sale-capture-auth.guard";
 import { CashierEligibilityRepository } from "../../pos-cashier-admissions/cashier-eligibility";
 import { PgCashierAdmissionSelector } from "./history/sale-history-admission";
 import { PgSaleHistoryRefusalAudit } from "./history/sale-history.audit";
@@ -77,8 +77,11 @@ import { TrackedLotsAuthGuard } from "./tracked-lines/tracked-lots-auth.guard";
 import { TrackedLotsController } from "./tracked-lines/tracked-lots.controller";
 import { TrackedLotsService } from "./tracked-lines/tracked-lots.service";
 import {
+  PgSaleVoidCashierVerifier,
   PgTrackedLineCashierVerifier,
+  SALE_VOID_CASHIER_VERIFIER,
   TRACKED_LINE_CASHIER_VERIFIER,
+  type SaleVoidCashierVerifier,
   type TrackedLineCashierVerifier,
 } from "./tracked-lines/tracked-line-cashier";
 import { TrackedLineValidationAuthGuard } from "./tracked-lines/tracked-line-validation-auth.guard";
@@ -213,6 +216,17 @@ import { SaleQuarantineService } from "./quarantine/sale-quarantine.service";
       inject: [PG_POOL, AUTH_LOOKUP_POOL],
     },
     TrackedLineValidationAuthGuard,
+    // RT-1403: recordCashierVoid's credential gate, device-only (recordVoid stays on
+    // the operator envelope). Its cashier claim is the TLV rules plus the store
+    // suspension (review H2): a cashier admission live now, still eligible, and
+    // not suspended.
+    {
+      provide: SALE_VOID_CASHIER_VERIFIER,
+      useFactory: (pool: Pool, lookupPool: Pool): SaleVoidCashierVerifier =>
+        new PgSaleVoidCashierVerifier(pool, new CashierEligibilityRepository(lookupPool)),
+      inject: [PG_POOL, AUTH_LOOKUP_POOL],
+    },
+    SaleVoidAuthGuard,
     // ADR 0009 (audit M-2): per-device write rate limit, layered AFTER the
     // envelope guard. A class-referenced @UseGuards enhancer is reflection-
     // instantiated, so it must use plain reflectable DI (no factory): RateLimiter

@@ -16,6 +16,7 @@
 import type { Database as SqlJsDatabase } from 'sql.js';
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 
+import { fallbackPolicy, type VariancePolicy } from '../../cash-variance-policy/policy-core.js';
 import type { DatabaseHandle } from '../../db/client.js';
 import {
   freshSalesSyncDb,
@@ -414,7 +415,115 @@ describe('findOpenShift', () => {
       openingFloatMinor: 50_000,
       payInTotalMinor: 1_000,
       payOutTotalMinor: 3_000,
+      frozenPolicy: null,
     });
+  });
+});
+
+describe('RT-388: the policy frozen with an open', () => {
+  const REVISION = '0190f5a2-3b4c-7d8e-9f01-23456789abc1';
+  const STORE_LIMIT: VariancePolicy = {
+    source: 'store',
+    revisionId: REVISION,
+    mode: 'limit',
+    limitAmount: '75.50',
+    currencyCode: 'EGP',
+  };
+
+  function openBody(): Record<string, unknown> {
+    const row = db.exec(`SELECT request_body FROM shift_sync_outbox WHERE fact_kind = 'open'`)[0]
+      ?.values[0];
+    return JSON.parse(String(row?.[0])) as Record<string, unknown>;
+  }
+
+  it('stores the policy with the open and queues it in the open body', () => {
+    repo.recordOpen({ scope: SCOPE, fact: { ...OPEN, frozenPolicy: STORE_LIMIT }, now: NOW });
+    expect(repo.findOpenShift(SCOPE)?.frozenPolicy).toEqual(STORE_LIMIT);
+    expect(openBody()['frozenPolicy']).toEqual({
+      policySource: 'store',
+      policyRevisionId: REVISION,
+      policyValue: { mode: 'limit', limitAmount: '75.50', currencyCode: 'EGP' },
+    });
+    expect(
+      db.exec(
+        `SELECT policy_source, policy_revision_id, policy_mode, limit_amount, currency_code, frozen_at
+           FROM shift_cashup_open_policies WHERE shift_id = '${S1}'`,
+      )[0]?.values,
+    ).toEqual([['store', REVISION, 'limit', '75.50', 'EGP', NOW]]);
+  });
+
+  it('round-trips none, the system default and the fallback', () => {
+    const policies: VariancePolicy[] = [
+      { source: 'system', revisionId: null, mode: 'none' },
+      { source: 'tenant', revisionId: REVISION, mode: 'none' },
+      fallbackPolicy('EGP'),
+    ];
+    for (const [index, frozenPolicy] of policies.entries()) {
+      const shiftId = `0192f5a2-3b4c-7d8e-9f01-0000000001${String(index).padStart(2, '0')}`;
+      repo.recordOpen({ scope: SCOPE, fact: { ...OPEN, shiftId, frozenPolicy }, now: NOW });
+      expect(repo.findOpenShift(SCOPE)?.frozenPolicy).toEqual(frozenPolicy);
+      repo.recordClose({
+        scope: SCOPE,
+        fact: {
+          ...CLOSE,
+          shiftId,
+          payInTotalMinor: 0,
+          payOutTotalMinor: 0,
+          expectedCashMinor: 60_000,
+          countedCashMinor: 60_000,
+          varianceMinor: 0,
+        },
+        now: '2026-10-05T16:00:00.000Z',
+      });
+    }
+  });
+
+  it('keeps an open that froze none legacy: no row, no body member, a null view', () => {
+    repo.recordOpen({ scope: SCOPE, fact: OPEN, now: NOW });
+    expect(repo.findOpenShift(SCOPE)?.frozenPolicy).toBeNull();
+    expect(openBody()).not.toHaveProperty('frozenPolicy');
+    expect(count({ table: 'shift_cashup_open_policies' })).toBe(0);
+  });
+
+  it('refuses a malformed policy and writes nothing', () => {
+    expect(() => {
+      repo.recordOpen({
+        scope: SCOPE,
+        fact: { ...OPEN, frozenPolicy: { ...STORE_LIMIT, revisionId: null } },
+        now: NOW,
+      });
+    }).toThrow(ShiftFactInvalidError);
+    expect(count({ table: 'shift_cashup_opens' })).toBe(0);
+    expect(count({ table: 'shift_cashup_open_policies' })).toBe(0);
+  });
+
+  it('reads a frozen row that is malformed (a hand edit the CHECKs let through) as the limit-0 fallback, never as legacy', () => {
+    repo.recordOpen({ scope: SCOPE, fact: OPEN, now: NOW });
+    // A 36-character revision id that is not a uuid passes the CHECK (length only).
+    db.run(
+      `INSERT INTO shift_cashup_open_policies (shift_id, policy_source, policy_revision_id,
+         policy_mode, limit_amount, currency_code, frozen_at)
+       VALUES ('${S1}', 'tenant', '${'z'.repeat(36)}', 'none', NULL, NULL, '${NOW}')`,
+    );
+    expect(repo.findOpenShift(SCOPE)?.frozenPolicy).toEqual({
+      source: 'fallback',
+      revisionId: null,
+      mode: 'limit',
+      limitAmount: '0',
+      currencyCode: 'EGP',
+    });
+  });
+
+  it('persists neither the open nor its policy when the outbox write fails', () => {
+    expect(() => {
+      createShiftCashupRepo(outboxFailingHandle()).recordOpen({
+        scope: SCOPE,
+        fact: { ...OPEN, frozenPolicy: STORE_LIMIT },
+        now: NOW,
+      });
+    }).toThrow(/injected outbox fault/);
+    expect(count({ table: 'shift_cashup_opens' })).toBe(0);
+    expect(count({ table: 'shift_cashup_open_policies' })).toBe(0);
   });
 });
 
