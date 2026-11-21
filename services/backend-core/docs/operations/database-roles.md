@@ -851,7 +851,7 @@ A script without the marker, such as the owner-gated
   request, step-log row, credential, provisioner token or managed registration
   exists. Rollback of the grants: see the script's header.
 
-- **Migration `0129_sync_failure_alerts` (RT-1034).** Run
+- **Migration `0130_sync_failure_alerts` (RT-1034).** Run
   [`sql/sync-failure-alerts-domain-grants.sql`](sql/sync-failure-alerts-domain-grants.sql)
   after `migrate up` and before the worker starts, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same
