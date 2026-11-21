@@ -376,7 +376,7 @@ export class SalesController {
     }
     // RT-77 (RT-10 D7(i)): the guard's resolved device is the sale's device —
     // never a body field. A request the guard did not resolve to a device is
-    // refused (the settlement-intent precedent).
+    // refused.
     if (!request.posDeviceId) throw new UnauthorizedException("Unauthorized");
 
     // RT-224: `operatorUserId` is the device path's attribution CLAIM. The

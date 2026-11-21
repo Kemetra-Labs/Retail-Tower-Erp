@@ -217,7 +217,7 @@ describe("settlement.yaml — operations (RT-417)", () => {
 });
 
 // ===========================================================================
-// 3. Retired operations — removed consistently (runtime removal in RT-422)
+// 3. Retired operations — removed consistently (runtime removed by RT-422)
 // ===========================================================================
 describe("settlement.yaml — retired operations (RT-417 → RT-422)", () => {
   it("no retired operationId or route is declared in this contract", () => {
@@ -261,10 +261,11 @@ describe("settlement.yaml — retired operations (RT-417 → RT-422)", () => {
     }
   });
 
-  it("documents that the runtime still serves the retired routes until RT-422", () => {
+  it("documents that RT-422 removed the retired routes from the runtime and the tables with them", () => {
     const info = doc.info?.description ?? "";
-    expect(info).toContain("still served by");
-    expect(info).toContain("until RT-422 deletes them");
+    expect(info).toContain("RUNTIME REMOVAL (RT-422");
+    expect(info).toContain("no longer served");
+    expect(info).not.toContain("still served by");
   });
 });
 

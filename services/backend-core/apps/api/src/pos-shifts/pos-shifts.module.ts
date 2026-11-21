@@ -9,7 +9,7 @@
  *   - RT-742: `forceCloseShift` (ShiftCashUpController), the manager
  *     envelope only, through ShiftForceCloseService.
  *
- * Cash-up guard wiring mirrors SalesModule / SettlementModule: the envelope
+ * Cash-up guard wiring mirrors SalesModule: the envelope
  * path is PosOperatorEnvelopeSaleGuard (live operator re-check through the
  * shared PgOperatorContextResolver), the device path PosDeviceAuthGuard
  * (DeviceRepository on AUTH_LOOKUP_POOL) plus PgOperatorAttributionVerifier

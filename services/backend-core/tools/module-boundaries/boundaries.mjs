@@ -130,7 +130,10 @@ export function parseModuleMap(raw, moduleDirs, opts = {}) {
   return { shared: new Set(shared), sharedTables: new Set(sharedTables), tableOwner: owner, publicFiles: modules };
 }
 
-/** Tables the db migrations create (`CREATE TABLE`, up migrations only), sorted, from `packages/db/drizzle`. */
+/**
+ * Tables the db migrations leave in place (`CREATE TABLE` minus a later `DROP TABLE`, up migrations only, in
+ * file order), sorted, from `packages/db/drizzle`. A dropped table needs no owner (RT-422).
+ */
 export function migrationTables(root) {
   const dir = path.join(root, "packages", "db", "drizzle");
   let names = [];
@@ -140,9 +143,13 @@ export function migrationTables(root) {
     return [];
   }
   const found = new Set();
-  for (const name of names) {
-    for (const m of readFileSync(path.join(dir, name), "utf8").matchAll(/^\s*CREATE TABLE(?: IF NOT EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
+  for (const name of names.sort()) {
+    const sql = readFileSync(path.join(dir, name), "utf8");
+    for (const m of sql.matchAll(/^\s*CREATE TABLE(?: IF NOT EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
       found.add(m[1]);
+    }
+    for (const m of sql.matchAll(/^\s*DROP TABLE(?: IF EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
+      found.delete(m[1]);
     }
   }
   return [...found].sort();

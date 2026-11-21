@@ -52,10 +52,10 @@ const BASELINE_SCRIPTS = [
 /** The baseline's lookup-forbidden tables, frozen at origin/main 7847a9e9. Never add one. */
 const BASELINE_FORBIDDEN_TABLES = [
   "audit_events", "cash_variance_policy_revisions", "cashier_admission_requests", "cashier_admissions",
-  "claim", "claim_receivables", "erpnext_tracking_map", "idempotency_keys", "inventory_anchor_lines",
+  "erpnext_tracking_map", "idempotency_keys", "inventory_anchor_lines",
   "inventory_anchors", "inventory_effect_integration", "inventory_position_events", "memberships",
-  "outbox_events", "pairing_codes", "payer_account", "payment_application", "platform_support_sessions",
-  "receivable", "refund_executions", "remittance", "sale_approval_uses", "sale_credit_reversal_tenders",
+  "outbox_events", "pairing_codes", "payer_account", "platform_support_sessions",
+  "refund_executions", "sale_approval_uses", "sale_credit_reversal_tenders",
   "sale_credit_reversals", "sale_lines", "sale_refunds", "sale_reprints", "sale_responsibilities",
   "sale_return_lines", "sale_return_tenders", "sale_returns", "sale_sync_deadletters", "sale_tenders",
   "sale_voids", "sales", "shift_cash_movements", "shift_close_approver_checks", "shift_closes",

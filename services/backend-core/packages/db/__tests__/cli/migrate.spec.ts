@@ -306,9 +306,11 @@ describe("data-pulse-migrate CLI", () => {
   /** The three return tables created by 0032_sale_returns (RT-73). */
   const RETURN_TABLES = ["sale_returns", "sale_return_lines", "sale_return_tenders"];
 
-  /** The seven tables created by 0027_settlement_receivables. */
-  const SETTLEMENT_TABLES = [
-    "payer_account",
+  /** The settlement table still kept after 0129 (the other six of 0027 are dropped, RT-422). */
+  const SETTLEMENT_TABLES = ["payer_account"];
+
+  /** The six spec-035 A/R ledger tables 0027 created and 0129_retire_settlement_ledger drops. */
+  const RETIRED_SETTLEMENT_TABLES = [
     "receivable",
     "payment_application",
     "claim",
@@ -498,13 +500,14 @@ describe("data-pulse-migrate CLI", () => {
       ).toBe("1");
       // 0029's credential_hash column;
       expect(await countPublicColumn("sessions", "credential_hash")).toBe("1");
-      // 0028's lease column and index, and the 0027 settlement tables;
+      // 0028's lease column and index, the kept 0027 payer_account table and (0129) the six dropped ledger tables;
       expect(await countPublicColumn("outbox_events", "claimed_at")).toBe("1");
       expect(
         await queryCount(`SELECT COUNT(*)::text AS count FROM pg_indexes
           WHERE schemaname = 'public' AND indexname = 'outbox_events_stale_claim_idx'`),
       ).toBe("1");
-      expect(await countPublicTables(SETTLEMENT_TABLES)).toBe("7");
+      expect(await countPublicTables(SETTLEMENT_TABLES)).toBe("1");
+      expect(await countPublicTables(RETIRED_SETTLEMENT_TABLES)).toBe("0");
       // 0026's sync_status column + sale_sync_deadletters table;
       expect(await countPublicColumn("sales", "sync_status")).toBe("1");
       expect(await countPublicTables(["sale_sync_deadletters"])).toBe("1");

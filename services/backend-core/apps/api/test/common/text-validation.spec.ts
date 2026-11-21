@@ -6,7 +6,6 @@ import { z } from "zod";
 
 import { codePointLength, isWellFormedText, maxCodePoints, wellFormedText } from "../../src/common/text-validation";
 import { DeviceRetireBodySchema, DeviceRevokeBodySchema } from "../../src/devices/devices.query";
-import { ApplyPaymentRequestSchema } from "../../src/settlement/dto/apply-payment-request.dto";
 import {
   PayerAccountCreateSchema,
   PayerAccountUpdateSchema,
@@ -74,14 +73,5 @@ describe("device retire reason and revoke note", () => {
     expect(parse(LONE_LOW)).toBe(false);
     expect(parse(emoji(500))).toBe(true);
     expect(parse(emoji(501))).toBe(false);
-  });
-});
-
-describe("apply-payment note", () => {
-  const parse = (note: string) => ApplyPaymentRequestSchema.safeParse({ amount: "1.00", version: 0, note }).success;
-  it("counts code points and refuses lone surrogates", () => {
-    expect(parse(emoji(500))).toBe(true);
-    expect(parse(emoji(501))).toBe(false);
-    expect(parse(LONE_HIGH)).toBe(false);
   });
 });

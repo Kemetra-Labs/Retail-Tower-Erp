@@ -34,8 +34,6 @@ import { InvitationCreateSchema } from "../../src/memberships/invitation.dto";
 import { ApproverEligibilityRequestSchema, MAX_APPROVER_USER_IDS } from "../../src/pos-approvers/dto";
 import { MAX_AUDIT_EVENTS_PER_BATCH, PosAuditEventsSyncSchema } from "../../src/pos-audit-events/dto";
 import { CloseShiftRequestSchema } from "../../src/pos-shifts/shift-cash-up.dto";
-import { ClaimCreateSchema } from "../../src/settlement/dto/claim-request.dto";
-import { SettlementIntentCreateSchema } from "../../src/settlement/dto/settlement-intent-request.dto";
 
 const UUID = "0b000000-0000-7000-8000-000000000001";
 const uuidAt = (i: number): string => `0b000000-0000-7000-8000-${i.toString(16).padStart(12, "0")}`;
@@ -90,8 +88,6 @@ const CASES: BoundCase[] = [
   { name: "PosAuditEventsSync.events", schema: PosAuditEventsSyncSchema, field: "events", max: MAX_AUDIT_EVENTS_PER_BATCH, base: { device_token_attestation: "x" }, item: () => ({}) },
   { name: "AiEntitlementCheckInput.targetStores", schema: AiEntitlementCheckInputSchema, field: "targetStores", max: MAX_TARGET_STORES, base: {}, item: (i) => uuidAt(i + 1) },
   // Arrays that already had a `.max()` (unchanged limits): now length-checked first too.
-  { name: "ClaimCreate.receivableRefs", schema: ClaimCreateSchema, field: "receivableRefs", max: 500, base: {}, item: (i) => uuidAt(i + 1) },
-  { name: "SettlementIntentCreate.payers", schema: SettlementIntentCreateSchema, field: "payers", max: 16, base: {}, item: () => ({}) },
   { name: "ApproverEligibilityRequest.user_ids", schema: ApproverEligibilityRequestSchema, field: "user_ids", max: MAX_APPROVER_USER_IDS, base: {}, item: (i) => uuidAt(i + 1) },
   { name: "CloseShiftRequest.cashRefundReturnRefs", schema: CloseShiftRequestSchema, field: "cashRefundReturnRefs", max: 1000, base: {}, item: (i) => uuidAt(i + 1) },
   { name: "SnapshotReportBody.entries", schema: SnapshotReportBodySchema, field: "entries", max: BIN_VIEW_WINDOW_MAX_ITEMS, base: {}, item: () => ({}) },

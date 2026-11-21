@@ -223,13 +223,7 @@
     },
     "settlement": {
       "tables": [
-        "claim",
-        "claim_receivables",
-        "payer_account",
-        "payment_application",
-        "receivable",
-        "reconciliation_result",
-        "remittance"
+        "payer_account"
       ]
     },
     "shift-closes": {

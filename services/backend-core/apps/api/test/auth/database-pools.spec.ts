@@ -224,7 +224,6 @@ describe("database pool boundary", () => {
     ["sales", "TRIGGER"],
     ["audit_events", "TRUNCATE"],
     ["audit_events", "TRIGGER"],
-    ["receivable", "TRUNCATE"],
     ["cashier_admissions", "TRUNCATE"],
     ["cashier_admission_requests", "REFERENCES"],
     ["memberships", "TRUNCATE"],
@@ -319,7 +318,6 @@ describe("database pool boundary", () => {
     const ALL = ["SELECT", "INSERT", "UPDATE", "DELETE", "TRUNCATE", "REFERENCES", "TRIGGER"];
     for (const table of [
       "sales",
-      "receivable",
       "audit_events",
       "cashier_admissions",
       "tenants",
