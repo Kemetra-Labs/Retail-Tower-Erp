@@ -81,12 +81,17 @@ Resolver rules under A:
 
 **Recommendation A** (P04). Rules:
 
-- A scan of a manufacturer barcode resolves the Retail Item only. If more than one cohort is open at that location,
-  the sale is refused until a label or guarded choice names one. It never guesses.
-- If exactly one cohort has stock at that location, the snapshot may say so and the sale proceeds with it.
-- **Offline:** a cohort sale is allowed only when the label names the cohort or the till's snapshot has exactly one
-  open cohort for that item and location. Otherwise refuse. No claim of globally authoritative cohort quantity
-  while disconnected; reconnect detects an allocation conflict and never rewrites accepted sales (CR06, §7 scenarios).
+- **Terms.** *Open* is a lifecycle state of the cohort (its price is published and it has not been closed), independent
+  of stock. *Has stock* means a positive W3 allocation for that item at that location. The rules below use *open* only.
+- A scan of a manufacturer barcode resolves the Retail Item only. If **more than one cohort is open** for that item at
+  that location, the sale is refused until a label or guarded choice names one, even if only one of them currently has
+  stock (allocation can change, and the till cannot prove it). It never guesses.
+- If **exactly one cohort is open** for that item at that location, the sale proceeds with it (online).
+- **Offline:** a cohort sale requires a cohort-identifying label. A stale snapshot listing a single open cohort is not
+  enough, because a newer cohort may have reached the shelf while the till was offline and the shared barcode would then
+  freeze the wrong cohort and price. Without a label, refuse the cohort sale. No claim of globally authoritative cohort
+  quantity while disconnected; reconnect detects an allocation conflict and never rewrites accepted sales
+  (CR06, §7 scenarios).
 
 ## 5. Decision CP-3 — revision contract (extends 522–531, 602–604)
 
