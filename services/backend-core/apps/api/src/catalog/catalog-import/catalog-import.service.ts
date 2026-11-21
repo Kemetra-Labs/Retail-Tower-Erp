@@ -53,6 +53,7 @@ import {
   writeRowResults,
 } from "./catalog-import.validate-repository";
 import { ImportBatchRefusedError } from "./import-batch-refusal";
+import { fileFacts } from "./import-file-facts";
 import type { ParsedImportFile } from "./import-file-parser";
 import { parseImportFileOffThread } from "./import-parse.offthread";
 import { collectLookupKeys } from "./import-lookups";
@@ -235,15 +236,7 @@ export class CatalogImportService {
       tenantId: input.tenantId,
       actorUserId: input.actorUserId,
       mode: file.query.mode,
-      fileName: file.query.file_name ?? null,
-      fileSize: file.bytes.length,
-      fileSha256: file.sha256,
-      fileKind: parsed.kind,
-      sheetName: parsed.sheetName,
-      csvDelimiter: parsed.csvDelimiter,
-      dataRowCount: parsed.grid.rows.length,
-      columns: parsed.grid.columns,
-      parserVersion: parsed.parserVersion,
+      ...fileFacts(file, parsed),
       warnings: warning === null ? [] : [warning],
       suggestedMapping: suggestion.suggested,
       mappingProfileId: suggestion.profileId,

@@ -13,6 +13,9 @@
  *   7. route resolution     (static allowlist; empty by default)
  *   8. port.generate        (one attempt, gateway-owned timeout)
  *   9. Zod output validation + evidence-ref membership
+ *   6b. Tier 0 (RT-1542): a `deterministic_no_model` feature skips 7-8 and
+ *      runs its pure executor on the pack instead; no provider is resolved or
+ *      requested. Its output takes step 9 unchanged.
  *  10. settle the reservation: commit a validated `ok`, release anything else
  *      (D-8: never charged); a deterministic fallback for every failure
  *      (RT-643 §5)
@@ -45,9 +48,16 @@ import type {
 } from "../ports/model-provider.port";
 import { isModelResult } from "../ports/model-result-guard";
 import { AI_GATEWAY_DEPS } from "../ai.tokens";
-import { assertStrictOutputSchema, type AiFeatureDefinition } from "./ai-feature";
+import {
+  DETERMINISTIC_ROUTE_KEY,
+  assertStrictOutputSchema,
+  isDeterministicFeature,
+  type AiDeterministicFeatureDefinition,
+  type AiFeatureDefinition,
+  type AiRegisteredFeature,
+} from "./ai-feature";
 import { authorizeScope, type Principal } from "./ai-gateway.authorize";
-import { interpretResult } from "./ai-gateway.output";
+import { interpretResult, validateOutput } from "./ai-gateway.output";
 import { errorClass, fallback, providerOutcome, type Fallback } from "./ai-gateway.result";
 import { resolveRoute, type ResolvedRoute } from "./ai-gateway.routing";
 import { resultUsage, usageOutcome, usageTelemetry } from "./ai-gateway.settlement";
@@ -74,7 +84,7 @@ const FALLBACK_REASON_SET: ReadonlySet<string> = new Set(AI_FALLBACK_REASONS);
 /** Steps 1-4 passed: the feature and the caller's policy input. */
 interface Gated {
   readonly kind: "gated";
-  readonly feature: AiFeatureDefinition;
+  readonly feature: AiRegisteredFeature;
   readonly policy: AiPolicyInput;
 }
 
@@ -83,10 +93,13 @@ type MutableTelemetry = { -readonly [K in keyof AiRunTelemetry]: AiRunTelemetry[
 
 @Injectable()
 export class AiGateway {
-  private readonly features: ReadonlyMap<string, AiFeatureDefinition>;
+  private readonly features: ReadonlyMap<string, AiRegisteredFeature>;
 
   constructor(@Inject(AI_GATEWAY_DEPS) private readonly deps: AiGatewayDeps) {
     for (const route of deps.routes) {
+      if (route.routeKey === DETERMINISTIC_ROUTE_KEY) {
+        throw new Error(`AI route key "${DETERMINISTIC_ROUTE_KEY}" is reserved for Tier 0 and cannot be a model route`);
+      }
       if (route.timeoutMs >= deps.entitlement.reservationTtlMs) {
         throw new Error(
           `AI route "${route.routeKey}": timeoutMs must be shorter than the reservation TTL ` +
@@ -94,8 +107,15 @@ export class AiGateway {
         );
       }
     }
-    const features = new Map<string, AiFeatureDefinition>();
+    const features = new Map<string, AiRegisteredFeature>();
     for (const feature of deps.features) {
+      // RT-1542: Tier 0 and model routes never cross, in either direction.
+      if (isDeterministicFeature(feature) !== (feature.routeKey === DETERMINISTIC_ROUTE_KEY)) {
+        throw new Error(
+          `AI feature "${feature.featureId}": only a deterministic feature may use route "${DETERMINISTIC_ROUTE_KEY}", ` +
+            `and it must use no other`,
+        );
+      }
       if (features.has(feature.featureId)) {
         throw new Error(`Duplicate AI feature "${feature.featureId}"`);
       }
@@ -219,7 +239,7 @@ export class AiGateway {
 
   private policyInput(
     principal: Principal,
-    feature: AiFeatureDefinition,
+    feature: AiRegisteredFeature,
     scope: AiRunScope,
   ): AiPolicyInput {
     return {
@@ -232,13 +252,14 @@ export class AiGateway {
 
   /** Steps 6-9: evidence, route, one provider attempt, validation. */
   private async generate(
-    feature: AiFeatureDefinition,
+    feature: AiRegisteredFeature,
     scope: AiRunScope,
     trace: RunTrace,
     telemetry: MutableTelemetry,
   ): Promise<AiGatewayResult> {
     const pack = await this.buildEvidence(feature, scope);
     if (pack === null) return fallback("evidence_unavailable");
+    if (isDeterministicFeature(feature)) return this.executeDeterministic(feature, scope, pack, trace, telemetry);
 
     const routed = resolveRoute(feature, this.deps);
     if ("reason" in routed) return fallback(routed.reason);
@@ -271,10 +292,46 @@ export class AiGateway {
     return result;
   }
 
+  /**
+   * Step 6b, Tier 0 (RT-1542). No route is resolved and no provider exists: the
+   * feature's pure executor answers from the pack. Output validation is the same
+   * `validateOutput` as for model output. A throw propagates to `execute`, which
+   * records `internal_error` and releases. Zero tokens, no provider or model,
+   * and no provider call is ever recorded.
+   */
+  private executeDeterministic(
+    feature: AiDeterministicFeatureDefinition,
+    scope: AiRunScope,
+    pack: EvidencePack,
+    trace: RunTrace,
+    telemetry: MutableTelemetry,
+  ): AiGatewayResult {
+    trace.routeKey = DETERMINISTIC_ROUTE_KEY;
+    telemetry.routeKey = DETERMINISTIC_ROUTE_KEY;
+    // Frozen deep copies: the executor cannot mutate the pack that the
+    // cited-refs check below validates against, nor the caller's params.
+    const raw = feature.execute(deepFreeze(structuredClone(pack)), deepFreeze(structuredClone(scope.params ?? {})));
+    // A returned promise is refused by validation below; mark it handled so a
+    // rejected one never becomes an unhandledRejection that kills the process.
+    if (isThenable(raw)) Promise.resolve(raw).catch(() => undefined);
+    const validated = validateOutput(raw, feature, pack, false);
+    if ("kind" in validated) return validated;
+    telemetry.evidenceRefIds = validated.refs;
+    return {
+      kind: "ok",
+      output: validated.output,
+      evidenceRefs: validated.refs,
+      routeKey: DETERMINISTIC_ROUTE_KEY,
+      // Exact, not estimated: Tier 0 makes no provider request, so zero is the
+      // true count. The ledger telemetry carries no token fields at all.
+      usage: { inputTokens: 0, outputTokens: 0, reported: true },
+    };
+  }
+
   /** Steps 2-4. The first deny ends evaluation; a throw or unknown state fails closed. */
   private async denyBeforeSpend(
     policy: AiPolicyInput,
-    feature: AiFeatureDefinition,
+    feature: AiRegisteredFeature,
   ): Promise<AiFallbackReason | null> {
     if (!this.deps.runtime.isEnabled()) return "feature_disabled_system";
 
@@ -282,7 +339,12 @@ export class AiGateway {
     if (entitlement?.allowed !== true) return this.denyReason(entitlement);
 
     const budget = await this.attempt(() =>
-      this.deps.budget.check({ ...policy, routeKey: feature.routeKey }),
+      this.deps.budget.check({
+        ...policy,
+        routeKey: feature.routeKey,
+        // Set here from the registered tier, never from the caller (RT-1542).
+        ...(isDeterministicFeature(feature) ? { providerCost: "zero" as const } : {}),
+      }),
     );
     return budget?.allowed === true ? null : this.denyReason(budget);
   }
@@ -306,7 +368,7 @@ export class AiGateway {
 
   /** Step 5. Null (no request) when the build fails or yields no evidence. */
   private async buildEvidence(
-    feature: AiFeatureDefinition,
+    feature: AiRegisteredFeature,
     scope: AiRunScope,
   ): Promise<EvidencePack | null> {
     const pack = await this.attempt(() =>
@@ -414,10 +476,27 @@ export class AiGateway {
         feature: trace.feature,
         route: trace.routeKey,
         outcome,
-        provider_requested: result.kind === "ok" || result.providerRequested,
+        provider_requested: trace.providerRequested,
         correlation_id: scope.correlationId,
       },
       "ai gateway run",
     );
   }
+}
+
+/** Recursively freezes a plain-data value (the cloned evidence pack). */
+function deepFreeze<T>(value: T): T {
+  if (value !== null && typeof value === "object" && !Object.isFrozen(value)) {
+    Object.freeze(value);
+    for (const child of Object.values(value as Record<string, unknown>)) deepFreeze(child);
+  }
+  return value;
+}
+
+function isThenable(value: unknown): value is PromiseLike<unknown> {
+  return (
+    value !== null &&
+    (typeof value === "object" || typeof value === "function") &&
+    typeof (value as { then?: unknown }).then === "function"
+  );
 }

@@ -101,6 +101,11 @@ export const METRIC_LABELS: Readonly<Record<string, readonly string[]>> = {
   // the run row + the sweep's structured log, NOT a metric label.
   erpnext_stock_reconciliation_sweep_total: ["outcome"],
 
+  // ---- Sync-failure email alert — RT-1034 ----
+  // `outcome` is the closed set {fired, suppressed, delivered, failed}. The tenant, store and
+  // recipient live in the audit rows, never in a label.
+  sync_failure_alert_total: ["outcome"],
+
   // ---- ERPNext stock run expiry — RT-688 (RT-187 D4/D5) ----
   // Gauge: `kind='stock'` runs still `running` past the 2 h run TTL, sampled
   // by the scheduled sweep. `outcome` is the closed set {report_incomplete,
@@ -169,13 +174,6 @@ export const METRIC_LABELS: Readonly<Record<string, readonly string[]>> = {
   // NOT metric labels (the 009/010/015/017/018/020 domain-keyed-not-attribute-keyed
   // precedent; a per-tenant/product label would be a cardinality + §XIV hazard).
   erpnext_product_reconciliation_total: [],
-  // Settlement & receivables domain — 035 T034 (spec section 7). UNLABELED — the
-  // (tenant, store, payer, receivable, outcome) lives on the receivable /
-  // payment_application / claim / remittance / reconciliation_result rows +
-  // audit_events, NOT metric labels (the 009/010/015/017/018/020/021
-  // domain-keyed-not-attribute-keyed precedent; a per-tenant/payer label would be
-  // a cardinality + PII hazard).
-  settlement_receivable_total: [],
 
   // ---- POS shift close approver — RT-17 follow-up (Jira RT-17 10955, option A) ----
   // Increments once when a shift close is FIRST recorded with a

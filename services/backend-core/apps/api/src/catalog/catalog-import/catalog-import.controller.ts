@@ -1,6 +1,6 @@
 /**
  * CatalogImportController — RT-1505 / RT-1507 (spec 049 slices S4, S5): the operations of
- * `catalog/catalog-import.yaml` 1.0.6-draft that are served.
+ * `catalog/catalog-import.yaml` 1.0.7-draft that are served.
  *
  *   POST /api/v1/catalog/imports                                    consoleUploadCatalogImport     (RT-1505 part A)
  *   GET  /api/v1/catalog/imports/{batchId}                          consoleGetCatalogImport        (part A)
@@ -11,9 +11,9 @@
  *   GET  /api/v1/catalog/imports/{batchId}/preview                  consoleGetCatalogImportPreview (RT-1507)
  *   POST /api/v1/catalog/imports/{batchId}/publish                  consolePublishCatalogImport    (RT-1507)
  *   POST /api/v1/catalog/imports/{batchId}/cancel                   consoleCancelCatalogImport     (RT-1507)
- *
- * The other three operations stay `x-runtime-status: contract-only` (no route is registered for them): the file replace,
- * the error report and the template.
+ *   PUT  /api/v1/catalog/imports/{batchId}/file                     consoleReplaceCatalogImportFile (RT-1537)
+ *   GET  /api/v1/catalog/imports/{batchId}/error-report             consoleGetCatalogImportErrorReport (RT-1537)
+ *   GET  /api/v1/catalog/import-template                            consoleGetCatalogImportTemplate (RT-1537)
  *
  * Auth: `SessionOnlyAdminGuard` (the human cookie session only; every bearer is
  * 401; a write without a trusted `Origin` is 403 `origin_rejected`, RT-430),
@@ -61,6 +61,7 @@ import {
   type ImportWriteInput,
 } from "./catalog-import.service";
 import type { CatalogImportBatchBody } from "./catalog-import.projections";
+import { CatalogImportFilesService } from "./catalog-import.files.service";
 import { CatalogImportPublishService, type PublishResultBody } from "./catalog-import.publish.service";
 import { CatalogImportReviewService, type PreviewBody, type RowResolvedBody } from "./catalog-import.review.service";
 import { PublishBodySchema, ResolveBodySchema, RowNumberSchema, type PublishBody, type ResolveBody } from "./import-resolve-body";
@@ -72,6 +73,8 @@ import {
 import { ImportFileRejectedError, IMPORT_FILE_MESSAGES } from "./import-file-rejected";
 import { SetMappingBodySchema, ValidateBodySchema, type SetMappingBody, type ValidateBody } from "./import-mapping";
 import { RowsQuerySchema, type CatalogImportRowBody } from "./import-row-page";
+import { buildTemplateCsv, templateDisposition, TemplateQuerySchema } from "./import-template";
+import { ImportReplaceIntakeGuard } from "./import-replace-intake.guard";
 import { ImportUploadIntakeGuard, type ImportUploadRequest } from "./import-upload-intake.guard";
 import { BatchIdSchema } from "./import-upload.query";
 
@@ -90,6 +93,7 @@ export class CatalogImportController {
     private readonly service: CatalogImportService,
     private readonly review: CatalogImportReviewService,
     private readonly publisher: CatalogImportPublishService,
+    private readonly files: CatalogImportFilesService,
   ) {}
 
   @Post(IMPORTS)
@@ -101,18 +105,39 @@ export class CatalogImportController {
   async upload(@Req() request: ImportRequest): Promise<CatalogImportBatchBody> {
     const upload = request.importUpload;
     // The intake guard sets it on every request that reaches the handler; its absence is a wiring bug (500).
-    const slot = request.importUploadSlot;
-    if (upload === undefined || slot === undefined) throw new Error("import upload intake guard did not run");
-    // The client may have gone while the idempotency interceptor ran: its slot is already free, so do no work.
-    if (!slot.begin()) throw new BadRequestException({ code: "validation_error", message: "The request was abandoned." });
-    try {
-      return await this.service.upload(writer(request), upload);
-    } catch (err) {
-      throw toHttpError(err) ?? err;
-    } finally {
-      // The slot is held through the parse and the write, even when the client aborted.
-      slot.end();
-    }
+    if (upload === undefined) throw new Error("import upload intake guard did not run");
+    return withUploadSlot(request, () => this.service.upload(writer(request), upload));
+  }
+
+  @Put(`${IMPORTS}/:batchId/file`)
+  @HttpCode(200)
+  @UseGuards(ImportReplaceIntakeGuard)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("jobOrPreview")
+  async replaceFile(@Req() request: ImportRequest, @Param("batchId") batchId: string): Promise<CatalogImportBatchBody> {
+    const replace = request.importReplace;
+    if (replace === undefined) throw new Error("import replace intake guard did not run");
+    const id = parseBatchId(batchId);
+    return withUploadSlot(request, () => this.files.replaceFile(writer(request), id, replace));
+  }
+
+  @Get(`${IMPORTS}/:batchId/error-report`)
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("expensiveRead")
+  async errorReport(@Req() request: TenantContextRequest, @Res({ passthrough: true }) res: Response, @Param("batchId") batchId: string): Promise<string> {
+    const id = parseBatchId(batchId);
+    const report = await guarded(() => this.files.errorReport(sessionTenant(request), id));
+    sendCsv(res, report.disposition);
+    return report.csv;
+  }
+
+  @Get("api/v1/catalog/import-template")
+  @ConsoleRateLimit("cheapRead")
+  template(@Res({ passthrough: true }) res: Response, @Query() query: unknown): string {
+    // An unknown or repeated key, or a language other than ar / en, is a 400 (the ZodError is the global filter's).
+    const language = TemplateQuerySchema.parse(query).headers ?? "ar";
+    sendCsv(res, templateDisposition(language));
+    return buildTemplateCsv(language);
   }
 
   @Get(`${IMPORTS}/:batchId`)
@@ -214,6 +239,34 @@ export class CatalogImportController {
     const actor = writer(request);
     const { expectedVersion } = body;
     return guarded(() => this.service.cancel(actor, parseBatchId(batchId), expectedVersion));
+  }
+}
+
+/**
+ * The CSV headers, set only once the handler has its answer: Nest applies a `@Header` BEFORE the handler runs, so a
+ * `@Header("Content-Type", "text/csv")` would label a 404 or 409 JSON error body as CSV (Express keeps a Content-Type
+ * that is already set).
+ */
+function sendCsv(res: Response, disposition: string): void {
+  res.setHeader("Content-Type", "text/csv; charset=utf-8");
+  res.setHeader("Content-Disposition", disposition);
+}
+
+/**
+ * Runs the handler's work while holding the upload slot the intake guard took, answering the contract's 4xx for a
+ * refusal it raised. The slot is held through the parse and the write, even when the client aborted.
+ */
+async function withUploadSlot<T>(request: ImportRequest, work: () => Promise<T>): Promise<T> {
+  const slot = request.importUploadSlot;
+  if (slot === undefined) throw new Error("import upload intake guard did not run");
+  // The client may have gone while the idempotency interceptor ran: its slot is already free, so do no work.
+  if (!slot.begin()) throw new BadRequestException({ code: "validation_error", message: "The request was abandoned." });
+  try {
+    return await work();
+  } catch (err) {
+    throw toHttpError(err) ?? err;
+  } finally {
+    slot.end();
   }
 }
 

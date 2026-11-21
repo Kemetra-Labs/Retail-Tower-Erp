@@ -211,6 +211,8 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "erpnext_reconciliation_repair_total",
     // ERPNext stock reconciliation sweep — RT-179. `outcome` (closed set).
     "erpnext_stock_reconciliation_sweep_total",
+    // Sync-failure email alert — RT-1034. `outcome` (closed set).
+    "sync_failure_alert_total",
     // ERPNext stock run expiry — RT-688. Gauge `outcome` (closed set); counter unlabeled.
     "erpnext_stock_run_stranded",
     "erpnext_stock_run_expired_total",
@@ -228,8 +230,6 @@ describe("Drift contract: every signal in the catalogue is represented", () => {
     "connector_heartbeat_total",
     // ERPNext product-master reconciliation/repair — 021-POLISH (spec §VII). Unlabeled.
     "erpnext_product_reconciliation_total",
-    // Settlement & receivables domain — 035 T034 (spec section 7). Unlabeled.
-    "settlement_receivable_total",
     // POS shift close approver unverified at ingest — RT-17 10955 option A. `reason` (closed set).
     "shift_close_approver_unverified_total",
     // Console rate limiting — RT-619 (RT-574 D6). `class`, `outcome` (closed sets), `route` (template).

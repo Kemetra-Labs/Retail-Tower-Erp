@@ -7,6 +7,10 @@
  *     `not_attempted` when no request reached the provider, else the
  *     provider condition or the validation failure.
  *
+ * A Tier-0 deterministic run (RT-1542) follows the same rule: a validated
+ * output commits ONE request unit with the existing ledger shape (`ok`, no
+ * provider, model, tokens or cost); everything else releases.
+ *
  * The run metadata recorded on the ledger is business-class only (AI-09,
  * E-8): route, template and schema ids, provider and model, the evidence
  * refs the validated output cited, and token counts. Never prompt or
@@ -29,7 +33,14 @@ const OUTCOME_BY_REASON: Partial<Record<AiFallbackReason, AiUsageOutcome>> = {
 /** The ledger outcome of a finished run. */
 export function usageOutcome(result: AiGatewayResult): AiUsageOutcome {
   if (result.kind === "ok") return "ok";
-  if (!result.providerRequested) return "not_attempted";
+  // RT-1542: a Tier-0 output that failed validation never requested a provider,
+  // but it is still a validation failure, not an unattempted run. (A model run
+  // that fails validation has always requested a provider.)
+  if (!result.providerRequested) {
+    return result.reason === "output_schema_invalid" || result.reason === "output_unknown_evidence_ref"
+      ? "output_invalid"
+      : "not_attempted";
+  }
   return OUTCOME_BY_REASON[result.reason] ?? "provider_unavailable";
 }
 

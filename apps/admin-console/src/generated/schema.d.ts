@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 6d6becacd8c082932f1717af091de663badd30e2
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 134359e74e4a49d50b64750001686dcb0d90819f
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -45,6 +45,7 @@
 // - services/backend-core/packages/contracts/openapi/offers.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/catalog/catalog-import.yaml
+// - services/backend-core/packages/contracts/openapi/ai-manager-sales-explain.openapi.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -5113,7 +5114,7 @@ export namespace ShiftClosesSchema {
              * @description AD-CASH-001 D-6 accept-and-flag findings on the open's frozen policy (see `pos-shifts.openapi.yaml` `PolicyFlag`). Never a refusal.
              * @enum {string}
              */
-            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch" | "policy_revision_stale_at_receipt";
+            PolicyFlag: "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch";
             /**
              * @description A derived yes / no, or `unknown` when the shift's open carried no frozen policy (a pre-upgrade or pre-RT-384 shift). `unknown` is never "no exception". `approvalRequiredByPolicy` is `yes` when the frozen value is `limit` and `|variance| > limitAmount`; `approvalMissing` is `yes` when approval was required and no `varianceApprovedByUserId` was recorded.
              * @enum {string}
@@ -25027,7 +25028,7 @@ export namespace CatalogImportSchema {
                 /** @description True when the batch is `validated`, no row needs review or has an error, and `conflicts` is empty: exactly when the publish does not refuse it as `import_not_publishable`. This is the authoritative value; the count-based `publishable` of the batch does not see conflicts. */
                 publishable: boolean;
                 counts: components["schemas"]["StatusCounts"];
-                /** @description How many conflicts the batch has, which can exceed the length of the bounded `conflicts` list (RT-1536). */
+                /** @description How many conflict entries the batch has (one per product and reason, and per field for a disagreement), which can exceed the length of the bounded `conflicts` list (RT-1536). */
                 conflictCount?: number;
                 /** @description The first 100 conflicts (RT-1536), ordered by their first row, then product and reason. Each is a product the publish refuses and the rows to fix. */
                 conflicts?: components["schemas"]["ImportConflict"][];
@@ -25757,6 +25758,397 @@ export namespace CatalogImportSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths & CatalogImportSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components & CatalogImportSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations & CatalogImportSchema.operations;
+export namespace AiManagerSalesExplainSchema {
+    export interface paths {
+        "/api/v1/ai/manager-sales/explain": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Ask or explain the caller's received sales with a deterministic, cited, tier-0 answer.
+             * @description Answers one catalogue question over the caller's authorized stores and an inclusive range of at most 31 days, from the typed reads of `console-sales-summary` and `console-sales-by-store`, without any model. Read only: it writes only the Gateway usage reservation and the audit event. See the API description for the denial ordering, the Tier-0 economics and the store-scope 404 decision; every refused, invalid or unsupported path reads nothing and charges nothing.
+             */
+            post: operations["consoleExplainSales"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description ISO-4217 alphabetic currency code, upper case. */
+            CurrencyCode: string;
+            /**
+             * Format: date
+             * @description A store business date, `YYYY-MM-DD` in the store's timezone.
+             */
+            BusinessDate: string;
+            /**
+             * @description A template of the closed catalogue `msx-templates/1` (RT-1526 §2.3): `T-01` period_total, `T-02` daily_breakdown, `T-03` voids_returns, `T-04` store_ranking, `T-05` store_compare, `T-06` change_vs_previous, `T-07` change_explain, `T-08` best_day, `T-09` average_sale, `T-10` why_partial, `T-12` stores_without_sales. `T-11` is not used (reserved for ERP posting status, which belongs to a different slice), so it is not a value.
+             * @enum {string}
+             */
+            TemplateId: "T-01" | "T-02" | "T-03" | "T-04" | "T-05" | "T-06" | "T-07" | "T-08" | "T-09" | "T-10" | "T-12";
+            /**
+             * @description The language of the caller's panel; the server returns codes and slots, not copy.
+             * @enum {string}
+             */
+            Locale: "ar" | "en";
+            /** @description Strict request (RT-1526 §7). At least one of `templateId` and `question` is required. There is no tenant field: the tenant comes from the session only, and `tenant_id` or any other unknown key is 400 `validation_error`. Every parameter comes from the panel's controls, never from the question text (M-2). `to >= from` and `to - from <= 30` (at most 31 days) cannot be expressed in JSON Schema: the server answers 400 `validation_error` and never truncates. */
+            ManagerSalesExplainRequest: ({
+                templateId?: components["schemas"]["TemplateId"];
+                /** @description Untrusted text (AI-11). It selects a template only, through the closed `msx-match/1` lexicon; it is never executed, never echoed into figures, and a store or tenant name in it is never resolved. When a `templateId` is present, `question` is optional. */
+                question?: string;
+                /** @description The requested stores. EMPTY means every store of the caller's scope and requires tenant-wide authority; for a `specific`-scope caller an empty list is the non-disclosing 404. Any entry outside the caller's scope or unknown in the tenant refuses the whole request with the same 404; the request is never narrowed. More than 500 stores in scope is 400 `scope_too_large`. */
+                storeIds: string[];
+                from: components["schemas"]["BusinessDate"];
+                /** @description Last business date, inclusive. `to >= from` and `to - from <= 30`, else 400 `validation_error`. */
+                to: components["schemas"]["BusinessDate"];
+                /** @description The ranking currency. Required when `templateId` is `T-04`, `T-05`, `T-06`, `T-07`, `T-08`, `T-09` or `T-12` (the by-store templates, RT-1526 §7). */
+                currency?: components["schemas"]["CurrencyCode"];
+                /**
+                 * @description The comparison control. `previous_period` is the equal-length period immediately before the range (as in `console-sales-by-store`); `none` has no baseline.
+                 * @enum {string}
+                 */
+                compare?: "previous_period" | "none";
+                locale: components["schemas"]["Locale"];
+            } & unknown) | unknown | unknown;
+            /** @description A strictly discriminated result: exactly one of `answer`, `refusal` and `unavailable`, selected by `kind`. */
+            ManagerSalesExplainResponse: components["schemas"]["ManagerSalesAnswer"] | components["schemas"]["ManagerSalesRefusal"] | components["schemas"]["ManagerSalesUnavailable"];
+            /** @description A deterministic tier-0 answer. Every number in `blocks` is a pack figure copied as the read returned it and carries its citation `ref` (§2.4); every `ref` is a subset of the evidence pack's refs. Charged: one request-quota unit, zero provider cost. */
+            ManagerSalesAnswer: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "answer";
+                templateId: components["schemas"]["TemplateId"];
+                /** @constant */
+                templateVersion: "msx-templates/1";
+                /** @constant */
+                outputSchemaId: "manager_sales.answer/1";
+                scope: components["schemas"]["AnswerScope"];
+                period: components["schemas"]["AnswerPeriod"];
+                /** @description The typed source reads behind the answer, each with its OWN `asOf`; two `asOf` values are never merged and the earlier one is shown as "as of" (§3.1). */
+                sources: components["schemas"]["AnswerSource"][];
+                /** @description The statements and tables of the answer, in display order. */
+                blocks: components["schemas"]["AnswerBlock"][];
+                /** @description One entry per cited figure ref; the drawer's source operation and field path (X-4). */
+                citations: components["schemas"]["Citation"][];
+                notices: components["schemas"]["AnswerNotice"][];
+                /** @description Declines inside a successful answer. Figures are still shown, with their notices (§4.2). */
+                declined: components["schemas"]["AnswerDecline"][];
+                /** @description The documented W5 source gaps that shaped this answer (§3.4); a gap is never filled by a template computation. */
+                gaps: components["schemas"]["SourceGap"][];
+                ledger: components["schemas"]["AnswerLedger"];
+            };
+            /** @description A product refusal at the deterministic match step: a successful outcome of the feature, not a gateway fallback. Nothing is read and nothing is charged. */
+            ManagerSalesRefusal: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "refusal";
+                /** @constant */
+                family: "answer";
+                code: components["schemas"]["AnswerRefusalCode"];
+            };
+            /** @description A gateway outcome with no answer: the existing RT-641 reason family, used verbatim. Nothing is charged (a reservation, if taken, is released). A store outside the caller's scope is NOT here: it is the non-disclosing 404. */
+            ManagerSalesUnavailable: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                kind: "unavailable";
+                /** @constant */
+                family: "gateway";
+                code: components["schemas"]["GatewayUnavailableCode"];
+            };
+            /**
+             * @description The W8 answer codes `msx-answer-codes/1` that refuse (RT-1526 §4.2): margin, profit or COGS (`finance_source_absent`); a forecast (`forecast_not_supported`); a write or action request (`write_action_not_supported`); no template match (`unsupported_question`). `partial_data_not_conclusive` and `causal_not_supported` are declines inside an answer, not refusals.
+             * @enum {string}
+             */
+            AnswerRefusalCode: "finance_source_absent" | "forecast_not_supported" | "write_action_not_supported" | "unsupported_question";
+            /**
+             * @description The subset of RT-641 `AI_FALLBACK_REASONS` (the AD-AI-ENT-001 closed reason set plus `evidence_unavailable`) that a tier-0 request can reach as a 200. The family is not expanded. Absent on purpose: `store_out_of_scope` and `not_authorized` (the non-disclosing 404), `policy_denied` (not in `AI_FALLBACK_REASONS`; Gateway layer 5 is not wired), and every provider, route, output and `internal_error` reason (a tier-0 answer calls no provider and has no route).
+             * @enum {string}
+             */
+            GatewayUnavailableCode: "feature_disabled_system" | "tenant_inactive" | "not_entitled" | "trial_expired" | "grace_read_only" | "feature_disabled_tenant" | "entitlement_unavailable" | "quota_exhausted" | "spend_cap_reached" | "free_credit_exhausted" | "evidence_unavailable";
+            AnswerScope: {
+                /**
+                 * @description One store, several selected stores, or every store of the caller's scope (`pack.meta.scopeMode`).
+                 * @enum {string}
+                 */
+                mode: "store" | "stores" | "all_in_scope";
+                /** @description The stores the answer covers. */
+                storeRefs: string[];
+            };
+            AnswerPeriod: {
+                from: components["schemas"]["BusinessDate"];
+                to: components["schemas"]["BusinessDate"];
+                /** @description The equal-length period before the range; present only when a baseline was read (T-06, T-07). */
+                baseline?: {
+                    from: components["schemas"]["BusinessDate"];
+                    to: components["schemas"]["BusinessDate"];
+                    dayCount: number;
+                };
+            };
+            AnswerSource: {
+                /**
+                 * @description The Backend-Core read the figures come from (RT-1526 §3.1 `src.ss`, `src.sbs`).
+                 * @enum {string}
+                 */
+                operationId: "consoleGetSalesSummary" | "consoleGetSalesByStore";
+                /** @description The `info.version` of that read's contract, for example `1.0.0-draft`. */
+                contractVersion: string;
+                /**
+                 * Format: date-time
+                 * @description The server time after that read's snapshot.
+                 */
+                asOf: string;
+                /**
+                 * @description Always `received_only`, meaning only what the server had received by `asOf`, never a final total.
+                 * @constant
+                 */
+                completeness: "received_only";
+            };
+            /** @description A statement or a table, selected by `type`. */
+            AnswerBlock: components["schemas"]["StatementBlock"] | components["schemas"]["TableBlock"];
+            /** @description A sentence rendered by the client from its i18n catalogue: a message `key` plus typed slots, each slot a reference to a pack figure. */
+            StatementBlock: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                type: "statement";
+                /** @description The statement's message key (the server returns keys and slots, never primary copy, O-7). */
+                key: string;
+                /** @description Slot name → the pack figure that fills it. */
+                slots: {
+                    [key: string]: components["schemas"]["FigureRef"];
+                };
+            };
+            /** @description A semantic table; every cell is a pack figure with its ref (X-2). */
+            TableBlock: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                type: "table";
+                /** @description Column message keys, in order. */
+                columns: string[];
+                rows: components["schemas"]["TableCell"][][];
+            };
+            FigureRef: {
+                ref: components["schemas"]["EvidenceRef"];
+            };
+            TableCell: {
+                ref: components["schemas"]["EvidenceRef"];
+                /** @description The pack field copied as the read returned it: money as `numeric(19,4)` text, a ratio as four-digit half-even text, a count as an integer, or a store name or label as text (untrusted: fenced and isolated by the client, AI-11). Never recomputed, summed across currencies or rounded to another value. */
+                value: string | number;
+                currency?: components["schemas"]["CurrencyCode"];
+            };
+            /** @description An evidence-pack citation ref (`msx-pack/1`), grammar `<src>:<storeRef|scope>:<range|YYYY-MM-DD>:<metric>[:<currency>]`, for example `ss:scope:range:receivedSales.total:EGP`. Every ref in an answer is one of the pack's refs. */
+            EvidenceRef: string;
+            Citation: {
+                ref: components["schemas"]["EvidenceRef"];
+                /** @enum {string} */
+                operationId: "consoleGetSalesSummary" | "consoleGetSalesByStore";
+                /** @description The path of the cited field in that operation's response. */
+                fieldPath: string;
+            };
+            /**
+             * @description Notices, not refusals (RT-1526 §4.3). `received_only` is always present. `day_in_progress`: a requested day is `so_far`. `day_not_begun`: a later day is shown as not begun, never as zero. `multi_currency`: more than one currency line. `scope_relative_ratio`: a share or rank shown for a subset. `parameters_from_controls_only`: the question text named a date, period or number that the controls do not reflect.
+             * @enum {string}
+             */
+            AnswerNotice: "received_only" | "day_in_progress" | "day_not_begun" | "multi_currency" | "scope_relative_ratio" | "parameters_from_controls_only";
+            /**
+             * @description `partial_data_not_conclusive`: a partial or stale figure asked for as conclusive; the figures are shown only with their notices. `causal_not_supported`: a "why" beyond the data; the answer states what changed and declines the cause.
+             * @enum {string}
+             */
+            AnswerDecline: "partial_data_not_conclusive" | "causal_not_supported";
+            /**
+             * @description The documented W5 source gaps (RT-1526 §3.4): `G-1` no subset total, `G-2` no subset rank or share, `G-3` no scope-level baseline delta, `G-4` no scope-level average sale, `G-5` facts still queued on terminals, `G-6` baseline voids and returns come from a summary read, `G-7` net sales, margin, profit and COGS.
+             * @enum {string}
+             */
+            SourceGap: "G-1" | "G-2" | "G-3" | "G-4" | "G-5" | "G-6" | "G-7";
+            /** @description The tier-0 run metadata for the single `ai_usage_ledger` (RT-1526 §4.4). Informational: the ledger outcome enum and columns are an RT-641 `[GATED]` decision and are not implemented by this contract. */
+            AnswerLedger: {
+                /** @constant */
+                routeKey: "deterministic_no_model";
+                /** @constant */
+                routing_tier: 0;
+                task_class: string;
+                classifier_version: string;
+                catalogue_version: string;
+                latency_ms: number;
+            };
+            /** @description Canonical error envelope. Out-of-scope, unknown-store, cross-tenant and refused-role cases are non-disclosing (§II, §XII): they never name the cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description The shared `IdempotencyInterceptor`'s 425 body. */
+            IdempotencyInProgressBody: {
+                /** @constant */
+                error: "idempotency_in_progress";
+            };
+        };
+        responses: {
+            /** @description validation_error (400): a malformed, unknown (including `tenant_id`) or missing request key, a `question` outside 1..500, a `storeIds` list over 500 or with a repeated or non-UUID entry, a date that is not a calendar date, `to` before `from`, a range longer than 31 days, a `templateId` outside the catalogue (`T-11` included), a missing `currency` for `T-04` .. `T-09` or `T-12`, neither `templateId` nor `question`, or a `compare` or `locale` outside its values. Also scope_too_large (400, more than 500 stores in the caller's scope) and the `IdempotencyInterceptor`'s `idempotency_key_required` / `idempotency_key_malformed`. Nothing is read, reserved or charged. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description Unauthenticated (401): a missing or invalid session cookie, or a non-cookie credential (machine bearer, POS `device` token, `operatorAuthorization` envelope) without a valid session cookie. Non-disclosing. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `origin_rejected` (RT-430): a cookie-authenticated POST whose `Origin` is missing or not allowed. It is the only 403 on this operation. Nothing is read, reserved or charged. */
+            OriginRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description not_found (404), non-disclosing and identical for: a role outside `owner` / `tenant_admin` / `store_manager`; a session platform admin; any `storeIds` entry outside the caller's scope or unknown in the tenant (the whole request is refused, never narrowed); an empty `storeIds` without tenant-wide access. Decided before any evidence read and before any quota reservation. It carries no plan, store or tenant information. */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 `idempotency_key_conflict`: the same `Idempotency-Key` with a different body. Nothing is read, reserved or charged. */
+            IdempotencyConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 425 `idempotency_in_progress`: a request with the same `Idempotency-Key` is still being processed. Retry after `Retry-After` seconds with the same key and body. */
+            IdempotencyInProgress: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterInProgress"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgressBody"];
+                };
+            };
+            /** @description system_failure (500): unexpected server error; the cause is recorded server-side under `request_id`. A reservation taken for the call is released. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description REQUIRED: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. It is also the Gateway quota reservation key (RT-1526 §7). Keyed on the verified actor. An identical retry replays the stored 200 with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. */
+            IdempotencyKey: string;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description `no-store` on every 200: the body carries the tenant's commercial figures, so no shared or browser cache keeps them. */
+            CacheControlNoStore: "no-store";
+            /** @description Present and `true` on a same-`Idempotency-Key` replay, which carries the stored 200. Absent on a first-time call. */
+            IdempotentReplayed: boolean;
+            /** @description Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. */
+            RetryAfterInProgress: number;
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        consoleExplainSales: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. It is also the Gateway quota reservation key (RT-1526 §7). Keyed on the verified actor. An identical retry replays the stored 200 with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ManagerSalesExplainRequest"];
+                };
+            };
+            responses: {
+                /** @description An answer, a refusal or a gateway-unavailable outcome. A same-`Idempotency-Key` retry replays this 200 with `Idempotent-Replayed: true`. */
+                200: {
+                    headers: {
+                        "Cache-Control": components["headers"]["CacheControlNoStore"];
+                        "Idempotent-Replayed": components["headers"]["IdempotentReplayed"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ManagerSalesExplainResponse"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFound"];
+                409: components["responses"]["IdempotencyConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths & CatalogImportSchema.paths & AiManagerSalesExplainSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components & CatalogImportSchema.components & AiManagerSalesExplainSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations & CatalogImportSchema.operations & AiManagerSalesExplainSchema.operations;

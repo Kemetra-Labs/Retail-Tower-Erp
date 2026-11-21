@@ -9,7 +9,7 @@
  * an allowlisted route.
  */
 import type { ResolvedContext } from "../../context/types";
-import type { AiFeatureDefinition } from "./ai-feature";
+import type { AiRegisteredFeature } from "./ai-feature";
 import type {
   EvidencePack,
   ModelProviderPort,
@@ -216,7 +216,19 @@ export type AiBudgetDecision =
  * closed. A throw fails closed.
  */
 export interface AiBudgetPort {
-  check(input: AiPolicyInput & { readonly routeKey: string }): Promise<AiBudgetDecision>;
+  check(input: AiBudgetInput): Promise<AiBudgetDecision>;
+}
+
+/**
+ * RT-1542: `providerCost: "zero"` is set by the GATEWAY (never the caller) for
+ * a Tier-0 deterministic run, which has no provider, model or spend. Absent
+ * means a metered model run, exactly as before. The budget is still consulted
+ * for Tier 0 (a denying budget blocks it); it just has no provider spend cap or
+ * credit pool to apply, so the fail-closed default passes only the zero-cost case.
+ */
+export interface AiBudgetInput extends AiPolicyInput {
+  readonly routeKey: string;
+  readonly providerCost?: "zero";
 }
 
 export interface AiEvidenceBuildInput {
@@ -259,7 +271,7 @@ export interface AiGatewayLogger {
 }
 
 export interface AiGatewayDeps {
-  readonly features: readonly AiFeatureDefinition[];
+  readonly features: readonly AiRegisteredFeature[];
   readonly entitlement: AiEntitlementPort;
   readonly budget: AiBudgetPort;
   readonly evidence: AiEvidencePackBuilder;

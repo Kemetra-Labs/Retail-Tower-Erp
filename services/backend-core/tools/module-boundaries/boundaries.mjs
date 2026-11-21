@@ -130,7 +130,10 @@ export function parseModuleMap(raw, moduleDirs, opts = {}) {
   return { shared: new Set(shared), sharedTables: new Set(sharedTables), tableOwner: owner, publicFiles: modules };
 }
 
-/** Tables the db migrations create (`CREATE TABLE`, up migrations only), sorted, from `packages/db/drizzle`. */
+/**
+ * Tables the db migrations leave in place (`CREATE TABLE` minus a later `DROP TABLE`, up migrations only, in
+ * file order), sorted, from `packages/db/drizzle`. A dropped table needs no owner (RT-422).
+ */
 export function migrationTables(root) {
   const dir = path.join(root, "packages", "db", "drizzle");
   let names = [];
@@ -140,9 +143,18 @@ export function migrationTables(root) {
     return [];
   }
   const found = new Set();
-  for (const name of names) {
-    for (const m of readFileSync(path.join(dir, name), "utf8").matchAll(/^\s*CREATE TABLE(?: IF NOT EXISTS)?\s+(?:public\.)?"?([a-z_][a-z0-9_]*)"?/gim)) {
-      found.add(m[1]);
+  for (const name of names.sort()) {
+    const sql = readFileSync(path.join(dir, name), "utf8");
+    // One pass in text order, so a DROP then a CREATE of the same name inside one file keeps the table.
+    for (const m of sql.matchAll(/^\s*(CREATE TABLE(?: IF NOT EXISTS)?|DROP TABLE(?: IF EXISTS)?)\s+([^;(]+)/gim)) {
+      const isDrop = m[1].toUpperCase().startsWith("DROP");
+      // `DROP TABLE a, b CASCADE` names several tables; a CREATE names one (the capture stops at its `(`).
+      for (const part of isDrop ? m[2].split(",") : [m[2]]) {
+        const table = /^(?:public\.)?"?([a-z_][a-z0-9_]*)"?/i.exec(part.trim())?.[1];
+        if (table === undefined) continue;
+        if (isDrop) found.delete(table);
+        else found.add(table);
+      }
     }
   }
   return [...found].sort();

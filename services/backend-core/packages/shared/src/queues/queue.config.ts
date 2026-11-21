@@ -158,6 +158,8 @@ export const QUEUE_NAMES = deepFreeze({
   erpProvisioningSweep: "erp-provisioning-sweep",
   // RT-1503: the catalogue import expiry and retention job (spec 049 S2).
   catalogImportRetention: "catalog-import-retention",
+  // RT-1034: the sync-failure email alert sweep (Automation V1 PoC).
+  syncFailureAlertSweep: "sync-failure-alert-sweep",
 } as const);
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

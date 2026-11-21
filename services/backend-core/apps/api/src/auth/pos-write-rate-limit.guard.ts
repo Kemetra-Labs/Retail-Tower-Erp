@@ -2,7 +2,7 @@
  * PosWriteRateLimitGuard — ADR 0009 (audit M-2).
  *
  * A per-DEVICE throughput ceiling on POS write endpoints (sale capture,
- * settlement-intent). Layered AFTER `PosOperatorEnvelopeSaleGuard`, so
+ * quarantine upload, shift writes). Layered AFTER `PosOperatorEnvelopeSaleGuard`, so
  * `request.principal` is already the resolved `pos_operator` token principal.
  *
  * Keying (ADR 0009 D1): the bucket identifier is the bound DEVICE, recovered

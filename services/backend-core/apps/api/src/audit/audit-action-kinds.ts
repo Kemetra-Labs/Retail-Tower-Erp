@@ -82,8 +82,6 @@ const LIVE_READ_CODES = [
   "sale_sync_ops.quarantine.read",
   "sale_sync_ops.status.read",
   "settlement.payer_account.listed",
-  "settlement.receivable.listed",
-  "settlement.receivable.read",
   "shift_closes.listed",
   "shift_closes.read",
   // RT-473 S2: the tenant logo reads (Console and POS).
@@ -101,7 +99,11 @@ const LIVE_READ_CODES = [
  * their kind. Adding a code here is a review decision: the drift guard
  * accepts it without a live route.
  */
-export const RETIRED_READ_CODES: readonly string[] = [];
+export const RETIRED_READ_CODES: readonly string[] = [
+  // RT-422: the spec-035 receivable reads; the routes left with the A/R ledger.
+  "settlement.receivable.listed",
+  "settlement.receivable.read",
+];
 
 /** Every `read` code, live and retired. */
 export const READ_ACTION_CODES: readonly string[] = [

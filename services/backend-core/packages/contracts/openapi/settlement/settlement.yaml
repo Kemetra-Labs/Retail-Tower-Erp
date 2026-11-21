@@ -63,13 +63,15 @@ info:
     (every owner / tenant_admin sees tenant-wide payers in the list, so a 404
     would hide nothing).
 
-    RUNTIME DURING THE TRANSITION: the six removed routes are still served by
-    the 035 runtime until RT-422 deletes them (RT-418 leaves them in place).
-    They are retired from the contract now so that no new consumer is built on
-    them. Admin-Console RT-421 removes their callers; POS RT-420 never adopts
-    `settlement-intent`. A route served but absent from every contract is not
-    a conformance failure (the runtime-route conformance check maps contract
-    operations to routes, not the reverse).
+    RUNTIME REMOVAL (RT-422, [GATED] approval Jira RT-422 comment 18024,
+    owner, 2026-11-21): the six removed routes are no longer served. RT-422
+    deleted the 035 receivable runtime (routes, services, the settlement-intent
+    rate-limit bucket and the `settlement_receivable_total` metric) and dropped
+    the `receivable`, `payment_application`, `claim`, `claim_receivables`,
+    `remittance` and `reconciliation_result` tables (migration 0129, which
+    refuses to run while any of them holds a row). Admin-Console RT-421 had
+    already removed the callers; POS RT-420 never adopted `settlement-intent`.
+    This note changes no operation and no schema, so `info.version` stays.
 
     CONSUMERS: Admin-Console 017 payer screens (RT-421: regenerate from this
     version, drop `creditTerms` from the create form, label `externalRef` as
@@ -104,8 +106,8 @@ tags:
     description: Console-managed payer accounts (035 narrowed to Option B, RT-413).
 
 x-retired-operations:
-  # RT-417 (2.0.0): removed from the contract. The runtime keeps serving them
-  # until RT-422 deletes the routes; no new consumer may call them.
+  # RT-417 (2.0.0): removed from the contract. RT-422 deleted the runtime routes
+  # (the tables went in migration 0129); no consumer may call them.
   - operationId: consoleApplyPayment
     route: POST /api/v1/settlement/receivables/{receivableRef}/apply-payment
     removedRuntimeIn: RT-422

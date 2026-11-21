@@ -2,13 +2,14 @@
 # (src/generated/schema.d.ts, RT-677). Rewritten by `pnpm generate:client --repin <ref>`.
 # Do not hand-edit: the generator checks every file below against its git blob SHA.
 repo: Kemetra-Labs/Retail-Tower-Erp
-commit: 6d6becacd8c082932f1717af091de663badd30e2
+commit: 134359e74e4a49d50b64750001686dcb0d90819f
 source: services/backend-core/packages/contracts/openapi
 file: ai-entitlements.openapi.yaml a7ca7d9c71bd8126ea004af00277db0e2bbd2dab
+file: ai-manager-sales-explain.openapi.yaml bfee7af9ecd7d2a671d7c56f8c86a3dcca013085
 file: audit.openapi.yaml 15c45bee36a54b3cbfb302ddc23b097ae4ac66bf
 file: auth.openapi.yaml 251e47b60becf178d51e39b2350e7e6a9e1509f3
 file: cash-variance-policy.openapi.yaml 0af127c7d43cb5bc87306dae6367960a428cacfb
-file: catalog/catalog-import.yaml cd4408be9f5bd3f66c2968aacdee6845dae0b401
+file: catalog/catalog-import.yaml e05109e2051d1ff995ec93005e576a7e78db9431
 file: catalog/console-catalog.yaml c7580b1e8dc5abfafdef3b7e68dc4819429c98f5
 file: catalog/erpnext-item-map.yaml 52650923852b1c3b7017387b1228279b8707a670
 file: catalog/erpnext-warehouse-map.yaml d2db8f505c0879a7b2c6e4c866985670e07da46a
@@ -38,7 +39,7 @@ file: pos-device-health.openapi.yaml 0550e9652e35a4a1fea103041208e3f0b0e6c66f
 file: pos-pilot-releases.openapi.yaml 46ff5251c77606e32dcbc0d6cb804d141bdf2273
 file: sale-sync-ops/sale-sync-ops.yaml 53766b0b95d26685dbac8d302207461633a5433a
 file: settlement/settlement.yaml 5a6e568f0e087652c4d5d5d2d75c386d6e6f37bc
-file: shift-closes.openapi.yaml a9f55a68605704756cd6f3277b9950877e41fa95
+file: shift-closes.openapi.yaml 4fe610244c7146936f635e8266d6f245149201d7
 file: stores.openapi.yaml fbb42d80207b4c445bc1a4b95a2cd7d2d0aed2b0
 file: tenant-access-entitlement.openapi.yaml 99debdd1faa166550e4e5d14aba1cc15302f9843
 file: tenant-branding.openapi.yaml 70e354bc2188882a433c67d557fac54cb8ccae1b
