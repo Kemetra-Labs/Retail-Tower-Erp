@@ -14,8 +14,8 @@ import type { ReturnScope } from './returns-repository.js';
 
 export type ExecutionState = 'pending' | 'unknown' | 'recorded' | 'refused';
 
-/** The closed codes a refused execution is recorded with (the contract's own refusals). */
-export type ExecutionRefusal = 'validation_error' | 'not_found' | 'conflict' | 'exceeds_allocation';
+/** The closed codes a refused execution is recorded with (the contract's final refusals). */
+export type ExecutionRefusal = 'not_found' | 'conflict' | 'exceeds_allocation';
 
 export interface NewExecution {
   readonly executionId: string;

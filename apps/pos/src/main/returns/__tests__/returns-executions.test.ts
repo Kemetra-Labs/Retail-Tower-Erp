@@ -23,6 +23,7 @@ import {
   SALE_REF,
   SHIFT_REF,
   confirmedReturn,
+  deferredFake,
   errorBody,
   initReturnsSql,
   jsonResponse,
@@ -345,27 +346,50 @@ describe('retries and restarts never record a second execution', () => {
 
 describe('what Backend-Core answers', () => {
   it.each([
-    [400, 'validation_error'],
-    [404, 'not_found'],
-    [409, 'conflict'],
-    [422, 'exceeds_allocation'],
-  ])('%i is a final refusal: logged, never retried, never success', async (status, reason) => {
-    h.backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody('refused')));
-    const returnId = await confirmedReturn(h.service);
-    await h.service.payout({ returnId, action: 'start' });
-    await settle();
-    expect(executionRows()[0]).toMatchObject({ state: 'refused', refusal_reason: reason });
-    await h.service.resolve();
-    expect(h.backend.executionCalls()).toHaveLength(1);
-    expect(h.warnings).toContain('returns:execution_refused');
-  });
+    [404, 'not_found', 'not_found'],
+    [409, 'conflict', 'conflict'],
+    [422, 'refund_execution_exceeds_allocation', 'exceeds_allocation'],
+  ])(
+    '%i (%s) is a final refusal: logged, never re-sent, never success',
+    async (status, code, reason) => {
+      h.backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody(code)));
+      const returnId = await confirmedReturn(h.service);
+      await h.service.payout({ returnId, action: 'start' });
+      await settle();
+      expect(executionRows()[0]).toMatchObject({ state: 'refused', refusal_reason: reason });
+      await h.service.resolve();
+      await h.resolver.tick();
+      expect(h.backend.executionCalls()).toHaveLength(1);
+      expect(h.warnings).toContain('returns:execution_refused');
+    },
+  );
 
-  it.each([401, 403, 429, 503])('%i is unknown, never success', async (status) => {
-    h.backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody('x')));
+  it.each([
+    [400, 'validation_error'],
+    [401, 'unauthorized'],
+    [403, 'forbidden'],
+    [404, 'route_missing'],
+    [429, 'rate_limited'],
+    [503, 'unavailable'],
+  ])('%i (%s) is unknown, never success and never final', async (status, code) => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(status, errorBody(code)));
     const returnId = await confirmedReturn(h.service);
     await h.service.payout({ returnId, action: 'start' });
     await settle();
     expect(executionRows()[0]).toMatchObject({ state: 'unknown' });
+  });
+
+  it('a 400 from a till clock ahead of the server is retried and recorded once the clock agrees', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(400, errorBody('validation_error')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(executionRows()[0]).toMatchObject({ state: 'unknown' });
+
+    h.backend.onExecution = (call, backend) => backend.recordExecutionIdempotently(call);
+    await h.service.resolve();
+    expect(executionRows()[0]).toMatchObject({ state: 'recorded', attempt_count: 2 });
+    expect(h.backend.executions.size).toBe(1);
   });
 
   it('a 201 that names another execution is not success', async () => {
@@ -390,5 +414,103 @@ describe('what Backend-Core answers', () => {
     await h.service.payout({ returnId, action: 'start' });
     await settle();
     expect(executionRows()[0]).toMatchObject({ state: 'unknown' });
+  });
+});
+
+describe('shutdown, restart and the background tick', () => {
+  it('a send in flight at stop writes nothing; the next start sends the same bytes once', async () => {
+    const answer = deferredFake<undefined>();
+    h.backend.onExecution = (call, backend) => {
+      const recorded = backend.recordExecutionIdempotently(call);
+      return answer.promise.then(() => recorded);
+    };
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    expect(executionRows()[0]).toMatchObject({ state: 'pending', attempt_count: 1 });
+
+    h.stop();
+    answer.resolve(undefined);
+    await settle();
+    // The answer arrived after stop: the row is exactly as the attempt left it.
+    expect(executionRows()[0]).toMatchObject({ state: 'pending', attempt_count: 1 });
+
+    h.backend.onExecution = (call, backend) => backend.recordExecutionIdempotently(call);
+    const restarted = h.restart();
+    await restarted.service.resolve();
+    expect(h.lives.deadTouches).toBe(0);
+    const calls = h.backend.executionCalls();
+    expect(calls).toHaveLength(2);
+    expect(calls[1]?.body).toBe(calls[0]?.body);
+    expect(executionRows()[0]).toMatchObject({ state: 'recorded', attempt_count: 2 });
+    expect(h.backend.executions.size).toBe(1);
+  });
+
+  it('a crash after the server recorded it but before any answer: the replay confirms it once', async () => {
+    let first = true;
+    h.backend.onExecution = (call, backend) => {
+      const recorded = backend.recordExecutionIdempotently(call);
+      if (!first) return recorded;
+      first = false;
+      return new Promise<Response>(() => undefined);
+    };
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    expect(executionRows()[0]).toMatchObject({ state: 'pending', attempt_count: 1 });
+
+    const restarted = h.restart();
+    await restarted.service.resolve();
+    expect(h.backend.executionCalls()).toHaveLength(2);
+    expect(executionRows()).toHaveLength(1);
+    expect(executionRows()[0]).toMatchObject({ state: 'recorded' });
+    expect(h.backend.executions.size).toBe(1);
+    expect(h.lives.deadTouches).toBe(0);
+  });
+
+  it('the post-payout send and an on-demand resolve share one send of the same execution', async () => {
+    const answer = deferredFake<undefined>();
+    h.backend.onExecution = (call, backend) => {
+      const recorded = backend.recordExecutionIdempotently(call);
+      return answer.promise.then(() => recorded);
+    };
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    const resolving = h.service.resolve();
+    await Promise.resolve();
+    answer.resolve(undefined);
+    await resolving;
+    await settle();
+    expect(h.backend.executionCalls()).toHaveLength(1);
+    expect(executionRows()[0]).toMatchObject({ state: 'recorded', attempt_count: 1 });
+  });
+
+  it('the background tick waits out an unknown execution backoff, then re-sends it', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(503, errorBody('unavailable')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(executionRows()[0]).toMatchObject({ state: 'unknown', attempt_count: 1 });
+
+    h.backend.onExecution = (call, backend) => backend.recordExecutionIdempotently(call);
+    await h.resolver.tick();
+    expect(h.backend.executionCalls()).toHaveLength(1);
+    expect(executionRows()[0]).toMatchObject({ state: 'unknown' });
+
+    h.state.now = secondsAfterNow(30);
+    await h.resolver.tick();
+    expect(h.backend.executionCalls()).toHaveLength(2);
+    expect(executionRows()[0]).toMatchObject({ state: 'recorded' });
+  });
+
+  it('the resolve summary counts returns only, not executions', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(503, errorBody('unavailable')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(await h.service.resolve()).toEqual({
+      kind: 'ok',
+      confirmed: 0,
+      refused: 0,
+      unresolved: 0,
+    });
   });
 });

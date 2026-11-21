@@ -219,9 +219,12 @@ export function createReturnsResolver(deps: ReturnsResolverDeps): ReturnsResolve
   return {
     // RT-1543: a post-payout execution send is not a pass; shutdown waits for it too.
     drain: async (timeoutMs) => {
-      await passes.drain(timeoutMs);
       const idle = deps.executions?.dispatcher.idle();
-      if (idle !== undefined) await settledWithin(idle, timeoutMs);
+      // Both waits share the one deadline, so shutdown never waits for twice the bound.
+      await Promise.all([
+        passes.drain(timeoutMs),
+        idle === undefined ? undefined : settledWithin(idle, timeoutMs),
+      ]);
     },
     resolveOnce: (snapshot) => passes.onDemand(() => pass(snapshot, false)),
     tick: () => {

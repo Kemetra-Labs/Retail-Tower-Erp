@@ -24,7 +24,8 @@
 --   server_sale_ref  the sale's server ref, copied so a send needs no join
 --   return_ref       the server's ref of the return (set when the return was confirmed)
 --   allocation_ref   the allocation paid out: an `allocationRef` of that return's stored body
---   external_id      `pos-pulse-refund-exec:<execution_id>`: the provenance id and the Idempotency-Key
+--   external_id      `pos-pulse-refund-exec:<execution_id>` (checked): the provenance id and the
+--                    Idempotency-Key
 --   request_body_json the exact `RecordRefundExecutionRequest` bytes, frozen at enqueue; every
 --                     retry sends these bytes under that key
 --   state            pending (never answered) | unknown (answer lost) | recorded | refused
@@ -81,6 +82,7 @@ CREATE TABLE IF NOT EXISTS return_refund_executions (
   ),
   external_id        TEXT    NOT NULL UNIQUE CHECK (
     external_id GLOB 'pos-pulse-refund-exec:*' AND length(external_id) = 58
+    AND external_id = 'pos-pulse-refund-exec:' || execution_id
   ),
   request_body_json  TEXT    NOT NULL CHECK (length(request_body_json) > 0),
   state              TEXT    NOT NULL CHECK (state IN ('pending', 'unknown', 'recorded', 'refused')),
@@ -117,6 +119,7 @@ END;
 CREATE TRIGGER IF NOT EXISTS trg_return_refund_executions_guard
 BEFORE UPDATE ON return_refund_executions
 WHEN OLD.state IN ('recorded', 'refused')
+  OR (OLD.state = 'unknown' AND NEW.state = 'pending')
   OR NEW.execution_id <> OLD.execution_id
   OR NEW.return_id <> OLD.return_id
   OR NEW.server_sale_ref <> OLD.server_sale_ref
@@ -129,7 +132,7 @@ BEGIN
   SELECT RAISE(ABORT, CASE
     WHEN OLD.state IN ('recorded', 'refused')
       THEN 'return_refund_executions: a recorded or refused row is final (RT-1543)'
-    ELSE 'return_refund_executions: identity columns and the frozen body are immutable (RT-1543)'
+    ELSE 'return_refund_executions: the state moves forward only; identity columns and the frozen body are immutable (RT-1543)'
   END);
 END;
 

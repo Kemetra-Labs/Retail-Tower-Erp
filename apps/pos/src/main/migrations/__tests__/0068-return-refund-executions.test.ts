@@ -265,7 +265,7 @@ describe('0068 — return refund executions (RT-1543)', () => {
       }).toThrow();
     });
 
-    it('holds one row per (return, allocation) and one per external id', () => {
+    it('holds one row per (return, allocation); the external id is the prefix plus the execution id', () => {
       journal(true);
       insert();
       expect(() => {
@@ -273,7 +273,7 @@ describe('0068 — return refund executions (RT-1543)', () => {
       }).toThrow(/UNIQUE/);
       expect(() => {
         insert({ execution_id: EXEC_B, allocation_ref: ALLOC_B });
-      }).toThrow(/UNIQUE/);
+      }).toThrow(/CHECK/);
       insert({
         execution_id: EXEC_B,
         allocation_ref: ALLOC_B,
@@ -321,6 +321,13 @@ describe('0068 — return refund executions (RT-1543)', () => {
       update(`state = 'unknown', updated_at = 't5'`);
       update(`state = 'recorded', recorded_at = 't6', updated_at = 't6'`);
       expect(state()).toBe('recorded');
+    });
+
+    it('never moves back from unknown to pending', () => {
+      update(`state = 'unknown', updated_at = 't5'`);
+      expect(() => {
+        update(`state = 'pending', updated_at = 't6'`);
+      }).toThrow(/immutable|final|forward/);
     });
 
     it.each(['recorded', 'refused'])('%s is final', (final) => {
@@ -398,20 +405,21 @@ describe('0068 — return refund executions (RT-1543)', () => {
     }
   });
 
-  it('applies by name, so a build that adds 0067 later still applies it after 0068', async () => {
+  it('applies by name: a lower-numbered file that arrives after 0068 still applies', async () => {
     const SQL = (await import('sql.js')).default;
     const engine = await SQL();
     const raw = new engine.Database();
     try {
       const mdb = migrationsDbOf(raw);
       const files = shippedFiles();
+      // A till that ran a build with 0068 but without the file just below it.
+      const lower = files.filter((f) => f.name < MIGRATION).at(-1);
+      expect(lower).toBeDefined();
+      runMigrations({ db: mdb, files: files.filter((f) => f.name !== lower?.name) });
+      expect(mdb.listAppliedNames()).toContain(MIGRATION);
+      expect(mdb.listAppliedNames()).not.toContain(lower?.name);
       runMigrations({ db: mdb, files });
-      const later: MigrationFile = {
-        name: '0067_placeholder_for_an_open_pr',
-        sql: 'CREATE TABLE IF NOT EXISTS rt1543_ordering_probe (id INTEGER);',
-      };
-      runMigrations({ db: mdb, files: [...files, later] });
-      expect(mdb.listAppliedNames()).toContain(later.name);
+      expect(mdb.listAppliedNames()).toContain(lower?.name);
     } finally {
       raw.close();
     }

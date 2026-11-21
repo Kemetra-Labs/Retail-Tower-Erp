@@ -41,6 +41,19 @@ export type EnqueueExecutions = (
   paidAt: string,
 ) => void;
 
+/**
+ * The open shift, or null. A failed shift read must not roll back a payout whose drawer already
+ * opened: it counts as no shift (logged), like the no-shift case. Only the INSERT stays fail-closed.
+ */
+function readShiftRef(deps: ExecutionEnqueueDeps, scope: ReturnScope): string | null {
+  try {
+    return deps.openShiftRef(scope);
+  } catch {
+    deps.logger.warn({}, 'returns:execution_shift_read_failed');
+    return null;
+  }
+}
+
 export function createExecutionEnqueuer(deps: ExecutionEnqueueDeps): EnqueueExecutions {
   return (entry, method, paidAt) => {
     const allocations = readAllocations(entry.requestBodyJson);
@@ -49,7 +62,7 @@ export function createExecutionEnqueuer(deps: ExecutionEnqueueDeps): EnqueueExec
       deps.logger.warn({ return_id: entry.returnId }, 'returns:execution_no_return_ref');
       return;
     }
-    const shiftRef = deps.openShiftRef(entry.scope);
+    const shiftRef = readShiftRef(deps, entry.scope);
     if (shiftRef === null) {
       deps.logger.warn({ return_id: entry.returnId }, 'returns:execution_no_open_shift');
       return;
