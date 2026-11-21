@@ -42,6 +42,9 @@ DECLARE
   n bigint;
 BEGIN
   PERFORM set_config('app.is_platform_admin', 'true', true);
+  -- Pin the tenant GUC to the nil UUID first: the tenants policy casts it to uuid, and an empty
+  -- session value would raise 22P02 before the loop's first row (0051 / 0054 precedent).
+  PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
   FOR t IN SELECT id FROM tenants LOOP
     PERFORM set_config('app.current_tenant', t::text, true);
     FOREACH tbl IN ARRAY ARRAY[
