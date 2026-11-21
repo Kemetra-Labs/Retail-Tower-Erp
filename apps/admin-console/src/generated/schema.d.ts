@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ eb8a97dbd2cad8b78a09355f010a3c0dec9d4d56
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 42bcab6451be410af4b60a9d656797ade46c4692
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -24662,7 +24662,7 @@ export namespace CatalogImportSchema {
             get?: never;
             /**
              * Record the review decision for one row.
-             * @description On a `validated` batch, for a row whose validated status is `needs_review` or `error`. Actions (spec 049 §7.3): `create_new`, `update_product` (a product among the row's candidates, or for `possible_duplicate` the named product), `exclude`, or `clear` (undo the decision). Per reason: for `sku_mismatch`, `update_product` keeps the product's SKU and does not add the row's; for `store_scoped_conflict`, `create_new` and `update_product` leave the conflicting identifier out and list it as not added; `create_new` is not offered while an identifier on the row is active on another product. An `error` row takes only `exclude` and `clear`. The row's `status` after the decision: `create_new` → `ready_create`; `update_product` → `ready_update`; `exclude` → `excluded`; `clear` → the status validate gave it (`needs_review` or `error`), with `resolution` `null`. `reviewReason` and `issues` are kept. The batch stays `validated`, `version` + 1, and `previewHash` and `counts` are recomputed; the validation generation is unchanged, so a row-list walk in progress continues. Audited as `catalog.import.review` with the row number and action.
+             * @description On a `validated` batch, for a row whose validated status is `needs_review` or `error`. Actions (spec 049 §7.3): `create_new`, `update_product` (a product among the row's candidates, or for `possible_duplicate` the named product), `exclude`, or `clear` (undo the decision). Per reason: for `sku_mismatch`, `update_product` keeps the product's SKU and does not add the row's; for `store_scoped_conflict`, `create_new` and `update_product` leave the conflicting identifier out and list it as not added; `create_new` is not offered while an identifier on the row is active on another product. An `error` row takes only `exclude` and `clear`. The row's `status` after the decision: `create_new` → `ready_create`; `update_product` → `ready_update`; `exclude` → `excluded`; `clear` → the status validate gave it (`needs_review` or `error`), with `resolution` `null`. `reviewReason` and `issues` are kept. The batch stays `validated`, `version` + 1, and `previewHash` and `counts` are recomputed; the validation generation is unchanged, so a row-list walk in progress continues. Audited as `catalog.import.review` with the row number and action. In a `create` batch `update_product` is not offered, so an `ambiguous` row there takes only `exclude` (and `clear`); in an `update` batch `create_new` is not offered. `update_product` is offered for a product among the row's candidates only, never a retired one; it recomputes the row's `fieldChanges` and `identifierAdds` for that product, lists in `identifiersNotAdded` every identifier of the row that product leaves out (active on another product, never moved; a second SKU on a product that has one; a value another product holds at a store), and captures the product's `updatedAt` for the publish stale re-check. `create_new` lists in `identifiersNotAdded` the identifiers validation kept out (a store-scoped conflict). A new decision on a row replaces the previous one; `clear` returns the row to the state validate gave it.
              */
             put: operations["consoleResolveCatalogImportRow"];
             post?: never;
@@ -24684,7 +24684,7 @@ export namespace CatalogImportSchema {
             };
             /**
              * The impact preview of a validated batch.
-             * @description What publish would do, for exactly `previewHash`: brands to create, products to create and update, identifiers to add, rows excluded and unchanged, the products taken off the tills by `is_active = false` (OD-17 A) and the new products that will have no price (spec 049 §6). The field-level before → after of each row is on its row (`consoleListCatalogImportRows`). Not audited per request.
+             * @description What publish would do, for exactly `previewHash`: brands to create, products to create and update, identifiers to add, rows excluded and unchanged, the products taken off the tills by `is_active = false` (OD-17 A) and the new products that will have no price (spec 049 §6). The field-level before → after of each row is on its row (`consoleListCatalogImportRows`). Not audited per request. The counts come from the same plan the publish writes from (a product two rows update is one update), so they are the published effect. Available for a `validated` or a `published` batch.
              */
             get: operations["consoleGetCatalogImportPreview"];
             put?: never;
@@ -24709,7 +24709,7 @@ export namespace CatalogImportSchema {
             put?: never;
             /**
              * Publish a validated, publishable batch in one transaction.
-             * @description Under the per-tenant import publish lock: checks `expectedVersion` and `previewHash` (`409 version_conflict` / `409 preview_changed`), that no row is `needs_review` or `error` (`409 import_not_publishable`), re-checks the catalogue (`409 stale_validation`, batch back to `draft`), then writes every brand create, product create and update, identifier add and audit row and the `published` transition in one transaction. A publish of an already `published` batch with its `previewHash` replays the stored result. Audited as `catalog.import.publish`, plus the per-product and per-identifier actions (OD-13 A).
+             * @description Under the per-tenant import publish lock: checks `expectedVersion` and `previewHash` (`409 version_conflict` / `409 preview_changed`), that no row is `needs_review` or `error` (`409 import_not_publishable`), re-checks the catalogue (`409 stale_validation`, batch back to `draft`), then writes every brand create, product create and update, identifier add and audit row and the `published` transition in one transaction. A publish of an already `published` batch with its `previewHash` replays the stored result. Audited as `catalog.import.publish`, plus the per-product and per-identifier actions (OD-13 A), each carrying `import_batch_id` and the source row number. The writes go through the same domain functions as the single-product console writes, conditionally (`expectedUpdatedAt`, the unique indexes), so a concurrent single-product edit or identifier claim is `409 stale_validation`, never a 500 (a deadlock with a concurrent write is the same `409`). Two rows that would change one product differently, or give it two SKUs, are `import_not_publishable`. A publish serialises per tenant. A publish of an already `published` batch whose `previewHash` is the batch's is a replay (`200`, `Idempotent-Replayed: true`) even under a new key; with another `previewHash` it is `409 import_batch_closed`. The same key with another body is `409 idempotency_key_conflict`.
              */
             post: operations["consolePublishCatalogImport"];
             delete?: never;
@@ -24732,7 +24732,7 @@ export namespace CatalogImportSchema {
             put?: never;
             /**
              * Cancel an open batch.
-             * @description Moves a `draft` or `validated` batch to `cancelled` (version + 1), which frees the tenant's one open batch. Writes nothing to the catalogue. Audited as `catalog.import.cancel`.
+             * @description Moves a `draft` or `validated` batch to `cancelled` (version + 1), which frees the tenant's one open batch. Writes nothing to the catalogue. Allowed for a batch past its `expiresAt` that the expiry job has not closed yet. Closing clears `expiresAt` and `previewHash`; the counts of the last validation stay. Audited as `catalog.import.cancel`.
              */
             post: operations["consoleCancelCatalogImport"];
             delete?: never;
@@ -24825,7 +24825,7 @@ export namespace CatalogImportSchema {
              */
             IssueSeverity: "error" | "review" | "warning" | "notice";
             /**
-             * @description Spec 049 §5–§7. Errors: `required_field_missing` (create needs `name` and `tax_category`), `value_invalid` (a cell breaks its field's rule; `field` names it), `identifier_numeric_cell` (an XLSX identifier stored as a number: format the column as Text), `identifier_formula_cell`, `identifier_non_ascii_digits` (Arabic-Indic digits in a `barcode` or `plu`, OD-15 A), `identifier_invisible_char` (a bidi mark or NBSP inside an identifier), `formula_without_value` (a formula with no cached value), `duplicate_in_file` (two rows share an identifier; both rows), `category_not_found` (OD-3 A), `product_retired`, `already_exists` (mode `create`, matched), `not_found` (mode `update`, unmatched). Review: `ambiguous` (the row's identifiers resolve to two or more products), `no_identifier` (create / upsert row with no identifier), `sku_mismatch`, `store_scoped_conflict`, `possible_duplicate` (a create whose exact name equals an active product's, with no identifier match; a hint, never a match). Warnings: `gtin_check_digit` (OD-16 A), `tax_category_unused` (a tax category the tenant never used), `store_scoped_same_product`, `deactivates_product` (OD-17 A). Notices: `price_not_imported` (OD-2 A), `whitespace_trimmed` (OD-10 A), `formula_cached_value`, `brand_created` (OD-3 B).
+             * @description Spec 049 §5–§7. Errors: `required_field_missing` (create needs `name` and `tax_category`), `value_invalid` (a cell breaks its field's rule; `field` names it), `identifier_numeric_cell` (an XLSX identifier stored as a number: format the column as Text), `identifier_formula_cell`, `identifier_non_ascii_digits` (Arabic-Indic digits in a `barcode` or `plu`, OD-15 A), `identifier_invisible_char` (NBSP or any Unicode format character, category Cf, in an identifier: a bidi mark, an embedding or isolate control, a zero-width character, the BOM), `formula_without_value` (a formula with no cached value), `duplicate_in_file` (two rows share an identifier; both rows), `category_not_found` (OD-3 A), `product_retired`, `already_exists` (mode `create`, matched), `not_found` (mode `update`, unmatched). Review: `ambiguous` (the row's identifiers resolve to two or more products), `no_identifier` (create / upsert row with no identifier), `sku_mismatch`, `store_scoped_conflict`, `possible_duplicate` (a create whose exact name equals an active product's, with no identifier match; a hint, never a match). Warnings: `gtin_check_digit` (OD-16 A), `tax_category_unused` (a tax category the tenant never used), `store_scoped_same_product`, `deactivates_product` (OD-17 A). Notices: `price_not_imported` (OD-2 A), `whitespace_trimmed` (OD-10 A), `formula_cached_value`, `brand_created` (OD-3 B).
              * @enum {string}
              */
             RowIssueCode: "required_field_missing" | "value_invalid" | "identifier_numeric_cell" | "identifier_formula_cell" | "identifier_non_ascii_digits" | "identifier_invisible_char" | "formula_without_value" | "duplicate_in_file" | "category_not_found" | "product_retired" | "already_exists" | "not_found" | "ambiguous" | "no_identifier" | "sku_mismatch" | "store_scoped_conflict" | "possible_duplicate" | "gtin_check_digit" | "tax_category_unused" | "store_scoped_same_product" | "deactivates_product" | "price_not_imported" | "whitespace_trimmed" | "formula_cached_value" | "brand_created";
@@ -24934,7 +24934,7 @@ export namespace CatalogImportSchema {
                 /** @description The canonical field concerned, or `null` for a row-level issue. */
                 field: components["schemas"]["CanonicalField"] | null;
                 columnNumber: number | null;
-                /** @description Human-readable explanation with the fix, in the session's language. */
+                /** @description Human-readable explanation with the fix. English, fixed per `code` and never repeating a cell value; clients localise by `code`. */
                 message: string;
                 /** @description The product the issue names (`already_exists`, `product_retired`, `sku_mismatch`, `possible_duplicate`), with its tenant-wide identifiers only (OD-11 A); absent or `null` otherwise. */
                 relatedProduct?: components["schemas"]["ProductRef"] | null;
@@ -24956,7 +24956,7 @@ export namespace CatalogImportSchema {
                 candidates: components["schemas"]["ProductRef"][];
                 fieldChanges: components["schemas"]["FieldChange"][];
                 identifierAdds: components["schemas"]["ImportIdentifier"][];
-                /** @description Identifiers left out by a review decision (`sku_mismatch`, `store_scoped_conflict`). */
+                /** @description Identifiers left out by a review decision (`sku_mismatch`, `store_scoped_conflict`). Always empty after validate; the review decision (RT-1507) fills it. */
                 identifiersNotAdded: components["schemas"]["ImportIdentifier"][];
                 /** @description The brand name this row would create (OD-3 B), or `null`. */
                 brandToCreate: string | null;
@@ -25166,7 +25166,7 @@ export namespace CatalogImportSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 409 `import_batch_not_validated`: the batch has no current outcomes (it is `draft`, `cancelled` or `expired`). */
+            /** @description 409 `import_batch_not_validated`: the batch has no current outcomes (it is `draft`, `cancelled` or `expired`, or its rows were deleted by the retention purge: a reader never gets an empty page for them). */
             NotValidated: {
                 headers: {
                     [name: string]: unknown;
@@ -25193,7 +25193,7 @@ export namespace CatalogImportSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422, the file cannot be imported; `error.code` one of: `file_type_unsupported` (`.xls`, `.xlsm`, `.xlsb`, a macro-enabled or binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP); `encoding_not_utf8` (a CSV that is not UTF-8, or has a NUL byte: save as "CSV UTF-8", or upload XLSX, OD-8 A); `file_unreadable` (a corrupt workbook or a CSV quoting error); `xlsx_limits_exceeded` (over 200 ZIP entries or 50 MiB uncompressed); `sheet_not_found`; `header_missing` (no header row); `no_data_rows`; `too_many_rows` (over 5,000 data rows); `too_many_columns` (over 50); `cell_too_long` (a cell over 2,000 characters). Nothing is written. */
+            /** @description 422, the file cannot be imported; `error.code` one of: `file_type_unsupported` (`.xls`, `.xlsm`, `.xlsb`, a macro-enabled or binary workbook, a `vbaProject.bin` entry, or a non-XLSX ZIP; also a ZIP the import cannot read as a plain workbook: an encrypted entry, zip64, a multi-disk archive, a method other than stored or deflate); `encoding_not_utf8` (a CSV that is not UTF-8, or has a NUL byte: save as "CSV UTF-8", or upload XLSX, OD-8 A); `file_unreadable` (a corrupt workbook, including a ZIP whose headers disagree with its content or with each other, a cell that cannot be stored, or a CSV quoting error); `xlsx_limits_exceeded` (over 200 ZIP entries or 50 MiB uncompressed, or a sheet whose cells reach so far down and across that reading it would exceed the import's memory bound, or more than 8,000,000 characters of cell text in the batch in total, which a shared string used by every cell would otherwise multiply (in practice an XLSX limit: a CSV is bounded by its 5 MiB size); `sheet_not_found`; `header_missing` (no header row); `no_data_rows`; `too_many_rows` (over 5,000 data rows); `file_too_many_rows` (over 1,048,576 physical rows, CSV or XLSX); `too_many_columns` (over 50); `cell_too_long` (a cell over 2,000 characters). Nothing is written. */
             FileRejected: {
                 headers: {
                     [name: string]: unknown;
@@ -25202,7 +25202,7 @@ export namespace CatalogImportSchema {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 `mapping_invalid`: a column of the batch is missing or listed twice, a `columnNumber` the batch does not have, a field mapped more than once (`barcode` more than 5 times), or mode `create` / `upsert` without `name` and `tax_category` mapped. Nothing is written. */
+            /** @description 422 `mapping_invalid`: a column of the batch is missing or listed twice, a `columnNumber` the batch does not have, a field mapped more than once (`barcode` more than 5 times), or mode `create` / `upsert` without `name` and `tax_category` mapped, or a `saveProfileName` with no column that can be saved (a profile keeps the exact trimmed header text of a column whose header is not empty and appears once). Nothing is written. */
             MappingRejected: {
                 headers: {
                     [name: string]: unknown;
