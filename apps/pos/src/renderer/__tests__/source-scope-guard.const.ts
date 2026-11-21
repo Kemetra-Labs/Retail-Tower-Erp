@@ -769,3 +769,28 @@ export function isRt1312QuarantineRepinExemptFile(branch: string, file: string):
     (RT_1312_QUARANTINE_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-592-stale-policy-flag` implements Jira RT-592: `policy_revision_stale_at_receipt` joins the
+ * `PolicyFlag` response enum of `pos-shifts.openapi.yaml` (1.6.0-draft), a response-enum addition that
+ * `contracts/check` refuses until the POS PIN names it, so the POS is repinned to that contract commit in
+ * the same PR (`npm run contracts:repin`), which regenerates `src/shared/api-types.ts`. No POS code reads
+ * `policyFlags` (a type-only union).
+ *
+ * Authority: the owner's decision in chat on 2026-11-21 ("Yes, like #559", recorded on RT-592 comment
+ * 18031), following the RT-1343 repin pattern: exactly ONE file on exactly ONE branch (exact name, no
+ * `startsWith`; the `-preflight` branches are not exempt). Narrowness is asserted by
+ * `source-scope-guard-rt592.test.ts`.
+ */
+export const RT_592_POLICY_FLAG_REPIN_BRANCH = 'rt-592-stale-policy-flag' as const;
+export const RT_592_POLICY_FLAG_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-592 exemption allows on `branch`. */
+export function isRt592ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_592_POLICY_FLAG_REPIN_BRANCH &&
+    (RT_592_POLICY_FLAG_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

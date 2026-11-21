@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Admin Shift-Close Read API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Jira RT-383 (AD-CASH-001 follow-up 4): the admin-facing read of recorded
     shift closes that Admin-Console RT-18 (shift / cash variance exception
@@ -107,6 +107,14 @@ info:
     **1.2.0-draft (RT-620, additive).** Every cookieAuth operation may
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
+
+
+    **1.3.0-draft (RT-592, additive; [GATED] owner decision 2026-11-21, Jira
+    RT-592 comments 18021 and 18028).** `PolicyFlag` gains one value,
+    `policy_revision_stale_at_receipt` (see `pos-shifts.openapi.yaml`
+    1.6.0-draft), on `frozenPolicy.policyFlags` of both projections. No
+    operation, status, parameter or required property changes. A client that
+    validates `policyFlags` against a closed list must add the value.
 
 servers:
   - url: https://api.example.com
@@ -700,7 +708,11 @@ components:
           $ref: "#/components/schemas/CurrencyCode"
     PolicyFlag:
       type: string
-      enum: [policy_revision_unknown, policy_revision_superseded, policy_value_mismatch]
+      enum:
+        - policy_revision_unknown
+        - policy_revision_superseded
+        - policy_value_mismatch
+        - policy_revision_stale_at_receipt
       description: >
         AD-CASH-001 D-6 accept-and-flag findings on the open's frozen policy
         (see `pos-shifts.openapi.yaml` `PolicyFlag`). Never a refusal.

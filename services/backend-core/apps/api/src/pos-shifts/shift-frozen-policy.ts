@@ -25,13 +25,18 @@ import { minorUnitExponent } from "../common/money/iso4217-minor-units";
 import { formatMoney } from "../common/money/shift-money";
 
 export type FrozenPolicySource = "system" | "tenant" | "store" | "fallback";
-export type PolicyFlag = "policy_revision_unknown" | "policy_revision_superseded" | "policy_value_mismatch";
+export type PolicyFlag =
+  | "policy_revision_unknown"
+  | "policy_revision_superseded"
+  | "policy_value_mismatch"
+  | "policy_revision_stale_at_receipt";
 
 /** The contract's flag order; a stored flag list is always in it. */
 export const POLICY_FLAG_ORDER: ReadonlyArray<PolicyFlag> = [
   "policy_revision_unknown",
   "policy_revision_superseded",
   "policy_value_mismatch",
+  "policy_revision_stale_at_receipt",
 ];
 
 export interface FrozenPolicyFact {

@@ -68,8 +68,14 @@ const CLOSE = {
 /** Which fact a hash is of. */
 type FactKind = "open" | "movement" | "close";
 
+/** The open transaction's clock (RT-592: the flagger reads `SELECT now()`); every other query returns no rows. */
+const TRANSACTION_NOW = new Date("2026-10-05T08:00:03Z");
+const query = async (sql?: string) => ({
+  rows: typeof sql === "string" && sql.includes("SELECT now()") ? [{ now: TRANSACTION_NOW }] : [],
+});
+
 const pool = {
-  connect: async () => ({ query: async () => ({ rows: [] }), release: () => undefined }),
+  connect: async () => ({ query, release: () => undefined }),
 } as unknown as Pool;
 
 const SHIFT: CashUpShiftRow = {

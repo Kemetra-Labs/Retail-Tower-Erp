@@ -17,6 +17,16 @@
  *   - `policy_value_mismatch`: the value differs from the revision's stored
  *     value (for `system`, from the System default `none`), or a `limit`'s
  *     currency differs from the shift's.
+ *   - `policy_revision_stale_at_receipt` (RT-592, pos-shifts 1.6.0-draft): the
+ *     open arrived MORE than `STALE_AT_RECEIPT_AFTER_MS` (24 h, strictly) after
+ *     its `openedAt` AND the frozen policy (its revision, or the System default
+ *     for `system`) is not the store's effective policy at `received_at`. A
+ *     backdated `openedAt` can otherwise freeze an older, looser revision that
+ *     passes the superseded check; a plain offline open (DR-8) arrives within
+ *     the window and is never flagged by this. `received_at` is the open
+ *     transaction's `now()`, the value the INSERT stores. An unknown revision
+ *     and a `fallback` never carry it (they are not a server revision to be
+ *     stale).
  *
  * `fallback` is the POS's own never-fetched value (DR-6), never a server
  * revision, so it is never `unknown` or `superseded`; but both contracts
@@ -39,6 +49,12 @@ import { PolicyRepository, type StoredRevision } from "./policy.repository";
  * place this window is defined (coordinator condition on RT-387).
  */
 export const OPEN_SKEW_MS = 120_000;
+
+/**
+ * RT-592 (owner decision, Jira RT-592 comment 18021): N = 24 hours. An open whose
+ * `received_at − openedAt` is strictly more than this is "late"; exactly this is not.
+ */
+export const STALE_AT_RECEIPT_AFTER_MS = 24 * 60 * 60 * 1000;
 
 /** Revision times are compared at millisecond precision (JS `Date`). */
 const TICK_MS = 1;
@@ -103,13 +119,20 @@ export class OpenPolicyFlagger {
     if (frozen.policySource === "fallback" && !isFailClosed(frozen.policyValue)) found.add("policy_value_mismatch");
     const value = frozen.policyValue;
     if (value.mode === "limit" && value.currencyCode !== input.shiftCurrencyCode) found.add("policy_value_mismatch");
-    return (["policy_revision_unknown", "policy_revision_superseded", "policy_value_mismatch"] as const).filter((f) =>
-      found.has(f),
-    );
+    // The contract's order (`POLICY_FLAG_ORDER` in pos-shifts, which this module must not import: a cycle).
+    return (
+      [
+        "policy_revision_unknown",
+        "policy_revision_superseded",
+        "policy_value_mismatch",
+        "policy_revision_stale_at_receipt",
+      ] as const
+    ).filter((f) => found.has(f));
   }
 
   private async systemFlags(client: PoolClient, input: OpenPolicyInput, found: Set<PolicyFlag>): Promise<void> {
     if (!(await this.wasEffective(client, input, (p) => p.policySource === "system"))) found.add("policy_revision_superseded");
+    if (await this.staleAtReceipt(client, input, (p) => p.policySource === "system")) found.add("policy_revision_stale_at_receipt");
     if (!samePolicyValue(input.frozen.policyValue, SYSTEM_DEFAULT)) found.add("policy_value_mismatch");
   }
 
@@ -121,6 +144,7 @@ export class OpenPolicyFlagger {
       return;
     }
     if (!(await this.wasEffective(client, input, (p) => p.policyRevisionId === id))) found.add("policy_revision_superseded");
+    if (await this.staleAtReceipt(client, input, (p) => p.policyRevisionId === id)) found.add("policy_revision_stale_at_receipt");
     if (!revision?.value || !samePolicyValue(input.frozen.policyValue, revision.value)) {
       found.add("policy_value_mismatch");
     }
@@ -132,11 +156,28 @@ export class OpenPolicyFlagger {
     matches: (p: ResolvedPolicy) => boolean,
   ): Promise<boolean> {
     const openedAt = new Date(input.openedAt);
-    const until = new Date(openedAt.getTime() + OPEN_SKEW_MS);
-    const history: PolicyHistory = {
-      tenant: await this.repo.history(client, { tenantId: input.tenantId, storeId: null }, until),
-      store: await this.repo.history(client, { tenantId: input.tenantId, storeId: input.storeId }, until),
-    };
+    const history = await this.historyUntil(client, input, new Date(openedAt.getTime() + OPEN_SKEW_MS));
     return effectiveInWindow(history, openedAt, matches);
+  }
+
+  /**
+   * RT-592: true when the open is late (see `STALE_AT_RECEIPT_AFTER_MS`) and the frozen policy is not
+   * the one in effect for the store at `received_at`. Reads the transaction clock first and returns
+   * before any history query when the open is on time, so an ordinary open pays one `SELECT now()`.
+   */
+  private async staleAtReceipt(
+    client: PoolClient,
+    input: OpenPolicyInput,
+    matches: (p: ResolvedPolicy) => boolean,
+  ): Promise<boolean> {
+    const receivedAt = await this.repo.now(client);
+    if (receivedAt.getTime() - new Date(input.openedAt).getTime() <= STALE_AT_RECEIPT_AFTER_MS) return false;
+    const history = await this.historyUntil(client, input, receivedAt);
+    return !matches(effectiveAt(history, receivedAt));
+  }
+
+  /** The tenant's and the store's revisions created at or before `until`, from one statement (one snapshot). */
+  private historyUntil(client: PoolClient, input: OpenPolicyInput, until: Date): Promise<PolicyHistory> {
+    return this.repo.historyBothScopes(client, { tenantId: input.tenantId, storeId: input.storeId }, until);
   }
 }
