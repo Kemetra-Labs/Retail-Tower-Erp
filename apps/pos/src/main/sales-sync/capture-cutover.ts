@@ -197,18 +197,23 @@ function envDiffers(env: RecordCaptureCutoverDeps['env'], stored: CaptureCutover
 
 type WriteOutcome = { stored: CaptureCutover | null; written: CutoverDecision | null };
 
+/** The newest parseable `finalized_at` of every sale in the database, in ms; null = none (Rule 1). */
+export function newestSaleFinalizedAtMs(db: Pick<DatabaseHandle, 'prepare'>): number | null {
+  const finalized = (db.prepare(SELECT_FINALIZED_AT) as Statement<{ finalized_at: unknown }>)
+    .all()
+    .flatMap((r) => (typeof r.finalized_at === 'string' ? [r.finalized_at] : []));
+  return newestFinalizedAtMs(finalized);
+}
+
 function readOrWrite(deps: RecordCaptureCutoverDeps): WriteOutcome {
   const { db, env, now } = deps;
   return db.transaction((): WriteOutcome => {
     const existing = readCaptureCutover(db);
     if (existing !== null) return { stored: existing, written: null };
-    const finalized = (db.prepare(SELECT_FINALIZED_AT) as Statement<{ finalized_at: unknown }>)
-      .all()
-      .flatMap((r) => (typeof r.finalized_at === 'string' ? [r.finalized_at] : []));
     const at = now();
     const decision = decideCutover({
       now: at,
-      maxFinalizedAt: newestFinalizedAtMs(finalized),
+      maxFinalizedAt: newestSaleFinalizedAtMs(db),
       envTenders: env[TENDERS_SINCE_ENV],
       envReceipt: env[RECEIPT_SINCE_ENV],
     });

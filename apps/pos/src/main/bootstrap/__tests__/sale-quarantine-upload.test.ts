@@ -59,8 +59,10 @@ function setup(
     answers?: QuarantineUploadOutcome[];
     revision?: number | null;
     sellingUsers?: SellingUserIdResolver;
-    /** RT-363: record a 0062 row (tenders and receipt cut-offs long past) before the uploader starts. */
+    /** RT-363: record the 0062 row (tender and receipt instants long past) before the uploader starts. */
     cutover?: boolean;
+    /** RT-363: the stored 0066 instant (opted in), recorded before the uploader starts; none = off. */
+    tenderRefsSince?: string;
   } = {},
 ) {
   const db = freshCatalogueDb();
@@ -68,6 +70,13 @@ function setup(
     db.run(
       `INSERT INTO sale_capture_cutover (id, tenders_since, receipt_since, recorded_at, source)
        VALUES (1, '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', '2000-01-01T00:00:00.000Z', 'first_start')`,
+    );
+  }
+  if (opts.tenderRefsSince !== undefined) {
+    db.run(
+      `INSERT INTO sale_tender_refs_cutover (id, tender_refs_since, recorded_at, source)
+       VALUES (1, ?, '2000-01-01T00:00:00.000Z', 'env_opt_in')`,
+      [opts.tenderRefsSince],
     );
   }
   const logger = { info: vi.fn(), warn: vi.fn(), error: vi.fn() };
@@ -140,15 +149,16 @@ describe('RT-1312 Phase 3(c) — startSaleQuarantineUpload', () => {
     t.stop();
   });
 
-  it('RT-363: uploads the per-line tender body when the tender-refs cut-off is set, the merged one when it is not', async () => {
+  it('RT-363: uploads the per-line tender body when a tender-refs instant is stored, the merged one when none is, and ignores the environment', async () => {
     const L1 = 'a1111111-1111-4111-8111-111111111111';
     const L2 = 'b2222222-2222-4222-8222-222222222222';
     const tenders = JSON.stringify([
       { tender_type: 'cash', amount_applied_minor: 1000, tender_line_id: L1, sequence: 1 },
       { tender_type: 'cash', amount_applied_minor: 500, tender_line_id: L2, sequence: 2 },
     ]);
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2000-01-01T00:00:00Z');
-    const on = setup({ cutover: true });
+    // The variable is no longer what decides: a stored row on, no row off.
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '');
+    const on = setup({ cutover: true, tenderRefsSince: '2000-01-01T00:00:00.000Z' });
     on.strand('s1', { tenders });
     await vi.advanceTimersByTimeAsync(PASS_MS);
     expect(on.sent[0]?.saleBody['tenders']).toEqual([
@@ -157,7 +167,7 @@ describe('RT-1312 Phase 3(c) — startSaleQuarantineUpload', () => {
     ]);
     on.stop();
 
-    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '');
+    vi.stubEnv('POS_PULSE_FEATURE_SALE_TENDER_REFS_SINCE', '2000-01-01T00:00:00Z');
     const off = setup({ cutover: true });
     off.strand('s1', { tenders });
     await vi.advanceTimersByTimeAsync(PASS_MS);

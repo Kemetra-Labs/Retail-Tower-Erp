@@ -4,7 +4,8 @@
  *
  * The body is rebuilt on every send and Backend-Core answers 409 to a different body under the
  * same Idempotency-Key, so the byte-identity cases compare the FULL wire string
- * (`JSON.stringify(toWireBody(...))`), never just `.tenders`.
+ * (`JSON.stringify(toWireBody(...))`), never just `.tenders`. That a sale already attempted keeps
+ * its body across restarts, whatever the environment does, is `tender-refs-restart.test.ts`.
  */
 import { describe, expect, it } from 'vitest';
 
@@ -212,11 +213,6 @@ describe('RT-363 — one tender per line past the tender-refs cutoff', () => {
       { tender_type: 'crypto', amount_applied_minor: 1500, tender_line_id: L1, sequence: 1 },
     ];
     expect(() => buildCapturePayload(saleRow(lines), ON)).toThrow('unsupported tender type crypto');
-  });
-
-  it('a retry rebuilds the same bytes', () => {
-    const sale = saleRow(SPLIT_CASH);
-    expect(wire(sale, ON)).toBe(wire(sale, ON));
   });
 });
 
