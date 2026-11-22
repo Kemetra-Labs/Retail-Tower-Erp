@@ -19,6 +19,7 @@ dispatchShipmentTransfer: write
 getCountSelfApprovalSetting: cheapRead
 getCountSession: cheapRead
 getCountSessionsSetting: cheapRead
+getShipmentTransfersSetting: cheapRead
 getInventoryRecall: cheapRead
 getOnHand: cheapRead
 getReturnLandingPolicy: cheapRead
@@ -51,6 +52,7 @@ requestCountRecount: write
 resolveCountLateEvent: write
 setCountSelfApprovalSetting: write
 setCountSessionsSetting: write
+setShipmentTransfersSetting: write
 setReturnLandingPolicy: write
 setSafetyTtlSetting: write
 setTrackedSellingSetting: write
