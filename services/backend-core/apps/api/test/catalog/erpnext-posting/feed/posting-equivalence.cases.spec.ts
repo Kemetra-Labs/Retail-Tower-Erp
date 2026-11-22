@@ -4,7 +4,7 @@
  * Every call below goes through `test/_helpers/posting-equivalence.setup.ts`, which runs the live read and its frozen
  * pre-refactor copy on the same real client and fails on any difference. This spec seeds the cases directly, so their
  * coverage does not depend on what other specs happen to create:
- *   - a live sale_post (item map join), a sale with no item map (omitted), an unknown sale;
+ *   - a live sale_post (item map join), a sale with no lines, a sale with no item map (omitted), an unknown sale;
  *   - a void reversal, a legacy refund reversal, a reversal with an unknown source;
  *   - a frozen sale_post at resolution versions 1 and 2 (more than one resolution), with and without tracking;
  *   - the repair eligibility check on a mapped and an unmapped sale.
@@ -37,6 +37,7 @@ import { POSTING_STATUS_FIXTURE_IDS, POST_A_PENDING, seedPostingStatusFixture } 
 const TENANT_A = POSTING_STATUS_FIXTURE_IDS.tenantA;
 const TPROD_AX = "01900000-0000-7000-8000-0000000a7e63";
 const UNKNOWN = "01900000-0000-7000-8000-00000000dead";
+const UNMAPPED_PRODUCT = "01900000-0000-7000-8000-0000000a7e64";
 
 let env: PgTestEnv | null = null;
 let skip = false;
@@ -117,9 +118,28 @@ describe("RT-1463 posting equivalence — fixed cases", () => {
     expect(item!.sale.lines[0]!.erpnextItemRef).toEqual({ doctype: "Item", name: "ERP-ITEM-1463" });
   });
 
-  it("a sale whose lines have no item map is omitted (null)", async () => {
+  it("a sale with no lines builds an empty line list", async () => {
     if (skip) return;
-    expect(await guarded((c) => buildWorkItem(c, row({ saleId: SALE_A_Y })))).toBeNull();
+    const item = await guarded((c) => buildWorkItem(c, row({ saleId: SALE_A_Y })));
+    expect(item?.sale.lines).toEqual([]);
+  });
+
+  it("a sale whose lines have no item map is omitted (null), and is not repair-eligible", async () => {
+    if (skip) return;
+    // Point SALE_A_X's lines at a product with no item map, inside a transaction that is rolled back.
+    await client!.query("BEGIN");
+    try {
+      await client!.query(
+        `INSERT INTO tenant_products (id, tenant_id, name, tax_category, created_by, updated_by)
+         VALUES ($1, $2, 'RT-1463 Unmapped', 'standard', $3, $3) ON CONFLICT (id) DO NOTHING`,
+        [UNMAPPED_PRODUCT, TENANT_A, ACTOR_A],
+      );
+      await client!.query(`UPDATE sale_lines SET tenant_product_ref = $1 WHERE sale_id = $2`, [UNMAPPED_PRODUCT, SALE_A_X]);
+      expect(await guarded((c) => buildWorkItem(c, row({ saleId: SALE_A_X })))).toBeNull();
+      expect(await guarded((c) => allSaleLinesMapped(c, SALE_A_X))).toBe(false);
+    } finally {
+      await client!.query("ROLLBACK");
+    }
   });
 
   it("an unknown sale is null", async () => {
@@ -159,10 +179,10 @@ describe("RT-1463 posting equivalence — fixed cases", () => {
     }
   });
 
-  it("the repair eligibility check agrees on a mapped and an unmapped sale", async () => {
+  it("the repair eligibility check agrees on a mapped sale and on a sale with no lines", async () => {
     if (skip) return;
     expect(await guarded((c) => allSaleLinesMapped(c, SALE_A_X))).toBe(true);
-    expect(await guarded((c) => allSaleLinesMapped(c, SALE_A_Y))).toBe(false);
+    expect(await guarded((c) => allSaleLinesMapped(c, SALE_A_Y))).toBe(true);
   });
 });
 
