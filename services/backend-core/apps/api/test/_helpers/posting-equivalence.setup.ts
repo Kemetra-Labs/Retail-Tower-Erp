@@ -20,6 +20,15 @@
  */
 type MockOutcome = { readonly ok: true; readonly value: unknown } | { readonly ok: false; readonly error: unknown };
 
+/** What a developer whose PR deliberately changes one of the guarded reads must do (shown on every mismatch). */
+const MOCK_HOW_TO_FIX =
+  "RT-1463 posting equivalence guard: the live result differs from the frozen pre-refactor copy. " +
+  "If RT-1463's refactor caused this, the refactor changed behaviour: fix the refactor. " +
+  "If your PR deliberately changes this read's output, make the SAME change in its frozen copy under " +
+  "apps/api/test/catalog/erpnext-posting/__support__/legacy/ in the same PR (see the README there). " +
+  "The guard is removed when RT-1463 closes.";
+(globalThis as { __rt1463HowToFix?: string }).__rt1463HowToFix = MOCK_HOW_TO_FIX;
+
 (globalThis as { __rt1463PostingCompared?: number }).__rt1463PostingCompared = 0;
 
 /** Builds a wrapper that runs `live` and `legacy` on the same real client and requires the same outcome. */
@@ -45,15 +54,23 @@ function mockCompared<A extends unknown[], R>(
     const g = globalThis as { __rt1463PostingCompared?: number };
     g.__rt1463PostingCompared = (g.__rt1463PostingCompared ?? 0) + 1;
     if (now.ok && before.ok) {
-      expect(now.value).toStrictEqual(before.value);
+      try {
+        expect(now.value).toStrictEqual(before.value);
+      } catch (mismatch) {
+        throw new Error(`${MOCK_HOW_TO_FIX}\n\nRead: ${name}\n${(mismatch as Error).message}`);
+      }
       return now.value as R;
     }
     if (!now.ok && !before.ok) {
-      expect(describeError(now.error)).toEqual(describeError(before.error));
+      try {
+        expect(describeError(now.error)).toEqual(describeError(before.error));
+      } catch (mismatch) {
+        throw new Error(`${MOCK_HOW_TO_FIX}\n\nRead: ${name}\n${(mismatch as Error).message}`);
+      }
       throw now.error;
     }
     throw new Error(
-      `RT-1463 posting equivalence: ${name} ${now.ok ? "returned" : "threw"} where the frozen copy ` +
+      `${MOCK_HOW_TO_FIX}\n\nRead: ${name} ${now.ok ? "returned" : "threw"} where the frozen copy ` +
         `${before.ok ? "returned" : "threw"}: ` +
         JSON.stringify({
           live: now.ok ? now.value : describeError(now.error),
