@@ -130,6 +130,13 @@ CREATE ROLE pricing_projection_writer NOLOGIN;
 GRANT pricing_projection_writer TO <migration owner>;
 ```
 
+`ALTER FUNCTION ... OWNER TO` also needs the new owner to hold `CREATE` on
+schema `public`. 0132 grants it for those three statements and revokes it
+again, which works when the migration owner owns schema `public` (it normally
+does, as the database owner). If it does not, 0132 stops with a hint; the
+superuser then also runs `GRANT CREATE ON SCHEMA public TO
+pricing_projection_writer;` (0132 leaves a grant it did not make in place).
+
 The membership lets the migration owner hand the role its functions (`ALTER
 FUNCTION ... OWNER TO` needs it) and run `pricing_reverse_project` from the
 rollback CLI (PR-16b). It adds no power: the migration owner owns the legacy

@@ -670,11 +670,20 @@ describe("0132_pricing_authority_freeze — down migration", () => {
     }
   }
 
-  /** A NOSUPERUSER, NOBYPASSRLS owner that is a member of the writer role, like production's. */
+  /**
+   * A NOSUPERUSER, NOBYPASSRLS owner that is a member of the writer role, like production's. It
+   * does not own schema public here, so the writer gets CREATE on it from the superuser, as the
+   * documented prerequisite allows (database-roles.md "Before migration 0132").
+   */
   function asOwner<T>(role: string, fn: () => Promise<T>): Promise<T> {
     return asMigrationOwner(guard(), { role, tables: OWNER_TABLES, functions: OWNER_FUNCTIONS }, async () => {
       await guard().admin.query(`GRANT ${WRITER} TO ${role}`);
-      return fn();
+      await guard().admin.query(`GRANT CREATE ON SCHEMA public TO ${WRITER}`);
+      try {
+        return await fn();
+      } finally {
+        await guard().admin.query(`REVOKE CREATE ON SCHEMA public FROM ${WRITER}`);
+      }
     });
   }
 

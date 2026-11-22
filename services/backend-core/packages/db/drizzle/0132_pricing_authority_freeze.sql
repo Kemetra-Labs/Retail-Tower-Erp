@@ -31,7 +31,7 @@
 --   - an INSERT that sets a price;
 --   - a DELETE of a row whose price is set (an override, and also a priced tenant product: deleting
 --     it changes the served price just as clearing it would);
---   - moving a priced row to another tenant, store or product;
+--   - moving a priced row to another tenant, store or product (or changing a priced product's id);
 --   - under `cutover_in_progress` only: a change of retired_at on a priced override.
 -- Every other write goes through untouched and takes no lock: name, is_active, tax_category,
 -- aliases, retired_at on a price-less override. While every tenant is `legacy` (the only state
@@ -344,7 +344,7 @@ BEGIN
     ELSIF TG_OP = 'UPDATE' THEN
       price_change := NEW.default_price IS DISTINCT FROM OLD.default_price
         OR NEW.default_currency_code IS DISTINCT FROM OLD.default_currency_code
-        OR (NEW.tenant_id IS DISTINCT FROM OLD.tenant_id
+        OR ((NEW.tenant_id, NEW.id) IS DISTINCT FROM (OLD.tenant_id, OLD.id)
             AND (OLD.default_price IS NOT NULL OR NEW.default_price IS NOT NULL));
       touched := ARRAY[OLD.tenant_id, NEW.tenant_id];
     ELSE
@@ -401,7 +401,7 @@ $$;
 --                           otherwise carry no override). No live override and a price -> a
 --                           price-only override is inserted. No live override and no price -> nothing.
 -- p_price and p_currency_code are both null or both set. The tenant (and store) context is set
--- for this call only: the function's SET clauses restore the caller's values on exit.
+-- for this call only: the caller's values are restored before it returns.
 CREATE FUNCTION pricing_reverse_project(
   p_tenant_id      uuid,
   p_product_id     uuid,
@@ -414,11 +414,11 @@ CREATE FUNCTION pricing_reverse_project(
   LANGUAGE plpgsql
   SECURITY DEFINER
   SET search_path = pg_catalog, public
-  SET app.current_tenant = ''
-  SET app.current_store = ''
 AS $$
 DECLARE
-  n bigint;
+  n             bigint;
+  saved_tenant  text;
+  saved_store   text;
 BEGIN
   IF p_tenant_id IS NULL OR p_product_id IS NULL OR p_actor_user_id IS NULL THEN
     RAISE EXCEPTION 'pricing_reverse_project: tenant, product and actor are required'
@@ -429,6 +429,11 @@ BEGIN
       USING ERRCODE = 'invalid_parameter_value';
   END IF;
 
+  -- Function-level SET of a custom GUC needs superuser on PG15+, so the caller's context is saved
+  -- here and restored before returning. On an error the caller's transaction (or savepoint) rolls
+  -- these transaction-local settings back with everything else.
+  saved_tenant := current_setting('app.current_tenant', true);
+  saved_store := current_setting('app.current_store', true);
   PERFORM set_config('app.current_tenant', p_tenant_id::text, true);
 
   IF p_store_id IS NULL THEN
@@ -441,6 +446,7 @@ BEGIN
       RAISE EXCEPTION 'pricing_reverse_project: product % not found for tenant %', p_product_id, p_tenant_id
         USING ERRCODE = 'no_data_found';
     END IF;
+    PERFORM set_config('app.current_tenant', coalesce(saved_tenant, ''), true);
     RETURN;
   END IF;
 
@@ -473,15 +479,39 @@ BEGIN
      WHERE tenant_id = p_tenant_id AND store_id = p_store_id AND product_id = p_product_id
        AND retired_at IS NULL AND price IS NOT NULL;
   END IF;
+  PERFORM set_config('app.current_tenant', coalesce(saved_tenant, ''), true);
+  PERFORM set_config('app.current_store', coalesce(saved_store, ''), true);
 END
 $$;
 
 REVOKE ALL ON FUNCTION pricing_reverse_project(uuid, uuid, uuid, numeric, char, uuid, uuid) FROM PUBLIC;
 REVOKE ALL ON FUNCTION pricing_authority_seed_tenant() FROM PUBLIC;
 
-ALTER FUNCTION pricing_authority_for_share(uuid) OWNER TO pricing_projection_writer;
-ALTER FUNCTION pricing_authority_seed_tenant() OWNER TO pricing_projection_writer;
-ALTER FUNCTION pricing_reverse_project(uuid, uuid, uuid, numeric, char, uuid, uuid) OWNER TO pricing_projection_writer;
+-- ALTER ... OWNER TO needs the new owner to hold CREATE on the function's schema. The writer gets
+-- it only for these three statements (the schema owner, normally the migration owner as database
+-- owner, can grant it), unless it already holds it (the superuser prerequisite may grant it).
+DO $$
+DECLARE
+  granted boolean := false;
+BEGIN
+  IF NOT has_schema_privilege('pricing_projection_writer', 'public', 'CREATE') THEN
+    GRANT CREATE ON SCHEMA public TO pricing_projection_writer;
+    granted := true;
+    IF NOT has_schema_privilege('pricing_projection_writer', 'public', 'CREATE') THEN
+      RAISE EXCEPTION '0132: % cannot give pricing_projection_writer CREATE on schema public to hand it its functions', current_user
+        USING ERRCODE = 'insufficient_privilege',
+              HINT = 'As a superuser: GRANT CREATE ON SCHEMA public TO pricing_projection_writer; then re-run migrate '
+                  || '(docs/operations/database-roles.md, "Before migration 0132").';
+    END IF;
+  END IF;
+  ALTER FUNCTION pricing_authority_for_share(uuid) OWNER TO pricing_projection_writer;
+  ALTER FUNCTION pricing_authority_seed_tenant() OWNER TO pricing_projection_writer;
+  ALTER FUNCTION pricing_reverse_project(uuid, uuid, uuid, numeric, char, uuid, uuid) OWNER TO pricing_projection_writer;
+  IF granted THEN
+    REVOKE CREATE ON SCHEMA public FROM pricing_projection_writer;
+  END IF;
+END
+$$;
 
 -- =============================================================================
 -- 6. Every tenant has its authority row: new tenants by trigger, existing ones seeded
