@@ -1757,3 +1757,41 @@ describe("erpnext-connector/posting-feed.yaml — RT-1514 adopts the transfer ki
     );
   });
 });
+
+// ===========================================================================
+// RT-1549 (Inventory Gate 5, RT-291) — description-only correction of the RT-1514
+// heartbeat caveat once RT-1519 widened connector-health `acceptedWorkItemKinds`
+// ===========================================================================
+describe("erpnext-connector/posting-feed.yaml — RT-1549 corrects the RT-1514 heartbeat caveat (description only, 1.17.0-draft)", () => {
+  const info = (): string => (feedDoc.info?.description ?? "").replace(/\s+/g, " ");
+
+  it("keeps 1.17.0-draft: the note changes the description and nothing else", () => {
+    expect(feedDoc.info?.version).toBe("1.17.0-draft");
+    expect(info()).toContain("RT-1549 (1.17.0-draft, description only; [GATED: contract]");
+    expect(info()).toContain("no schema, enum, example, path or `info.version`");
+  });
+
+  it("no longer says the Connector advertises only the first three kinds", () => {
+    expect(info()).not.toContain("deliberately keeps advertising");
+    expect(info()).not.toContain("advertising only");
+    expect(info()).not.toContain("must not read their absence");
+  });
+
+  it("states that the heartbeat lists both transfer kinds (RT-1519, connector-health 1.3.0-draft)", () => {
+    expect(info()).toContain("RT-1519 (connector-health 1.3.0-draft, merged as `f1033993`)");
+    expect(info()).toContain("The heartbeat therefore lists both transfer kinds");
+  });
+
+  it("allows Backend-Core to emit the transfer kinds only for a tenant whose Connector reports both", () => {
+    expect(info()).toContain(
+      "only for a tenant whose Connector's recent heartbeat reports BOTH in `acceptedWorkItemKinds`",
+    );
+    expect(info()).toContain("only once RT-1513 has deployed its runtime and activated that tenant");
+    expect(info()).toContain("must not emit transfer work items for that tenant");
+  });
+
+  it("keeps the RT-1514 deploy-order rule and points its heartbeat condition at RT-1519", () => {
+    expect(info()).toContain("Backend-Core MUST NOT emit");
+    expect(info()).toContain("(met by connector-health 1.3.0-draft, RT-1519; see the RT-1549 note below)");
+  });
+});
