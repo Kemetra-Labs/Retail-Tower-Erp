@@ -32,6 +32,7 @@ import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
 import { RolesGuard } from '../../../src/auth/roles.guard';
 import { TrackingProfileController } from '../../../src/catalog/tracking-profile/tracking-profile.controller';
 import { TrackingProfileService } from '../../../src/catalog/tracking-profile/tracking-profile.service';
+import { ProductSaleLinesPortModule } from '../../../src/catalog/sales/product-sale-lines-port.module';
 import { GlobalExceptionFilter } from '../../../src/common/exception.filter';
 import { MembershipRepository } from '../../../src/context/membership.repository';
 import { TenantContextGuard } from '../../../src/context/tenant-context.guard';
@@ -186,6 +187,8 @@ beforeAll(async () => {
   const pool = env.app as unknown as Pool;
   holds = new TrackingHoldsService(pool);
   const moduleRef = await Test.createTestingModule({
+    // RT-1463: TrackingProfileService asks sales through PRODUCT_SALE_LINES_PORT (app.module imports this globally).
+    imports: [ProductSaleLinesPortModule],
     controllers: [InventorySafetyController, TrackingIdentitiesController, TrackingProfileController],
     providers: [
       { provide: PG_POOL, useValue: pool },
