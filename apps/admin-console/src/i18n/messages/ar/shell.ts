@@ -14,6 +14,8 @@ export const shell = {
   "shell.status.component.server": "الخادم",
   "shell.status.component.saleSync": "مزامنة المبيعات",
   "shell.status.component.erpConnector": "موصّل ERPNext",
+  // RT-1552: the optional shipment-Transfer component (RT-1516).
+  "shell.status.component.shipmentTransfers": "تحويلات المخزون",
   "shell.status.state.ok": "سليم",
   "shell.status.state.degraded": "متدهور",
   "shell.status.state.down": "متوقف",
@@ -31,6 +33,23 @@ export const shell = {
   "shell.status.reason.not_configured": "غير مهيّأ",
   "shell.status.reason.all_disabled": "كل النسخ معطّلة",
   "shell.status.reason.never_seen": "لا نبضة بعد",
+  // RT-1552: `keeping_up` and `check_timed_out` above are shared with the sale-sync reasons.
+  "shell.status.reason.transfers_delayed": "تحويلات متأخرة",
+  "shell.status.reason.postings_stuck": "ترحيلات التحويلات عالقة",
+  "shell.status.reason.postings_need_attention": "ترحيلات التحويلات تحتاج إلى متابعة",
+  // RT-1552: the one count line of a degraded transfers row. The threshold is the tenant's, in days.
+  "shell.status.fact.days": {
+    zero: "{count} يوم",
+    one: "يوم واحد",
+    // The only use is after «أكثر من», so the dual is genitive (يومين), not nominative.
+    two: "يومين",
+    few: "{count} أيام",
+    many: "{count} يومًا",
+    other: "{count} يوم",
+  },
+  "shell.status.fact.transfers_delayed": "قيد النقل أكثر من {threshold}: {count}",
+  "shell.status.fact.postings_stuck": "ترحيلات تنتظر طويلًا: {count}",
+  "shell.status.fact.postings_need_attention": "للمراجعة: {count}",
   "shell.nav.overview": "نظرة عامة",
   // RT-1291: the labels of the first two nav groups (they replace the one unheaded group of
   // RT-995 D-V9), shown in the sidebar and in the list band of each page.

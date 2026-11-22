@@ -13,13 +13,19 @@
  *    clock; `asOf` is never compared with the local clock (D-2).
  *  - Destinations are the closed `link` values of D-5, mapped to the Console's
  *    own routes; `none` renders no link (UX-09).
+ *  - RT-1552: `shipmentTransfers` is optional (RT-1516). Absent (an older
+ *    server), the block is exactly the three components. Present, it follows
+ *    the same rules, has no destination (its contract `link` is `none`), and a
+ *    degraded one carries one count line taken only from the facts the server
+ *    sent: nothing is invented, and no line for ok or unknown.
  */
 import type { MessageKey } from "@/i18n";
 import type { ComponentLink, ConsoleSystemStatus } from "@/lib/system-status-queries";
 
 export type StatusState = "ok" | "degraded" | "down" | "unknown";
-export type ComponentId = "server" | "saleSync" | "erpConnector";
+export type ComponentId = "server" | "saleSync" | "erpConnector" | "shipmentTransfers";
 
+/** The components every server sends. `shipmentTransfers` is optional and is added when present. */
 export const COMPONENT_IDS: readonly ComponentId[] = ["server", "saleSync", "erpConnector"];
 
 /** The snapshot is stale this long after the Console received it (D-2). */
@@ -48,6 +54,13 @@ const REASON_STATE: Record<ComponentId, Record<string, StatusState>> = {
     never_seen: "unknown",
     check_timed_out: "unknown",
   },
+  shipmentTransfers: {
+    keeping_up: "ok",
+    transfers_delayed: "degraded",
+    postings_stuck: "degraded",
+    postings_need_attention: "degraded",
+    check_timed_out: "unknown",
+  },
 };
 
 const STATES: readonly StatusState[] = ["ok", "degraded", "down", "unknown"];
@@ -63,6 +76,7 @@ export const COMPONENT_LABEL: Record<ComponentId, MessageKey> = {
   server: "shell.status.component.server",
   saleSync: "shell.status.component.saleSync",
   erpConnector: "shell.status.component.erpConnector",
+  shipmentTransfers: "shell.status.component.shipmentTransfers",
 };
 
 /** The Console routes for the D-5 destinations; `none` has no route. */
@@ -76,12 +90,21 @@ export function linkRoute(link: ComponentLink | string | undefined): string | nu
   return link === undefined ? null : (LINK_ROUTE[link] ?? null);
 }
 
+/** One count line under a degraded `shipmentTransfers` row: the message, its number, and the threshold days when it names one. */
+interface ComponentFact {
+  key: MessageKey;
+  count: number;
+  days: number | null;
+}
+
 export interface ComponentView {
   id: ComponentId;
   state: StatusState;
   /** The reason message, only when the server's reason agrees with its state. */
   reasonKey: MessageKey | null;
   route: string | null;
+  /** RT-1552: the count line of a degraded `shipmentTransfers`; null everywhere else. */
+  fact: ComponentFact | null;
 }
 
 export interface StatusView {
@@ -93,17 +116,67 @@ function reasonKey(reason: string): MessageKey {
   return `shell.status.reason.${reason}` as MessageKey;
 }
 
+/** A count the server sent: a finite whole number, zero or more. Anything else is not a count. */
+function countOf(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ? value : null;
+}
+
+type Facts = Record<string, unknown>;
+
+function delayedFact(f: Facts): ComponentFact | null {
+  const count = countOf(f.delayedTransferCount);
+  const days = countOf(f.delayedThresholdDays);
+  return count && days ? { key: "shell.status.fact.transfers_delayed", count, days } : null;
+}
+
+function stuckFact(f: Facts): ComponentFact | null {
+  const count = countOf(f.stuckPostingCount);
+  return count ? { key: "shell.status.fact.postings_stuck", count, days: null } : null;
+}
+
+function attentionFact(f: Facts): ComponentFact | null {
+  const postings = countOf(f.postingsNeedingAttentionCount);
+  const receipts = countOf(f.unreleasedReceiptCount);
+  // Both halves must be counts: a malformed half is never shown as a partial total.
+  if (postings === null || receipts === null) return null;
+  const count = postings + receipts;
+  return count > 0 && Number.isSafeInteger(count)
+    ? { key: "shell.status.fact.postings_need_attention", count, days: null }
+    : null;
+}
+
+const FACT_OF: Record<string, (f: Facts) => ComponentFact | null> = {
+  transfers_delayed: delayedFact,
+  postings_stuck: stuckFact,
+  postings_need_attention: attentionFact,
+};
+
+/**
+ * The count line of a degraded `shipmentTransfers` row, from the server's facts only (RT-1552).
+ * `postings_need_attention` covers both rejected or reconciliation-needed postings and receipts
+ * left unreleased, so its count is their sum. No line for a zero, a missing or a malformed count,
+ * and none when either half of that sum is malformed.
+ */
+function shipmentFact(reason: string, facts: unknown): ComponentFact | null {
+  if (typeof facts !== "object" || facts === null) return null;
+  return FACT_OF[reason]?.(facts as Facts) ?? null;
+}
+
 /** One component: its state only if its reason agrees with it, otherwise `unknown`. */
 function viewOf(
   id: ComponentId,
-  raw: { state?: string; reason?: string; link?: string } | undefined,
+  raw: { state?: string; reason?: string; link?: string; facts?: unknown } | undefined,
 ): ComponentView {
+  // `shipmentTransfers` has no destination: its contract `link` is `none`, so none is ever mapped.
+  const route = id === "shipmentTransfers" ? null : linkRoute(raw?.link);
   const state = STATES.find((s) => s === raw?.state);
   const reason = raw?.reason;
   if (!raw || !state || !reason || REASON_STATE[id][reason] !== state) {
-    return { id, state: "unknown", reasonKey: null, route: linkRoute(raw?.link) };
+    return { id, state: "unknown", reasonKey: null, route, fact: null };
   }
-  return { id, state, reasonKey: reasonKey(reason), route: linkRoute(raw.link) };
+  const fact =
+    id === "shipmentTransfers" && state === "degraded" ? shipmentFact(reason, raw.facts) : null;
+  return { id, state, reasonKey: reasonKey(reason), route, fact };
 }
 
 /** Worst-of in the order down > degraded > unknown > ok (D-1). */
@@ -114,9 +187,15 @@ export function worstOf(states: readonly StatusState[]): StatusState {
   return states.length === 0 ? "unknown" : "ok";
 }
 
-/** The three components from a 200 body. The overall is recomputed, never trusted to be `ok`. */
+/**
+ * The components of a 200 body: the three every server sends, then `shipmentTransfers` when the
+ * server sent it. The overall is recomputed, never trusted to be `ok`.
+ */
 export function statusView(body: ConsoleSystemStatus): StatusView {
   const components = COMPONENT_IDS.map((id) => viewOf(id, body.components?.[id]));
+  // Only an absent key means an older server; a present but malformed one shows `unknown`.
+  const transfers = body.components?.shipmentTransfers;
+  if (transfers !== undefined) components.push(viewOf("shipmentTransfers", transfers));
   const computed = worstOf(components.map((c) => c.state));
   const sent = STATES.find((s) => s === body.overall) ?? "unknown";
   // Never better than the components or the server's own overall: `ok` only when both are.
@@ -133,6 +212,7 @@ export function unknownView(): StatusView {
       state: "unknown" as const,
       reasonKey: null,
       route: null,
+      fact: null,
     })),
   };
 }
