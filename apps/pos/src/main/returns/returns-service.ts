@@ -58,7 +58,7 @@ import type {
 import type { SaleRow, SalesRepository } from '../sales/repositories/sales.repository.js';
 import { SALE_OWNERSHIP_REFUSAL, saleOwnerFilter } from '../sales/sale-access-policy.js';
 import type { SaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
-import type { ReturnActor, ReturnsAudit } from './returns-audit.js';
+import { auditRefusal, type ReturnActor, type ReturnsAudit } from './returns-audit.js';
 import {
   SHUTTING_DOWN,
   latchedRecheck,
@@ -69,12 +69,7 @@ import {
 import type { ReadSaleOutcome, ReturnsClient } from './returns-client.js';
 import type { DispatchOutcome, ReturnsDispatcher } from './returns-dispatch.js';
 import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
-import {
-  RETURN_RESOLVE_ACTION_KIND,
-  isDisposable,
-  resolveSubjectOf,
-  resolveSubjectRef,
-} from './returns-resolve-approval.js';
+import { isDisposable, spendResolveApproval } from './returns-resolve-approval.js';
 import { assessSale, buildRecordReturnBody, quoteReturn, viewLines } from './returns-quote.js';
 import type { LineDetail } from './returns-payout-repository.js';
 import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
@@ -88,8 +83,14 @@ import type { WireSale } from './returns-wire.js';
 
 export type { ReturnsSession } from './returns-auth.js';
 
-/** The journal-side bridge methods (S2); payout and slip live in `returns-payout` (S4). */
-export type ReturnsCoreAPI = Omit<ReturnsBridgeAPI, 'payout' | 'reprintSlip'>;
+/**
+ * The journal-side bridge methods (S2); payout and slip live in `returns-payout` (S4), the status read
+ * and the close in `returns-close-service` (RT-1498 close slice).
+ */
+export type ReturnsCoreAPI = Omit<
+  ReturnsBridgeAPI,
+  'payout' | 'reprintSlip' | 'readStatus' | 'close'
+>;
 
 /**
  * RT-196 S1 — the per-row resend. Reached by the renderer through the
@@ -216,7 +217,8 @@ function isResendable(entry: JournalEntry): boolean {
   return entry.state === 'pending' || entry.state === 'unknown';
 }
 
-function isOwnScope(entry: JournalEntry, actor: ReturnActor): boolean {
+/** A return of THIS terminal (tenant, branch and terminal all match the actor's). */
+export function isOwnScope(entry: JournalEntry, actor: ReturnActor): boolean {
   const a = entry.scope;
   const b = actor.scope;
   return a.tenantId === b.tenantId && a.branchId === b.branchId && a.terminalId === b.terminalId;
@@ -235,13 +237,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
   private refuse(actor: ReturnActor, op: Operation, reason: ReturnsRefusalReason, ids: Ids = {}) {
     // Shutdown is not an operator refusal: never audited (the DB may be closed).
     if (reason === 'shutting_down') return SHUTTING_DOWN;
-    this.deps.audit.refused(actor, {
-      return_id: ids.returnId ?? null,
-      sale_id: ids.saleId ?? null,
-      sale_ref: ids.saleRef ?? null,
-      operation: op,
-      reason,
-    });
+    auditRefusal(this.deps.audit, actor, op, reason, ids);
     return { kind: 'refused', reason } as const;
   }
 
@@ -627,37 +623,18 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
   }
 
   /**
-   * Spend the approval for `fresh` and prove it: bound to the escalate reason, granted to THIS
-   * operator as requester by a manager who is not them. Returns the approver's `users.id`.
+   * Spend the approval for `fresh` and prove it (the shared `spendResolveApproval`): bound to the
+   * escalate reason, granted to THIS operator as requester by a manager who is not them. Returns the
+   * approver's `users.id`.
    */
   private spendEscalationApproval(
     actor: AuthSnapshot,
     approvalId: string,
     fresh: JournalEntry,
   ): string {
-    const escalation = this.deps.escalation;
-    const userId = escalation?.userId()?.toLowerCase() ?? null;
-    if (escalation === undefined || userId === null) throw new EscalateRefusal('approval_invalid');
-    const consumed = escalation.approvals.consume({
-      approvalId,
-      actionKind: RETURN_RESOLVE_ACTION_KIND,
-      subjectRef: resolveSubjectRef(fresh.returnId, 'escalate'),
-      subject: resolveSubjectOf(fresh, 'escalate'),
-      session: {
-        operator_id: actor.operatorId,
-        tenant_id: actor.scope.tenantId,
-        branch_id: actor.scope.branchId,
-      },
-    });
-    if (consumed.kind === 'refused') throw new EscalateRefusal(consumed.reason);
-    const evidence = escalation.approvals.evidence(approvalId);
-    const granted =
-      evidence !== null &&
-      consumed.reasonCode === 'escalate_unknown' &&
-      evidence.requesterUserId?.toLowerCase() === userId &&
-      evidence.approverUserId.toLowerCase() !== userId;
-    if (!granted) throw new EscalateRefusal('approval_invalid');
-    return evidence.approverUserId;
+    const spent = spendResolveApproval(this.deps.escalation, actor, approvalId, fresh, 'escalate');
+    if (spent.kind === 'refused') throw new EscalateRefusal(spent.reason);
+    return spent.approverUserId;
   }
 
   async resolve(): Promise<ReturnsResolveResponse> {

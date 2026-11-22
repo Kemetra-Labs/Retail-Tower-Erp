@@ -20,6 +20,11 @@
  *   • RT-1498 S4/S5 `escalate`: exactly `{ returnId, approvalId }`, both canonical UUIDs.
  *     The disposition is fixed by the channel, and the approval (bound to this return and to
  *     `escalate`) is spent in main; no operator, scope, amount or reason can be smuggled in.
+ *   • RT-1498 close slice `readStatus`: exactly `{ returnId }` (a canonical UUID). The sale, the
+ *     provenance and the credential are derived in main from the journaled row, and the verdict is the
+ *     server's. `close`: exactly `{ returnId, approvalId }`, both canonical UUIDs; the disposition is
+ *     fixed by the channel, the approval (bound to this return and to `close`) is spent in main, and no
+ *     verdict, read time, reason, operator, scope or amount can be smuggled in.
  *
  * Session, role, feature gate and every business rule live in the service.
  * The channels are not on the locked-session allowlist, so the guarded
@@ -33,9 +38,11 @@ import {
   type ReturnLineInput,
   type ReturnPayoutAction,
   type ReturnsBridgeAPI,
+  type ReturnsCloseRequest,
   type ReturnsEscalateRequest,
   type ReturnsPayoutRequest,
   type ReturnsQuoteRequest,
+  type ReturnsReadStatusRequest,
   type ReturnsReprintRequest,
   type ReturnsResendRequest,
 } from '../../shared/returns/types.js';
@@ -57,6 +64,8 @@ const PAYOUT_KEYS = ['returnId', 'action'] as const;
 const REPRINT_KEYS = ['returnId'] as const;
 const RESEND_KEYS = ['returnId'] as const;
 const ESCALATE_KEYS = ['returnId', 'approvalId'] as const;
+const READ_STATUS_KEYS = ['returnId'] as const;
+const CLOSE_KEYS = ['returnId', 'approvalId'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false;
@@ -164,6 +173,20 @@ export function readEscalateRequest(value: unknown): ReturnsEscalateRequest | nu
   return isReturnId(returnId) && isReturnId(approvalId) ? { returnId, approvalId } : null;
 }
 
+/** `{ returnId }` exactly (RT-1498 close slice `readStatus`), or null. */
+export function readStatusRequest(value: unknown): ReturnsReadStatusRequest | null {
+  if (!isClosedShape(value, READ_STATUS_KEYS)) return null;
+  const { returnId } = value;
+  return isReturnId(returnId) ? { returnId } : null;
+}
+
+/** `{ returnId, approvalId }` exactly (RT-1498 close slice `close`), or null. */
+export function readCloseRequest(value: unknown): ReturnsCloseRequest | null {
+  if (!isClosedShape(value, CLOSE_KEYS)) return null;
+  const { returnId, approvalId } = value;
+  return isReturnId(returnId) && isReturnId(approvalId) ? { returnId, approvalId } : null;
+}
+
 /** `resolve` / `list` accept no payload (undefined or `{}`). */
 function isEmptyPayload(value: unknown): boolean {
   return value === undefined || isClosedShape(value, []);
@@ -219,5 +242,16 @@ export function registerReturnsHandlers(ipcMain: IpcMain, deps: ReturnsIpcDeps):
   ipcMain.handle(RETURNS_IPC_CHANNELS.ESCALATE, (_event, request: unknown) => {
     const req = readEscalateRequest(request);
     return req === null ? { ...INVALID, ret: null } : service.escalate(req);
+  });
+
+  // RT-1498 close slice: a refusal carries `ret: null`, like `escalate`.
+  ipcMain.handle(RETURNS_IPC_CHANNELS.READ_STATUS, (_event, request: unknown) => {
+    const req = readStatusRequest(request);
+    return req === null ? { ...INVALID, ret: null } : service.readStatus(req);
+  });
+
+  ipcMain.handle(RETURNS_IPC_CHANNELS.CLOSE, (_event, request: unknown) => {
+    const req = readCloseRequest(request);
+    return req === null ? { ...INVALID, ret: null } : service.close(req);
   });
 }

@@ -81,7 +81,8 @@ export interface ReturnsRepository {
   listRecent(scope: ReturnScope, limit: number): JournalEntry[];
   /**
    * This terminal's `pending` / `unknown` returns the resolver may resend, oldest first: a
-   * return with a disposition (closed, or needs_support) is not listed (RT-1498 S4).
+   * return with a disposition (closed, or needs_support) is not listed (RT-1498 S4), nor is one held
+   * by a `retry_hold` newer than its last attempt (RT-1498 close slice).
    */
   listUnresolved(scope: ReturnScope): JournalEntry[];
   /**
@@ -138,6 +139,13 @@ const UNRESOLVED = `state IN ('pending', 'unknown')`;
 const DISPOSITION_OF_ROW = `FROM return_journal_dispositions d WHERE d.return_id = return_journal.return_id`;
 const CLOSED = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind = 'not_recorded_closed')`;
 const DISPOSED = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind IN ('not_recorded_closed', 'needs_support'))`;
+/**
+ * RT-1498 close slice: a `retry_hold` (a status read answered "not recorded") newer than the row's last
+ * attempt holds the background and bar resends, so the quiet period can elapse. Only an explicit
+ * per-row resend moves `last_attempt_at` past it. It never frees the sale (not part of `OPEN`).
+ */
+const HELD = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind = 'retry_hold'
+  AND (return_journal.last_attempt_at IS NULL OR d.created_at > return_journal.last_attempt_at))`;
 /** Still in the flow: unresolved and not closed (every guarded transition requires it). */
 const OPEN = `${UNRESOLVED} AND NOT ${CLOSED}`;
 const SCOPE_WHERE = 'tenant_id = ? AND branch_id = ? AND terminal_id = ?';
@@ -251,7 +259,7 @@ class SqlReturnsRepository implements ReturnsRepository {
 
   listUnresolved(scope: ReturnScope): JournalEntry[] {
     const sql = `SELECT * FROM return_journal WHERE ${SCOPE_WHERE} AND ${UNRESOLVED}
-                 AND NOT ${DISPOSED} ORDER BY created_at ASC, return_id ASC`;
+                 AND NOT ${DISPOSED} AND NOT ${HELD} ORDER BY created_at ASC, return_id ASC`;
     return this.hydrate(this.prepare(sql).all(...scopeParams(scope)));
   }
 

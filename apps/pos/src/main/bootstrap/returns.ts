@@ -26,6 +26,10 @@ import {
   RETURN_RESOLVE_ACTION_KIND,
   createReturnResolveApprovalResolver,
 } from '../returns/returns-resolve-approval.js';
+import {
+  createStatusReadAvailability,
+  type StatusReadAvailability,
+} from '../returns/returns-status-availability.js';
 import { operatorUserIdOf } from '../sale-void/sale-void-session.js';
 import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 import { openShiftRefOf, shiftRefAtOf } from '../returns/returns-execution-enqueue.js';
@@ -50,6 +54,12 @@ export interface ReturnsDeps {
    * `return.resolve_unknown` approval through it, inside the transaction that writes the disposition.
    */
   managerApprovals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
+  /**
+   * RT-1498 close slice: whether the server's status read is available. Absent: the process-wide one
+   * the approval's subject resolver (`returnResolveApprovalResolvers`) also reads by default, so a
+   * close is offered only while the last status probe was answered with a verdict (never a 404).
+   */
+  statusAvailability?: StatusReadAvailability;
   /** The audit sink the return journal writes to. */
   auditEmitter: ComposeReturnsDeps['auditSink'];
   /** RT-15 S4: the sale drawer's hardware port (the same instance sales use). */
@@ -62,20 +72,31 @@ export interface ReturnsDeps {
 }
 
 /**
+ * RT-1498 close slice: the one status-read availability of this process. The approval service is built
+ * before `registerReturns` runs (in `index.ts`), so the approval's subject resolver and the composed
+ * return domain meet here: the domain notes every status read in it, and a close approval is named only
+ * while it says the server's status read is available (fail closed: unknown is unavailable).
+ */
+export const processStatusAvailability: StatusReadAvailability = createStatusReadAvailability();
+
+/**
  * RT-1498 S4/S5: the manager-approval subject resolver of `return.resolve_unknown` (the approval of
- * handing an unknown return to support, with the disposition bound into its subject). Built over the
- * same database and the live paired terminal; `index.ts` spreads it into the approval service's
- * resolvers because that service is built before `registerReturns` runs.
+ * handing an unknown return to support, or of closing it, with the disposition bound into its subject).
+ * Built over the same database and the live paired terminal; `index.ts` spreads it into the approval
+ * service's resolvers because that service is built before `registerReturns` runs. A close subject is
+ * named only while the server's status read is available (RT-1498 close slice).
  */
 export function returnResolveApprovalResolvers(
   db: DatabaseHandle,
   pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>,
+  statusAvailability: StatusReadAvailability = processStatusAvailability,
 ): Record<typeof RETURN_RESOLVE_ACTION_KIND, ApprovalSubjectResolver> {
   return {
     [RETURN_RESOLVE_ACTION_KIND]: createReturnResolveApprovalResolver({
       repo: createReturnsRepository(db),
       dispositions: createReturnDispositionsRepository(db),
       terminalId: () => pairingStore.getCurrentTerminalId(),
+      closeAvailable: () => statusAvailability.isAvailable(),
     }),
   };
 }
@@ -94,6 +115,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     operatorEnvelopeHolder,
     pairingStore,
     managerApprovals,
+    statusAvailability = processStatusAvailability,
     auditEmitter,
     drawerKickTransport,
     printPipeline,
@@ -145,7 +167,9 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-1543: the same signal the shift-cashup bootstrap uses, read per call. Without it no till
     // has a shift, so a new return carries no allocationRef and reports no execution.
     isShiftCashupEnabled: () => resolveFeatureFlags().shiftCashup,
-    // RT-1498 S4/S5: the approval `returns:escalate` spends, and the requester's `users.id`.
+    // RT-1498 close slice: the status-read availability the close approval's resolver also reads.
+    statusAvailability,
+    // RT-1498 S4/S5: the approval `returns:escalate` and `returns:close` spend, and the requester's `users.id`.
     escalation: {
       approvals: managerApprovals,
       userId: () => {

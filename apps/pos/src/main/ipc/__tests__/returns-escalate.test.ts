@@ -3,8 +3,8 @@
  * untrusted: the request is exactly `{ returnId, approvalId }`, two canonical UUIDs. No scope,
  * operator, amount, disposition or reason can be smuggled in (main derives them from the row and
  * from the approval), and the channel is refused while the session is locked (default deny: it is
- * not on the lock allowlist). There is NO `returns:close` channel: a close needs a server status
- * read that answered "not recorded", which is owed (RT-1498 C0).
+ * not on the lock allowlist). The close and the status read have their own channels and tests
+ * (`returns-close.test.ts`); the disposition is fixed by the channel, never by the request.
  */
 import { describe, expect, it, vi } from 'vitest';
 import type { IpcMain, IpcMainInvokeEvent } from 'electron';
@@ -49,10 +49,6 @@ describe('returns:escalate', () => {
   it('is named returns:escalate and is not on the locked-session allowlist', () => {
     expect(RETURNS_IPC_CHANNELS.ESCALATE).toBe('returns:escalate');
     expect(LOCKED_ALLOWED_CHANNELS.has(RETURNS_IPC_CHANNELS.ESCALATE)).toBe(false);
-  });
-
-  it('has no close channel yet (the status read it needs is owed)', () => {
-    expect(Object.values(RETURNS_IPC_CHANNELS).some((c) => /close/i.test(c))).toBe(false);
   });
 
   it('is refused while the session is locked, and nothing is escalated', async () => {

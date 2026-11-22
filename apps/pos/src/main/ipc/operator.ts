@@ -152,6 +152,11 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'sale.return.resend_requested',
   // RT-1498 S4 — written only by the returns dispatcher / service (a forged one would fake support).
   'sale.return.needs_support',
+  // RT-1498 close slice — the status read, the close and the late-commit finding are written only by
+  // the returns service (a forged one would fake a server verdict, a close or a mismatch).
+  'sale.return.status_read',
+  'sale.return.closed_not_recorded',
+  'sale.return.late_commit_after_close',
   // RT-546 — emitted only by the sales/receipts role gate (sale-access-policy).
   'sale.access.refused',
   // RT-551 — the sale-number day-rule switch, written only by the finalize

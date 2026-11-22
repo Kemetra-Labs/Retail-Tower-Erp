@@ -155,6 +155,15 @@ export const LOCAL_RETURN_REFUSALS = [
   // disposition (expired, spent, another return, or the other disposition), or the row moved since.
   'approval_invalid',
   'approval_stale',
+  // RT-1498 close slice — PROPOSED reasons of the status read and the close (RT-196 §3.9): a close
+  // within 15 minutes of the last send; a quiet period this POS cannot show has elapsed (restart, a
+  // stepped clock); an action on this return, or a send of it, is running; the server did not affirm
+  // "not recorded"; the session or device may not read the server's answer now.
+  'reconcile_too_soon',
+  'quiet_period_unproven',
+  'send_in_flight',
+  'close_needs_not_recorded',
+  'read_unauthorized',
   // RT-1543 follow-up — shift cash-up is on for this till and no shift is open: a NEW payout (a
   // `start` with no claim yet) is refused before anything is claimed, kicked or paid, until a shift
   // is open. A payout already claimed is never refused for it. The same name the void payout uses.
@@ -358,6 +367,83 @@ export type ReturnsEscalateResponse =
       readonly ret: ReturnJournalView | null;
     };
 
+/**
+ * RT-1498 close slice — read the SERVER's verdict on ONE unresolved return (`readReturnStatusByProvenance`,
+ * RT-1548) by its provenance. Names only the return; the sale, the provenance and the credential are
+ * derived in main from the journaled row. It never sends the return.
+ */
+export interface ReturnsReadStatusRequest {
+  readonly returnId: string;
+}
+
+/** Why a status read gave no verdict (a closed set; `unavailable` is the server's 404, never a verdict). */
+export type ReturnStatusCause =
+  | 'offline'
+  | 'unauthorized'
+  | 'unavailable'
+  | 'server'
+  | 'unreadable';
+
+/**
+ * Whether the return may be closed now, as one status read saw it. `too_soon`: 15 minutes of elapsed
+ * time since the last send are not over (`notBefore` is the earliest instant, ISO-8601). `unproven`:
+ * this POS cannot show the elapsed time (it restarted since the last send, or its clock stepped), which
+ * counts as not elapsed: resend, then wait. `closed`: the return is already closed.
+ */
+export type ReturnCloseReadiness =
+  | { readonly ready: true }
+  | { readonly ready: false; readonly reason: 'too_soon'; readonly notBefore: string }
+  | { readonly ready: false; readonly reason: 'unproven' }
+  | { readonly ready: false; readonly reason: 'closed' };
+
+/**
+ * `not_recorded`: the server affirms no return of this sale has this provenance (it writes a
+ * restrict-only hold, so the quiet period can run out). `recorded`: the server has it. `resend`: it
+ * matches this return, so «إعادة الإرسال» confirms it; `support`: it does NOT match (or is a credit
+ * reversal), so the return was handed to support; `late_commit`: this return was CLOSED and the server
+ * has it after all, a mismatch that nothing can pay. `inconclusive`: no verdict, nothing changed.
+ */
+export type ReturnsReadStatusResponse =
+  | {
+      readonly kind: 'not_recorded';
+      readonly ret: ReturnJournalView | null;
+      readonly close: ReturnCloseReadiness;
+    }
+  | {
+      readonly kind: 'recorded';
+      readonly ret: ReturnJournalView | null;
+      readonly outcome: 'resend' | 'support' | 'late_commit';
+    }
+  | {
+      readonly kind: 'inconclusive';
+      readonly ret: ReturnJournalView | null;
+      readonly cause: ReturnStatusCause;
+    }
+  | {
+      readonly kind: 'refused';
+      readonly reason: ReturnsRefusalReason;
+      readonly ret: ReturnJournalView | null;
+    };
+
+/**
+ * RT-1498 close slice — close ONE unresolved return as "not recorded". `approvalId` is the opaque
+ * single-use approval (kind `return.resolve_unknown`, bound to this return AND to `close`) a different
+ * manager granted through `approval.request`; main spends it in the same transaction as the disposition.
+ */
+export interface ReturnsCloseRequest {
+  readonly returnId: string;
+  readonly approvalId: string;
+}
+
+export type ReturnsCloseResponse =
+  | { readonly kind: 'closed'; readonly ret: ReturnJournalView | null }
+  | {
+      readonly kind: 'refused';
+      readonly reason: ReturnsRefusalReason;
+      /** The journaled return, when the refusal came after it was found. */
+      readonly ret: ReturnJournalView | null;
+    };
+
 export type ReturnsListResponse =
   | { readonly kind: 'ok'; readonly returns: readonly ReturnJournalView[] }
   | ReturnsRefused;
@@ -435,4 +521,15 @@ export interface ReturnsBridgeAPI {
    * automatic resend, the sale stays blocked. It spends one manager approval (four-eyes).
    */
   escalate(req: ReturnsEscalateRequest): Promise<ReturnsEscalateResponse>;
+  /**
+   * RT-1498 close slice: ask the server whether it recorded ONE unresolved return (a read: it sends
+   * nothing and never confirms). A manager or admin session; the answer is the server's, never inferred.
+   */
+  readStatus(req: ReturnsReadStatusRequest): Promise<ReturnsReadStatusResponse>;
+  /**
+   * RT-1498 close slice: close ONE unresolved return as "not recorded" (a terminal `not_recorded_closed`
+   * disposition that frees the sale). Needs a fresh affirmative server verdict, 15 minutes of elapsed
+   * time since the last send, and one manager approval (four-eyes).
+   */
+  close(req: ReturnsCloseRequest): Promise<ReturnsCloseResponse>;
 }

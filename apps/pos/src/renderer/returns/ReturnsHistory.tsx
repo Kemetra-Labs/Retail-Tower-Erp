@@ -8,18 +8,22 @@ import { ReturnNotice } from './ReturnNotice';
 import { ReturnsPanel, StatePill } from './ReturnsPanel';
 import { formatReturnMoney, formatReturnTime } from './returns-format.js';
 import {
+  CLOSE_COPY,
   DISPOSITION_COPY,
   ESCALATE_COPY,
   OUTCOME_COPY,
   PAYOUT_COPY,
+  STATUS_COPY,
   UNRESOLVED_COPY,
   refusalMessage,
   reprintMessage,
   stateLabel,
 } from './returns-messages.js';
+import type { HistoryClose } from './useHistoryClose.js';
 import type { HistoryEscalate } from './useHistoryEscalate.js';
 import type { HistoryReprint } from './useHistoryReprint.js';
 import type { HistoryResend } from './useHistoryResend.js';
+import type { HistoryStatus } from './useHistoryStatus.js';
 import type { HistoryState, ReturnHistory } from './useReturnHistory.js';
 
 /**
@@ -36,6 +40,11 @@ import type { HistoryState, ReturnHistory } from './useReturnHistory.js';
  * («تحويل إلى الدعم», another manager's PIN). A return with a recorded disposition reads as such
  * («بانتظار الدعم», «لم يُسجَّل — مغلق»): a closed one offers nothing, a needs-support one keeps only
  * its own «إعادة الإرسال» (the resolver and the bar no longer resend it).
+ *
+ * RT-1498 close slice: «تحديث الحالة» asks the SERVER whether a sent return was recorded (a read; it
+ * never sends or confirms). After an affirmative "not recorded", with the quiet period over, the row
+ * offers «إغلاق كمرتجع غير مسجَّل» (another manager's PIN; main re-reads and refuses on its own). A
+ * closed row keeps only «تحديث الحالة», the one way a late commit of its key can be seen.
  */
 const HEADING_ID = 'v5-returns-history';
 
@@ -69,9 +78,16 @@ export interface HistoryActions {
    * approval bridge, so «تحويل إلى الدعم» is not offered at all.
    */
   readonly escalate: HistoryEscalate | null;
+  /** RT-1498 close slice: read the server's verdict on a sent unresolved return. */
+  readonly status: HistoryStatus;
+  /**
+   * RT-1498 close slice: close a return as "not recorded". Null when the terminal has no manager
+   * approval bridge, so «إغلاق كمرتجع غير مسجَّل» is not offered at all.
+   */
+  readonly close: HistoryClose | null;
 }
 
-type RowAction = 'pay' | 'complete' | 'reprint' | 'resend' | 'escalate';
+type RowAction = 'pay' | 'complete' | 'reprint' | 'resend' | 'status' | 'close' | 'escalate';
 
 /** RT-1498 S4: a return the till closed as "not recorded" is out of the flow for good. */
 function isClosed(row: ReturnJournalView): boolean {
@@ -86,11 +102,14 @@ function isOpenUnresolved(row: ReturnJournalView): boolean {
 /** The actions a row offers, in order. */
 function rowActions(row: ReturnJournalView, actions: HistoryActions): readonly RowAction[] {
   if (UNRESOLVED.has(row.state)) {
-    if (isClosed(row)) return [];
-    // Handing a return to support needs a sent attempt to judge (a never-sent one is sent first).
-    const support =
-      actions.escalate !== null && row.disposition === null && row.lastAttemptAt !== null;
-    return support ? ['resend', 'escalate'] : ['resend'];
+    // Judging a return (a status read, a close, support) needs a sent attempt (a never-sent one is sent first).
+    const sent = row.lastAttemptAt !== null;
+    if (isClosed(row)) return sent ? ['status'] : [];
+    const offered: RowAction[] = ['resend'];
+    if (sent) offered.push('status');
+    if (sent && actions.close !== null && actions.status.closeReady(row)) offered.push('close');
+    if (sent && actions.escalate !== null && row.disposition === null) offered.push('escalate');
+    return offered;
   }
   if (row.state === 'paid_out') return ['reprint'];
   if (row.state !== 'confirmed') return [];
@@ -102,16 +121,17 @@ const ACTION_LABEL: Readonly<Record<RowAction, string>> = {
   complete: PAYOUT_COPY.historyComplete,
   reprint: PAYOUT_COPY.historyReprint,
   resend: UNRESOLVED_COPY.resend,
+  status: STATUS_COPY.action,
+  close: CLOSE_COPY.action,
   escalate: ESCALATE_COPY.action,
 };
 
 /** Is the row's action held by another one in flight (one call at a time)? */
 function actionHeld(action: RowAction, actions: HistoryActions): boolean {
   if (action === 'reprint') return actions.reprint.printing !== null;
-  if (action === 'resend' || action === 'escalate') {
-    return actions.resend.sending !== null || actions.checking;
-  }
-  return false;
+  if (action === 'pay' || action === 'complete') return false;
+  // Every action on an unresolved return waits for the others (one call at a time).
+  return actions.resend.sending !== null || actions.checking || actions.status.reading !== null;
 }
 
 function RowActionButton({
@@ -122,10 +142,13 @@ function RowActionButton({
   const { reprint, resend } = actions;
   const busy =
     (action === 'reprint' && reprint.printing === row.returnId) ||
-    (action === 'resend' && resend.sending === row.returnId);
+    (action === 'resend' && resend.sending === row.returnId) ||
+    (action === 'status' && actions.status.reading === row.returnId);
   const onClick = (): void => {
     if (action === 'reprint') void reprint.run(row.returnId);
     else if (action === 'resend') void resend.run(row.returnId, row.saleNumber);
+    else if (action === 'status') void actions.status.run(row);
+    else if (action === 'close') actions.close?.open(row);
     else if (action === 'escalate') actions.escalate?.open(row);
     else actions.pay(row);
   };
@@ -344,11 +367,34 @@ function EscalateNotice({
   );
 }
 
+/** RT-1498 close slice: the last status read's result, in the server's words (never "paid"). */
+function StatusNotice({ status }: Readonly<{ status: HistoryStatus }>): JSX.Element | null {
+  if (status.result === null) return null;
+  const { saleNumber, tone, text } = status.result;
+  return (
+    <Notice tone={tone}>
+      <bdi className="v5-manager-num">{saleNumber}</bdi>: {text}
+    </Notice>
+  );
+}
+
+/** RT-1498 close slice: the last return main closed (only once main recorded it). */
+function CloseNotice({ close }: Readonly<{ close: HistoryClose | null }>): JSX.Element | null {
+  if (close === null || close.done === null) return null;
+  return (
+    <Notice tone="info">
+      <bdi className="v5-manager-num">{close.done.saleNumber}</bdi>: {DISPOSITION_COPY.closedDetail}
+    </Notice>
+  );
+}
+
 function hasNotice(history: ReturnHistory, actions: HistoryActions): boolean {
   return (
     history.checkNotice !== null ||
     actions.reprint.result !== null ||
     actions.resend.result !== null ||
+    actions.status.result !== null ||
+    (actions.close?.done ?? null) !== null ||
     (actions.escalate?.done ?? null) !== null
   );
 }
@@ -365,7 +411,9 @@ export function ReturnsHistory({
     <button
       type="button"
       className="v5-manager-btn v5-btn"
-      disabled={history.checking || actions.resend.sending !== null}
+      disabled={
+        history.checking || actions.resend.sending !== null || actions.status.reading !== null
+      }
       aria-busy={history.checking}
       onClick={() => void history.checkUnresolved()}
     >
@@ -379,6 +427,8 @@ export function ReturnsHistory({
           <ReturnNotice notice={history.checkNotice} />
           <ReprintNotice reprint={actions.reprint} />
           <ResendNotice resend={actions.resend} />
+          <StatusNotice status={actions.status} />
+          <CloseNotice close={actions.close} />
           <EscalateNotice escalate={actions.escalate} />
         </div>
       )}

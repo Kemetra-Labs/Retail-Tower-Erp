@@ -48,11 +48,17 @@ const PAYMENT_IN_FLIGHT = `
   SELECT 1 FROM payment_tender_lines WHERE state IN ('applying', 'reversal_pending')
   LIMIT 1`;
 
-// NOTE for the close slice (RT-1498 review LOW-2): a return closed as "not recorded" (migration 0070,
-// `not_recorded_closed`) is out of the flow for good and must be excluded here; today no close is
-// written, so a `needs_support` return (still `unknown`) correctly keeps counting.
+// RT-1498 close slice (review LOW-2): a return closed as "not recorded" (migration 0070,
+// `not_recorded_closed`) is out of the flow for good (never sent again, never payable), so it no longer
+// holds an update back; a `needs_support` return (still `unknown`) correctly keeps counting.
 const RETURN_IN_FLIGHT = `
-  SELECT 1 FROM return_journal WHERE state IN ('pending', 'unknown', 'confirmed') LIMIT 1`;
+  SELECT 1 FROM return_journal j
+   WHERE j.state IN ('pending', 'unknown', 'confirmed')
+     AND NOT EXISTS (
+       SELECT 1 FROM return_journal_dispositions d
+        WHERE d.return_id = j.return_id AND d.kind = 'not_recorded_closed'
+     )
+   LIMIT 1`;
 
 export function createSafePointInputs(
   db: DatabaseHandle,

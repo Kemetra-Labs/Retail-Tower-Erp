@@ -165,6 +165,9 @@ function journalFor(state: ReturnsProofState): readonly ReturnJournalView[] {
 
 const LIST: ByState<ReturnsListResponse> = { HistoryFailed: fails };
 
+/** RT-1498 close slice: the proof has no unresolved return to read or close. */
+const NO_SUCH_RETURN = { kind: 'refused', reason: 'return_not_found', ret: null } as const;
+
 /** The returns namespace the harness installs for `state` (exported for its tests). */
 export function returnsProofBridge(state: ReturnsProofState): ReturnsBridgeAPI {
   return {
@@ -182,6 +185,8 @@ export function returnsProofBridge(state: ReturnsProofState): ReturnsBridgeAPI {
     reprintSlip: () => (REPRINT[state] ?? (() => Promise.resolve({ kind: 'printed' })))(),
     resend: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
     escalate: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
+    readStatus: () => Promise.resolve(NO_SUCH_RETURN),
+    close: () => Promise.resolve(NO_SUCH_RETURN),
   };
 }
 

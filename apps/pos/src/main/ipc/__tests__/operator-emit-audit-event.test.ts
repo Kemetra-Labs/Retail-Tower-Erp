@@ -509,6 +509,10 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     'sale.return.resend_requested',
     // RT-1498 S4/S5: a return handed to support (a forged one would fake a support case).
     'sale.return.needs_support',
+    // RT-1498 close slice: a server verdict, a close and a late commit are written only by main.
+    'sale.return.status_read',
+    'sale.return.closed_not_recorded',
+    'sale.return.late_commit_after_close',
     // RT-886: the printer choice and its test page are written only by main's
     // printer service, after its session check.
     'terminal.printer.selected',

@@ -30,6 +30,8 @@ describe('recovery-mode guard', () => {
     'returns:submit',
     'returns:resend',
     'returns:escalate',
+    'returns:readStatus',
+    'returns:close',
   ])('refuses %s in recovery mode', async (channel) => {
     const fake = fakeIpcMain();
     createRecoveryModeGuardedIpcMain(fake.ipcMain, () => true).handle(channel, () => 'ran');

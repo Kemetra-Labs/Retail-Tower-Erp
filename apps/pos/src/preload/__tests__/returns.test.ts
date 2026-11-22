@@ -31,6 +31,8 @@ describe('preload returns bridge', () => {
     ['reprintSlip', RETURNS_IPC_CHANNELS.REPRINT_SLIP, { returnId: 'r' }],
     ['resend', RETURNS_IPC_CHANNELS.RESEND, { returnId: 'r' }],
     ['escalate', RETURNS_IPC_CHANNELS.ESCALATE, { returnId: 'r', approvalId: 'a' }],
+    ['readStatus', RETURNS_IPC_CHANNELS.READ_STATUS, { returnId: 'r' }],
+    ['close', RETURNS_IPC_CHANNELS.CLOSE, { returnId: 'r', approvalId: 'a' }],
   ] as const)('%s invokes its channel with the request', async (member, channel, arg) => {
     const { returns } = await import('../returns');
     const call = returns[member] as (a: unknown) => Promise<unknown>;
@@ -52,11 +54,13 @@ describe('preload returns bridge', () => {
     await import('../index');
     const api = exposeInMainWorld.mock.calls.at(-1)?.[1] as { returns?: Record<string, unknown> };
     expect(Object.keys(api.returns ?? {}).sort()).toEqual([
+      'close',
       'escalate',
       'list',
       'lookup',
       'payout',
       'quote',
+      'readStatus',
       'reprintSlip',
       'resend',
       'resolve',

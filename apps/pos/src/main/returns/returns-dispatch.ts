@@ -32,6 +32,12 @@
  * taken before the disposition was written therefore cannot POST. And a 2xx the till cannot match
  * (U-3) or read (U-4) raises `needs_support` by itself, in the same transaction as the unknown
  * transition: it only restricts (no automatic resend); it never frees the sale or enables a payout.
+ *
+ * RT-1498 close slice: the commit point also honours a `retry_hold` (a status read answered "not
+ * recorded"): a background or bar send is deferred while the hold is newer than the row's last attempt,
+ * so the quiet period before a close can elapse; only the explicit `resend` is not held, and the
+ * attempt it records voids the hold. Every attempt is anchored for that quiet period at the stamp the
+ * journal records, and `isSending` tells a close whether a send of that return is in flight.
  */
 import type { ReturnUnknownCause, ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
@@ -40,6 +46,7 @@ import type { ReturnDispositionsRepository } from './returns-dispositions-reposi
 import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
 import type { RecordReturnOutcome, ReturnsClient } from './returns-client.js';
 import { amount4ToMinor, parseAmount4 } from './returns-money.js';
+import type { ReturnQuietPeriod } from './returns-quiet-period.js';
 import type { ConfirmInput, JournalEntry, ReturnsRepository } from './returns-repository.js';
 import { returnedLinesMatch } from './returns-verify.js';
 import { uuidv7 } from './uuidv7.js';
@@ -84,6 +91,14 @@ export interface ReturnsDispatcher {
   ): Promise<DispatchOutcome>;
 }
 
+/** RT-1498 close slice: whether a send of one return is in flight in this process. */
+export interface SendActivity {
+  isSending(returnId: string): boolean;
+}
+
+/** The dispatcher the domain composes: the sending port plus its activity (for a close). */
+export type JournaledDispatcher = ReturnsDispatcher & SendActivity;
+
 export interface ReturnsDispatchLogger {
   warn(obj: Record<string, unknown>, msg: string): void;
 }
@@ -92,7 +107,15 @@ export interface ReturnsDispatchDeps {
   readonly client: Pick<ReturnsClient, 'recordReturn'>;
   readonly repo: ReturnsRepository;
   /** RT-1498 S4: read at the commit point; written by a mismatching or unreadable 2xx. */
-  readonly dispositions: Pick<ReturnDispositionsRepository, 'stateOf' | 'insert'>;
+  readonly dispositions: Pick<
+    ReturnDispositionsRepository,
+    'stateOf' | 'insert' | 'hasEffectiveHold'
+  >;
+  /**
+   * RT-1498 close slice: anchors each attempt for the quiet period (called as the attempt is recorded,
+   * with the stamp the journal stores). Absent: no anchor, so a close can never show its period.
+   */
+  readonly quiet?: Pick<ReturnQuietPeriod, 'markAttempt'>;
   /** RT-1498 S4: the id of an automatic disposition (a UUID); defaults to a fresh UUIDv7. */
   readonly newDispositionId?: () => string;
   readonly audit: ReturnsAudit;
@@ -129,8 +152,11 @@ function isThisReturn(entry: JournalEntry, saleReturn: WireSaleReturn): boolean 
   return returnedLinesMatch(entry.lines, saleReturn.lines);
 }
 
-/** The server's refund in minor units when it matches this return; else null. */
-function matchingTotalMinor(entry: JournalEntry, saleReturn: WireSaleReturn): number | null {
+/**
+ * The server's refund in minor units when it matches this return; else null. Exported (RT-1498 close
+ * slice) so a status read judges "the server's return is this one" with the SAME matcher, never a second.
+ */
+export function matchingTotalMinor(entry: JournalEntry, saleReturn: WireSaleReturn): number | null {
   if (!isThisReturn(entry, saleReturn)) return null;
   const total4 = parseAmount4(saleReturn.returnTotal);
   const minor = total4 === null ? null : amount4ToMinor(total4, exponentFor(entry.currencyCode));
@@ -143,10 +169,14 @@ interface SendRequest {
   readonly snapshot: AuthSnapshot;
 }
 
-class JournaledReturnsDispatcher implements ReturnsDispatcher {
+class JournaledReturnsDispatcher implements JournaledDispatcher {
   private readonly inFlight = new Map<string, Promise<DispatchOutcome>>();
 
   constructor(private readonly deps: ReturnsDispatchDeps) {}
+
+  isSending(returnId: string): boolean {
+    return this.inFlight.has(returnId);
+  }
 
   send(
     entry: JournalEntry,
@@ -169,7 +199,7 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
     // Commit point (a): the return's disposition, read right here, with no await before the
     // authorization recheck below. A closed return is never sent; a needs_support one only by
     // the explicit resend.
-    if (this.heldByDisposition(entry.returnId, op)) {
+    if (this.heldByDisposition(current, op)) {
       return { kind: 'deferred', entry: current, by: 'disposition' };
     }
     // Commit point (b): never send for a snapshot whose actor is no longer
@@ -179,7 +209,9 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
       return { kind: 'deferred', entry: current };
     }
     const attempted = current.attemptCount > 0;
-    this.deps.repo.recordAttempt({ returnId: entry.returnId, now: this.deps.now() });
+    const attemptAt = this.deps.now();
+    this.deps.repo.recordAttempt({ returnId: entry.returnId, now: attemptAt });
+    this.deps.quiet?.markAttempt(entry.returnId, attemptAt);
     // A5: the POST carries the rechecked snapshot's own envelope — no live
     // session or token read happens between the recheck and the wire.
     const outcome = await this.deps.client.recordReturn(
@@ -206,10 +238,19 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
     }
   }
 
-  /** RT-1498 S4: does the return's disposition forbid this operation's send? */
-  private heldByDisposition(returnId: string, op: DispatchOperation): boolean {
-    const state = this.deps.dispositions.stateOf(returnId);
-    return state === 'closed' || (state === 'needs_support' && op !== 'resend');
+  /**
+   * RT-1498 S4: does the return's disposition forbid this operation's send? A closed return is never
+   * sent; a needs_support one, or one held by a `retry_hold` newer than its last attempt (the close
+   * slice), only by the explicit per-row resend.
+   */
+  private heldByDisposition(entry: JournalEntry, op: DispatchOperation): boolean {
+    const state = this.deps.dispositions.stateOf(entry.returnId);
+    if (state === 'closed') return true;
+    if (op === 'resend') return false;
+    return (
+      state === 'needs_support' ||
+      this.deps.dispositions.hasEffectiveHold(entry.returnId, entry.lastAttemptAt)
+    );
   }
 
   /** The server answered but the local commit failed: report unknown, never reject. */
@@ -369,6 +410,6 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
   }
 }
 
-export function createReturnsDispatcher(deps: ReturnsDispatchDeps): ReturnsDispatcher {
+export function createReturnsDispatcher(deps: ReturnsDispatchDeps): JournaledDispatcher {
   return new JournaledReturnsDispatcher(deps);
 }

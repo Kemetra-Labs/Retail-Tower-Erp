@@ -222,3 +222,64 @@ describe('approval single use at the table', () => {
     }).toThrow();
   });
 });
+
+describe('retry_hold (RT-1498 close slice): a not_recorded read holds the background resends', () => {
+  const ATTEMPT = '2026-10-04T10:00:01.000Z';
+  const HELD_AT = '2026-10-04T10:00:30.000Z';
+
+  /** An unknown return whose last attempt is `ATTEMPT`, and a hold written at `createdAt`. */
+  function heldReturn(createdAt = HELD_AT): void {
+    repo.insert(entry(1));
+    repo.recordAttempt({ returnId: 'r1', now: ATTEMPT });
+    repo.markUnknown({ returnId: 'r1', now: ATTEMPT });
+    dispositions.insert(
+      escalation({
+        kind: 'retry_hold',
+        verdictSource: 'provenance_read',
+        reason: 'not_recorded',
+        approvalId: null,
+        readVerdictAt: createdAt,
+        createdAt,
+      }),
+    );
+  }
+
+  it('is effective only while it is newer than the last attempt', () => {
+    heldReturn();
+    expect(dispositions.hasEffectiveHold('r1', ATTEMPT)).toBe(true);
+    // A send after the hold voids it; so does a send at the very same instant.
+    expect(dispositions.hasEffectiveHold('r1', '2026-10-04T10:01:00.000Z')).toBe(false);
+    expect(dispositions.hasEffectiveHold('r1', HELD_AT)).toBe(false);
+  });
+
+  it('is effective when the return has no recorded attempt (restrict-only, fail safe)', () => {
+    heldReturn();
+    expect(dispositions.hasEffectiveHold('r1', null)).toBe(true);
+  });
+
+  it('reports no hold for a return without one, or for another return', () => {
+    heldReturn();
+    expect(dispositions.hasEffectiveHold('r2', ATTEMPT)).toBe(false);
+    unknownReturn(2, { saleId: 'sale-2' });
+    expect(dispositions.hasEffectiveHold('r2', 't1')).toBe(false);
+  });
+
+  it('is still not a state, and does not free the sale', () => {
+    heldReturn();
+    expect(dispositions.stateOf('r1')).toBeNull();
+    expect(repo.hasUnresolvedForSale('sale-1')).toBe(true);
+  });
+
+  it('keeps the resolver scan from listing the held row, until a newer attempt voids the hold', () => {
+    heldReturn();
+    expect(repo.listUnresolved(SCOPE).map((e) => e.returnId)).toEqual([]);
+    repo.recordAttempt({ returnId: 'r1', now: '2026-10-04T10:02:00.000Z' });
+    expect(repo.listUnresolved(SCOPE).map((e) => e.returnId)).toEqual(['r1']);
+  });
+
+  it('a hold on one return does not hold another', () => {
+    heldReturn();
+    unknownReturn(2, { saleId: 'sale-2' });
+    expect(repo.listUnresolved(SCOPE).map((e) => e.returnId)).toEqual(['r2']);
+  });
+});

@@ -4,6 +4,7 @@ import type { ManagerApprovalBridgeAPI } from '../../shared/operator/manager-app
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import type { RecentSalesBridge } from '../sale-lookup/recent-sales-bridge';
 import type { SessionEvents } from './returns-bridge.js';
+import { CloseDialog } from './CloseDialog';
 import { EscalateDialog } from './EscalateDialog';
 import { LinePicker } from './LinePicker';
 import { RefundSummary } from './RefundSummary';
@@ -12,9 +13,11 @@ import { ReturnsHistory } from './ReturnsHistory';
 import { SaleLookup } from './SaleLookup';
 import type { Outcome } from './return-flow-state.js';
 import { useReturnFlow, type ReturnFlow } from './useReturnFlow.js';
+import { useHistoryClose } from './useHistoryClose.js';
 import { useHistoryEscalate } from './useHistoryEscalate.js';
 import { useHistoryReprint } from './useHistoryReprint.js';
 import { useHistoryResend } from './useHistoryResend.js';
+import { useHistoryStatus } from './useHistoryStatus.js';
 import { useReturnHistory } from './useReturnHistory.js';
 
 /**
@@ -86,6 +89,8 @@ export function ReturnsScreen({
   const reprint = useHistoryReprint(bridge);
   const resend = useHistoryResend(bridge, history.reload);
   const escalate = useHistoryEscalate();
+  const status = useHistoryStatus(bridge, history.reload);
+  const close = useHistoryClose();
   return (
     <>
       <FlowStep
@@ -105,8 +110,20 @@ export function ReturnsScreen({
           resend,
           checking: history.checking,
           escalate: approval === null ? null : escalate,
+          status,
+          close: approval === null ? null : close,
         }}
       />
+      {approval !== null && close.target !== null && (
+        <CloseDialog
+          row={close.target}
+          bridge={bridge}
+          approval={approval}
+          onDismiss={close.close}
+          onAnswered={() => void history.reload()}
+          onClosed={close.record}
+        />
+      )}
       {approval !== null && escalate.target !== null && (
         <EscalateDialog
           row={escalate.target}

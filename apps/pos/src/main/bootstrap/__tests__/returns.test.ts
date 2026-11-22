@@ -28,7 +28,12 @@ vi.mock('../../operator/resolve-session-scope.js', () => ({
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 
 import { RETURNS_DRAIN_TIMEOUT_MS } from '../../returns/compose-returns.js';
-import { registerReturns, returnResolveApprovalResolvers } from '../returns.js';
+import { createStatusReadAvailability } from '../../returns/returns-status-availability.js';
+import {
+  processStatusAvailability,
+  registerReturns,
+  returnResolveApprovalResolvers,
+} from '../returns.js';
 import type { ReturnsDeps } from '../returns.js';
 
 /**
@@ -227,6 +232,25 @@ describe('registerReturns escalation wiring (RT-1498 S4/S5)', () => {
     expect(escalation.userId()).toBe('abcd-ef');
     h.getCurrent.mockReturnValue({ role: 'manager' });
     expect(escalation.userId()).toBeNull();
+  });
+});
+
+describe('registerReturns status-read availability (RT-1498 close slice)', () => {
+  it('hands the domain the process-wide availability the close approval resolver also reads', () => {
+    const h = makeHarness();
+    registerReturns(h.deps);
+    expect(composed().statusAvailability).toBe(processStatusAvailability);
+  });
+
+  it('starts unavailable (unknown means false): no close is offered before a probe', () => {
+    expect(processStatusAvailability.isAvailable()).toBe(false);
+  });
+
+  it('an injected availability is the one the domain gets', () => {
+    const h = makeHarness();
+    const own = createStatusReadAvailability();
+    registerReturns({ ...h.deps, statusAvailability: own });
+    expect(composed().statusAvailability).toBe(own);
   });
 });
 
