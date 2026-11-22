@@ -58,3 +58,14 @@ export function isCalendarInstant(key: string): boolean {
   const ms = Date.parse(key);
   return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
 }
+
+/** A keyset instant on the wire: UTC with six fractional digits (the console cursors' form). */
+export const KEY_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
+
+/**
+ * True when `key` (UTC, six fractional digits) names a real instant, not a rolled-over one, that
+ * Postgres can represent (year 0000 is a 22008), so a tampered cursor is refused before any read.
+ */
+export function namesRealInstant(key: string): boolean {
+  return !key.startsWith("0000") && isCalendarInstant(key);
+}

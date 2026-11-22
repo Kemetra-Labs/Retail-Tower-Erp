@@ -15,7 +15,7 @@ import { ForbiddenException, HttpException, UnauthorizedException, type Executio
 import { GUARDS_METADATA } from "@nestjs/common/constants";
 import { ZodError } from "zod";
 
-import type { AttributionVerdict } from "../../src/catalog/sales/operator-attribution";
+import type { AttributionVerdict } from "../../src/pos-cashier-admissions/operator-attribution";
 import type { TenantContextRequest } from "../../src/context/types";
 import {
   SHIFT_FACT_ROUTE_KEY,

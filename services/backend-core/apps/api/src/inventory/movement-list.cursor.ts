@@ -16,9 +16,9 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
 // The keyset-instant / UUID rules are the console-sales cursor's (same wire form).
-import { KEY_INSTANT, LOWER_UUID, namesRealInstant } from "../console-sales/console-sales.query";
+import { KEY_INSTANT, decodeOpaque, encodeOpaque, namesRealInstant } from "../common/cursor/opaque-cursor";
+import { UUID_RE as LOWER_UUID } from "../common/ids";
 
 export class StockMovementCursorError extends Error {
   constructor() {

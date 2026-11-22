@@ -32,7 +32,7 @@ import {
   TRACKED_LINE_CASHIER_REFUSAL_EVENTS,
   type SaleVoidCashierVerdict,
   type SaleVoidCashierVerifier,
-} from "../../../../src/catalog/sales/tracked-lines/tracked-line-cashier";
+} from "../../../../src/pos-cashier-admissions/tracked-line-cashier";
 import type { CashierEligibilityReader } from "../../../../src/pos-cashier-admissions/cashier-eligibility";
 
 const TENANT_ID = "0a1403aa-0000-4000-8000-000000000001";

@@ -13,7 +13,7 @@ import {
   TRACKED_LINE_CASHIER_REFUSAL_EVENTS,
   type TrackedLineCashierVerdict,
   type TrackedLineCashierVerifier,
-} from "../../../../src/catalog/sales/tracked-lines/tracked-line-cashier";
+} from "../../../../src/pos-cashier-admissions/tracked-line-cashier";
 import { TrackedLineValidationAuthGuard } from "../../../../src/catalog/sales/tracked-lines/tracked-line-validation-auth.guard";
 import {
   isRealDay,

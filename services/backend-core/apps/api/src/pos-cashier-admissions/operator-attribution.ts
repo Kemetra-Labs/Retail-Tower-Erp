@@ -82,7 +82,7 @@ import {
   CashierEligibilityRepository,
   type CashierEligibilityReader,
   type RefusalReason,
-} from "../../pos-cashier-admissions/cashier-eligibility";
+} from "./cashier-eligibility";
 
 export type AttributionRefusal =
   | "future_dated"

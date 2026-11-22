@@ -42,12 +42,12 @@ import { PosOperatorEnvelopeSaleGuard } from "../../../auth/pos-operator-envelop
 import { ROOT_LOGGER } from "../../../common/logging.interceptor";
 import type { TenantContextRequest } from "../../../context/types";
 import type { DeviceScope } from "../../../pos-cashier-admissions/device-scope";
-import { selectsDevicePath } from "../sale-capture-auth.guard";
+import { selectsDevicePath } from "../../../pos-cashier-admissions";
 import {
   TRACKED_LINE_CASHIER_REFUSAL_EVENTS,
   TRACKED_LINE_CASHIER_VERIFIER,
   type TrackedLineCashierVerifier,
-} from "./tracked-line-cashier";
+} from "../../../pos-cashier-admissions";
 import { ValidateTrackedLineRequestSchema } from "./tracked-line-validation.dto";
 
 @Injectable()

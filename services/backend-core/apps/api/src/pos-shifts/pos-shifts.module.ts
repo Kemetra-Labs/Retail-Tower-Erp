@@ -36,7 +36,7 @@ import {
   OPERATOR_ATTRIBUTION_VERIFIER,
   PgOperatorAttributionVerifier,
   type OperatorAttributionVerifier,
-} from "../catalog/sales/operator-attribution";
+} from "../pos-cashier-admissions";
 import { createApiLogger } from "../common/api-logger";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
 import { OPERATOR_TOKEN_VERIFIER, type OperatorTokenVerifier } from "../auth/operator-token-verifier";

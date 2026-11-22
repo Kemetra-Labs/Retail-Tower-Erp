@@ -19,7 +19,7 @@ import {
   PgTrackedLineCashierVerifier,
   TRACKED_LINE_CASHIER_VERIFIER,
   type TrackedLineCashierVerifier,
-} from "../catalog/sales/tracked-lines/tracked-line-cashier";
+} from "../pos-cashier-admissions";
 import { IdempotencyModule } from "../idempotency/idempotency.module";
 import { CashierEligibilityRepository } from "../pos-cashier-admissions/cashier-eligibility";
 import { DeviceRepository } from "../pos-operators/device.repository";

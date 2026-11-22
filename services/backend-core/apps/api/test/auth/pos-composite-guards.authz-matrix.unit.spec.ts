@@ -47,7 +47,7 @@ import {
   ATTRIBUTION_REFUSAL_EVENTS,
   type AttributionVerdict,
   type OperatorAttributionInput,
-} from "../../src/catalog/sales/operator-attribution";
+} from "../../src/pos-cashier-admissions/operator-attribution";
 import { SaleCaptureAuthGuard } from "../../src/catalog/sales/sale-capture-auth.guard";
 import type { TenantContextRequest } from "../../src/context/types";
 import { classifyEligibility, type Eligibility } from "../../src/pos-cashier-admissions/cashier-eligibility";

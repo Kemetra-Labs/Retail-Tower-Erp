@@ -53,8 +53,8 @@ import {
   OPERATOR_ATTRIBUTION_VERIFIER,
   type AttributionRefusal,
   type OperatorAttributionVerifier,
-} from "../catalog/sales/operator-attribution";
-import { selectsDevicePath } from "../catalog/sales/sale-capture-auth.guard";
+} from "../pos-cashier-admissions";
+import { selectsDevicePath } from "../pos-cashier-admissions";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import type { TenantContextRequest } from "../context/types";
 import type { DeviceScope } from "../pos-cashier-admissions/device-scope";
