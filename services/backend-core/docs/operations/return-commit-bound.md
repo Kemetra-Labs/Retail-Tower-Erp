@@ -93,9 +93,23 @@ Pass when, for the application role on the application database, either
 for local WAL flush) or `synchronous_commit` is `off` or `local`, and no role or
 database override says otherwise. If a synchronous standby is configured, that is
 an owner decision (for example a quorum `ANY n (...)` with a documented bounded
-failure mode), recorded on RT-1548 before the gate is turned on. On a managed
-service, read the same two settings from its parameter group and its replica /
-Multi-AZ configuration, and record where they were read.
+failure mode), recorded on RT-1548 before the gate is turned on.
+
+**On a managed service the settings alone are not the evidence.** On AWS RDS or
+Aurora the replication of a Multi-AZ **instance** deployment is storage-level,
+not a PostgreSQL synchronous standby, so `synchronous_standby_names` reads as
+empty (and `pg_stat_replication` shows no standby) while a COMMIT can still wait
+for the standby's storage acknowledgement. Aurora and Multi-AZ **cluster**
+deployments have their own, provider-defined commit and replica semantics. So for a
+managed database the evidence is the **deployment type**, read from the console or
+the API (for RDS, the instance's Multi-AZ flag and whether it belongs to a
+cluster), and what the provider documents for that type about commit waits and
+their failure behaviour. Record that deployment type beside the two GUC values.
+Treat a Multi-AZ instance deployment as having a synchronous commit wait until the
+provider's documentation for that type shows its failure mode is bounded; that is
+an owner decision, recorded on RT-1548, not something the GUCs can settle. Read the
+parameter group and the replica / Multi-AZ configuration, and record where each
+was read.
 
 Record the result (value, host or console, date, who) as a comment on RT-1548.
 

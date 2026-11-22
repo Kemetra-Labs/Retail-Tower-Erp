@@ -233,8 +233,9 @@ describe("pos-sales/sales.yaml — RT-1548 responses", () => {
     expect(responses()["404"]?.$ref).toBe("#/components/responses/ReturnStatusNotFound");
     const text = flat(sales.components?.responses?.["ReturnStatusNotFound"]?.description);
     expect(text).toContain("returns gate is off");
+    expect(text).toContain("(`POS_RETURN_STATUS_READ_ENABLED`) is off");
     expect(text).toContain("does not resolve in the caller's (tenant, store) scope");
-    expect(text).toContain("one body");
+    expect(text).toContain("one body for all three");
     expect(text).toContain("NEVER `not_recorded`");
     expect(text).toContain("not a verdict");
     const body = (sales.components?.responses?.["ReturnStatusNotFound"] as { content?: Record<string, { schema?: unknown }> }).content;

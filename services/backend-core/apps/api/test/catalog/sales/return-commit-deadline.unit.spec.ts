@@ -11,6 +11,7 @@ import type { PoolClient } from "pg";
 import {
   CommitDeadline,
   commitDeadlineOf,
+  GuardedClientClosedError,
   isDeadlineTimeoutError,
   RETURN_COMMIT_BUDGET_MS,
   ReturnCommitDeadlineMiddleware,
@@ -183,6 +184,86 @@ describe("CommitDeadline.guardClient — arm the timeouts before every statement
     expect(guarded.marker).toBe("pg-client");
     guarded.release();
     expect(release).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("CommitDeadline.runGuarded — no statement after the work has settled (LOW-1)", () => {
+  it("passes the guarded client to the work and returns the work's value", async () => {
+    const clock = new FakeClock();
+    const d = new CommitDeadline(clock.now(), clock);
+    const { client, log } = fakeClient();
+    const out = await d.runGuarded(client, async (c) => {
+      await c.query("SELECT 1");
+      return 42;
+    });
+    expect(out).toBe(42);
+    expect(log.map((l) => l.sql).filter((s) => !ARM.test(s))).toEqual(["SELECT 1"]);
+  });
+
+  it("a statement started after the work resolved (so after COMMIT is next) is refused and never sent", async () => {
+    const clock = new FakeClock();
+    const d = new CommitDeadline(clock.now(), clock);
+    const { client, log } = fakeClient();
+    let captured!: PoolClient;
+    await d.runGuarded(client, async (c) => {
+      captured = c;
+    });
+    const before = log.length;
+    await expect(captured.query("SELECT LATE")).rejects.toBeInstanceOf(GuardedClientClosedError);
+    expect(log).toHaveLength(before);
+  });
+
+  it("the same after the work threw (a ROLLBACK is next): the rejection propagates and a late statement is refused", async () => {
+    const clock = new FakeClock();
+    const d = new CommitDeadline(clock.now(), clock);
+    const { client, log } = fakeClient();
+    let captured!: PoolClient;
+    const boom = new Error("work failed");
+    await expect(
+      d.runGuarded(client, async (c) => {
+        captured = c;
+        throw boom;
+      }),
+    ).rejects.toBe(boom);
+    const before = log.length;
+    await expect(captured.query("SELECT LATE")).rejects.toBeInstanceOf(GuardedClientClosedError);
+    expect(log).toHaveLength(before);
+  });
+
+  it("an orphaned statement still queued behind a slow one when the work fails never runs", async () => {
+    const clock = new FakeClock();
+    const d = new CommitDeadline(clock.now(), clock);
+    let releaseSlow!: () => void;
+    const slow = new Promise<void>((r) => {
+      releaseSlow = r;
+    });
+    const { client, log } = fakeClient(async (sql) => {
+      if (sql === "SELECT SLOW") await slow;
+      return { rows: [] };
+    });
+    let orphan!: Promise<unknown>;
+    const work = d.runGuarded(client, async (c) => {
+      void c.query("SELECT SLOW").catch(() => undefined);
+      orphan = c.query("SELECT ORPHAN"); // queued behind SELECT SLOW, never awaited by the work
+      orphan.catch(() => undefined);
+      throw new Error("another branch failed");
+    });
+    await expect(work).rejects.toThrow("another branch failed");
+    releaseSlow();
+    await expect(orphan).rejects.toBeInstanceOf(GuardedClientClosedError);
+    expect(log.map((l) => l.sql)).not.toContain("SELECT ORPHAN");
+  });
+
+  it("a closed guard is not a deadline refusal: the service does not rewrite it", () => {
+    expect(isDeadlineTimeoutError(new GuardedClientClosedError())).toBe(false);
+  });
+
+  it("each runGuarded call gets its own guard (a later use of the same deadline object starts open)", async () => {
+    const clock = new FakeClock();
+    const d = new CommitDeadline(clock.now(), clock);
+    const { client } = fakeClient();
+    await d.runGuarded(client, async () => undefined);
+    await expect(d.runGuarded(client, async (c) => c.query("SELECT 2"))).resolves.toBeDefined();
   });
 });
 

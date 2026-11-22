@@ -417,7 +417,8 @@ describe("RT-1548 readReturnStatusByProvenance — a read during an in-flight re
     for (let i = 0; i < 200; i += 1) {
       const r = await h.harness!.env.admin.query<{ n: string }>(
         `SELECT count(*)::text AS n FROM pg_stat_activity
-          WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF s%'`,
+          WHERE wait_event_type = 'Lock' AND query LIKE '%FOR UPDATE OF s%'
+            AND datname = current_database() AND pid <> pg_backend_pid()`,
       );
       if (Number(r.rows[0]!.n) > 0) return;
       await new Promise((r2) => setTimeout(r2, 25));

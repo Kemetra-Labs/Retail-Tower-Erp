@@ -67,6 +67,19 @@ export class ReturnDeadlineExceededError extends Error {
   }
 }
 
+/**
+ * A statement was started on the guarded client after the work had settled
+ * (the transaction is about to be, or has been, committed or rolled back). It
+ * was not sent. A programming fault, not a budget refusal: it is not mapped to
+ * the deadline error.
+ */
+export class GuardedClientClosedError extends Error {
+  constructor() {
+    super("a statement was started on the recordReturn client after its work had settled");
+    this.name = "GuardedClientClosedError";
+  }
+}
+
 const STATEMENT_TIMEOUT = "57014"; // query_canceled
 const LOCK_NOT_AVAILABLE = "55P03"; // lock_timeout
 
@@ -118,27 +131,62 @@ export class CommitDeadline {
    * order and one at a time, it arms `statement_timeout` and `lock_timeout`
    * (transaction-local) to the budget left at that moment, or throws when none
    * is left, without sending the statement. Everything but `query` is the real
-   * client's.
+   * client's. This guard never closes; the request path uses `runGuarded`.
    */
   guardClient(client: PoolClient): PoolClient {
+    return this.guard(client).client;
+  }
+
+  /**
+   * Runs `work` with a guarded client and closes the guard when the work has
+   * settled, success or failure, which is before the COMMIT or ROLLBACK that
+   * follows. A statement started after that (an orphaned branch of a failed
+   * `Promise.all`, a late callback) is refused with `GuardedClientClosedError`
+   * and never reaches the connection, so nothing runs after ROLLBACK, COMMIT or
+   * the release of the client.
+   */
+  async runGuarded<T>(client: PoolClient, work: (guarded: PoolClient) => Promise<T>): Promise<T> {
+    const guard = this.guard(client);
+    try {
+      return await work(guard.client);
+    } finally {
+      guard.close();
+    }
+  }
+
+  private guard(client: PoolClient): { client: PoolClient; close: () => void } {
+    let closed = false;
     let tail: Promise<unknown> = Promise.resolve();
+    const refuseIfClosed = (): void => {
+      if (closed) throw new GuardedClientClosedError();
+    };
     const guardedQuery = (...args: unknown[]): Promise<unknown> => {
       const turn = tail.then(async () => {
+        refuseIfClosed();
         this.assertOpen();
         const ms = Math.floor(this.remainingMs());
         await client.query(ARM_TIMEOUTS_SQL, [String(ms)]);
+        // The work may have settled during the arming round trip: check again,
+        // in the same tick as the statement call.
+        refuseIfClosed();
         return (client.query as (...a: unknown[]) => Promise<unknown>)(...args);
       });
       tail = turn.catch(() => undefined);
       return turn;
     };
-    return new Proxy(client, {
+    const proxy = new Proxy(client, {
       get(target, prop) {
         if (prop === "query") return guardedQuery;
         const value: unknown = Reflect.get(target, prop, target);
         return typeof value === "function" ? (value as (...a: unknown[]) => unknown).bind(target) : value;
       },
     });
+    return {
+      client: proxy,
+      close: () => {
+        closed = true;
+      },
+    };
   }
 }
 

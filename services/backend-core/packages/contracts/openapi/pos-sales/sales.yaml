@@ -5001,9 +5001,10 @@ components:
     ReturnStatusNotFound:
       description: >
         FR-101 `not-found` for `readReturnStatusByProvenance` (RT-1548, BR-2):
-        the returns gate is off, or the sale ref does not resolve in the
-        caller's (tenant, store) scope. Non-disclosing: one body for both and
-        for a malformed sale ref, identical for cross-tenant, out-of-scope and
+        the returns gate is off, or the status read's own rollout gate
+        (`POS_RETURN_STATUS_READ_ENABLED`) is off, or the sale ref does not
+        resolve in the caller's (tenant, store) scope. Non-disclosing: one body
+        for all three and for a malformed sale ref, identical for cross-tenant, out-of-scope and
         absent ids. It is NEVER `not_recorded`: a 404 is not a verdict, and a
         client treats it as inconclusive.
       content:

@@ -138,8 +138,9 @@ export class SaleReturnsService {
     const result = await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
-      async (rawClient): Promise<SaleReturnResult> => {
-        const client = deadline.guardClient(rawClient);
+      (rawClient): Promise<SaleReturnResult> =>
+        // The guard closes when the work settles: no statement after COMMIT or ROLLBACK (RT-1548).
+        deadline.runGuarded(rawClient, async (client) => {
         const sale = await lockSaleForReversal(client, saleRef, input.storeId);
         // RT-577: a return a credit reversal created is never replayed here; on
         // its own sale the call falls through to the credit refusal below.
@@ -171,7 +172,7 @@ export class SaleReturnsService {
           await emitReturnPosting(client, { tenantId, storeId: input.storeId, saleRef, returnId });
         }
         return { projection: await loadSaleReturn(client, returnId), created: true };
-      },
+        }),
       { beforeCommit: () => deadline.assertOpen() },
     ).catch((err: unknown) => {
       // A cancelled statement or lock wait of the armed timeouts is the same
