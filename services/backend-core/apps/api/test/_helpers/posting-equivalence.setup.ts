@@ -4,12 +4,18 @@
  * The refactor splits SQL joins of the ERP posting reads into a sales read and an ERP read merged in TypeScript. A
  * wrong merge would post wrong amounts to ERPNext with no error. So every spec that calls one of the guarded reads on
  * a REAL database client also runs its frozen pre-refactor copy (`test/catalog/erpnext-posting/__support__/legacy/`)
- * on the same client in the same transaction, and fails when the two differ: the result (deep and strict, so order,
+ * on the same client, and fails when the two differ: the result (deep and strict, so order,
  * nulls and duplicates count) or the thrown error (class name and message). Guarded reads (all read-only, so running
  * them twice changes nothing):
  *   - `buildWorkItem` (posting-work-item.projection.ts): the work item sent to ERPNext;
  *   - `allSaleLinesMapped` (erpnext-reconciliation/sale-lines-mapped.ts): the repair eligibility check.
  * The two statements that write or need one snapshot are pinned by text instead (`posting-sql-frozen.unit.spec.ts`).
+ *
+ * The frozen copy runs first, inside a savepoint that is always rolled back, then the live read runs as it would in
+ * production. So a database error in the frozen copy never aborts the caller's transaction, a database error in the live
+ * read aborts it exactly as it would without the guard, and both sides see the same state. Outside a transaction the
+ * SAVEPOINT itself fails (25P01) without side effects (autocommit), and the frozen copy runs plainly; in an already
+ * aborted transaction it fails too (25P02), and both sides then fail with the same error.
  *
  * Unit specs that pass a hand-written fake client (canned rows per call) are left alone: running the legacy copy would
  * consume their canned results. A client counts as real when it is a `pg` client (it has `connectionParameters`).
@@ -44,13 +50,27 @@ function mockCompared<A extends unknown[], R>(
       return { ok: false, error };
     }
   };
+  const settleRolledBack = async (
+    client: { query: (sql: string) => Promise<unknown> },
+    run: () => Promise<R>,
+  ): Promise<MockOutcome> => {
+    try {
+      await client.query("SAVEPOINT rt1463_posting_guard");
+    } catch {
+      return settle(run);
+    }
+    const out = await settle(run);
+    await client.query("ROLLBACK TO SAVEPOINT rt1463_posting_guard");
+    await client.query("RELEASE SAVEPOINT rt1463_posting_guard");
+    return out;
+  };
   const describeError = (error: unknown): { name: string; message: string } =>
     error instanceof Error ? { name: error.constructor.name, message: error.message } : { name: typeof error, message: String(error) };
   return async (...args: A): Promise<R> => {
     const client = args[0];
     if (!(typeof client === "object" && client !== null && "connectionParameters" in client)) return live(...args);
+    const before = await settleRolledBack(client as unknown as { query: (sql: string) => Promise<unknown> }, () => legacy(...args));
     const now = await settle(() => live(...args));
-    const before = await settle(() => legacy(...args));
     const g = globalThis as { __rt1463PostingCompared?: number };
     g.__rt1463PostingCompared = (g.__rt1463PostingCompared ?? 0) + 1;
     if (now.ok && before.ok) {
