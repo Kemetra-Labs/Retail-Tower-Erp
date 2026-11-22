@@ -2960,12 +2960,13 @@ paths:
       tags: [inventory]
       summary: Switch shipment Transfers on or off for the tenant.
       description: >
-        RT-1517 (RT-291 Gate 5). `{"enabled": true}` evaluates the readiness in the same transaction as the
-        write: while any boundary is unmet it is refused with 409 `shipment_transfers_readiness_unmet`, which
-        names the first boundary, and nothing is written. There is no override. `{"enabled": false}` is
-        refused with 409 `shipment_transfers_in_flight` while any Transfer of the tenant is in flight (draft,
-        approved, in transit or partially received). Setting the current value again writes nothing and
-        records no audit event. Every change is audited (`inventory.shipment_transfers.update`). While ON, the
+        RT-1517 (RT-291 Gate 5). Switching on (`{"enabled": true}` while the switch is off) evaluates the
+        readiness in the same transaction as the write: while any boundary is unmet it is refused with 409
+        `shipment_transfers_readiness_unmet`, which names the first boundary, and nothing is written. There is
+        no override. Switching off (`{"enabled": false}` while the switch is on) is refused with 409
+        `shipment_transfers_in_flight` while any Transfer of the tenant is in flight (draft, approved, in
+        transit or partially received). Setting the current value again is a 200 that writes nothing, records
+        no audit event and reports the current readiness. Every change is audited (`inventory.shipment_transfers.update`). While ON, the
         legacy `createStockTransfer` is refused with 409 `transfer_workflow_required`. Owner or tenant_admin;
         any other role is a 403. A whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`.
       security:
@@ -5480,6 +5481,11 @@ components:
               properties:
                 boundary:
                   type: string
+                  enum:
+                    - connector_not_seen
+                    - connector_version_unlisted
+                    - erp_back_dated_role_unverified
+                    - transit_warehouse_unmapped
                   description: The code of the first readiness boundary that does not hold.
                 unmet:
                   type: array

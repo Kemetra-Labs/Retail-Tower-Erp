@@ -75,7 +75,10 @@ function printText(out: DriftCliIo["out"], tenantId: string, groups: readonly St
       );
     }
   }
-  out("None of these legs is posted to ERPNext by this report; the first Count Session or ERP reconciliation corrects ERPNext.");
+  out(
+    "None of these legs is posted to ERPNext by this report; the first Count Session or ERP reconciliation corrects ERPNext. " +
+      "The list is Retail Tower history: a leg stays listed after ERPNext has been corrected.",
+  );
 }
 
 export async function runTransferDriftCli(argv: readonly string[], io: DriftCliIo): Promise<number> {

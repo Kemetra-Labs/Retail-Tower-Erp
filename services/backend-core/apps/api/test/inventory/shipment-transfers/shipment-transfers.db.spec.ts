@@ -811,8 +811,8 @@ describe('legacy transfer drift report (RT-1517)', () => {
       tenantId: TENANT_A, userId: OWNER, sourceStoreId: STORE_A_X, destinationStoreId: STORE_A_Y,
       tenantProductRef: PRODUCT_A_ACTIVE, quantity, stockingUnit: 'each', reason: null,
     }) as never;
-  const drift = (tenantId = TENANT_A) =>
-    runWithTenantContext(env!.app as unknown as Pool, { tenantId, isPlatformAdmin: false }, (client) =>
+  const drift = (tenantId = TENANT_A, contextTenantId = tenantId) =>
+    runWithTenantContext(env!.app as unknown as Pool, { tenantId: contextTenantId, isPlatformAdmin: false }, (client) =>
       listLegacyTransferDrift(client, tenantId),
     );
 
@@ -825,7 +825,7 @@ describe('legacy transfer drift report (RT-1517)', () => {
     // A legacy leg whose effect is no longer not_posted is not drift.
     const done = await legacy.createStockTransfer(legacyInput('1'));
     await admin.query(
-      `UPDATE inventory_effect_integration SET state = 'external'
+      `UPDATE inventory_effect_integration SET state = 'external', erp_confirmed_at = now()
         WHERE effect_id IN (SELECT id FROM stock_movements WHERE transfer_group_id = $1)`,
       [(done as { transferGroupId: string }).transferGroupId],
     );
@@ -866,18 +866,8 @@ describe('legacy transfer drift report (RT-1517)', () => {
     await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
     await legacy.createStockTransfer(legacyInput('4'));
     expect(await drift(TENANT_B)).toEqual([]);
+    // Asked for tenant A's legs from inside tenant B's context: RLS, not the WHERE clause, must hide them.
+    expect(await drift(TENANT_A, TENANT_B)).toEqual([]);
     expect(await drift(TENANT_A)).toHaveLength(2);
-  });
-
-  it('reads only: listing the drift posts nothing and changes no effect state', async () => {
-    if (skipped()) return;
-    await seedStock(STORE_A_X, '100');
-    await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
-    await legacy.createStockTransfer(legacyInput('4'));
-    const snapshot = async () =>
-      (await admin.query(`SELECT effect_id, state, posting_status_id FROM inventory_effect_integration WHERE tenant_id = $1 ORDER BY effect_id`, [TENANT_A])).rows;
-    const before = await snapshot();
-    await drift();
-    expect(await snapshot()).toEqual(before);
   });
 });

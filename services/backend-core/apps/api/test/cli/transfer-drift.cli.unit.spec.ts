@@ -87,6 +87,7 @@ describe('runTransferDriftCli', () => {
     expect(text).toContain(`store ${STORE_Y}: 1 leg(s)`);
     expect(text).toContain(`2026-11-01T09:00:00.000Z  transfer_out  ${ITEM}  -4.0000 each  group ${GROUP}`);
     expect(text).toContain('None of these legs is posted to ERPNext by this report');
+    expect(text).toContain('a leg stays listed after ERPNext has been corrected');
     expect(t.lines.findIndex((l) => l.includes(STORE_X))).toBeLessThan(t.lines.findIndex((l) => l.includes(STORE_Y)));
     expect(t.closed()).toBe(1);
   });
