@@ -1,8 +1,20 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.21.0-draft"
+  version: "1.22.0-draft"
   description: >
+    **1.22.0-draft (RT-1517, additive; [GATED: contract] owner decision in chat
+    2026-11-22, recorded on RT-1517).** The tenant's shipment-Transfer
+    activation switch, as `getShipmentTransfersSetting` and
+    `setShipmentTransfersSetting` on `/api/inventory/v1/settings/shipment-transfers`,
+    shaped like the Count Sessions switch. Switching on is refused with 409
+    `shipment_transfers_readiness_unmet` while a readiness boundary does not hold;
+    switching off is refused with 409 `shipment_transfers_in_flight` while a
+    Transfer is in flight. While ON, the shipment Transfer operations are served
+    and the legacy `createStockTransfer` answers 409 `transfer_workflow_required`
+    (one writable workflow, 976). Owner or tenant_admin. No existing field or
+    operation changes.
+
     **1.21.0-draft (RT-1512, additive, contract-only; [GATED: OpenAPI] owner
     authorization in chat 2026-11-19 ("Execute RT-1512"); design source the
     Inventory Gate 5 planning record, RT-291 comments 17800 and 17801, with
@@ -2906,6 +2918,78 @@ paths:
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
 
+  /api/inventory/v1/settings/shipment-transfers:
+    get:
+      operationId: getShipmentTransfersSetting
+      tags: [inventory]
+      summary: Read the tenant's shipment-Transfer activation switch and its readiness.
+      description: >
+        RT-1517 (RT-291 Gate 5). Whether shipment Transfers are active for the tenant. `enabled` is false for
+        every tenant until switched on; `changedAt` and `changedBy` are null while it was never changed.
+        `delayedTransferThresholdDays` is the tenant's delayed-Transfer threshold (default 3).
+        `unmetReadiness` lists every readiness boundary that does not hold now, evaluated on each read and
+        failing closed; `readinessMet` is true exactly when that list is empty. The boundaries
+        (`ShipmentTransfersReadinessBoundary.code`) are `connector_not_seen`, `connector_version_unlisted`
+        (the Connector has not reported that it accepts both `transfer_dispatch` and `transfer_receive`),
+        `erp_back_dated_role_unverified` and `transit_warehouse_unmapped`. Owner or tenant_admin; any other
+        role is a 403.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The tenant's activation switch and its readiness.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfersSetting"
+              example:
+                enabled: false
+                changedAt: null
+                changedBy: null
+                delayedTransferThresholdDays: 3
+                readinessMet: false
+                unmetReadiness:
+                  - code: transit_warehouse_unmapped
+                    message: The tenant has no active transit warehouse mapping.
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    put:
+      operationId: setShipmentTransfersSetting
+      tags: [inventory]
+      summary: Switch shipment Transfers on or off for the tenant.
+      description: >
+        RT-1517 (RT-291 Gate 5). `{"enabled": true}` evaluates the readiness in the same transaction as the
+        write: while any boundary is unmet it is refused with 409 `shipment_transfers_readiness_unmet`, which
+        names the first boundary, and nothing is written. There is no override. `{"enabled": false}` is
+        refused with 409 `shipment_transfers_in_flight` while any Transfer of the tenant is in flight (draft,
+        approved, in transit or partially received). Setting the current value again writes nothing and
+        records no audit event. Every change is audited (`inventory.shipment_transfers.update`). While ON, the
+        legacy `createStockTransfer` is refused with 409 `transfer_workflow_required`. Owner or tenant_admin;
+        any other role is a 403. A whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`.
+      security:
+        - cookieAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetShipmentTransfersSettingCommand"
+            example: { enabled: true }
+      responses:
+        "200":
+          description: The tenant's activation switch after the command.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ShipmentTransfersSetting"
+        "400": { $ref: "#/components/responses/ValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/ForbiddenOrOriginRejected" }
+        "409": { $ref: "#/components/responses/ShipmentTransfersSettingConflict" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
 components:
   securitySchemes:
     cookieAuth:
@@ -5218,6 +5302,52 @@ components:
       required: [enabled]
       properties:
         enabled: { type: boolean }
+    ShipmentTransfersReadinessBoundary:
+      type: object
+      additionalProperties: false
+      required: [code, message]
+      description: RT-1517 — one shipment-Transfer readiness boundary that does not hold. Every boundary is tenant-wide.
+      properties:
+        code:
+          type: string
+          enum:
+            - connector_not_seen
+            - connector_version_unlisted
+            - erp_back_dated_role_unverified
+            - transit_warehouse_unmapped
+        message: { type: string, maxLength: 500 }
+    ShipmentTransfersSetting:
+      type: object
+      additionalProperties: false
+      required: [enabled, changedAt, changedBy, delayedTransferThresholdDays, readinessMet, unmetReadiness]
+      description: RT-1517 — the tenant's shipment-Transfer activation switch and its readiness.
+      properties:
+        enabled: { type: boolean }
+        changedAt:
+          type: [string, "null"]
+          format: date-time
+        changedBy:
+          type: [string, "null"]
+          format: uuid
+        delayedTransferThresholdDays:
+          type: integer
+          minimum: 1
+          maximum: 90
+          description: The tenant's delayed-Transfer threshold in days (default 3, O4).
+        readinessMet:
+          type: boolean
+          description: True exactly when `unmetReadiness` is empty.
+        unmetReadiness:
+          type: array
+          items:
+            $ref: "#/components/schemas/ShipmentTransfersReadinessBoundary"
+          description: Every unmet boundary, evaluated now and failing closed.
+    SetShipmentTransfersSettingCommand:
+      type: object
+      additionalProperties: false
+      required: [enabled]
+      properties:
+        enabled: { type: boolean }
     CountCutBarrierDevice:
       type: object
       additionalProperties: false
@@ -5322,6 +5452,39 @@ components:
                   items:
                     $ref: "#/components/schemas/CountSessionsReadinessBoundary"
 
+    ShipmentTransfersSettingConflictError:
+      type: object
+      required: [error]
+      description: >
+        The canonical error envelope (`Error`) of the shipment-Transfer setting 409, with the optional
+        `details`. `details` is present for `shipment_transfers_readiness_unmet` and absent for
+        `shipment_transfers_in_flight`.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            details:
+              type: object
+              required: [boundary, unmet]
+              properties:
+                boundary:
+                  type: string
+                  description: The code of the first readiness boundary that does not hold.
+                unmet:
+                  type: array
+                  items:
+                    $ref: "#/components/schemas/ShipmentTransfersReadinessBoundary"
   responses:
     ValidationFailure:
       description: >
@@ -5443,6 +5606,20 @@ components:
             error:
               code: count_sessions_readiness_unmet
               message: "Count Sessions cannot be switched on: There is no evidence that the Connector ERP user holds the back-dated stock role."
+    ShipmentTransfersSettingConflict:
+      description: >
+        409 — RT-1517. `shipment_transfers_readiness_unmet`: switching shipment Transfers on was refused
+        because a readiness boundary does not hold; `error.details` names the first (`boundary`) and lists all
+        (`unmet`). `shipment_transfers_in_flight`: switching off was refused because a Transfer is in flight.
+        Nothing is written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/ShipmentTransfersSettingConflictError"
+          example:
+            error:
+              code: shipment_transfers_readiness_unmet
+              message: "Shipment transfers cannot be switched on: The tenant has no active transit warehouse mapping."
     CountSessionConflict:
       description: >
         409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the

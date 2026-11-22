@@ -22,3 +22,8 @@ export { dispatchBody as transferDispatchBody, receiveBody as transferReceiveBod
  * inventory table itself.
  */
 export { loadTransferLeg } from "./shipment-transfers/shipment-transfer.feed";
+/**
+ * RT-1517: the legacy instant-transfer legs still `not_posted` (the ERPNext drift they left), read by the operator drift
+ * report CLI. Read only, on the caller's client.
+ */
+export { listLegacyTransferDrift, type LegacyTransferDriftRow } from "./shipment-transfers/legacy-transfer-drift";
