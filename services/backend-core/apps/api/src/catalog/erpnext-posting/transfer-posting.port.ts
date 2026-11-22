@@ -7,12 +7,7 @@
 import { newId } from "@data-pulse-2/shared";
 import type { PoolClient } from "pg";
 
-export interface TransferWarehouseRefs {
-  readonly source: string | null;
-  readonly destination: string | null;
-  /** The tenant's transit warehouse (owner ruling O2): a map row with no store. */
-  readonly transit: string | null;
-}
+import type { TransferWarehouseRefs } from "../../inventory";
 
 /** The active ERP warehouse references of a Transfer's two stores and of the tenant transit warehouse. */
 export async function transferWarehouseRefs(
@@ -63,15 +58,6 @@ export async function batchRefsOfIdentities(client: PoolClient, identityIds: rea
     [identityIds],
   );
   return new Map(r.rows.map((x) => [x.tracking_identity_id, x.erpnext_ref] as const));
-}
-
-/** productId -> `tracking_mode` (`none` | `batch` | `serial`). A product that is not visible is absent. */
-export async function trackingModesOfProducts(client: PoolClient, productIds: readonly string[]): Promise<Map<string, string>> {
-  const r = await client.query<{ id: string; tracking_mode: string }>(
-    `SELECT id, tracking_mode FROM tenant_products WHERE id = ANY($1::uuid[])`,
-    [productIds],
-  );
-  return new Map(r.rows.map((x) => [x.id, x.tracking_mode] as const));
 }
 
 /**

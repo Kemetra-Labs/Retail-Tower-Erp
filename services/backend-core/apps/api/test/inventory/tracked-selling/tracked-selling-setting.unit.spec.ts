@@ -13,7 +13,7 @@ import { NotFoundException, UnauthorizedException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 
 import { ROLES_METADATA_KEY, type RolesMetadata } from '../../../src/auth/roles.decorator';
-import { TRACKED_SELLING_GATE } from '../../../src/catalog/sales/tracked-lines/tracked-selling-gate';
+import { TRACKED_SELLING_GATE } from '../../../src/inventory/tracked-selling/tracked-selling-gate';
 import type { TenantContextRequest } from '../../../src/context/types';
 import {
   TRACKED_SELLING_PRECONDITIONS,

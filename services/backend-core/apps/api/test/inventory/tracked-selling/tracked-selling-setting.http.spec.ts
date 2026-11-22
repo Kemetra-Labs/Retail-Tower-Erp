@@ -32,7 +32,7 @@ import request from 'supertest';
 
 import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
 import { RolesGuard } from '../../../src/auth/roles.guard';
-import { TRACKED_SELLING_GATE } from '../../../src/catalog/sales/tracked-lines/tracked-selling-gate';
+import { TRACKED_SELLING_GATE } from '../../../src/inventory/tracked-selling/tracked-selling-gate';
 import { GlobalExceptionFilter } from '../../../src/common/exception.filter';
 import { MembershipRepository } from '../../../src/context/membership.repository';
 import { TenantContextGuard } from '../../../src/context/tenant-context.guard';

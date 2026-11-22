@@ -33,7 +33,7 @@ import request from 'supertest';
 import { AuthModule } from '../../../src/auth/auth.module';
 import { AUTH_LOOKUP_POOL, PG_POOL } from '../../../src/database';
 import { PosDeviceAuthGuard } from '../../../src/auth/pos-device-auth.guard';
-import { TRACKED_SELLING_GATE } from '../../../src/catalog/sales/tracked-lines/tracked-selling-gate';
+import { TRACKED_SELLING_GATE } from '../../../src/inventory/tracked-selling/tracked-selling-gate';
 import { TrackingProfileService } from '../../../src/catalog/tracking-profile/tracking-profile.service';
 import { encodePageToken } from '../../../src/inventory/safety/inventory-safety-feed.cursor';
 import { InventorySafetyFeedController } from '../../../src/inventory/safety/inventory-safety-feed.controller';

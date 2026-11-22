@@ -27,50 +27,14 @@
 import type { PoolClient } from "pg";
 
 import type { CaptureSaleLineDto, CaptureSaleRequestDto } from "../dto/capture-sale-request.dto";
-import { isTrackedSellingEnabled } from "./tracked-selling-gate";
+import { readTrackedSellingOn, writeSaleLineFindings } from "../../../inventory";
+import { lockProductProfiles } from "../..";
 import {
   classifyCapturedLine,
   saleTrackingStatus,
   type CapturedIdentityFacts,
   type LineClassification,
-  type LineFinding,
 } from "./capture-tracking.rules";
-
-/** The advisory-lock namespace of a product's Tracking Profile (capture SHARED, setter EXCLUSIVE). */
-const TRACKING_PROFILE_LOCK_NAMESPACE = "tracking_profile";
-
-const LOCK_KEY_SQL = `hashtextextended($1 || ':' || $2::text || ':' || p::text, 0)`;
-
-/** Tracked selling is on for the tenant: the deployment gate AND the tenant's switch. */
-export async function readTrackedSellingOn(client: PoolClient, tenantId: string): Promise<boolean> {
-  if (!isTrackedSellingEnabled()) return false;
-  const r = await client.query<{ enabled: boolean }>(
-    `SELECT COALESCE((SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)
-              AS enabled`,
-    [tenantId],
-  );
-  return r.rows[0]?.enabled === true;
-}
-
-/**
- * Take the products' profile keys for the rest of the transaction, in id
- * order (so two captures never wait on each other in a cycle; SHARED keys
- * never block each other anyway). `exclusive` is the profile setter's mode.
- */
-export async function lockProductProfiles(
-  client: PoolClient,
-  tenantId: string,
-  productIds: ReadonlyArray<string>,
-  mode: "shared" | "exclusive",
-): Promise<void> {
-  const ids = [...new Set(productIds)].sort();
-  if (ids.length === 0) return;
-  const fn = mode === "shared" ? "pg_advisory_xact_lock_shared" : "pg_advisory_xact_lock";
-  await client.query(
-    `SELECT ${fn}(${LOCK_KEY_SQL}) FROM unnest($3::uuid[]) WITH ORDINALITY AS u(p, n) ORDER BY n`,
-    [TRACKING_PROFILE_LOCK_NAMESPACE, tenantId, ids],
-  );
-}
 
 /** The sale being classified, as stored by the capture. */
 interface ClassifiedSale {
@@ -195,45 +159,8 @@ async function activeHoldsAt(
   return out;
 }
 
-/** One stored line and the findings its classification produced. */
-export interface LineFindingsToWrite {
-  readonly saleLineId: string;
-  readonly productId: string;
-  readonly identityId: string;
-  readonly findings: ReadonlyArray<LineFinding>;
-}
-
-/** Append the row-2 and row-3 findings of a first capture, one per (line, kind, cause). */
-export async function writeSaleLineFindings(
-  client: PoolClient,
-  sale: { readonly tenantId: string; readonly storeId: string; readonly saleId: string; readonly businessDate: string; readonly occurredAt: string },
-  lines: ReadonlyArray<LineFindingsToWrite>,
-): Promise<void> {
-  const rows = lines.flatMap((l) => l.findings.map((f) => ({ ...f, line: l })));
-  if (rows.length === 0) return;
-  await client.query(
-    `INSERT INTO sale_line_findings
-       (tenant_id, store_id, sale_id, sale_line_id, tenant_product_ref, tracking_identity_id,
-        kind, cause, hold_id, business_date, occurred_at)
-     SELECT $1, $2, $3, f.line_id, f.product_id, f.identity_id, f.kind, f.cause, f.hold_id, $4::date, $5::timestamptz
-       FROM unnest($6::uuid[], $7::uuid[], $8::uuid[], $9::text[], $10::text[], $11::uuid[])
-            AS f(line_id, product_id, identity_id, kind, cause, hold_id)
-     ON CONFLICT (sale_line_id, kind, cause) DO NOTHING`,
-    [
-      sale.tenantId,
-      sale.storeId,
-      sale.saleId,
-      sale.businessDate,
-      sale.occurredAt,
-      rows.map((r) => r.line.saleLineId),
-      rows.map((r) => r.line.productId),
-      rows.map((r) => r.line.identityId),
-      rows.map((r) => r.kind),
-      rows.map((r) => r.cause),
-      rows.map((r) => r.holdId),
-    ],
-  );
-}
+/** Moved to inventory (RT-1463), which owns `sale_line_findings`; re-exported for the capture. */
+export { writeSaleLineFindings };
 
 function lower(value: string | undefined): string | undefined {
   return value?.toLowerCase();

@@ -33,7 +33,7 @@ import {
   isPosSaleTendersEnabled,
   isPosSaleTendersSameMethodEnabled,
 } from "../../src/catalog/sales/sale-tenders-gate";
-import { isTrackedSellingEnabled } from "../../src/catalog/sales/tracked-lines/tracked-selling-gate";
+import { isTrackedSellingEnabled } from "../../src/inventory/tracked-selling/tracked-selling-gate";
 import { checkTrustProxyConfig } from "../../src/common/trust-proxy";
 import { readConsoleRateLimitConfig } from "../../src/console-rate-limit/console-rate-limit.config";
 import { resolveForwardTarget } from "../../src/console-telemetry/console-telemetry.forwarder";
@@ -89,7 +89,7 @@ const FIXED_VALUES: Readonly<Record<string, string>> = {
 };
 
 /** The only file whose `env[name]` reads names passed to `isEnvFlagOn`. */
-const ENV_FLAG_HELPER_FILE = "catalog/sales/sale-tenders-gate.ts";
+const ENV_FLAG_HELPER_FILE = "common/env-flag.ts";
 
 const apiRoot = resolve(__dirname, "..", "..");
 const srcRoot = join(apiRoot, "src");

@@ -34,7 +34,7 @@ import { ZodValidationPipe } from "../../../common/zod-validation.pipe";
 import type { TenantContextRequest } from "../../../context/types";
 import { TrackedLotsAuthGuard } from "./tracked-lots-auth.guard";
 import { TrackedLotsService, type TrackedLotList } from "./tracked-lots.service";
-import { isTrackedSellingEnabled } from "./tracked-selling-gate";
+import { isTrackedSellingEnabled } from "../../../inventory";
 
 const ProductIdSchema = z.string().uuid();
 

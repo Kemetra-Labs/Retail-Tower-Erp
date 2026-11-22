@@ -16,13 +16,7 @@
  */
 import type { PoolClient } from 'pg';
 
-import {
-  batchRefsOfIdentities,
-  confirmedItemRefs,
-  insertTransferLeg,
-  postingLegStatus,
-  transferWarehouseRefs,
-} from '../../catalog';
+import type { TransferErpPort } from './transfer-erp.port';
 import { payloadHash } from '../count-sessions/count-emission';
 import {
   TRANSFER_SOURCE_SYSTEM,
@@ -37,11 +31,12 @@ const STAMP_SQL = `to_char(($1::timestamptz) AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"H
 
 /** Fail closed (O2, 886) while the source, destination or tenant transit warehouse has no ERP mapping. */
 export async function assertWarehousesMapped(
+  erp: TransferErpPort,
   client: PoolClient,
   sourceStoreId: string,
   destinationStoreId: string,
 ): Promise<{ source: string; destination: string; transit: string }> {
-  const w = await transferWarehouseRefs(client, sourceStoreId, destinationStoreId);
+  const w = await erp.transferWarehouseRefs(client, sourceStoreId, destinationStoreId);
   if (w.source === null || w.destination === null || w.transit === null) {
     throw new TransferRuleError(
       'transfer_warehouse_unmapped',
@@ -63,11 +58,12 @@ export interface LineRefs {
  * stock it could never post (886, G7-9).
  */
 export async function lineRefs(
+  erp: TransferErpPort,
   client: PoolClient,
   lines: readonly { readonly tenant_product_ref: string; readonly tracking_identity_id: string | null }[],
 ): Promise<Map<string, LineRefs>> {
-  const itemOf = await confirmedItemRefs(client, [...new Set(lines.map((l) => l.tenant_product_ref))]);
-  const batchOf = await batchRefsOfIdentities(
+  const itemOf = await erp.confirmedItemRefs(client, [...new Set(lines.map((l) => l.tenant_product_ref))]);
+  const batchOf = await erp.batchRefsOfIdentities(
     client,
     lines.flatMap((l) => (l.tracking_identity_id ? [l.tracking_identity_id] : [])),
   );
@@ -148,12 +144,13 @@ async function businessDate(client: PoolClient, storeId: string, at: Date): Prom
  * Transfer, with every line (lineSeq = the Transfer line's seq, contiguous from 1). Idempotent per Transfer (888).
  */
 export async function emitDispatchLeg(
+  erp: TransferErpPort,
   client: PoolClient,
   head: TransferHead,
   effects: readonly { readonly lineId: string; readonly movementId: string }[],
 ): Promise<string> {
   if (!head.dispatched_at) throw new Error('TransferPosting: emitDispatchLeg needs a dispatched Transfer');
-  const w = await assertWarehousesMapped(client, head.source_store_id, head.destination_store_id);
+  const w = await assertWarehousesMapped(erp, client, head.source_store_id, head.destination_store_id);
   const lines = await client.query<{
     id: string;
     line_seq: number;
@@ -166,7 +163,7 @@ export async function emitDispatchLeg(
        FROM shipment_transfer_lines WHERE transfer_id = $1 ORDER BY line_seq`,
     [head.id],
   );
-  const refs = await lineRefs(client, lines.rows);
+  const refs = await lineRefs(erp, client, lines.rows);
   const stamp = (await client.query<{ s: string }>(`SELECT ${STAMP_SQL} AS s`, [head.dispatched_at])).rows[0]!.s;
   const postingLines: PostingLineRow[] = lines.rows.map((l) => {
     const r = refs.get(refKey(l.tenant_product_ref, l.tracking_identity_id))!;
@@ -196,7 +193,7 @@ export async function emitDispatchLeg(
       unit: l.unit,
     })),
   });
-  const leg = await insertTransferLeg(client, {
+  const leg = await erp.insertTransferLeg(client, {
     tenantId: head.tenant_id,
     storeId: head.source_store_id,
     kind: 'transfer_dispatch',
@@ -223,6 +220,7 @@ export async function emitDispatchLeg(
 
 /** The dispatch leg of a Transfer: its intent, and its status and Stock Entry reference (from the catalog port). */
 async function dispatchLeg(
+  erp: TransferErpPort,
   client: PoolClient,
   transferId: string,
 ): Promise<{ intentId: string; status: string; documentRef: string | null } | null> {
@@ -232,7 +230,7 @@ async function dispatchLeg(
   );
   const intentId = r.rows[0]?.intent_id;
   if (!intentId) return null;
-  const status = await postingLegStatus(client, intentId);
+  const status = await erp.postingLegStatus(client, intentId);
   return status ? { intentId, status: status.status, documentRef: status.documentRef } : null;
 }
 
@@ -254,12 +252,13 @@ function parseStockEntry(documentRef: string): { doctype: string; name: string }
  * dispatch is not confirmed yet (the receipt stays `not_posted` until `releaseReceiptLegs`). Idempotent per receipt (889).
  */
 async function emitReceiptLegIfReleasable(
+  erp: TransferErpPort,
   client: PoolClient,
   tenantId: string,
   transferId: string,
   receiptId: string,
 ): Promise<string | null> {
-  const dispatch = await dispatchLeg(client, transferId);
+  const dispatch = await dispatchLeg(erp, client, transferId);
   if (!dispatch || dispatch.status !== 'posted' || dispatch.documentRef === null) return null;
   const t = await client.query<TransferHead>(
     `SELECT id, tenant_id, source_store_id, destination_store_id, dispatched_at FROM shipment_transfers WHERE id = $1`,
@@ -273,7 +272,7 @@ async function emitReceiptLegIfReleasable(
   );
   const receivedAt = receipt.rows[0]?.received_at;
   if (!receivedAt) throw new Error('TransferPosting: the receipt is not visible');
-  const w = await assertWarehousesMapped(client, head.source_store_id, head.destination_store_id);
+  const w = await assertWarehousesMapped(erp, client, head.source_store_id, head.destination_store_id);
   const rl = await client.query<{
     line_seq: number;
     transfer_line_id: string;
@@ -291,7 +290,7 @@ async function emitReceiptLegIfReleasable(
       WHERE r.receipt_id = $1 ORDER BY r.line_seq`,
     [receiptId],
   );
-  const refs = await lineRefs(client, rl.rows);
+  const refs = await lineRefs(erp, client, rl.rows);
   const stamp = (await client.query<{ s: string }>(`SELECT ${STAMP_SQL} AS s`, [receivedAt])).rows[0]!.s;
   const postingLines: PostingLineRow[] = rl.rows.map((l) => {
     const r = refs.get(refKey(l.tenant_product_ref, l.tracking_identity_id))!;
@@ -324,7 +323,7 @@ async function emitReceiptLegIfReleasable(
       unit: l.unit,
     })),
   });
-  const leg = await insertTransferLeg(client, {
+  const leg = await erp.insertTransferLeg(client, {
     tenantId,
     storeId: head.destination_store_id,
     kind: 'transfer_receive',
@@ -363,7 +362,12 @@ async function emitReceiptLegIfReleasable(
  * The ack of a dispatch leg just confirmed it: release every receipt of that Transfer that was waiting, oldest first,
  * in the ack's own transaction (the caller holds the tenant's feed sequence lock). Returns the intents created.
  */
-export async function releaseReceiptLegs(client: PoolClient, tenantId: string, dispatchIntentId: string): Promise<string[]> {
+export async function releaseReceiptLegs(
+  erp: TransferErpPort,
+  client: PoolClient,
+  tenantId: string,
+  dispatchIntentId: string,
+): Promise<string[]> {
   const t = await client.query<{ transfer_id: string }>(
     `SELECT transfer_id FROM transfer_postings WHERE intent_id = $1 AND receipt_id IS NULL`,
     [dispatchIntentId],
@@ -383,7 +387,7 @@ export async function releaseReceiptLegs(client: PoolClient, tenantId: string, d
     // half-built leg must never commit.
     await client.query('SAVEPOINT release_receipt_leg');
     try {
-      const id = await emitReceiptLegIfReleasable(client, tenantId, transferId, r.id);
+      const id = await emitReceiptLegIfReleasable(erp, client, tenantId, transferId, r.id);
       if (id) released.push(id);
       await client.query('RELEASE SAVEPOINT release_receipt_leg');
     } catch (err) {
