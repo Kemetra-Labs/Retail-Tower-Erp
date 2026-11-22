@@ -1,9 +1,3 @@
-import { DataTableSkeleton } from "@/components/DataTableSkeleton";
-import { DetailPanel } from "@/components/DetailPanel";
-import { ListHeaderBand } from "@/components/ListHeaderBand";
-import { ListState } from "@/components/ListState";
-import { DateTime, type T, formatNumber, useT } from "@/i18n";
-import type { ShipmentTransfer, ShipmentTransferFilter } from "@/lib/inventory-queries";
 /**
  * RT-1515 (PR 1) — shipment Transfers, read only. The tenant's Transfers newest
  * first (`listShipmentTransfers`), filtered by the contract's own filters (a
@@ -21,11 +15,17 @@ import type { ShipmentTransfer, ShipmentTransferFilter } from "@/lib/inventory-q
  * NoAccess and nothing is requested. The API still decides every read (a store
  * manager sees only Transfers touching its stores). Nothing is written here.
  */
+import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { DetailPanel } from "@/components/DetailPanel";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
+import { ListState } from "@/components/ListState";
+import { DateTime, type T, formatNumber, useT } from "@/i18n";
+import type { ShipmentTransfer, ShipmentTransferFilter } from "@/lib/inventory-queries";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import { usePickerStores } from "../InventoryStores";
 import { BackLink, InventoryReadGate, LoadMore, StaleError } from "../parts";
 import type { InventoryScope, PagedState } from "../useInventory";
+import { usePickerStores } from "../usePickerStores";
 import { TransferDrawer } from "./TransferDrawer";
 import {
   CaptionedTable,

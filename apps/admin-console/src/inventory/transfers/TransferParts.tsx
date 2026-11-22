@@ -8,6 +8,7 @@
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { type MessageKey, useT } from "@/i18n";
 import { useStoreList } from "@/stores/useStoreQueries";
+import { useMemo } from "react";
 import { Machine, ReadError } from "../parts";
 import type { InventoryError } from "../useInventory";
 import {
@@ -35,8 +36,10 @@ export function LegBadge({
 /** Store id → name, from the tenant's store list once it has loaded. */
 export function useStoreNames(tenantId: string | null): ReadonlyMap<string, string> {
   const { result } = useStoreList(tenantId);
-  const rows = result?.kind === "rows" ? result.rows : [];
-  return new Map(rows.filter((s) => s.name).map((s) => [s.id, s.name as string]));
+  return useMemo(() => {
+    const rows = result?.kind === "rows" ? result.rows : [];
+    return new Map(rows.filter((s) => s.name).map((s) => [s.id, s.name as string]));
+  }, [result]);
 }
 
 export function StoreName({
