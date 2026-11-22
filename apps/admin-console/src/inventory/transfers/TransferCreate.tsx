@@ -122,9 +122,7 @@ export function TransferCreateDrawer({
 
   // An edit makes a refusal stale, so it is cleared. "No answer" is not cleared: the
   // earlier request may still have been recorded, and that stays true until a new answer.
-  const edited = () => {
-    if (write.outcome?.kind !== "failed") write.reset();
-  };
+  const edited = () => write.clearRefusal();
   const addLine = (product: CatalogProduct) => {
     edited();
     const id = nextId.current++;

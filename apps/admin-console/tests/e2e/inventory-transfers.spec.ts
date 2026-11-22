@@ -13,6 +13,9 @@ import { type LocaleFixtures, type Page, expect, test } from "./fixtures";
  * every write is one POST with an Idempotency-Key, and each answer is read back.
  * S4: a refused write shows code-keyed copy (never the server's message) and a
  * cancellation with a reason follows.
+ * S5/S6 (RT-1515 PR 3): a partial receipt (an over-receipt is refused in the
+ * form, nothing sent) then a short-close with a reason; a full receipt then a
+ * plain close. Axe on the receive and short-close forms.
  * Runs in both locales; copy comes from the catalog (`t`).
  */
 const CAIRO = "0190f000-0000-7000-8000-0000000007a1";
@@ -366,8 +369,13 @@ test("S3: owner drafts, approves and dispatches a Transfer; each write is one ke
   await expect(
     drawer.getByText(t("transfers.state.in_transit"), { exact: true }).first(),
   ).toBeVisible();
-  // An in-transit Transfer offers no write action.
-  await expect(drawer.getByRole("heading", { name: t("transfers.actions.title") })).toHaveCount(0);
+  // An in-transit Transfer no longer offers approve or dispatch; it offers Receive (PR 3).
+  await expect(
+    drawer.getByRole("button", { name: t("transfers.receive.open"), exact: true }),
+  ).toBeVisible();
+  await expect(
+    drawer.getByRole("button", { name: t("transfers.dispatch.open"), exact: true }),
+  ).toHaveCount(0);
 
   expect(mock.writes.map((w) => `${w.method} ${w.path.replace(T_NEW, "{id}")}`)).toEqual([
     `POST ${TRANSFERS}`,
@@ -420,4 +428,187 @@ test("S4: a refused write shows code-keyed copy, then a cancellation with a reas
   expect(cancel?.path).toBe(`${TRANSFERS}/${T_NEW}/cancel`);
   expect(cancel?.body).toEqual({ reason: "Wrong store" });
   expect(cancel?.key).toMatch(KEY_SHAPE);
+});
+
+// --- RT-1515 PR 3: receive, close and short-close ----------------------------------------------
+
+interface ReceiveMock {
+  writes: Write[];
+}
+
+/** One in-transit Transfer of 10 kg that the mocked server moves through receipts and a close. */
+async function mockReceiving(page: Page): Promise<ReceiveMock> {
+  const mock: ReceiveMock = { writes: [] };
+  const lineWith = (received: string, inTransit: string, shortClosed = "0.0000") => ({
+    ...transfer(T1).lines[0],
+    quantity: "10.0000",
+    dispatchedQuantity: "10.0000",
+    receivedQuantity: received,
+    shortClosedQuantity: shortClosed,
+    inTransitQuantity: inTransit,
+  });
+  let current: Record<string, unknown> = transfer(T1, {
+    state: "in_transit",
+    receiptCount: 0,
+    lines: [lineWith("0.0000", "10.0000")],
+  });
+  let received = 0;
+  await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
+  await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx)));
+  await page.route("**/api/v1/stores", (r) => r.fulfill(json(stores)));
+  await page.route("**/api/inventory/v1/stores/*/locations**", (r) =>
+    r.fulfill(
+      json({
+        items: [
+          {
+            id: "0190f000-0000-7000-8000-0000000007d1",
+            storeId: ALEX,
+            code: "MAIN",
+            name: "Main",
+            kind: "primary",
+            isActive: true,
+          },
+        ],
+        nextCursor: null,
+      }),
+    ),
+  );
+  const write = (action: string | undefined, body: Record<string, unknown>) => {
+    if (action === "receipts") {
+      const lines = body.lines as { quantity: string }[];
+      received += Number(lines[0]?.quantity);
+      const left = 10 - received;
+      current = {
+        ...current,
+        state: left === 0 ? "received" : "partially_received",
+        receiptCount: 1,
+        lines: [lineWith(received.toFixed(4), left.toFixed(4))],
+      };
+      return json({ id: "0190f000-0000-7000-8000-00000000c0ff" }, 201);
+    }
+    const reason = body.shortCloseReason as string | null;
+    current = {
+      ...current,
+      state: "closed",
+      closure: { by: ME, at: "2026-11-22T08:00:00Z" },
+      shortClose: reason ? { approvedBy: ME, approvedAt: "2026-11-22T08:00:00Z", reason } : null,
+      lines: [
+        lineWith(received.toFixed(4), "0.0000", reason ? (10 - received).toFixed(4) : "0.0000"),
+      ],
+    };
+    return json(current);
+  };
+  await page.route(`**${TRANSFERS}**`, (r) => {
+    const req = r.request();
+    const url = new URL(req.url());
+    if (req.method() === "GET") {
+      if (url.pathname === TRANSFERS)
+        return r.fulfill(json({ items: [current], nextCursor: null }));
+      if (url.pathname.endsWith("/receipts")) {
+        return r.fulfill(json({ items: [], nextCursor: null }));
+      }
+      return r.fulfill(json(current));
+    }
+    const body = JSON.parse(req.postData() ?? "{}") as Record<string, unknown>;
+    mock.writes.push({
+      method: req.method(),
+      path: url.pathname,
+      key: req.headers()["idempotency-key"],
+      body,
+    });
+    return r.fulfill(write(url.pathname.split("/").at(-1), body));
+  });
+  return mock;
+}
+
+async function openReceiving(p: Page, t: LocaleT) {
+  await p.goto("/inventory/transfers");
+  await p
+    .getByRole("table", { name: t("transfers.list.caption") })
+    .getByRole("button", { name: t("transfers.list.openHint") })
+    .first()
+    .click();
+  return p.getByRole("dialog", { name: t("transfers.detail.title") });
+}
+
+test("S5: owner receives part of a Transfer, then short-closes the rest as a loss", async ({
+  page: p,
+  t,
+}) => {
+  const mock = await mockReceiving(p);
+  const drawer = await openReceiving(p, t);
+  await drawer.getByRole("button", { name: t("transfers.receive.open"), exact: true }).click();
+  await expect(drawer.getByText("10.0000").first()).toBeVisible();
+  await expectNoAxeViolations(p, "transfer receive form");
+
+  // Over the In transit quantity: refused in the form, nothing is sent.
+  const quantity = drawer.getByLabel(t("transfers.receive.quantity", { seq: 1 }));
+  await quantity.fill("10.0001");
+  await drawer.getByRole("button", { name: t("transfers.receive.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.receive.error.over"))).toBeVisible();
+  expect(mock.writes).toEqual([]);
+
+  await quantity.fill("4");
+  await drawer.getByRole("button", { name: t("transfers.receive.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.recorded.receive"))).toBeVisible();
+  await expect(
+    drawer.getByText(t("transfers.state.partially_received"), { exact: true }).first(),
+  ).toBeVisible();
+
+  await drawer.getByRole("button", { name: t("transfers.shortClose.open"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.shortClose.intro"))).toBeVisible();
+  await expect(drawer.getByTestId("transfer-short-close-line")).toContainText("6.0000");
+  await expectNoAxeViolations(p, "transfer short-close form");
+  await drawer.getByRole("button", { name: t("transfers.shortClose.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.shortClose.error.reason"))).toBeVisible();
+  await drawer.getByLabel(t("transfers.shortClose.reason")).fill("Pallet lost");
+  await drawer.getByRole("button", { name: t("transfers.shortClose.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.recorded.shortClose"))).toBeVisible();
+  await expect(
+    drawer.getByText(t("transfers.state.closed"), { exact: true }).first(),
+  ).toBeVisible();
+  await expect(drawer.getByRole("heading", { name: t("transfers.actions.title") })).toHaveCount(0);
+
+  expect(mock.writes.map((w) => `${w.method} ${w.path.replace(T1, "{id}")}`)).toEqual([
+    `POST ${TRANSFERS}/{id}/receipts`,
+    `POST ${TRANSFERS}/{id}/close`,
+  ]);
+  for (const w of mock.writes) expect(w.key).toMatch(KEY_SHAPE);
+  expect(mock.writes[0]?.body).toMatchObject({
+    lines: [{ quantity: "4", disposition: "sellable", stockLocationId: null }],
+    note: null,
+  });
+  expect(mock.writes[1]?.body).toEqual({ shortCloseReason: "Pallet lost" });
+});
+
+test("S6: owner receives a Transfer in full, then closes it without a reason", async ({
+  page: p,
+  t,
+}) => {
+  const mock = await mockReceiving(p);
+  const drawer = await openReceiving(p, t);
+  await drawer.getByRole("button", { name: t("transfers.receive.open"), exact: true }).click();
+  await drawer.getByLabel(t("transfers.receive.quantity", { seq: 1 })).fill("10");
+  await drawer.getByLabel(t("transfers.receive.note"), { exact: false }).fill("All crates");
+  await drawer.getByRole("button", { name: t("transfers.receive.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.recorded.receive"))).toBeVisible();
+  await expect(
+    drawer.getByText(t("transfers.state.received"), { exact: true }).first(),
+  ).toBeVisible();
+  // A fully received Transfer offers a plain close, never a short-close.
+  await expect(
+    drawer.getByRole("button", { name: t("transfers.shortClose.open"), exact: true }),
+  ).toHaveCount(0);
+
+  await drawer.getByRole("button", { name: t("transfers.close.open"), exact: true }).click();
+  await drawer.getByRole("button", { name: t("transfers.close.submit"), exact: true }).click();
+  await expect(drawer.getByText(t("transfers.recorded.close"))).toBeVisible();
+  await expect(
+    drawer.getByText(t("transfers.state.closed"), { exact: true }).first(),
+  ).toBeVisible();
+
+  expect(mock.writes.map((w) => w.path.split("/").at(-1))).toEqual(["receipts", "close"]);
+  expect(mock.writes[0]?.body).toMatchObject({ note: "All crates" });
+  expect(mock.writes[1]?.body).toEqual({ shortCloseReason: null });
+  expect(new Set(mock.writes.map((w) => w.key)).size).toBe(2);
 });

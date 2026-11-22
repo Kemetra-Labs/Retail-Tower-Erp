@@ -12,9 +12,9 @@ import { Banner } from "@/components/Banner";
  * fresh (`getShipmentTransfer`); receipts are paged oldest first
  * (`listShipmentTransferReceipts`) and a failed continuation keeps them.
  *
- * RT-1515 (PR 2): a draft or approved Transfer also carries its write actions
- * (approve, dispatch, cancel) for the roles the API accepts; receive and close
- * are a later PR. A recorded action says so, above the actions, and the
+ * RT-1515 (PR 2, PR 3): a Transfer also carries its write actions (approve,
+ * dispatch, cancel, receive, close, short-close) for the roles the API accepts
+ * and in the states that allow them. A recorded action says so, above the actions, and the
  * Transfer is read again (never edited locally). The drawer cannot be closed
  * while a write awaits its answer, so the answer is not lost.
  */
@@ -297,12 +297,7 @@ function Detail({
     <>
       {notice ? <Banner variant="success" message={t(`transfers.recorded.${notice}`)} /> : null}
       <Summary transfer={transfer} names={names} />
-      <TransferActions
-        transfer={transfer}
-        role={scope.role}
-        writes={writes}
-        onRecorded={setNotice}
-      />
+      <TransferActions scope={scope} transfer={transfer} writes={writes} onRecorded={setNotice} />
       <section className="transfers__section" aria-labelledby="transfer-lines">
         <h3 id="transfer-lines" className="transfers__heading">
           {t("transfers.lines.title")}

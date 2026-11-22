@@ -9,6 +9,7 @@ vi.mock("@/generated/client", () => ({
 import {
   approveShipmentTransfer,
   cancelShipmentTransfer,
+  closeShipmentTransfer,
   createShipmentTransfer,
   dispatchShipmentTransfer,
   getOnHand,
@@ -18,6 +19,7 @@ import {
   listStockLocations,
   listStoreMovements,
   listTrackingIdentities,
+  recordShipmentTransferReceipt,
 } from "@/lib/inventory-queries";
 
 const STORE = "0190f000-0000-7000-8000-0000000007a1";
@@ -183,5 +185,67 @@ describe("shipment-Transfer write wrappers", () => {
     expect(res.status).toBe(429);
     expect(res.retryAfter).toBe(7);
     expect(res.error).toEqual({ error: { code: "rate_limited", message: "x" } });
+  });
+});
+
+/**
+ * RT-1515 (PR 3) receive and close: each POSTs its generated path with the
+ * command as the body, the required Idempotency-Key header and the abort signal.
+ */
+describe("shipment-Transfer receive and close wrappers", () => {
+  const TRANSFER = "0190f000-0000-7000-8000-00000000a001";
+  const LINE = "0190f000-0000-7000-8000-00000000b001";
+  const KEY = "0190f000-0000-4000-8000-00000000cafe";
+
+  beforeEach(() => POST.mockReset());
+
+  test("recordShipmentTransferReceipt POSTs the receipt command to /receipts", async () => {
+    POST.mockResolvedValue({ data: { id: "r1" }, response: response(201) });
+    const command = {
+      lines: [
+        {
+          transferLineId: LINE,
+          quantity: "4",
+          disposition: "damaged" as const,
+          stockLocationId: null,
+        },
+      ],
+      note: null,
+    };
+    const signal = new AbortController().signal;
+    const res = await recordShipmentTransferReceipt(TRANSFER, command, KEY, signal);
+    expect(POST).toHaveBeenCalledWith(
+      "/api/inventory/v1/shipment-transfers/{transferId}/receipts",
+      {
+        params: { path: { transferId: TRANSFER }, header: { "Idempotency-Key": KEY } },
+        body: command,
+        signal,
+      },
+    );
+    expect(res.status).toBe(201);
+  });
+
+  test.each([
+    ["a full close", { shortCloseReason: null }],
+    ["a short-close", { shortCloseReason: "Lost in transit" }],
+  ])("closeShipmentTransfer sends %s to /close", async (_name, command) => {
+    POST.mockResolvedValue({ data: { id: TRANSFER }, response: response(200) });
+    const signal = new AbortController().signal;
+    await closeShipmentTransfer(TRANSFER, command, KEY, signal);
+    expect(POST).toHaveBeenCalledWith("/api/inventory/v1/shipment-transfers/{transferId}/close", {
+      params: { path: { transferId: TRANSFER }, header: { "Idempotency-Key": KEY } },
+      body: command,
+      signal,
+    });
+  });
+
+  test("a 409 refusal keeps its status and error body", async () => {
+    POST.mockResolvedValue({
+      error: { error: { code: "over_receipt_requires_approval", message: "x" } },
+      response: response(409),
+    });
+    const res = await recordShipmentTransferReceipt(TRANSFER, { lines: [], note: null }, KEY);
+    expect(res.status).toBe(409);
+    expect(res.error).toEqual({ error: { code: "over_receipt_requires_approval", message: "x" } });
   });
 });

@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { page as catalogPage, product } from "./catalog-fixtures";
@@ -16,6 +16,8 @@ const api = {
   approveShipmentTransfer: vi.fn(),
   cancelShipmentTransfer: vi.fn(),
   dispatchShipmentTransfer: vi.fn(),
+  recordShipmentTransferReceipt: vi.fn(),
+  closeShipmentTransfer: vi.fn(),
 };
 vi.mock("@/lib/inventory-queries", () => ({
   listStoreMovements: (...a: unknown[]) => api.listStoreMovements(...a),
@@ -29,6 +31,8 @@ vi.mock("@/lib/inventory-queries", () => ({
   approveShipmentTransfer: (...a: unknown[]) => api.approveShipmentTransfer(...a),
   cancelShipmentTransfer: (...a: unknown[]) => api.cancelShipmentTransfer(...a),
   dispatchShipmentTransfer: (...a: unknown[]) => api.dispatchShipmentTransfer(...a),
+  recordShipmentTransferReceipt: (...a: unknown[]) => api.recordShipmentTransferReceipt(...a),
+  closeShipmentTransfer: (...a: unknown[]) => api.closeShipmentTransfer(...a),
 }));
 const consoleListCatalogProducts = vi.fn();
 vi.mock("@/lib/catalog-queries", () => ({
@@ -122,6 +126,17 @@ function transfer(overrides: Record<string, unknown> = {}) {
   };
 }
 
+const LOC_MAIN = "0190f000-0000-7000-8000-0000000007d1";
+const LOC_BACK = "0190f000-0000-7000-8000-0000000007d2";
+const location = (id: string, kind: string, name: string, isActive = true) => ({
+  id,
+  storeId: ALEX,
+  code: name.toUpperCase(),
+  name,
+  kind,
+  isActive,
+});
+
 const stores = [
   { id: CAIRO, code: "CAI", name: "Cairo Festival", timezone: "Africa/Cairo", is_active: true },
   { id: ALEX, code: "ALX", name: "Alexandria", timezone: "Africa/Cairo", is_active: true },
@@ -144,9 +159,13 @@ const onHandOf = (storeId: string, productId: string, over: Record<string, unkno
   ...over,
 });
 
+/** The page's query client, so a test can make the reads re-run as a real refetch would. */
+let client = createQueryClient();
+
 function renderPage(): void {
+  client = createQueryClient();
   render(
-    <QueryClientProvider client={createQueryClient()}>
+    <QueryClientProvider client={client}>
       <MemoryRouter initialEntries={["/inventory/transfers"]}>
         <Routes>
           <Route path="/inventory/transfers" element={<InventoryTransfers />} />
@@ -181,6 +200,7 @@ beforeEach(() => {
     status: 201,
     data: transfer({ id: T_NEW }),
   });
+  api.listStockLocations.mockResolvedValue(ok({ items: [location(LOC_MAIN, "primary", "Main")] }));
 });
 afterEach(cleanup);
 
@@ -221,7 +241,9 @@ describe("the New transfer control (RT-1515 PR 2)", () => {
     activeContext.mockReturnValue(ctx(role));
     renderPage();
     expect(await screen.findByRole("button", { name: "New transfer" })).toBeDefined();
-    expect(screen.getByText(/Here you can draft, approve, cancel and dispatch/)).toBeDefined();
+    expect(
+      screen.getByText(/Here you can draft, approve, cancel, dispatch and receive/),
+    ).toBeDefined();
   });
 
   test.each(["store_staff", "cashier", null])("%s gets no page and no control", (role) => {
@@ -448,8 +470,12 @@ describe("create a Draft (RT-1515 PR 2)", () => {
     await fillReady(dialog);
     fireEvent.click(sendButton(dialog));
     await within(dialog).findByRole("button", { name: "Send the same request again" });
-    // The source read now answers a different unit; the operator changed nothing.
+    // The source read now answers a different unit and is really re-read; the operator changed nothing.
     api.getOnHand.mockResolvedValue(ok(onHandOf(CAIRO, OIL, { stockingUnit: "box" })));
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["inventory"] });
+    });
+    await within(dialog).findByLabelText(/^Quantity \(box\)$/);
     fireEvent.click(within(dialog).getByRole("button", { name: "Send the same request again" }));
     await waitFor(() => expect(api.createShipmentTransfer).toHaveBeenCalledTimes(2));
     const [first, second] = api.createShipmentTransfer.mock.calls;
@@ -553,20 +579,17 @@ describe("approve, cancel and dispatch gating by state (RT-1515 PR 2)", () => {
     expect(within(dialog).queryByRole("button", { name: "Approve transfer" })).toBeNull();
   });
 
-  test.each(["in_transit", "partially_received", "received", "closed", "cancelled"])(
-    "a %s Transfer offers no write action",
-    async (state) => {
-      api.getShipmentTransfer.mockResolvedValue(ok(transfer({ state })));
-      const dialog = await openTransfer();
-      await within(dialog).findByRole("table", {
-        name: "The transfer's lines and their quantities",
-      });
-      expect(within(dialog).queryByRole("heading", { name: "Actions" })).toBeNull();
-      expect(
-        within(dialog).queryByRole("button", { name: /Approve|Dispatch|Cancel transfer/ }),
-      ).toBeNull();
-    },
-  );
+  test.each(["closed", "cancelled"])("a %s Transfer offers no write action", async (state) => {
+    api.getShipmentTransfer.mockResolvedValue(ok(transfer({ state })));
+    const dialog = await openTransfer();
+    await within(dialog).findByRole("table", {
+      name: "The transfer's lines and their quantities",
+    });
+    expect(within(dialog).queryByRole("heading", { name: "Actions" })).toBeNull();
+    expect(
+      within(dialog).queryByRole("button", { name: /Approve|Dispatch|Cancel transfer/ }),
+    ).toBeNull();
+  });
 });
 
 describe("approve (RT-1515 PR 2)", () => {
@@ -747,5 +770,420 @@ describe("dispatch (RT-1515 PR 2)", () => {
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm dispatch" }));
     expect(await within(dialog).findByText(/not mapped to an ERPNext warehouse/)).toBeDefined();
     expect(within(dialog).queryByText("The dispatch was recorded.")).toBeNull();
+  });
+});
+
+// --- Receive, close and short-close (RT-1515 PR 3) -------------------------------------------
+
+const LINE2 = "0190f000-0000-7000-8000-00000000b002";
+
+function inLine(id: string, seq: number, inTransit: string, received = "0.0000") {
+  return {
+    ...transfer().lines[0],
+    id,
+    lineSeq: seq,
+    dispatchedQuantity: "10.0000",
+    receivedQuantity: received,
+    inTransitQuantity: inTransit,
+  };
+}
+
+const onTheRoad = (state = "in_transit", over: Record<string, unknown> = {}) =>
+  transfer({
+    state,
+    approval: { by: ME, at: "2026-11-20T09:00:00Z" },
+    dispatch: { by: ME, at: "2026-11-20T10:00:00Z" },
+    lines: [inLine(LINE, 1, "6.0000", "4.0000"), inLine(LINE2, 2, "0.0000", "10.0000")],
+    ...over,
+  });
+
+async function openReceive(role = "owner", t = onTheRoad()) {
+  activeContext.mockReturnValue(ctx(role));
+  api.getShipmentTransfer.mockResolvedValue(ok(t));
+  const dialog = await openTransfer();
+  fireEvent.click(await within(dialog).findByRole("button", { name: "Receive goods" }));
+  return dialog;
+}
+
+const receiveSend = (dialog: HTMLElement) =>
+  within(dialog).getByRole("button", { name: /Record receipt|Send the same request again/ });
+
+const quantityField = (dialog: HTMLElement) =>
+  within(dialog).getByLabelText("Quantity received, line 1");
+
+describe("receive gating (RT-1515 PR 3)", () => {
+  test.each(["in_transit", "partially_received"])("a %s Transfer offers Receive", async (state) => {
+    api.getShipmentTransfer.mockResolvedValue(ok(onTheRoad(state)));
+    const dialog = await openTransfer();
+    expect(await within(dialog).findByRole("button", { name: "Receive goods" })).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "Short-close" })).toBeDefined();
+    expect(within(dialog).queryByRole("button", { name: /Cancel transfer|Dispatch/ })).toBeNull();
+  });
+
+  test("a store_manager can receive but sees no short-close", async () => {
+    activeContext.mockReturnValue(ctx("store_manager"));
+    api.getShipmentTransfer.mockResolvedValue(ok(onTheRoad("partially_received")));
+    const dialog = await openTransfer();
+    expect(await within(dialog).findByRole("button", { name: "Receive goods" })).toBeDefined();
+    expect(within(dialog).queryByRole("button", { name: "Short-close" })).toBeNull();
+  });
+});
+
+describe("receive (RT-1515 PR 3)", () => {
+  test("lists only lines still In transit, with the remaining quantity and unit", async () => {
+    const dialog = await openReceive();
+    const rows = within(dialog).getAllByTestId("transfer-receive-line");
+    expect(rows).toHaveLength(1);
+    expect(within(rows[0] as HTMLElement).getByText("6.0000")).toBeDefined();
+    expect(within(rows[0] as HTMLElement).getByText("kg")).toBeDefined();
+  });
+
+  test("a partial receipt sends only the filled line with a key, then says it was recorded", async () => {
+    api.recordShipmentTransferReceipt.mockResolvedValue({ status: 201, data: {} });
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: " 2.5 " } });
+    fireEvent.change(within(dialog).getByLabelText("Stock status on receipt, line 1"), {
+      target: { value: "damaged" },
+    });
+    fireEvent.change(within(dialog).getByLabelText(/^Receipt note/), {
+      target: { value: " dented " },
+    });
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(1));
+    const [id, command, key] = api.recordShipmentTransferReceipt.mock.calls[0] ?? [];
+    expect(id).toBe(T1);
+    expect(command).toEqual({
+      lines: [
+        { transferLineId: LINE, quantity: "2.5", disposition: "damaged", stockLocationId: null },
+      ],
+      note: "dented",
+    });
+    expect(key).toMatch(KEY_SHAPE);
+    expect(await within(dialog).findByText("The receipt was recorded.")).toBeDefined();
+  });
+
+  test("a recorded receipt reads the Transfer and its receipts again, never edits locally", async () => {
+    api.recordShipmentTransferReceipt.mockResolvedValue({ status: 201, data: {} });
+    const dialog = await openReceive();
+    const reads = api.getShipmentTransfer.mock.calls.length;
+    const receiptReads = api.listShipmentTransferReceipts.mock.calls.length;
+    fireEvent.change(quantityField(dialog), { target: { value: "6" } });
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.getShipmentTransfer.mock.calls.length).toBeGreaterThan(reads));
+    await waitFor(() =>
+      expect(api.listShipmentTransferReceipts.mock.calls.length).toBeGreaterThan(receiptReads),
+    );
+  });
+
+  test("a receipt with no quantity is refused before anything is sent", async () => {
+    const dialog = await openReceive();
+    fireEvent.click(receiveSend(dialog));
+    expect(
+      await within(dialog).findByText("Enter a quantity for at least one line."),
+    ).toBeDefined();
+    expect(api.recordShipmentTransferReceipt).not.toHaveBeenCalled();
+  });
+
+  test("more than In transit is refused inline, says nothing was sent, and sends no POST", async () => {
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "6.0001" } });
+    fireEvent.click(receiveSend(dialog));
+    const message = await within(dialog).findByText(
+      /cannot receive more than is In transit on this line, and nothing was sent/,
+    );
+    expect(message.textContent).toMatch(/approved stock adjustment/);
+    expect(api.recordShipmentTransferReceipt).not.toHaveBeenCalled();
+    expect(within(dialog).queryByText("The receipt was recorded.")).toBeNull();
+  });
+
+  test("exactly the In transit quantity, written at another scale, is accepted", async () => {
+    api.recordShipmentTransferReceipt.mockResolvedValue({ status: 201, data: {} });
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "6" } });
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(1));
+  });
+
+  test("a server 409 over_receipt_requires_approval is worded by code, never the server's text", async () => {
+    api.recordShipmentTransferReceipt.mockResolvedValue(
+      failure(409, "over_receipt_requires_approval"),
+    );
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "5" } });
+    fireEvent.click(receiveSend(dialog));
+    expect(await within(dialog).findByText(/nothing was recorded on the transfer/)).toBeDefined();
+    expect(within(dialog).getByText(REQUEST_ID)).toBeDefined();
+    expect(within(dialog).queryByText("server words")).toBeNull();
+    expect(within(dialog).queryByText("The receipt was recorded.")).toBeNull();
+  });
+
+  test("one active location (an inactive one does not count): no location select", async () => {
+    api.listStockLocations.mockResolvedValue(
+      ok({
+        items: [
+          location(LOC_MAIN, "primary", "Main"),
+          location(LOC_BACK, "storage", "Back", false),
+        ],
+      }),
+    );
+    const dialog = await openReceive();
+    await waitFor(() => expect(api.listStockLocations).toHaveBeenCalled());
+    expect(within(dialog).queryByLabelText("Location")).toBeNull();
+  });
+
+  test("with more than one active location a select offers them and the choice is sent", async () => {
+    api.listStockLocations.mockResolvedValue(
+      ok({
+        items: [location(LOC_MAIN, "primary", "Main"), location(LOC_BACK, "storage", "Back")],
+      }),
+    );
+    api.recordShipmentTransferReceipt.mockResolvedValue({ status: 201, data: {} });
+    const dialog = await openReceive();
+    const select = await within(dialog).findByLabelText("Location");
+    fireEvent.change(select, { target: { value: LOC_BACK } });
+    fireEvent.change(quantityField(dialog), { target: { value: "1" } });
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(1));
+    expect(api.recordShipmentTransferReceipt.mock.calls[0]?.[1]).toMatchObject({
+      lines: [{ stockLocationId: LOC_BACK }],
+    });
+  });
+
+  test("no answer: unknown if recorded, and the retry reuses the same key and body", async () => {
+    api.recordShipmentTransferReceipt
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ status: 201, data: {} });
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "2" } });
+    fireEvent.click(receiveSend(dialog));
+    expect(
+      await within(dialog).findByText(/it is unknown whether the request was recorded/),
+    ).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send the same request again" }));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(2));
+    const [first, second] = api.recordShipmentTransferReceipt.mock.calls;
+    expect(second?.[2]).toBe(first?.[2]);
+    expect(second?.[1]).toEqual(first?.[1]);
+  });
+
+  test("an edit after a refusal starts a new key", async () => {
+    api.recordShipmentTransferReceipt.mockResolvedValue(
+      failure(409, "shipment_transfer_not_in_state"),
+    );
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "2" } });
+    fireEvent.click(receiveSend(dialog));
+    await within(dialog).findByText(/state has changed/);
+    fireEvent.change(quantityField(dialog), { target: { value: "3" } });
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(2));
+    expect(api.recordShipmentTransferReceipt.mock.calls[1]?.[2]).not.toBe(
+      api.recordShipmentTransferReceipt.mock.calls[0]?.[2],
+    );
+  });
+});
+
+describe("close a received Transfer (RT-1515 PR 3)", () => {
+  const received = () => onTheRoad("received", { lines: [inLine(LINE, 1, "0.0000", "10.0000")] });
+
+  test.each(["owner", "tenant_admin", "store_manager"])(
+    "%s closes it with a null reason",
+    async (role) => {
+      activeContext.mockReturnValue(ctx(role));
+      api.getShipmentTransfer.mockResolvedValue(ok(received()));
+      api.closeShipmentTransfer.mockResolvedValue(ok(transfer({ state: "closed" })));
+      const dialog = await openTransfer();
+      expect(within(dialog).queryByRole("button", { name: "Short-close" })).toBeNull();
+      fireEvent.click(await within(dialog).findByRole("button", { name: "Close transfer" }));
+      fireEvent.click(within(dialog).getByRole("button", { name: "Confirm close" }));
+      await waitFor(() => expect(api.closeShipmentTransfer).toHaveBeenCalledTimes(1));
+      const [id, command, key] = api.closeShipmentTransfer.mock.calls[0] ?? [];
+      expect([id, command]).toEqual([T1, { shortCloseReason: null }]);
+      expect(key).toMatch(KEY_SHAPE);
+      expect(await within(dialog).findByText("The close was recorded.")).toBeDefined();
+    },
+  );
+});
+
+describe("short-close (RT-1515 PR 3)", () => {
+  async function openShortClose() {
+    const dialog = await openReceive();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Short-close" }));
+    return dialog;
+  }
+  const reasonField = (dialog: HTMLElement) =>
+    within(dialog).getByLabelText("Reason for the short-close");
+  const confirm = (dialog: HTMLElement) =>
+    within(dialog).getByRole("button", { name: "Confirm short-close" });
+
+  test("lists each line's remaining In transit quantity and says it is written off as a loss", async () => {
+    const dialog = await openShortClose();
+    const items = within(dialog).getAllByTestId("transfer-short-close-line");
+    expect(items).toHaveLength(1);
+    expect(items[0]?.textContent).toMatch(/6\.0000/);
+    expect(
+      within(dialog).getByText(/written off as an approved loss and stays out of both stores/),
+    ).toBeDefined();
+  });
+
+  test("a reason is required: nothing is sent without one", async () => {
+    const dialog = await openShortClose();
+    fireEvent.click(confirm(dialog));
+    expect(
+      await within(dialog).findByText("Enter a reason for the short-close, 1 to 500 characters."),
+    ).toBeDefined();
+    expect(api.closeShipmentTransfer).not.toHaveBeenCalled();
+  });
+
+  test("sends the trimmed reason with a key and says it was recorded", async () => {
+    api.closeShipmentTransfer.mockResolvedValue(ok(transfer({ state: "closed" })));
+    const dialog = await openShortClose();
+    fireEvent.change(reasonField(dialog), { target: { value: " Pallet lost " } });
+    fireEvent.click(confirm(dialog));
+    await waitFor(() => expect(api.closeShipmentTransfer).toHaveBeenCalledTimes(1));
+    const [id, command, key] = api.closeShipmentTransfer.mock.calls[0] ?? [];
+    expect([id, command]).toEqual([T1, { shortCloseReason: "Pallet lost" }]);
+    expect(key).toMatch(KEY_SHAPE);
+    expect(await within(dialog).findByText("The short-close was recorded.")).toBeDefined();
+  });
+
+  test("a server short_close_reason_required refusal is worded by code", async () => {
+    api.closeShipmentTransfer.mockResolvedValue(failure(409, "short_close_reason_required"));
+    const dialog = await openShortClose();
+    fireEvent.change(reasonField(dialog), { target: { value: "Lost" } });
+    fireEvent.click(confirm(dialog));
+    expect(await within(dialog).findByText(/needs a reason/)).toBeDefined();
+    expect(within(dialog).queryByText("The short-close was recorded.")).toBeNull();
+  });
+
+  test("no answer: the retry reuses the same key and reason", async () => {
+    api.closeShipmentTransfer
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce(ok(transfer({ state: "closed" })));
+    const dialog = await openShortClose();
+    fireEvent.change(reasonField(dialog), { target: { value: "Lost" } });
+    fireEvent.click(confirm(dialog));
+    await within(dialog).findByText(/it is unknown whether the request was recorded/);
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send the same request again" }));
+    await waitFor(() => expect(api.closeShipmentTransfer).toHaveBeenCalledTimes(2));
+    const [first, second] = api.closeShipmentTransfer.mock.calls;
+    expect(second?.[2]).toBe(first?.[2]);
+    expect(second?.[1]).toEqual(first?.[1]);
+  });
+});
+
+describe("edits after an answer (#819 review, RT-1515 PR 3)", () => {
+  test("an edit clears a refusal in an action form, as on the create form", async () => {
+    api.cancelShipmentTransfer.mockResolvedValue(failure(409, "shipment_transfer_not_in_state"));
+    const dialog = await openTransfer();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cancel transfer" }));
+    const reason = within(dialog).getByLabelText("Reason for cancelling");
+    fireEvent.change(reason, { target: { value: "Wrong store" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm cancellation" }));
+    await within(dialog).findByText(/state has changed and this action is no longer available/);
+    fireEvent.change(reason, { target: { value: "Wrong store, again" } });
+    // React Query applies the reset on its next tick.
+    await waitFor(() =>
+      expect(
+        within(dialog).queryByText(/state has changed and this action is no longer available/),
+      ).toBeNull(),
+    );
+  });
+
+  test("an edit keeps the unknown-recorded notice, and the button is a new request again", async () => {
+    api.cancelShipmentTransfer.mockRejectedValueOnce(new Error("network"));
+    const dialog = await openTransfer();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cancel transfer" }));
+    const reason = within(dialog).getByLabelText("Reason for cancelling");
+    fireEvent.change(reason, { target: { value: "Wrong store" } });
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm cancellation" }));
+    await within(dialog).findByRole("button", { name: "Send the same request again" });
+    fireEvent.change(reason, { target: { value: "Store closed" } });
+    expect(
+      within(dialog).getByText(/it is unknown whether the request was recorded/),
+    ).toBeDefined();
+    expect(within(dialog).getByRole("button", { name: "Confirm cancellation" })).toBeDefined();
+    // Back to the unanswered input: the resend is offered again.
+    fireEvent.change(reason, { target: { value: "Wrong store" } });
+    expect(
+      within(dialog).getByRole("button", { name: "Send the same request again" }),
+    ).toBeDefined();
+  });
+
+  test("receive keys on the operator's input: a changed location read cannot change the resend", async () => {
+    api.listStockLocations.mockResolvedValue(
+      ok({
+        items: [location(LOC_MAIN, "primary", "Main"), location(LOC_BACK, "storage", "Back")],
+      }),
+    );
+    api.recordShipmentTransferReceipt
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ status: 201, data: {} });
+    const dialog = await openReceive();
+    fireEvent.change(await within(dialog).findByLabelText("Location"), {
+      target: { value: LOC_BACK },
+    });
+    fireEvent.change(quantityField(dialog), { target: { value: "2" } });
+    fireEvent.click(receiveSend(dialog));
+    await within(dialog).findByRole("button", { name: "Send the same request again" });
+    // The destination now reads as having one active location: the select goes away.
+    api.listStockLocations.mockResolvedValue(
+      ok({ items: [location(LOC_MAIN, "primary", "Main")] }),
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["inventory"] });
+    });
+    await waitFor(() => expect(within(dialog).queryByLabelText("Location")).toBeNull());
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send the same request again" }));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(2));
+    const [first, second] = api.recordShipmentTransferReceipt.mock.calls;
+    // Same key and the body as first built: the goods still go to the chosen location.
+    expect(second?.[2]).toBe(first?.[2]);
+    expect(second?.[1]).toEqual(first?.[1]);
+    expect(second?.[1]).toMatchObject({ lines: [{ stockLocationId: LOC_BACK }] });
+  });
+});
+
+describe("receive form after a re-read and after an error (RT-1515 PR 3 review)", () => {
+  test("a line that is no longer In transit drops out and its typed quantity is neither sent nor blocking", async () => {
+    const both = onTheRoad("in_transit", {
+      lines: [inLine(LINE, 1, "6.0000", "4.0000"), inLine(LINE2, 2, "5.0000", "5.0000")],
+    });
+    api.recordShipmentTransferReceipt.mockResolvedValue({ status: 201, data: {} });
+    const dialog = await openReceive("owner", both);
+    fireEvent.change(within(dialog).getByLabelText("Quantity received, line 2"), {
+      target: { value: "5" },
+    });
+    fireEvent.change(quantityField(dialog), { target: { value: "1" } });
+    // Line 2 arrives through another receipt; the drawer re-reads the Transfer.
+    api.getShipmentTransfer.mockResolvedValue(
+      ok(
+        onTheRoad("partially_received", {
+          lines: [inLine(LINE, 1, "6.0000", "4.0000"), inLine(LINE2, 2, "0.0000", "10.0000")],
+        }),
+      ),
+    );
+    await act(async () => {
+      await client.invalidateQueries({ queryKey: ["transfers"] });
+    });
+    await waitFor(() =>
+      expect(within(dialog).queryByLabelText("Quantity received, line 2")).toBeNull(),
+    );
+    fireEvent.click(receiveSend(dialog));
+    await waitFor(() => expect(api.recordShipmentTransferReceipt).toHaveBeenCalledTimes(1));
+    const command = api.recordShipmentTransferReceipt.mock.calls[0]?.[1] as {
+      lines: { transferLineId: string }[];
+    };
+    expect(command.lines.map((l) => l.transferLineId)).toEqual([LINE]);
+  });
+
+  test("a corrected quantity clears its error before the next submit", async () => {
+    const dialog = await openReceive();
+    fireEvent.change(quantityField(dialog), { target: { value: "0" } });
+    fireEvent.click(receiveSend(dialog));
+    expect(quantityField(dialog).getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(quantityField(dialog), { target: { value: "2" } });
+    expect(quantityField(dialog).getAttribute("aria-invalid")).toBeNull();
+    expect(api.recordShipmentTransferReceipt).not.toHaveBeenCalled();
   });
 });

@@ -198,17 +198,30 @@ export function buildDispatchCommand(note: string): DispatchShipmentTransferComm
   return { note: trimmed || null };
 }
 
-export type TransferAction = "approve" | "cancel" | "dispatch";
+export type TransferAction = "approve" | "cancel" | "dispatch" | "receive" | "close" | "shortClose";
+
+/** A short-close writes a loss off, so it is the discrepancy approval: owner or tenant_admin only. */
+const SHORT_CLOSE_ROLES = ["owner", "tenant_admin"] as const;
+
+export function canShortClose(role: string | null | undefined): boolean {
+  return (SHORT_CLOSE_ROLES as readonly string[]).includes(role ?? "");
+}
 
 /**
  * The actions a Transfer in `state` offers a role: approve only a draft, cancel a
- * draft or approved Transfer, dispatch only an approved one, nothing after that.
- * A navigation convenience; the API decides.
+ * draft or approved Transfer, dispatch only an approved one; receive while goods
+ * are on the road (in transit or partially received), with a short-close of what
+ * never arrives for owner and tenant_admin only; close a fully received
+ * Transfer; nothing after that. A navigation convenience; the API decides.
  */
 export function actionsFor(state: string, role: string | null | undefined): TransferAction[] {
   if (!canWriteTransfers(role)) return [];
   if (state === "draft") return ["approve", "cancel"];
   if (state === "approved") return ["dispatch", "cancel"];
+  if (state === "in_transit" || state === "partially_received") {
+    return canShortClose(role) ? ["receive", "shortClose"] : ["receive"];
+  }
+  if (state === "received") return ["close"];
   return [];
 }
 
