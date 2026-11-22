@@ -80,7 +80,11 @@ info:
         (default 3) since dispatch. A `transfer_dispatch` or
         `transfer_receive` work item is stuck when it has been `pending` for
         more than 60 minutes, and needs attention at once when it is
-        `rejected` or `reconciliation_required`. First match wins:
+        `rejected` or `reconciliation_required`. A receipt still unposted more
+        than 60 minutes after its dispatch was confirmed (its release failed,
+        and nothing retries it) also needs attention (`unreleasedReceiptCount`).
+        A `reconciliation_required` leg keeps counting until it is resolved
+        outside this read. First match wins:
         `degraded` / `postings_need_attention`, then `degraded` /
         `postings_stuck`, then `degraded` / `transfers_delayed`, otherwise
         `ok` / `keeping_up` (no Transfer included). `unknown`
@@ -375,6 +379,7 @@ components:
         - delayedThresholdDays
         - stuckPostingCount
         - postingsNeedingAttentionCount
+        - unreleasedReceiptCount
       description: >
         RT-1516. The tenant's shipment-Transfer health facts; null when the
         check did not answer in time.
@@ -397,6 +402,8 @@ components:
         stuckPostingCount:
           $ref: "#/components/schemas/Count"
         postingsNeedingAttentionCount:
+          $ref: "#/components/schemas/Count"
+        unreleasedReceiptCount:
           $ref: "#/components/schemas/Count"
 
     ShipmentTransfersComponent:

@@ -12,6 +12,10 @@
  *     `pending`, `rejected` or `reconciliation_required`, with the whole seconds since it entered that state (the effect's
  *     `updated_at`, set by every transition). A confirmed posting is not listed, so its alert clears. The work item is
  *     found through the inventory effect, so this module reads no catalog table.
+ *   - `unreleasedReceiptAgesSeconds`: each receipt of a Transfer whose `transfer_in` effects are still `not_posted` although
+ *     the Transfer's dispatch is already confirmed. The release of waiting receipts runs in the dispatch ack's transaction
+ *     (and a receipt recorded after it is released at once), so such a receipt means a release failed and it has no work
+ *     item; nothing retries it (owner decision on RT-1516). Aged from the later of the receipt and the confirmation.
  *
  * Ages are `now()` on the database clock, never the API clock.
  */
@@ -26,6 +30,7 @@ export interface ShipmentTransferHealthRaw {
   readonly delayedThresholdDays: number;
   readonly openTransferAgesSeconds: readonly number[];
   readonly workItems: readonly { readonly state: StuckCandidateState; readonly ageSeconds: number }[];
+  readonly unreleasedReceiptAgesSeconds: readonly number[];
 }
 
 const DEFAULT_THRESHOLD_DAYS = 3;
@@ -50,13 +55,29 @@ const WORK_ITEMS_SQL = `
    GROUP BY iei.posting_status_id, iei.state
 `;
 
+const UNRELEASED_RECEIPTS_SQL = `
+  SELECT GREATEST(0, floor(extract(epoch FROM (now() - GREATEST(min(iei.created_at), max(d.erp_confirmed_at))))))::bigint
+           AS age_seconds
+    FROM inventory_effect_integration iei
+    JOIN stock_movements sm ON sm.id = iei.effect_id AND sm.tenant_id = iei.tenant_id
+    JOIN stock_movements dm
+      ON dm.tenant_id = sm.tenant_id AND dm.transfer_group_id = sm.transfer_group_id AND dm.movement_type = 'transfer_out'
+    JOIN inventory_effect_integration d ON d.effect_id = dm.id AND d.tenant_id = dm.tenant_id AND d.state = 'confirmed'
+   WHERE iei.state = 'not_posted'
+     AND sm.movement_type = 'transfer_in'
+     AND EXISTS (SELECT 1 FROM shipment_transfers st WHERE st.tenant_id = sm.tenant_id AND st.id = sm.transfer_group_id)
+   GROUP BY sm.event_ref_id
+`;
+
 export async function readShipmentTransferHealth(query: HealthQuery): Promise<ShipmentTransferHealthRaw> {
   const threshold = await query<{ threshold_days: number }>(THRESHOLD_SQL);
   const open = await query<{ age_seconds: string }>(OPEN_TRANSFERS_SQL);
   const items = await query<{ state: StuckCandidateState; age_seconds: string }>(WORK_ITEMS_SQL);
+  const unreleased = await query<{ age_seconds: string }>(UNRELEASED_RECEIPTS_SQL);
   return {
     delayedThresholdDays: threshold.rows[0]?.threshold_days ?? DEFAULT_THRESHOLD_DAYS,
     openTransferAgesSeconds: open.rows.map((r) => Number(r.age_seconds)),
     workItems: items.rows.map((r) => ({ state: r.state, ageSeconds: Number(r.age_seconds) })),
+    unreleasedReceiptAgesSeconds: unreleased.rows.map((r) => Number(r.age_seconds)),
   };
 }

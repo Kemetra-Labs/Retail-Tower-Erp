@@ -89,6 +89,7 @@ export interface ShipmentTransfersFacts {
   readonly delayedThresholdDays: number;
   readonly stuckPostingCount: number;
   readonly postingsNeedingAttentionCount: number;
+  readonly unreleasedReceiptCount: number;
 }
 
 export const SHIPMENT_TRANSFERS_REASONS = [
@@ -230,12 +231,13 @@ export function summarizeShipmentTransferHealth(raw: ShipmentTransferHealthRaw):
       .length,
     postingsNeedingAttentionCount: raw.workItems.filter((w) => w.state === "rejected" || w.state === "reconciliation_required")
       .length,
+    unreleasedReceiptCount: raw.unreleasedReceiptAgesSeconds.filter((a) => a > SHIPMENT_POSTING_PENDING_SLA_SECONDS).length,
   };
 }
 
 /**
- * `shipmentTransfers` (RT-1516, first match wins): not read in time → `unknown`; a work item that needs attention →
- * `degraded` / `postings_need_attention`; a stuck pending one → `degraded` / `postings_stuck`; a delayed Transfer →
+ * `shipmentTransfers` (RT-1516, first match wins): not read in time → `unknown`; a work item that needs attention, or a
+ * receipt left unreleased past the SLA after its dispatch was confirmed → `degraded` / `postings_need_attention`; a stuck pending one → `degraded` / `postings_stuck`; a delayed Transfer →
  * `degraded` / `transfers_delayed`; otherwise (no Transfer included) `ok` / `keeping_up`. `raw === null` means the check
  * did not answer in time.
  */
@@ -244,7 +246,9 @@ export function shipmentTransfersComponent(raw: ShipmentTransferHealthRaw | null
   if (raw === null) return { ...base, state: "unknown", reason: "check_timed_out", observedAt: null, facts: null };
   const facts = summarizeShipmentTransferHealth(raw);
   const observed = { ...base, observedAt: now.toISOString(), facts };
-  if (facts.postingsNeedingAttentionCount > 0) return { ...observed, state: "degraded", reason: "postings_need_attention" };
+  if (facts.postingsNeedingAttentionCount > 0 || facts.unreleasedReceiptCount > 0) {
+    return { ...observed, state: "degraded", reason: "postings_need_attention" };
+  }
   if (facts.stuckPostingCount > 0) return { ...observed, state: "degraded", reason: "postings_stuck" };
   if (facts.delayedTransferCount > 0) return { ...observed, state: "degraded", reason: "transfers_delayed" };
   return { ...observed, state: "ok", reason: "keeping_up" };

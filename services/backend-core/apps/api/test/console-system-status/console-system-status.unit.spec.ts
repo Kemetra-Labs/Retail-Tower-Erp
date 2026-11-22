@@ -299,6 +299,7 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
       if (sql.includes("shipment_transfers") && sql.includes("dispatched_at")) {
         return Promise.resolve({ rows: [{ age_seconds: "200000" }, { age_seconds: "10" }] });
       }
+      if (sql.includes("not_posted")) return Promise.resolve({ rows: [{ age_seconds: "4000" }] });
       if (sql.includes("inventory_effect_integration")) {
         return Promise.resolve({ rows: [{ state: "rejected", age_seconds: "5" }] });
       }
@@ -324,6 +325,7 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
         delayedThresholdDays: 2,
         stuckPostingCount: 0,
         postingsNeedingAttentionCount: 1,
+        unreleasedReceiptCount: 1,
       },
     });
   });
@@ -335,6 +337,7 @@ describe("RT-1516 shipmentTransfers (delayed Transfers and stuck transfer postin
     delayedThresholdDays: 3,
     openTransferAgesSeconds: [],
     workItems: [],
+    unreleasedReceiptAgesSeconds: [],
     ...over,
   });
 
@@ -365,6 +368,17 @@ describe("RT-1516 shipmentTransfers (delayed Transfers and stuck transfer postin
     const f = summarizeShipmentTransferHealth(raw({ workItems: [{ state, ageSeconds: 0 }] }));
     expect(f.postingsNeedingAttentionCount).toBe(1);
     expect(f.stuckPostingCount).toBe(0);
+  });
+
+  it("a receipt left unreleased after its dispatch was confirmed needs attention only past 60 minutes", () => {
+    const at = (age: number) => summarizeShipmentTransferHealth(raw({ unreleasedReceiptAgesSeconds: [age] }));
+    expect(at(3600).unreleasedReceiptCount).toBe(0);
+    expect(at(3601).unreleasedReceiptCount).toBe(1);
+    expect(shipmentTransfersComponent(raw({ unreleasedReceiptAgesSeconds: [3601] }), NOW)).toMatchObject({
+      state: "degraded",
+      reason: "postings_need_attention",
+    });
+    expect(shipmentTransfersComponent(raw({ unreleasedReceiptAgesSeconds: [3600] }), NOW).reason).toBe("keeping_up");
   });
 
   it("counts every open Transfer and reports the oldest age, null when none is open", () => {

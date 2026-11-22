@@ -811,12 +811,17 @@ describe('delayed-transfer health facts (RT-1516)', () => {
       readShipmentTransferHealth((sql, params) => client.query(sql, params)),
     );
 
+  // The file's beforeEach upserts only the activation switch: put the threshold back so a failed test cannot leak it.
+  beforeEach(async () => {
+    if (skipped()) return;
+    await admin.query(`UPDATE tenant_inventory_settings SET delayed_transfer_threshold_days = 3 WHERE tenant_id = $1`, [TENANT_A]);
+  });
+
   it('reports the tenant threshold (default 3, overridable) and nothing open before any Transfer', async () => {
     if (skipped()) return;
-    expect(await health()).toEqual({ delayedThresholdDays: 3, openTransferAgesSeconds: [], workItems: [] });
+    expect(await health()).toEqual({ delayedThresholdDays: 3, openTransferAgesSeconds: [], workItems: [], unreleasedReceiptAgesSeconds: [] });
     await admin.query(`UPDATE tenant_inventory_settings SET delayed_transfer_threshold_days = 5 WHERE tenant_id = $1`, [TENANT_A]);
     expect((await health()).delayedThresholdDays).toBe(5);
-    await admin.query(`UPDATE tenant_inventory_settings SET delayed_transfer_threshold_days = 3 WHERE tenant_id = $1`, [TENANT_A]);
   });
 
   it('lists a dispatched Transfer as open and its dispatch work item as pending; both clear as it is confirmed and received', async () => {
@@ -844,7 +849,7 @@ describe('delayed-transfer health facts (RT-1516)', () => {
       outcome: 'posted',
       documentRef: { doctype: 'Stock Entry', name: 'MAT-STE-2026-00043' },
     } as never);
-    expect(await health()).toEqual({ delayedThresholdDays: 3, openTransferAgesSeconds: [], workItems: [] });
+    expect(await health()).toEqual({ delayedThresholdDays: 3, openTransferAgesSeconds: [], workItems: [], unreleasedReceiptAgesSeconds: [] });
   });
 
   it('measures ages on the database clock from dispatch and from the work item state change', async () => {
@@ -861,7 +866,7 @@ describe('delayed-transfer health facts (RT-1516)', () => {
     expect(h.workItems[0]!.ageSeconds).toBeGreaterThanOrEqual(2 * 3_600 - 5);
   });
 
-  it('lists a rejected work item with its state, and nothing of the legacy instant transfer', async () => {
+  it('lists a rejected work item with its state', async () => {
     if (skipped()) return;
     const t = await dispatched('10');
     await admin.query(
@@ -869,12 +874,32 @@ describe('delayed-transfer health facts (RT-1516)', () => {
         WHERE effect_id IN (SELECT id FROM stock_movements WHERE transfer_group_id = $1)`,
       [t.id],
     );
-    await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
-    await legacy.createStockTransfer({
-      tenantId: TENANT_A, userId: OWNER, sourceStoreId: STORE_A_X, destinationStoreId: STORE_A_Y,
-      tenantProductRef: PRODUCT_A_ACTIVE, quantity: '1', stockingUnit: 'each', reason: null,
-    } as never);
     expect((await health()).workItems).toEqual([{ state: 'rejected', ageSeconds: expect.any(Number) }]);
+  });
+
+  it('lists a receipt still not_posted after its dispatch was confirmed (a release that failed), aged from the confirmation', async () => {
+    if (skipped()) return;
+    const t = await dispatched('10');
+    await svc.receive(owner(), t.id, recv(t, '4'));
+    // Before the dispatch is confirmed a waiting receipt is normal: not listed.
+    expect((await health()).unreleasedReceiptAgesSeconds).toEqual([]);
+    // Simulate a release that failed: the dispatch is confirmed but the receipt stayed not_posted.
+    await admin.query(
+      `UPDATE inventory_effect_integration
+          SET state = 'confirmed', erp_confirmed_at = now() - interval '2 hours',
+              erp_document_ref = '{"doctype":"Stock Entry","name":"MAT-STE-2026-00099"}'
+        WHERE effect_id IN (SELECT id FROM stock_movements WHERE transfer_group_id = $1 AND movement_type = 'transfer_out')`,
+      [t.id],
+    );
+    await admin.query(
+      `UPDATE inventory_effect_integration SET created_at = now() - interval '3 hours'
+        WHERE effect_id IN (SELECT id FROM stock_movements WHERE transfer_group_id = $1 AND movement_type = 'transfer_in')`,
+      [t.id],
+    );
+    const h = await health();
+    expect(h.unreleasedReceiptAgesSeconds).toHaveLength(1);
+    expect(h.unreleasedReceiptAgesSeconds[0]).toBeGreaterThanOrEqual(2 * 3_600 - 5);
+    expect(h.unreleasedReceiptAgesSeconds[0]).toBeLessThan(3 * 3_600 - 5);
   });
 
   it("is tenant-scoped by RLS alone: another tenant's context sees none of tenant A's Transfers or work items", async () => {
