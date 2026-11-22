@@ -1,145 +1,69 @@
-# Tasks: POS Credit & Third-Party Tender Flow
+# Tasks: POS Credit & Third-Party Payer Flow
 
 **Feature:** 020-pos-credit-and-third-party-tender-flow
-**Plan:** [./plan.md](./plan.md)
-**Spec:** [./spec.md](./spec.md)
-**Created:** 2026-06-16
-**Last Updated:** 2026-06-16
+**Spec:** [./spec.md](./spec.md) · **Plan:** [./plan.md](./plan.md)
+**Last updated:** 2026-11-22 (RT-420 re-scope)
 
----
+> **Two parts.** Part A is the docs deliverable of RT-420 (done by this change). Part B is the task outline
+> for the **separate implementation issue** (spec D-5). Part B is not authorized work: it starts only after
+> an owner go-ahead and the Q-1 to Q-9 answers. Nothing in Part B is built.
 
-## Conventions
+## Part A: RT-420 docs deliverable
 
-> **Authoring status (2026-06-16):** the Phase 0/1 design artifacts produced by `/speckit-plan` —
-> `research.md`, `data-model.md`, `contracts/settlement-intent-consumption.md` (PROSE, no YAML), and
-> `quickstart.md` — are **already authored** in this feature dir alongside `spec.md`/`plan.md`. The tasks
-> below are therefore phrased as **Confirm/Verify** against those artifacts (the spec-kit verify style),
-> not "write from scratch". They remain documentation-only.
+- [x] A1 Rewrite the spec around payer responsibilities on the sale (R-SALE) with rules R-OFFLINE, R-PATH, R-ROLE, R-SYNC, R-ONE, R-COVER, R-FRESH, R-NOSUBMIT, R-TRUTH, R-NOTAX. (`spec.md`)
+- [x] A2 Remove the retired intent route everywhere in this folder, including its consumption note. (`contracts/`)
+- [x] A3 Add the consumption note for `captureSale` with `responsibilities` and `posListChargeablePayers`, with the outcome matrix. (`contracts/sale-responsibilities-consumption.md`)
+- [x] A4 Specify the offline rule and the coverage pre-check with Given/When/Then scenarios (spec scenarios 3, 4, 5, 6).
+- [x] A5 Record the envelope-path / synchronous-capture mode (R-SYNC, FR-5, FR-7, FR-8) and its departure from the old draft.
+- [x] A6 State the payer-lookup dependency correctly (server side done, POS pin missing, D-1).
+- [x] A7 List the owner questions (Q-1 to Q-9).
+- [x] A8 Remove healthcare-specific framing (no insurance, co-pay, claim or policy fields).
+- [x] A9 Check: a case-insensitive search of this folder for the retired route's names returns nothing. Command: `grep -rniE "settlement[-]intent|Settlement[I]ntent" apps/pos/specs/020-pos-credit-and-third-party-tender-flow` (exit 1 means clean).
 
-- **Format:** `- [ ] [TaskID] [P?] [Story?] Description with file path`
-- **`[P]`** marks parallelizable tasks (different files, no dependency on incomplete tasks).
-- **`[USn]`** maps the task to a documentation-story phase (one per spec User Story / Goal). Setup,
-  Foundational, and Polish phases have no story label.
-- File paths are repository-relative.
-- **DOCS-ONLY (contract-consumer SPECIFY/PLAN level).** Every task below authors or verifies **Markdown**
-  under `specs/020-pos-credit-and-third-party-tender-flow/`. **No task authors `src/`, OpenAPI YAML,
-  migration, package, lockfile, or CI.** Any task that appears to require such work is OUT OF SCOPE and
-  belongs to the separate, owner-gated build lane that consumes the ratified DP-2 035 G2 contract.
-- **Contract is consumed, not authored.** DP-2 035 owns `settlement.yaml`; these tasks bind to
-  `posRecordSettlementIntent` in **prose**. No `.yaml`/`.yml` is created or edited.
+## Part B: implementation issue outline (not started)
 
-## Phase 1 — Setup
+Order follows the plan phases. `[T]` means a test is written first (RED, then GREEN).
 
-- [ ] T001 Confirm spec-kit feature resolution pins this feature (`SPECIFY_FEATURE_DIRECTORY=specs/020-pos-credit-and-third-party-tender-flow`) so plan/tasks land in the 020 dir, NOT the stale `feature.json` dir (`specs/019-cashier-pin-provisioning`); record the misfire mitigation in `specs/020-pos-credit-and-third-party-tender-flow/plan.md` (Risks & Open Items).
-- [ ] T002 [P] Verify `specs/020-pos-credit-and-third-party-tender-flow/plan.md` pins constitution v1.5.1 and is marked SPECIFY/PLAN-ONLY (no `src/`/OpenAPI/migration/package/CI authored).
+### B0. Gate and pin
+- [ ] B0.1 Owner answers Q-1 to Q-9 and approves the implementation issue.
+- [ ] B0.2 `[GATED: contract pin]` PR: vendor `pos-payers.openapi.yaml`, regenerate `api-types.ts` and the snapshot; narrow source-scope-guard exemption on that branch; `pos` preflight on CircleCI (RT-981 rules).
 
-## Phase 2 — Foundational (Blocking Prerequisites)
+### B1. Payer read (main process)
+- [ ] B1.1 [T] Payer client on `createBackendTransport`: pages, `cursor`, typed results for 401, 403, 400, 429, 5xx, transport fault.
+- [ ] B1.2 [T] Assert nothing is persisted and no earlier page is ever returned (R-FRESH).
 
-- [ ] T003 Confirm the verified ground truth (R1–R5) is recorded in `specs/020-pos-credit-and-third-party-tender-flow/research.md`: the consumed surface = exactly `posRecordSettlementIntent` (`POST /api/v1/settlement/settlement-intent`), `x-idempotency: required`, `security: operatorAuthorization`, request `SettlementIntentCreate`, response `SettlementIntentResult`, outcomes `201/400/409/401/500`; and that NO Console/Connector op is consumed. These gate every downstream story.
-- [ ] T004 [P] Confirm `specs/020-pos-credit-and-third-party-tender-flow/research.md` records the ownership boundary (R2: POS intent-only / Console manage / Connector post) and the actor-identity decisions (R3: 031 operator envelope; payer = account reference; settlement act by admin/accounting operator not cashier — 035 OQ-7).
-- [ ] T005 [P] Confirm the Constitution Check (Initial + Post-Design) in `specs/020-pos-credit-and-third-party-tender-flow/plan.md` records PASS for I–IX, Platform Integration, Security, and the P-principles, with no VIOLATION and no WAIVED.
-- [ ] T006 Confirm all six §Clarifications items (C-1..C-6) are captured in `specs/020-pos-credit-and-third-party-tender-flow/spec.md` with documented defaults, and that `criticalClarifications` is empty (none change contract surface / ownership boundary / actor-identity / gate).
+### B2. Credit capture mode (main process)
+- [ ] B2.1 [T] Frozen body and idempotency key stored with the checkout attempt before the first send (FR-8).
+- [ ] B2.2 [T] One synchronous envelope send; finalize only on 200 or 201; never `sale_sync_outbox`; never the device bearer (R-SYNC, R-PATH).
+- [ ] B2.2a [T] Finalize route for a credit checkout (R-FINALIZE, Q-9): the automatic finalize scan skips a credit checkout even when its cash tender has settled; a full-credit sale (no settled tender) reaches finalize; an accepted sale is recorded with its server sale reference and no pending outbox row; a restart between settle and capture does not finalize or enqueue it.
+- [ ] B2.2b [T] Persist the accepted payer fact with the local sale (migration, gated path; FR-5b) and assert a reprint after a restart shows the payer line.
+- [ ] B2.3 [T] Outcome matrix: one test per row of the consumption note, none finalizing except acceptance.
+- [ ] B2.4 [T] Transient retry with the same key and body; honors `Retry-After`; cancel closes the attempt with the cart intact.
+- [ ] B2.5 [T] A cashier session cannot reach this mode (R-ROLE).
 
-## Phase 3 — US1 (P1): Capture co-pay + insurer-covered split settlement intent
+### B3. Checkout UI (renderer)
+- [ ] B3.1 [T] Credit option shown only for an online, eligible, flag-on session; offline shows the reason (scenarios 4, 12).
+- [ ] B3.2 [T] Picker: online load, device filter, greyed `chargeable: false` payers, empty and error states (scenarios 9, 10).
+- [ ] B3.3 [T] Amount entry and coverage pre-check, exact arithmetic, persistent reason, commit disabled on mismatch (scenarios 1 to 3). Scanner bursts rejected in the amount field (M-S5).
+- [ ] B3.4 Arabic copy approved by the owner before it ships; RTL, logical properties, 44px targets, no new shortcuts.
 
-**Goal:** The POS settlement-intent capture surface for a split (patient co-pay + insurer-covered) sale
-is fully defined as consuming `posRecordSettlementIntent` — intent only.
-**Independent test:** A reviewer can read the data-model + contracts(prose) artifacts and trace every
-till input to a `SettlementIntentCreate` field, and the `201` outcome to a read-only receivable
-projection, without consulting code.
+### B4. Receipt and guards
+- [ ] B4.1 [T] Receipt line for the payer responsibility without a "paid" word (scenario 13; Q-5, Q-6).
+- [ ] B4.2 [T] Void and return screens show a reasoned block for a sale that has a responsibility (Q-7).
+- [ ] B4.3 [T] Audit events carry no payer name or free-text `payerRef` (FR-10).
 
-- [ ] T007 [US1] Confirm `specs/020-pos-credit-and-third-party-tender-flow/data-model.md` maps the till capture shape (`saleRef`, `cashTendered`, `payers[]` of `{payerRef, owedAmount, claimMetadata?}`) to DP-2 `SettlementIntentCreate`/`SettlementIntentPayer`; mark the 1..16 payer split (co-pay + insurer) and the integer-minor-unit ↔ exact-decimal-string `Money` boundary conversion (spec FR-1/C-3/C-4).
-- [ ] T008 [P] [US1] Confirm `specs/020-pos-credit-and-third-party-tender-flow/contracts/settlement-intent-consumption.md` (PROSE, no YAML) pins the consumed operation, request/response field mapping, the `Idempotency-Key` + `operatorAuthorization` headers, and the assertion that NO Console/Connector op and NO ERPNext call is made (spec FR-2/FR-3/NFR-1).
-- [ ] T009 [P] [US1] Confirm `data-model.md` defines the **read-only** receivable projection from `SettlementIntentResult` (states `open|partially_applied|settled|claimed|flagged`; `reversal_consumed` excluded v1) and state the no-mutation / intent-only rule (spec FR-3/C-5).
+### B5. Evidence
+- [ ] B5.1 Behavioral-tier tests present and discovered by the POS Vitest run (root `CLAUDE.md` section 12).
+- [ ] B5.2 Run the new files with the per-file coverage gate before the first push.
+- [ ] B5.3 Packaged-app proof against the lab: happy path (part and full credit) and the offline refusal. State "posting held" until RT-419 lands.
 
-## Phase 4 — US2 (P1): Credit / corporate account on terms (no cash at till)
-
-**Goal:** The full-owed (no-cash) credit/corporate path is defined as a single-payer
-`SettlementIntentCreate` that opens one receivable without blocking sale capture.
-**Independent test:** A reviewer can follow the data-model for `cashTendered` null/zero + one
-`payers[]` entry with full `owedAmount`, and confirm the sale fact is unchanged and the cashier is not
-blocked (spec Acceptance #2, FR-4/FR-5).
-
-- [ ] T010 [US2] Confirm `specs/020-pos-credit-and-third-party-tender-flow/data-model.md` covers the no-cash full-owed case (`cashTendered` null/zero; single `payers[]` entry; sale fact immutable; capture not blocked on settlement) (spec FR-4/FR-5).
-- [ ] T011 [P] [US2] Confirm `contracts/settlement-intent-consumption.md` records that the corporate/credit `payerRef` is a Console-managed account reference (POS references only, never creates) and that an unknown payer is the deterministic `409` (spec FR-9/C-2).
-
-## Phase 5 — US3 (P2): Deterministic outcome handling (validation / unknown payer / auth / replay)
-
-**Goal:** Every contract outcome (`201/400/409/401/500`) maps to a defined, non-disclosing cashier
-behavior, and replay is idempotent.
-**Independent test:** A reviewer can map each of the five outcomes plus an idempotent replay to a
-deterministic result in the contracts(prose) artifact (spec FR-7/FR-8/NFR-5; Acceptance #3/#4/#5/#6).
-
-- [ ] T012 [US3] Confirm `contracts/settlement-intent-consumption.md` has the outcome-handling matrix: `201` → show opened receivable projection; `400` → fix-and-resubmit (no partial record); `409` → non-disclosing unknown-payer error (no silent post); `401` → re-auth via operator envelope; `500` → safe retry/queue (spec FR-8/NFR-5).
-- [ ] T013 [P] [US3] Confirm `contracts/settlement-intent-consumption.md` pins idempotency: every submission carries an `Idempotency-Key`; replay yields the same single receivable (no duplicate) reusing the 011 outbox discipline (spec FR-7; DP-2 FR-020/G5).
-- [ ] T014 [P] [US3] Confirm `data-model.md` + `contracts/settlement-intent-consumption.md` record the offline-first sequencing default (C-1): intent captured at the till is queued and submitted only once the referenced sale has a server `saleRef`; truthful captured/submitted/opened status to the cashier (spec NFR-3).
-
-## Phase 6 — US4 (P2): Authorization, boundary, and tax-pending posture
-
-**Goal:** The 031 operator-authorization envelope is the only accepted credential for settlement-intent
-submission; the DP-2-only egress boundary and tax-pending posture are unambiguous.
-**Independent test:** A reviewer can confirm device-token-only submission is refused, no
-ERPNext/Connector/Console-op path exists, and no VAT apportionment is computed (spec FR-6/FR-10/NFR-1).
-
-- [ ] T015 [US4] Confirm `contracts/settlement-intent-consumption.md` pins authorization: `operatorAuthorization` bearer (031 envelope / POS-016) attached to every submission; device-token-only is refused (`401`); backend re-evaluates the operator predicate live (spec FR-6; DP-2 035 §8/FR-019).
-- [ ] T016 [P] [US4] Confirm `data-model.md` + `contracts/settlement-intent-consumption.md` record the tax-pending posture: money is exact-decimal string with NO VAT apportionment across payers/co-pays; placeholders only (spec FR-10; DP-2 035 §6/FR-023; ADR-0003).
-- [ ] T017 [P] [US4] Confirm `contracts/settlement-intent-consumption.md` asserts the boundary non-goals: no POS→ERPNext, no POS→Connector, no Console-owned op consumed, and no void/refund/return/insurance-rejection workflow (reuse POS-014 + DP-026 + Connector Arc A) (spec FR-11/NFR-1; DP-2 035 NG-1).
-
-## Phase 7 — US5 (docs): Developer path & gate status
-
-**Goal:** A developer can follow the end-to-end consumption path, and the gate/status posture is honest.
-**Independent test:** A reviewer can read quickstart.md and trace obtain-`saleRef` → select-`payerRef` →
-build `SettlementIntentCreate` → attach envelope + key → submit → render receivable read-only; and
-confirm all POS-020 gates are UNSATISFIED.
-
-- [ ] T018 [US5] Confirm `specs/020-pos-credit-and-third-party-tender-flow/quickstart.md` has the developer consumption path (008/011 `saleRef` → Console `payerRef` → `SettlementIntentCreate` → envelope + `Idempotency-Key` → submit → read-only `SettlementIntentResult`).
-- [ ] T019 [P] [US5] Confirm `spec.md` Gate Mapping lists all POS-020 gates (G-CONTRACT-CONSUME, G-OPERATOR-ENVELOPE, G-INTENT-ONLY, G-IDEMPOTENT-OUTBOX, G-TAX-PENDING) as **UNSATISFIED** and the upstream DP-2 035 G2 as RATIFIED (consumed by reference); confirm no build/done/dispatched claim anywhere in the artifact set.
-
-## Phase Final — Polish & Cross-Cutting
-
-- [ ] T020 [P] Cross-check every spec FR (FR-1..FR-11) and NFR (NFR-1..NFR-5) is traceable to a data-model/contracts/quickstart artifact section (Success Criteria SC-1..SC-6); record the traceability note in `specs/020-pos-credit-and-third-party-tender-flow/research.md`.
-- [ ] T021 [P] Verify the artifact set authors ZERO OpenAPI/code/migration/package/CI and invents ZERO VAT allocation rules (SC-5); confirm only `specs/020-pos-credit-and-third-party-tender-flow/**` Markdown was created/edited.
-
-## Dependency Graph
+## Dependency order
 
 ```
-Setup (T001-T002)
-      |
-Foundational (T003-T006)   <- ground truth R1-R5 + constitution + clarifications gate everything
-      |
-      +--> US1 (T007-T009)  capture split intent (data-model + contracts(prose))
-      |        |
-      +--> US2 (T010-T011)  no-cash credit/corporate (extends US1 data-model)
-      |        |
-      +--> US3 (T012-T014)  outcome handling + idempotency + offline (depends on US1 contracts)
-      |        |
-      +--> US4 (T015-T017)  auth + boundary + tax-pending (depends on US1 contracts)
-      |        |
-      +--> US5 (T018-T019)  quickstart + gate status (depends on US1-US4)
-                 |
-Polish (T020-T021)  traceability + zero-code/zero-YAML verification
+B0.1 (owner answers) ──► B0.2 (pin) ──► B1 ──► B2 ──► B3 ──► B4 ──► B5
+                                           └──────► B2 can start on the existing sales.yaml pin
+                                                    in parallel with B1 once B0.1 is done
 ```
 
-US2, US3, US4 are largely independent once US1's data-model + contracts(prose) skeleton exists; they
-append to those two files plus quickstart.
-
-## Parallel Execution Examples
-
-- After T007 (data-model skeleton) and T008 (contracts skeleton) land, the `[P]` tasks T009, T011,
-  T013, T014, T016 can be authored concurrently (distinct sections of the same two files — coordinate to
-  avoid edit collisions, or split into per-section files).
-- T019 (gate status, edits `spec.md`) runs parallel to T018 (authors `quickstart.md`) — different files.
-- T020 and T021 (both author/verify into `research.md` / scan the dir) run after all content tasks.
-
-## Implementation Strategy
-
-- **MVP (review-ready SPECIFY/PLAN set):** Foundational (R1-R5 + constitution + clarifications) → US1
-  (the consumed-surface data-model + contracts(prose)) is the minimum that makes the feature reviewable
-  against ground truth.
-- **Incremental:** add US2 (no-cash credit), US3 (outcomes/idempotency/offline), US4 (auth/boundary/tax),
-  US5 (quickstart + gate honesty), then Polish (traceability + zero-code verification).
-- **Checkpoints:** after Foundational (ground truth pinned), after US1 (surface bound), after US5 (gate
-  status honest) — each is a natural owner-review point.
-- **STOP before implement.** This task set produces design documentation only. The build lane that writes
-  `src/` is a separate, owner-gated lane that begins only after the POS-020 gates are satisfied; nothing
-  here authors code, OpenAPI, migration, package, or CI.
+B2 uses the capture field that the POS pin already carries, so it does not wait for the payer pin. B3
+needs both B1 and B2.

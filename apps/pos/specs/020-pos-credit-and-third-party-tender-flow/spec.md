@@ -1,367 +1,331 @@
-# Feature Specification: POS Credit & Third-Party Tender Flow
+# Feature Specification: POS Credit & Third-Party Payer Flow (payer responsibilities on the sale)
 
 **Feature ID:** 020-pos-credit-and-third-party-tender-flow
-**Status:** Proposed / Draft — SPECIFY-ONLY (for owner review). No implementation, no runtime code, no OpenAPI, no migration authored or implied.
+**Status:** Draft, re-scoped by RT-420 (Planning, docs only). Not built. No product code, no OpenAPI, no migration.
 **Created:** 2026-06-16
-**Last Updated:** 2026-06-16
-**Owner:** POS-Pulse (consumer); Data-Pulse-2 owns the consumed contract.
-**Repo:** POS-Pulse.
-**Parent producer:** Data-Pulse-2 spec `035-sale-settlement-and-receivables-model` (the settlement-and-receivables model + the G2 settlement contract that this child consumes). This is the **POS 020** child named in DP-2 035 §12 "Downstream consumers".
+**Last Updated:** 2026-11-22 (RT-420 re-scope; baseline `origin/main` `510706c4d`)
+**Owner:** POS (consumer). Backend-Core owns the consumed contract.
+**Repo path:** `apps/pos/` in `Kemetra-Labs/Retail-Tower-Erp` (the former `Kemetra/POS` repository is frozen).
+**Jira:** RT-420 (this re-scope), RT-413 (plan, owner decision R-1), RT-417 (contract), RT-418 (runtime), RT-570 and RT-802 (payer lookup), RT-422 (removal of the old runtime), Epic RT-2.
+
+> **What changed from the 2026-06-16 draft.** The draft bound this feature to a separate post-sale
+> intent route that Backend-Core has since retired (owner decision R-1, RT-413 comment 11669; contract
+> RT-417; runtime removed by RT-422, #772). The draft also described a multi-payer insurance co-pay
+> flow. Both are gone. The sale now carries who owes what, in the sale itself. This file is the
+> replacement; nothing of the retired route is kept.
 
 ---
 
-## 0. What this spec IS and IS NOT (read first)
+## 0. What this spec is and is not
 
-This is a **consumer / contract-binding spec**. It defines how POS-Pulse *captures settlement
-intent and payer metadata at the till and submits that intent to Data-Pulse-2* — and nothing more.
+This is a **consumer spec**. It defines how the till captures a **payer responsibility** on a sale and
+submits it inside the sale capture that POS already makes, and how the till gets the payers it may
+charge. It consumes two Backend-Core operations that are already on Backend-Core `main`:
 
-This spec **IS**:
+1. `captureSale` (`POST /api/pos/v1/sales`) with the optional `responsibilities` field
+   (`apps/pos/contracts/backend-core/openapi/pos-sales/sales.yaml`, the pinned copy; RT-417).
+2. `posListChargeablePayers` (`GET /api/pos/v1/payer-accounts`;
+   `services/backend-core/packages/contracts/openapi/pos-payers.openapi.yaml`; RT-570 contract, RT-802 runtime).
+   **POS has no pin of this contract yet** (see Dependencies D-1).
 
-- A definition of the POS-side capture surface for credit, corporate-account, and third-party-payer
-  (insurance co-pay) sales: the cashier captures *who pays, how the tender splits, and the payer
-  reference / claim metadata*, then submits **intent only** to DP-2.
-- A binding to the **ratified** DP-2 035 **G2 settlement contract**
-  (`packages/contracts/openapi/settlement/settlement.yaml`), consuming exactly one operation:
-  **`posRecordSettlementIntent`** (`POST /api/v1/settlement/settlement-intent`) — capture intent only.
+It **is not**:
 
-This spec **IS NOT** / **does NOT**:
-
-- Author or edit any OpenAPI YAML. The contract is owned by Data-Pulse-2 (DP-2 035); POS consumes it.
-- Author or edit any application/service/component/IPC/migration/package/lock/CI code or file.
-- Apply cash, authorize a receivable, post money, or hold authoritative settlement state at the POS.
-- Manage payer accounts, apply payments / cash, or reconcile claims/remittances — those are **Console**
-  surfaces (`consoleCreatePayerAccount`, `consoleApplyPayment`, `consoleSubmitClaim`,
-  `consoleReconcileRemittance`), out of this spec (DP-2 035 FR-017).
-- Call ERPNext or the Connector. POS never touches ERPNext; financial posting is a later Connector
-  consumer (DP-2 035 FR-018). All POS egress flows through DP-2 contracts.
-- Define a void / refund / return / insurance-rejection workflow — those reuse the existing surfaces
-  (POS-014 returns + DP-026 + Connector Arc A), per DP-2 035 NG-1.
-- Compute VAT / tax allocation across payers or co-pays — tax is activation-only (tax-pending),
-  per DP-2 035 §6 / FR-023 (OQ-2 deferred).
-- Mark any gate satisfied or claim anything built, done, or dispatched.
-
----
+- A contract spec. POS authors no OpenAPI and does not edit `apps/pos/contracts/**` (a pinned copy).
+- A receivables, balance, cash-application, claim or remittance feature. ERPNext owns the A/R balance,
+  aging, terms, credit limits and collection. Backend-Core keeps only the immutable per-sale payer
+  allocation and the payer identity. POS shows no balance and no "settled" state.
+- An offline feature. **Offline credit is disabled** (rule R-OFFLINE below).
+- A reversal feature. A credit sale is voided or returned only through the manager/admin credit-reversal
+  operation (`recordCreditSaleReversal`, RT-577). This spec adds no reversal flow.
+- A product-code change. The implementation is a separate issue (Dependencies D-5).
 
 ## Overview
 
-Today POS-Pulse can ring up and finalize a sale that is fully tendered at the counter (008 sale
-finalization, 011 sale-sync capture-up, 018 cashier flow). It has **no way to represent a sale where
-the payer is not the person at the till** — a credit customer paying on terms, a corporate account
-invoiced monthly, or an insurer covering part of a prescription while the patient pays a co-pay.
+Today the till can finalize a sale that is fully tendered at the counter. It cannot record that part
+or all of the sale is owed by a named business payer (a credit customer on account, or another third
+party). RT-417 gave the sale a `responsibilities` field for this. This spec defines the till side:
 
-This feature gives the cashier a way to **capture the settlement intent** for such a sale at point of
-sale: the tender split (cash-now vs owed), the payer account reference(s), the co-pay vs covered
-amounts, and any claim metadata. The cashier captures **intent only** — POS submits that intent to
-Data-Pulse-2's settlement contract, which opens the receivable(s) and owns all settlement state. The
-cashier is never blocked waiting on settlement, never applies cash against a receivable, and never
-authorizes or posts money. The visible outcome: a credit / corporate / insurance-co-pay sale can be
-honestly captured at the till and its unpaid balance recorded as DP-2-owned receivable(s) against the
-named payer.
+- who may use it (an owner, tenant admin or store manager who holds the operator envelope);
+- how the payer is chosen (a live, online read of the payers the operator may charge);
+- how the amounts are checked locally before anything is sent;
+- how the sale is captured (synchronously, online, before it is finalized, never queued);
+- what the cashier sees when the server refuses, and on the receipt.
+
+The visible outcome: an eligible manager can ring a sale, name one payer for the unpaid part, take the
+remainder (if any) in the immediate tender, and the till captures it honestly or stops it with a reason.
 
 ---
 
-## User Scenarios & Testing
+## Rules (normative)
 
-### Primary User Story
+| ID | Rule | Source |
+|:--|:--|:--|
+| **R-SALE** | The payer allocation is part of the sale (`responsibilities` in the `captureSale` body, part of the sale `payload_hash`). It is never a separate call after the sale. | RT-413 R-1; sales.yaml |
+| **R-OFFLINE** | **Offline credit is disabled.** A sale with a payer responsibility is never saved to be sent later, never put in `sale_sync_outbox`, and never sent on the device path. While the till is offline the credit option is unavailable with a stated reason. | Owner decision 2026-10-16 (Option A); RT-413 R-1 |
+| **R-PATH** | A responsibility-bearing sale uses the operator envelope (`operatorAuthorization`) path only. The device bearer is never used for it. | sales.yaml `captureSale` |
+| **R-ROLE** | Only an operator whose live role is `owner`, `tenant_admin` or `store_manager` may attach a responsibility. For any other operator the credit option is **not offered** (hidden). The server decides (403 `sale_responsibility_role_refused`); the till never trusts its own role check. | sales.yaml; RT-417 |
+| **R-SYNC** | Capture is synchronous, online, before finalize. The sale is finalized (locally and as a completed sale) only after the server accepts the capture. A transient failure leaves the sale unfinalized. | sales.yaml; comment 12134 |
+| **R-FINALIZE** | A responsibility-bearing checkout is **not** finalized by the existing automatic path. Today a sale is finalized by a background scan of settled payments, and finalizing always writes a pending `sale_sync_outbox` row. A credit checkout must stay out of that scan until the server has accepted the capture, and on acceptance must be recorded as a sale that is already captured, with its server sale reference and **no** pending outbox row. A full-credit sale has no settled tender, so it needs its own way to reach finalize. The mechanism is an implementation choice (Q-9); the rule is not. | Independent review of this change; `finalize-listener.ts`, `finalize-transaction.ts` |
+| **R-ONE** | At most **one** payer per sale in this version (`responsibilities` has `maxItems 1`, `sequence` is 1). No split across payers. | sales.yaml `responsibilities` |
+| **R-COVER** | Coverage pre-check: `sum(tenders) + responsibility amount = posTotal`, exactly, in integer minor units, before submit. A mismatch blocks the commit locally. An absent `tenders` counts as zero; a sale fully covered by the payer is a valid **full-credit sale** (not a tender-unknown sale). The server rule is authoritative. | sales.yaml; RT-417 |
+| **R-FRESH** | The payer list is read online at the moment the manager opens the picker, is never stored for later use and is never shown from a cache. `chargeable` is advisory, not a reservation. | pos-payers contract |
+| **R-NOSUBMIT** | A payer with `chargeable: false` may be listed greyed out with its reason, and is never selectable or submitted. | pos-payers contract |
+| **R-TRUTH** | The till never describes the credit part as paid, received or settled. It shows only what the server returned. | UX-12.13; I-17 |
+| **R-NOTAX** | The till computes no tax split per payer. Tax stays as it is today (pending). | sales.yaml `SaleResponsibility` |
 
-A pharmacy cashier rings up a prescription for an insured patient. The patient owes a co-pay; the
-insurer covers the rest. After the cart is ready and the sale is captured (existing 008/011 path), the
-cashier opens the settlement-intent capture, selects the **payer account(s)** (the insurer; the
-patient-as-credit-payer if a balance is owed beyond the cash co-pay), records the **cash tendered** at
-the till and the **owed amount per payer**, attaches any **claim metadata** (e.g. policy reference),
-and submits. POS sends this as **settlement intent only** to Data-Pulse-2 via `posRecordSettlementIntent`.
-DP-2 opens the receivable(s) for the owed balance against the named payer account(s) and returns the
-opened receivable projection(s). The cashier sees a confirmation that intent was recorded and which
-receivable(s) opened — and is never asked to authorize, apply cash to, or post the receivable.
+## User scenarios and testing
 
-### Acceptance Scenarios
+### Primary user story
 
-Each scenario is testable against the *contract intent*; this spec authors no code to run.
+A store manager is signed in at the till and rings a sale of 500.00 EGP for a business customer who has
+an account. They open the credit option, choose the customer from the list of payers the till loaded
+just now, enter 350.00 as the amount owed by the payer, and take 150.00 in cash for the rest. The till
+checks 150.00 + 350.00 = 500.00 locally, captures the sale on the server in one synchronous call, and
+only then finalizes it. The receipt shows the cash taken and a line saying 350.00 is owed by the payer.
 
-1. **Capture co-pay + insurer-covered split**
-   - **Given** a captured sale with a partial cash co-pay at the till and a balance owed by an insurer
-     payer account that exists in the tenant,
-   - **When** the cashier records the settlement intent (cashTendered = co-pay; one `payers[]` entry per
-     responsible payer with `payerRef` + `owedAmount`, optional `claimMetadata`) and submits via
-     `posRecordSettlementIntent`,
-   - **Then** POS submits intent only; DP-2 returns `201` with the opened receivable(s) for the owed
-     balance against the named payer account(s), and POS surfaces them as DP-2-owned (read-only), without
-     POS applying cash, authorizing, or posting.
+### Acceptance scenarios
 
-2. **Credit / corporate account on terms (no cash at till)**
-   - **Given** a captured sale fully owed by a corporate payer account on terms (`cashTendered` null/zero),
-   - **When** the cashier records settlement intent naming the corporate `payerRef` with the full
-     `owedAmount` and submits,
-   - **Then** DP-2 opens a single receivable against that account; the sale fact is unchanged; the
-     cashier is not blocked on settlement.
+Each scenario is a test target for the implementation issue. Money is shown as EGP for readability; the
+wire form is an exact-decimal string and the till works in integer minor units.
 
-3. **Unknown / cross-tenant payer reference**
-   - **Given** a settlement intent naming a `payerRef` that does not exist in the tenant (or belongs to
-     another tenant),
-   - **When** it is submitted,
-   - **Then** DP-2 returns the deterministic safe outcome `409` (unknown-payer); POS surfaces a clear,
-     non-disclosing error and never silently posts to the wrong account. POS does not invent or guess a
-     payer.
+1. **Part credit, accepted.**
+   Given an online manager session and a chargeable payer, a cart with `posTotal` 500.00, a cash tender
+   of 150.00 and a responsibility of 350.00,
+   When the manager commits,
+   Then the till sends one `captureSale` with `tenders` (150.00) and `responsibilities` (one entry,
+   `sequence` 1, 350.00) on the envelope path, finalizes the sale only after the server accepts, and the
+   sale never enters `sale_sync_outbox`.
+2. **Full credit, no tender.**
+   Given `posTotal` 500.00 and a responsibility of 500.00 with no tender,
+   When the manager commits,
+   Then `tenders` is absent from the body, the sale is accepted as a full-credit sale, and it is not
+   recorded as tender-unknown.
+3. **Local coverage mismatch blocks before submit.**
+   Given a cash tender of 100.00 and a responsibility of 350.00 against `posTotal` 500.00,
+   When the manager tries to commit,
+   Then the commit is disabled with a persistent reason, nothing is sent, and the cart is intact.
+4. **Offline credit is refused locally.**
+   Given the till has no connection (real connectivity signal),
+   When the manager opens checkout,
+   Then the credit option is shown unavailable with the offline reason, the payer list is not requested
+   or shown from any cache, and a sale cannot be captured with a responsibility.
+5. **Connection lost during capture.**
+   Given the manager commits and the request times out,
+   When the till retries,
+   Then it retries synchronously with the **same** `Idempotency-Key` and the same body, the sale stays
+   unfinalized until a capture is accepted, it is never queued for the background drain, and it is never
+   re-sent without its responsibility or with the responsibility turned into a tender.
+6. **The device path never carries a responsibility.**
+   Given a sale with a responsibility and a selling cashier id that would normally select the device
+   path,
+   When the sale is captured,
+   Then the envelope path is used, or the capture does not happen. A body with `responsibilities` is
+   never sent with the device bearer.
+7. **Role refused.**
+   Given the server answers 403 `sale_responsibility_role_refused`,
+   When the till receives it,
+   Then the sale is not finalized, the credit option closes with a generic reason (the till does not say
+   which standing failed), and the cart is intact.
+8. **Each 422 reaches the till before finalize.**
+   Given the server answers 422 `sale_responsibility_mismatch`, `sale_responsibility_payer_invalid` or
+   `sale_responsibility_offline_refused`,
+   Then the sale is not finalized and is not dead-lettered. `mismatch` shows the coverage reason (the
+   local pre-check should have prevented it, so it is also logged as a till defect);
+   `payer_invalid` returns the manager to the payer picker with a fresh read; `offline_refused` is a
+   till defect (the till must never use the device path for credit) shown as a blocked state.
+9. **Stale `chargeable`.**
+   Given a payer was `chargeable: true` when listed and was suspended or unlinked before commit,
+   When the server answers 422 `sale_responsibility_payer_invalid`,
+   Then the till treats the read as advisory, reloads the payers, and does not finalize.
+10. **Unlinked payer is never submitted.**
+    Given a payer with `chargeable: false` (not linked to an ERPNext Customer),
+    When the manager views the picker,
+    Then the payer is greyed out with the reason, cannot be selected, and no request names it.
+11. **Replay returns the stored result.**
+    Given a capture that succeeded but whose response was lost,
+    When the till resends the same key and the same body,
+    Then it receives the stored result and finalizes the sale once. A changed body under the same key is
+    a 409 and is surfaced, not retried.
+12. **Not offered to a cashier.**
+    Given a cashier session (device path, no envelope),
+    When the cashier opens checkout,
+    Then the credit option is not shown.
+13. **Receipt shows the payer line without a "paid" claim.**
+    Given an accepted credit sale,
+    When the receipt is printed or previewed,
+    Then it shows the immediate tender as taken and a separate line naming the payer and the amount owed
+    by the payer, with no word that says the credit part was paid, received or settled.
 
-4. **Replay / duplicate submission is idempotent**
-   - **Given** the same settlement intent re-submitted with the same `Idempotency-Key`,
-   - **When** it is reprocessed,
-   - **Then** DP-2 yields the same single receivable outcome (no duplicate receivable); POS treats the
-     replayed `201` as the same success (G5 / FR-020).
+### Edge cases
 
-5. **Validation failure on malformed intent**
-   - **Given** an intent missing a required field (no `saleRef`, empty `payers[]`, or a `payers[]` entry
-     missing `payerRef`/`owedAmount`),
-   - **When** it is submitted,
-   - **Then** DP-2 returns `400` validation failure; POS surfaces the failure to the cashier and does not
-     record a partial/ambiguous settlement. POS validates required shape at the boundary before submit.
-
-6. **Authorization is the operator-authorization envelope, not device-only**
-   - **Given** a cashier without a valid operator-authorization envelope (031 / `operatorAuthorization`
-     bearer),
-   - **When** a settlement-intent submission is attempted,
-   - **Then** DP-2 returns `401`; POS does not submit settlement intent on a device-token-only credential
-     (consistent with the 028-arc / 016 operator-envelope boundary; DP-2 035 §8 / FR-019).
-
-### Edge Cases
-
-- **Split across multiple payers (co-pay + insurer):** `payers[]` carries one entry per responsible
-  payer (contract allows 1..16). POS sums owed amounts independently of the immutable cash co-pay; the
-  cash portion belongs to the sale, the owed portions open receivable(s).
-- **Sale not yet synced to the server (offline-first):** `posRecordSettlementIntent` requires a server
-  `saleRef`. POS captures and queues settlement intent following the existing outbox / capture-up
-  discipline (011); intent is submitted once the referenced sale has a server `saleRef`, idempotent on
-  `Idempotency-Key`. See Clarifications C-1.
-- **Money is exact-decimal string:** owed amounts and cash tendered are exact-decimal strings (DP-2
-  `Money` schema, "120.00") — no floats decide settlement. POS converts from its integer-minor-unit
-  money model (`src/shared/money.ts`) to the contract string form at the boundary only; tax is not
-  apportioned into the value (tax-pending).
-- **Over-tender / change at the till:** change/overpayment is part of the existing cash sale path
-  (018 money invariants); it is NOT a settlement concern. Settlement intent records the *owed* balance,
-  not change due.
-- **Payer account does not yet exist:** POS cannot create payer accounts (that is Console
-  `consoleCreatePayerAccount`). An unknown payer is a `409`; the resolution path is "create the account
-  in Console first", not a POS-side create. See Clarifications C-2.
-- **Reversed / returned sale:** if the underlying sale is later voided/returned, the receivable reacts
-  via the existing reversal surfaces (POS-014 + DP-026 + Connector Arc A); this spec defines **no** new
-  reversal flow (DP-2 035 NG-1). `reversal_consumed` is intentionally excluded from the v1 contract.
+- **Amount bounds.** The responsibility amount is strictly positive and not above the amount due. An
+  amount of zero, a negative amount or an amount above `posTotal` blocks the commit locally.
+- **Change.** Immediate tender is net of change (existing cash rules). A responsibility never changes
+  how change is computed; there is no change on the credit part.
+- **No payers.** An empty payer page is a normal state ("no payer is available for this store"), with a
+  pointer that an admin creates payers in the Console. The till does not create a payer.
+- **Payer list fails.** If the read fails (401, 403, 429, 5xx, timeout), no payer is offered and the
+  credit option stays blocked with the reason. The till does not fall back to any stored list.
+- **Settled cash before capture.** The immediate tender may settle before the capture call. That must not finalize the sale (R-FINALIZE, FR-5a). If the capture is then refused, Q-2 decides what happens to the cash.
+- **Restart mid-capture.** The key and the frozen body survive a restart (see FR-8) so a retry is a
+  replay, not a second sale.
+- **Void or return of a credit sale.** The existing POS void and return screens must not offer the
+  ordinary route for a sale that has a responsibility (the server refuses it with 403
+  `credit_sale_reversal_restricted`). Whether POS offers the credit-reversal operation itself is an
+  owner question (Q-7).
 
 ## Requirements
 
-### Functional Requirements
+### Functional requirements
 
-- **FR-1.** POS MUST capture, at the till, the **settlement intent** for a credit / corporate /
-  third-party-payer sale: the cash tendered at the till, and one or more **payer responsibilities**
-  (payer reference + owed amount + optional claim metadata). (DP-2 035 FR-003 / FR-016.)
-- **FR-2.** POS MUST submit settlement intent to Data-Pulse-2 by consuming exactly the ratified G2
-  operation **`posRecordSettlementIntent`** (`POST /api/v1/settlement/settlement-intent`), sending a
-  `SettlementIntentCreate` body (`saleRef`, optional `cashTendered`, `payers[]` of `{payerRef,
-  owedAmount, claimMetadata?}`) and consuming the `SettlementIntentResult` response. POS MUST NOT
-  consume any Console-owned operation (`consoleCreatePayerAccount`, `consoleListPayerAccounts`,
-  `consoleListReceivables`, `consoleGetReceivable`, `consoleApplyPayment`, `consoleSubmitClaim`,
-  `consoleReconcileRemittance`).
-- **FR-3.** POS MUST treat the submission as **intent only**: it MUST NOT apply cash against a
-  receivable, authorize a receivable, post money, or hold authoritative settlement / receivable state.
-  Any receivable state POS shows is a **read-only projection** of DP-2's `SettlementIntentResult`
-  (DP-2 035 FR-016, §1 core principle).
-- **FR-4.** POS MUST reference an **already-captured sale** (`saleRef`) and MUST NOT mutate the sale
-  fact when recording settlement intent (DP-2 035 FR-006). The cash portion remains part of the
-  immutable sale; the owed portion opens receivable(s).
-- **FR-5.** POS MUST NOT block sale capture/finalization on settlement intent. An unsettled or
-  partially-settled sale is a complete, valid sale (DP-2 035 FR-010); settlement intent is captured
-  alongside or after the sale, never as a precondition to ringing it.
-- **FR-6.** POS MUST authorize every settlement-intent submission with the **operator-authorization
-  envelope** (031 / `operatorAuthorization` bearer adopted in POS-016), not a device-token-only
-  credential (DP-2 035 §8 / FR-019). The backend re-evaluates the operator predicate live; POS does not
-  pre-judge authorization.
-- **FR-7.** POS MUST make every settlement-intent submission **idempotent** by sending an
-  `Idempotency-Key` so a replay yields the same single receivable outcome (DP-2 035 FR-020 / G5),
-  reusing the POS outbox idempotency discipline (011).
-- **FR-8.** POS MUST handle the contract's defined outcomes deterministically and surface them to the
-  cashier without leaking internals: `201` (intent recorded → show opened receivable projection),
-  `400` (validation failure → fix-and-resubmit, no partial record), `409` (unknown / cross-tenant
-  payer → non-disclosing error, no silent post), `401` (unauthorized → re-auth via operator envelope),
-  `500` (system failure → safe retry / queue).
-- **FR-9.** POS MUST treat the payer as an **account record reference**, not a system principal: the
-  cashier selects an in-scope `payerRef` (uuid) supplied/managed by Console; POS neither creates payer
-  accounts nor enumerates them as an authority (DP-2 035 §2, FR-001/FR-004).
-- **FR-10.** POS MUST carry tax/VAT only as **placeholders** if at all; it MUST NOT compute VAT
-  allocation across payers or co-pays (tax-pending; DP-2 035 §6 / FR-023, OQ-2). Owed/cash amounts are
-  exact-decimal money strings with no apportioned tax.
-- **FR-11.** POS MUST NOT define or invoke any void / refund / return / insurance-rejection workflow in
-  this feature; those reuse POS-014 + DP-026 + Connector Arc A (DP-2 035 NG-1, FR-015).
+- **FR-1.** The till MUST offer the credit option only to an online session that holds the operator
+  envelope for an eligible role (R-ROLE), with the feature enabled. Otherwise it is hidden (role) or
+  shown unavailable with a reason (offline, flag, payer read failure).
+- **FR-2.** The till MUST load the payer picker from `posListChargeablePayers` on the envelope path, once
+  per opening of the picker, and MUST NOT persist, cache or reuse the result. Filtering is on the device
+  (there is no search parameter). Paging follows the opaque `cursor`. The list shows `displayName` and
+  whether the payer is `chargeable`; it does not show or store `externalRef`, status or any balance
+  (the contract does not return them).
+- **FR-3.** The till MUST let the manager pick exactly one payer and enter one amount; it MUST show the
+  immediate-tender remainder and the running coverage check, and MUST block the commit on any mismatch
+  (R-COVER), with persistent reason text.
+- **FR-4.** The till MUST build `responsibilities` as `[{ payerRef, amount, sequence: 1 }]` with `amount`
+  as an exact-decimal string converted from integer minor units at the boundary only (no float), and MUST
+  send `tenders` only when a tender exists.
+- **FR-5.** The till MUST capture the sale with one synchronous `captureSale` call on the envelope path
+  and finalize the sale only on acceptance (R-SYNC). It MUST NOT queue the sale, MUST NOT use the
+  device bearer (R-PATH) and MUST NOT strip, move or convert the responsibility on any retry.
+- **FR-5a.** The till MUST keep a responsibility-bearing checkout out of the automatic finalize scan until a capture is accepted (R-FINALIZE). Neither a settled cash tender nor a restart may cause that sale to be finalized and enqueued without its `responsibilities`. A sale recorded without its responsibilities while a credit capture is pending, or sent later under the same key without them, is the failure this requirement prevents.
+- **FR-5b.** The till MUST persist the accepted payer fact (`payerRef`, `amount`, the server sale reference) locally with the sale, so that the receipt line (FR-9), a reprint after a restart and the void/return guard (Q-7) know the sale carries a responsibility without asking the server first. Adding that storage is a POS migration (a gated path) and belongs to the implementation issue.
+- **FR-6.** The till MUST map every outcome deterministically (see the consumption note, section 4):
+  accepted, 401, 403 role refusal, 400, 409, each 422, 425, 429, 5xx and transport failure. No outcome
+  finalizes a sale except acceptance.
+- **FR-7.** A transient outcome (transport failure, timeout, 425, 429, 5xx) MUST leave the sale
+  unfinalized and MAY be retried synchronously with the same key and the same body, honoring any
+  `Retry-After`.
+- **FR-8.** The idempotency key and the frozen request body MUST be stored with the checkout attempt
+  before the first send, so a retry after a restart is byte-identical (same `payload_hash`).
+- **FR-9.** The receipt MUST show the payer responsibility as its own line (payer name, amount) and MUST
+  NOT claim that part was paid (R-TRUTH). The receipt keeps its current tax wording.
+- **FR-10.** The till MUST audit the credit capture with the existing sale audit events (operator, sale,
+  outcome), and MUST NOT log the payer name, `payerRef` values in free text, amounts with a name, or any
+  card or credential data.
+- **FR-11.** The till MUST NOT call ERPNext or the Connector and MUST NOT compute any balance, aging,
+  credit limit or tax split (R-NOTAX).
 
-### Non-Functional Requirements
+### Non-functional requirements
 
-- **NFR-1. Boundary integrity.** POS settlement-intent egress targets Data-Pulse-2 only. No POS→ERPNext
-  and no POS→Connector path is introduced (Constitution Platform Integration; orchestrator architecture
-  invariant). The only new remote consumption is the DP-2 035 G2 settlement operation.
-- **NFR-2. Financial precision.** All money crosses the boundary as exact-decimal strings (DP-2 `Money`);
-  POS converts from integer minor units at the boundary; float never decides a settlement amount
-  (Constitution II — Financial Precision).
-- **NFR-3. Offline / no silent loss.** Settlement intent captured while offline is durably queued and
-  submitted with idempotency once the sale has a server `saleRef`; no settlement intent is silently
-  dropped (Constitution I / P3 / P9; 011 outbox discipline). Status shown to the cashier is truthful
-  (captured-locally vs submitted vs receivable-opened).
-- **NFR-4. Auditability.** Every settlement-intent submission is attributable to the operator (envelope)
-  and the referenced sale, with the idempotency key, for support reconstruction (Constitution XIII /
-  P10).
-- **NFR-5. Non-disclosure.** Authorization (`401`) and unknown-payer (`409`) outcomes surface as generic,
-  non-disclosing messages; no factor disclosure, no cross-tenant existence disclosure (DP-2 035 §8 /
-  §II/§XII).
+- **NFR-1. Boundary.** Egress is Backend-Core only. No POS to ERPNext path (root `CLAUDE.md` section 4).
+- **NFR-2. Money.** Integer minor units inside; exact-decimal strings on the wire; the coverage check is
+  exact arithmetic with no rounding.
+- **NFR-3. No silent loss (RT-24 core rule 1).** A valid cart is never lost on any refusal. Cash already applied is
+  never silently dropped (see Q-2 for the mechanism).
+- **NFR-4. No fake success (RT-24 core rule 2).** "Captured" is shown only after the server accepted. The credit part is
+  never shown as paid.
+- **NFR-5. Non-disclosure.** 401, 403 and `payer_invalid` show generic reasons that do not say which
+  standing or payer attribute failed (the contract returns one body for every cause).
+- **NFR-6. Privacy.** `displayName` may name a private person. It is business-class data: shown to the
+  eligible role, never put in a URL, never logged, never kept in the payer cache (there is none).
+- **NFR-7. UX rules.** Arabic-first and RTL, logical properties, 44px targets, no new keyboard shortcuts
+  (D-K1), a scanner burst never enters the amount field (M-S5), no rolling money. Copy in this folder is
+  **proposed** and needs owner approval before shipping.
 
-## Success Criteria
+## Success criteria
 
-Measurable, technology-agnostic outcomes. The feature's SPECIFY artifact is "done for review" when these
-are demonstrably true of this document set.
+- **SC-1.** A reviewer can trace the till behavior to exactly two consumed operations (`captureSale` with
+  `responsibilities`, and `posListChargeablePayers`) and confirm nothing else is consumed.
+- **SC-2.** The offline rule (R-OFFLINE) and the coverage pre-check (R-COVER) each have Given/When/Then
+  scenarios above (scenarios 3, 4, 5, 6).
+- **SC-3.** Every server outcome of the consumed operations maps to one till behavior with no outcome that
+  finalizes a sale except acceptance.
+- **SC-4.** The folder contains no reference to the retired intent route, no insurance or co-pay flow is
+  specified and no claim fields exist.
+- **SC-5.** The open owner questions are listed (see Owner questions).
 
-- **SC-1.** A reviewer can trace the POS capture surface to exactly **one** consumed contract operation
-  — `posRecordSettlementIntent` — with the exact request/response schemas named, and confirm **zero**
-  Console- or Connector-owned operations are consumed.
-- **SC-2.** A reviewer can confirm in under 2 minutes that POS captures **intent only**: no cash
-  application, no receivable authorization, no money posting, no authoritative settlement state, no
-  ERPNext/Connector call.
-- **SC-3.** Each of the contract's five POS-visible outcomes (`201/400/409/401/500`) maps to a defined,
-  deterministic cashier-facing behavior (FR-8).
-- **SC-4.** The reversal non-goal is unambiguous — a reviewer can confirm no void/refund/return/insurance-
-  rejection workflow is defined and that POS-014 + DP-026 + Connector Arc A are named as the reuse anchors.
-- **SC-5.** A reviewer can confirm this spec authors **zero** OpenAPI/migration/code and invents **zero**
-  VAT allocation rules, consistent with the SPECIFY-only claim ceiling and the tax-pending posture.
-- **SC-6.** All POS-020 required gates are listed with status **NONE satisfied**, and the upstream
-  dependency on the DP-2 035 G2 contract is stated explicitly.
+## Key entities
 
-## Key Entities
-
-Contract-intent level; field shapes are owned by the DP-2 035 settlement contract (consumed, not
-redefined here).
-
-- **Settlement Intent (POS-captured)** — the till-side input: `saleRef`, `cashTendered` (optional,
-  exact-decimal string), and `payers[]`. Submitted to DP-2; opens receivable(s). (DP-2
-  `SettlementIntentCreate`.)
-- **Settlement Intent Payer** — one responsible payer: `payerRef` (uuid, in-scope payer account),
-  `owedAmount` (exact-decimal `Money`), optional opaque `claimMetadata`. (DP-2 `SettlementIntentPayer`.)
-- **Payer Account (reference only)** — credit-customer / corporate / insurer account the receivable is
-  owed by; POS references it by `payerRef`, does not own or manage it (Console owns it). Category enum:
-  `credit_customer | corporate | insurer` (DP-2 `PayerCategory`).
-- **Receivable (read-only projection)** — DP-2-owned money owed against the sale by a payer; lifecycle
-  `open | partially_applied | settled | claimed | flagged` (DP-2 `ReceivableState`; `reversal_consumed`
-  excluded in v1). POS displays the opened receivable(s) returned in `SettlementIntentResult`; it never
-  advances their state.
+- **Payer responsibility** (`SaleResponsibility`): `payerRef` (uuid), `amount` (positive exact-decimal
+  string), `sequence` (integer, 1 in v1). Part of the immutable sale. Not a receivable: no balance, no state.
+- **Chargeable payer** (`PosPayer` item): `payerRef`, `displayName`, `category`, `erpCustomerLinked`,
+  `chargeable`. Read-only, online, advisory.
+- **Credit capture attempt** (till-local): the frozen body, the idempotency key and the outcome, kept until
+  the sale is accepted or abandoned. Not a new server concept.
 
 ## Assumptions
 
-- The immutable sale fact and its server `saleRef` are produced by the existing POS sale-finalization
-  (008) + sale-sync capture-up (011) path; this spec reuses them and does not redefine them.
-- The operator-authorization envelope (031), adopted into POS by 016, is the credential POS attaches to
-  settlement-intent submissions; this spec binds it by reference and does not re-decide auth.
-- Payer accounts are created and managed in the Retail-Tower-Console (Console 017); POS only references
-  an existing in-scope `payerRef`. POS cannot create a payer.
-- DP-2 035's G2 settlement contract is the **ratified, non-reversal** surface; reversal-compatibility
-  fields are genuinely deferred upstream (035 OQ-4) and are out of scope here.
-- Tax stays deactivated (tax-pending) until G6 activation under ADR-0003; this spec apportions no VAT.
-- The prior POS `0xx-insurance-copay` visual spike (insurance/co-pay tender UI exploration) is
-  *exploratory prior art only*, not a ratified design; this spec supersedes it as the contract-bound
-  definition of the capture surface.
+- The operator envelope is held only by manager/admin sessions on the till today (sales.yaml note), which
+  is why credit is manager/admin-only. Whether a cashier-rung sale can be handed to a manager is not
+  defined by any contract (Q-1).
+- A payer must exist and be linked to an ERPNext Customer before it can be charged. Creating and linking
+  payers is a Console job (RT-421, RT-572); POS only picks.
+- `payerRef` values come only from the live read. POS never types, guesses or stores one.
+- The category set in the payer contract includes a value named for insurers. POS cannot change that
+  enum; whether the till shows the category at all is Q-4.
 
-## Out of Scope
+## Out of scope
 
-- Payer-account management, payment/cash application, and claim/remittance reconciliation (Console
-  surfaces: `consoleCreatePayerAccount`, `consoleApplyPayment`, `consoleSubmitClaim`,
-  `consoleReconcileRemittance`).
-- Posting any settlement/receivable/claim movement to ERPNext (later Connector consumer; DP-2 035 FR-018).
-- Any void / refund / return / insurance-rejection workflow (reuse POS-014 + DP-026 + Connector Arc A).
-- VAT / tax allocation across payers or co-pays (tax-pending; OQ-2 deferred).
-- `reversal_consumed` receivable state and reversal-compatibility fields (deferred upstream — 035 OQ-4).
-- Authoring or editing the settlement OpenAPI contract (owned by DP-2 035; consumed here).
-- Any runtime `src/`, IPC/bridge, migration, package/lock, or CI change. The build is a separate,
-  owner-gated lane after the gates below are satisfied.
+- Any offline credit, cached credit decision or freshness rule (needs its own owner decision and a new
+  contract version; RT-413 R-1).
+- More than one payer per sale (needs a later contract version once RT-419 fixes the ERPNext shape).
+- Void, return or refund of a credit sale (RT-577; see Q-7).
+- Creating, updating or linking payers (Console).
+- Balances, aging, payment application, claims, remittance (ERPNext).
+- Tax split per payer.
+- Any change to `apps/pos/contracts/**`, the generated client, or any product code in this issue.
 
 ## Dependencies
 
-- **DP-2 035 G2 settlement contract** — `posRecordSettlementIntent` in
-  `packages/contracts/openapi/settlement/settlement.yaml`. **This is the hard upstream dependency.** The
-  contract is RATIFIED upstream (035 §10: "G2 RATIFIED 2026-06-15, PR #574"), which is what makes this
-  child eligible to be specified; POS-020's *own* gates remain unsatisfied (see Gate Mapping).
-- **POS 008** (sale finalization) + **POS 011** (sale-sync capture-up) — supply the immutable
-  `saleRef` and the outbox/idempotency discipline reused for queuing intent.
-- **POS 016 / 031 operator-authorization envelope** — the credential attached to settlement-intent
-  submissions (DP-2 035 §8 / FR-019).
-- **Console 017** (customer-and-payer-accounts) — the surface that creates/manages the payer accounts
-  POS references by `payerRef`. POS cannot create payers.
-- **POS-014 + DP-026 + Connector Arc A** — the reuse anchors for reversal/return/rejection (NG-1).
-- **ADR-0003** — tax activation-only posture (tax-pending).
+| ID | Dependency | State (2026-11-22) |
+|:--|:--|:--|
+| D-1 | **POS pin of `pos-payers.openapi.yaml`** (`posListChargeablePayers`): copy into `apps/pos/contracts/backend-core/openapi/`, regenerate `src/shared/api-types.ts` and `scripts/openapi-snapshot.json`. A `[GATED: contract pin]` PR; trips the source-scope-guard, so it needs a narrow exemption on its own branch (skill `merging-rt-pull-requests`). | **Missing.** Backend-Core side done (RT-570, RT-802). |
+| D-2 | `captureSale` `responsibilities`, coverage rule, 403/422 codes (RT-417) and runtime (RT-418). | Done on Backend-Core `main`. POS pin already carries the field (`sales.yaml` 1.28.0-draft). |
+| D-3 | Connector posting of credit sales to the payer's ERPNext Customer (RT-419). Until it lands the posting feed holds a credit sale. | To Do. Not a blocker for the till capture; a blocker for end-to-end proof and pilot use. |
+| D-4 | Credit-sale reversal (RT-571, RT-577; `recordCreditSaleReversal`). | Done on Backend-Core. POS surface is Q-7. |
+| D-5 | A POS **implementation issue** for the till flow (not yet written). Needs an owner go-ahead and the answers to the owner questions. | Not created. |
+| D-6 | Pilot scope: pilot is cash only with no split tender (RT-536 D4); RT-420 is fix version Post-Pilot. This flow is post-pilot. | Stated. |
+| D-7 | Admin Console specs 017 to 019 still describe the retired model (RT-421 re-pointed the Console). | Follow-up, not this issue. |
 
-## Gate Mapping (POS-020 — NONE satisfied)
+## Owner questions
 
-> Gate vocabulary below is POS-020's own. The upstream DP-2 035 **G2** (the contract) is RATIFIED — that
-> is the *enabling dependency*, not a POS-020 gate. POS-020's own gates are all UNSATISFIED at SPECIFY
-> time. This spec marks **no** gate satisfied.
+These are listed, not decided. Each states the default the docs assume.
 
-| Gate | Meaning (POS-020) | Status |
-|------|-------------------|--------|
-| **G-CONTRACT-CONSUME** | DP-2 035 G2 `posRecordSettlementIntent` is consumed correctly (request/response/idempotency/security) by the eventual POS build. | **UNSATISFIED** (consumer wiring not built; SPECIFY only). |
-| **G-OPERATOR-ENVELOPE** | Settlement-intent submission attaches the 031 operator-authorization envelope (POS-016), never device-token-only. | **UNSATISFIED** (binding stated; not verified by build). |
-| **G-INTENT-ONLY** | POS verifiably captures intent only — no cash application, no receivable authorization, no posting, no authoritative settlement state. | **UNSATISFIED** (boundary asserted; not verified by build). |
-| **G-IDEMPOTENT-OUTBOX** | Settlement-intent submission is idempotent & offline-durable via the 011 outbox discipline (no double receivable, no silent loss). | **UNSATISFIED**. |
-| **G-TAX-PENDING** | POS apportions no VAT; money crosses as exact-decimal strings with no tax allocation. | **UNSATISFIED** (posture stated; not verified by build). |
+- **Q-1. Who rings the sale?** Only manager/admin sessions hold the envelope, and no contract defines a
+  handoff from a cashier. Must the manager be the signed-in operator who rings the whole sale?
+  *Assumed:* yes. No handoff flow is specified.
+- **Q-2. Cash already applied when capture is refused.** The immediate tender is applied locally before the
+  capture call (the body needs it). If capture then returns a 422/403, the sale is not finalized. What
+  happens to the cash already collected: keep it as an applied tender in the same checkout so the manager
+  can fix the payer and retry, or reverse it through the existing recovery path? Touches RT-24 core rules 1 and 3.
+  *Recommended:* keep the applied tender, stay in Checkout with the reason, and never start a second sale.
+- **Q-9. How does a credit checkout reach finalize?** The existing finalize path is a background scan of settled payments that always enqueues the sale for the background drain. Options: (a) gate that scan so it skips a credit checkout, and add a finalize variant that records an accepted, already-captured sale with no outbox row; (b) build a separate credit finalize that does not use the scan at all, which also covers a full-credit sale (no settled tender). Either changes finalize or the scan, not only the capture client. *Recommended:* (b), because a full-credit sale has no settled payment to key on and a gate on the shared scan puts the cash-sale path at risk.
+- **Q-3. Shift rule for a full-credit sale.** RT-998 refuses cash without an open shift. Does a sale with
+  no cash tender need an open shift? *Assumed:* the existing rule is unchanged and applies only when a
+  cash tender exists.
+- **Q-4. The `insurer` payer category.** The server enum still contains an insurer value. The issue asks
+  for no healthcare-specific terms. Show the category in the till at all? *Recommended:* do not show it;
+  show the payer name and the linked state only. Renaming or dropping the enum value is a Backend-Core
+  decision.
+- **Q-5. Receipt wording and payer name.** Approve the credit line wording and whether the payer's name is
+  printed on the customer receipt (it can name a private person). Proposed copy is in the consumption note.
+- **Q-6. Where the receipt gets the payer name.** The captured `Sale.responsibilities` carries `payerRef`
+  only. The name would come from the picker at sale time and be stored with the till's receipt data. OK to
+  store the name locally for reprints? Needs verification against the receipt snapshot contract (RT-537).
+- **Q-7. Reversing a credit sale at the till.** The ordinary void and return routes refuse it. Does POS
+  offer the manager credit-reversal operation, or is a credit sale reversed only in the Console? Until
+  decided, the till shows a reasoned block on the ordinary screens.
+- **Q-8. Feature flag and pilot posture.** Confirm the flow ships behind a fail-closed `POS_PULSE_FEATURE_*`
+  flag and stays off for the cash-only pilot.
 
-Upstream enabling dependency — **DP-2 035 G2 = RATIFIED** (consumed, not owned here). No POS-020 gate is
-satisfied; no claim of built/done/dispatched is made.
+## Gate mapping
 
-## Clarifications
+All gates below are **unsatisfied** at spec time. Nothing here claims anything built, verified or merged
+beyond the docs.
 
-> `/speckit-clarify` ambiguity pass over this spec (2026-06-16). Each item is classified by the
-> 4-axis test (does it change the *consumed contract surface*, an *ownership boundary*, an
-> *actor/identity* decision, or a *gate*?). Items that change none are NON-critical and resolved here
-> with a documented default. CRITICAL items (changing one of those four) would be escalated — none were
-> found (see end).
-
-### Session 2026-06-16
-
-**Resolved (NON-critical) — documented defaults:**
-
-- **C-1 — When is settlement intent submitted relative to sale sync (offline-first)?** →
-  *Default:* settlement intent is captured at the till immediately, but **submitted via
-  `posRecordSettlementIntent` only once the referenced sale has a server `saleRef`**, queued through the
-  existing POS outbox (011) and idempotent on `Idempotency-Key`. *Rationale:* the contract requires an
-  already-captured `saleRef` (it does not mutate the sale); mirroring 011's capture-up + idempotency is
-  the least-surprising offline-first behavior and changes no contract field, boundary, actor, or gate.
-- **C-2 — What happens when the cashier needs a payer account that does not exist?** →
-  *Default:* POS surfaces the DP-2 `409` unknown-payer outcome and directs the operator to have the
-  account created in **Console** (Console 017); POS does **not** create payer accounts. *Rationale:*
-  payer-account creation is a Console-owned operation (`consoleCreatePayerAccount`); keeping POS to
-  reference-only preserves the ownership boundary (035 FR-009/FR-017).
-- **C-3 — Single payer vs split (co-pay + insurer) in the POS capture v1?** →
-  *Default:* support the contract's `payers[]` (1..16) so the canonical insurance co-pay + insurer-
-  covered split is representable from v1; POS does not artificially cap to a single payer. *Rationale:*
-  the consumed contract already permits the split; capping it would under-deliver the feature's reason
-  for existing and is not required by any boundary/actor/gate. (UX layout of multi-payer entry is a
-  plan-phase concern, not a spec ambiguity.)
-- **C-4 — How is POS-internal integer-minor-unit money reconciled with the contract's string `Money`?** →
-  *Default:* POS keeps integer minor units internally (`src/shared/money.ts`) and converts to/from the
-  exact-decimal string form **only at the contract boundary**; float never decides an amount.
-  *Rationale:* satisfies Constitution II and the contract `Money` shape without changing the consumed
-  surface.
-- **C-5 — Does POS persist receivable state returned by `SettlementIntentResult`?** →
-  *Default:* POS may cache the returned receivable projection for **display only** (read-only, clearly
-  labelled DP-2-owned); it never advances or mutates receivable state. *Rationale:* preserves the
-  intent-only boundary (FR-3) while letting the cashier see the opened receivable; no new authority is
-  introduced.
-- **C-6 — Does this spec or its chain register any POS-020 gate as satisfied?** →
-  *Default:* No. Gate registration/satisfaction is a later, build-time + owner concern; this chain marks
-  all POS-020 gates UNSATISFIED and binds the upstream DP-2 035 G2 by reference (RATIFIED upstream, not a
-  POS-020 gate). *Rationale:* status honesty; no over-claim.
-
-**CRITICAL (would change contract surface / ownership boundary / actor-identity / gate):** **(none).**
-The four load-bearing decisions are pre-settled by ground truth and recorded, not re-decided here:
-(a) consumed surface = exactly `posRecordSettlementIntent` (035 G2 contract); (b) ownership boundary =
-POS captures intent only, Console manages, Connector posts (035 FR-016/017/018); (c) actor/identity =
-operator-authorization envelope (031), payer = account reference not principal, settlement act by
-admin/accounting operator not cashier (035 §2, §8, OQ-7); (d) gates = none satisfied, upstream G2
-ratified. No provisional CRITICAL flag is manufactured.
-
----
-
-*Constitution alignment:* This spec MUST satisfy the principles of `.specify/memory/constitution.md`
-(v1.5.1 pinned at writing). The plan and tasks artifacts perform the explicit "Constitution Check." This
-SPECIFY artifact authors no code, OpenAPI, migration, package, or CI.
+| Gate | Meaning | Status |
+|:--|:--|:--|
+| G-CONSUME | The till sends `responsibilities` on the envelope path exactly as the contract requires and handles each outcome. | Unsatisfied (not built) |
+| G-FINALIZE | A credit checkout is finalized only after server acceptance, as an already-captured sale with no pending outbox row. | Unsatisfied (not built) |
+| G-OFFLINE | A responsibility-bearing sale is never queued, never sent offline and never sent on the device path. | Unsatisfied (not built) |
+| G-COVER | The local coverage pre-check blocks every mismatch before submit. | Unsatisfied (not built) |
+| G-FRESH | The payer list is online only and never cached or persisted. | Unsatisfied (not built) |
+| G-PIN | The POS pin of the payer lookup contract exists (D-1). | Unsatisfied (missing) |

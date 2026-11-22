@@ -1,102 +1,65 @@
-# Quickstart: POS Credit & Third-Party Tender Flow
+# Quickstart: POS Credit & Third-Party Payer Flow
 
 **Feature:** 020-pos-credit-and-third-party-tender-flow
-**Plan:** [./plan.md](./plan.md)
-**Spec:** [./spec.md](./spec.md)
-**Created:** 2026-06-16
+**Spec:** [./spec.md](./spec.md) · **Plan:** [./plan.md](./plan.md)
 
-> **Developer path for the later, owner-gated build lane** that consumes the ratified DP-2 035 G2
-> settlement contract. This quickstart is **design documentation** — it describes the consumption flow a
-> developer would implement, not code authored by this chain. **No `src/`, OpenAPI, migration, package,
-> or CI is authored here.** All POS-020 gates remain UNSATISFIED.
+> A reading path for the **later implementation issue**. Design documentation only: it describes the flow a
+> developer would build, not code that exists. Nothing here is built, and the shapes below are illustrative.
 
----
+## Prerequisites
 
-## Prerequisites (verified ground truth)
+- The POS pin of `pos-payers.openapi.yaml` is merged (spec D-1). Without it the till cannot read payers.
+- The owner has answered the spec's owner questions Q-1 to Q-9.
+- An online session of an `owner`, `tenant_admin` or `store_manager` holding the operator envelope.
+- At least one payer in the store scope that is active and linked to an ERPNext Customer (created and linked
+  in the Console, not at the till).
 
-- The DP-2 035 **G2 settlement contract** is RATIFIED and available
-  (`packages/contracts/openapi/settlement/settlement.yaml`); the generated client exposes
-  `posRecordSettlementIntent`. POS authors no OpenAPI — it consumes the generated client.
-- The sale exists and has a **server `saleRef`** (POS 008 finalize + 011 capture-up).
-- A valid **operator-authorization envelope** (031 / POS-016) is available.
-- The target **payer account(s)** exist in the tenant (created/managed in Console 017); POS has their
-  `payerRef`(s). POS cannot create payers — an unknown payer is a `409`.
-
-## End-to-end consumption flow
+## Flow
 
 ```
-1. Obtain saleRef         (008 finalize + 011 capture-up; do NOT mutate the sale)
-2. Select payerRef(s)     (Console-managed accounts; e.g. patient credit + insurer)
-3. Build SettlementIntentCreate:
-      saleRef
-      cashTendered?        (exact-decimal string from integer minor units, boundary-converted)
-      payers[1..16]:       { payerRef, owedAmount (Money string), claimMetadata? }
-4. Attach headers:
-      Authorization: Bearer <031 operator envelope>
-      Idempotency-Key: <stable key>     (reuse 011 outbox discipline)
-5. POST /api/v1/settlement/settlement-intent   (posRecordSettlementIntent)
-6. Handle outcome:
-      201 -> render SettlementIntentResult.receivables[] READ-ONLY (DP-2-owned)
-      400 -> fix-and-resubmit (no partial record)
-      409 -> non-disclosing unknown-payer error; create account in Console
-      401 -> re-auth via operator envelope (never device-token-only)
-      500 -> safe retry / re-queue (idempotent on Idempotency-Key)
+1. Manager rings the cart as usual (Sale), opens Checkout.
+2. Credit option is offered only if: online + eligible role + flag on. Otherwise hidden (role) or
+   unavailable with a reason (offline, flag, read failure).
+3. Open the picker: GET /api/pos/v1/payer-accounts on the envelope. Page with the opaque cursor. Filter
+   on the device. Nothing is stored. chargeable:false payers are greyed out and not selectable.
+4. Pick one payer. Enter the amount the payer owes. The remainder is the immediate tender (cash in pilot).
+5. Coverage pre-check in integer minor units: tenders + amount = posTotal. Mismatch: commit disabled with a
+   persistent reason, nothing sent.
+6. Freeze the body and the idempotency key with the checkout attempt. The automatic finalize scan must skip
+   this checkout until the capture is accepted (spec R-FINALIZE, Q-9).
+7. One synchronous POST /api/pos/v1/sales on the envelope, with tenders (if any) and responsibilities.
+8. Accepted (201 or 200 replay): finalize the sale once, show completion, print the receipt with the payer
+   line. Any other outcome: do not finalize; follow the outcome matrix in the consumption note.
 ```
 
-## Worked example — insurance co-pay split (illustrative shape, not code)
+## Illustrative request shapes (not code)
 
-A prescription: patient pays a cash co-pay at the till; the insurer covers the rest; assume a small
-residual is owed by the patient on account.
-
-```
-SettlementIntentCreate:
-  saleRef:      "<uuid of the captured, synced sale>"
-  cashTendered: "15.00"            # patient cash co-pay at the till (part of the immutable sale)
-  payers:
-    - payerRef:   "<patient credit account uuid>"
-      owedAmount: "5.00"           # residual owed on account beyond the cash co-pay
-    - payerRef:   "<insurer account uuid>"
-      owedAmount: "80.00"          # insurer-covered portion
-      claimMetadata: { "policyRef": "<opaque>" }
-```
-
-On `201`, DP-2 returns the opened receivable(s) (e.g. one against the patient account, one against the
-insurer account), each in an initial `open` state with an outstanding balance. POS renders them
-**read-only** and never transitions them.
-
-> Money values are exact-decimal strings; no VAT is apportioned (tax-pending). The cashier never applies
-> cash to, authorizes, or posts these receivables — that is the Console admin/accounting operator's act
-> (`consoleApplyPayment`), out of this feature (035 OQ-7).
-
-## Worked example — corporate account on terms (no cash)
+Part credit, 500.00 EGP sale, 150.00 cash, 350.00 owed by the payer:
 
 ```
-SettlementIntentCreate:
-  saleRef:      "<uuid of the captured, synced sale>"
-  cashTendered: null
-  payers:
-    - payerRef:   "<corporate account uuid>"
-      owedAmount: "<full sale total as Money string>"
+tenders:          [ { method: cash, amount: "150.00", ... } ]
+responsibilities: [ { payerRef: "<uuid from the live read>", amount: "350.00", sequence: 1 } ]
 ```
 
-`201` → a single receivable opened against the corporate account; the sale fact is unchanged; the
-cashier was never blocked.
+Full credit, no tender:
 
-## What you will NOT do here
+```
+(tenders absent)
+responsibilities: [ { payerRef: "<uuid>", amount: "500.00", sequence: 1 } ]
+```
 
-- Call any Console operation (manage accounts, apply cash, submit/reconcile claims).
-- Call ERPNext or the Connector.
-- Author or edit the settlement OpenAPI (DP-2 owns it).
-- Apply cash, authorize a receivable, post money, or hold authoritative settlement state.
-- Compute VAT / tax allocation.
-- Define any void/refund/return/insurance-rejection flow (reuse POS-014 + DP-026 + Connector Arc A).
+Amounts are exact-decimal strings converted from integer minor units at the boundary. The other fields of
+the capture body are unchanged from today.
+
+## What you will not do
+
+- Queue a credit sale, send it later, or send it on the device path.
+- Store, cache or reuse a payer list, or show one while offline.
+- Offer a split across payers, a balance, a "settled" state or any word that says the credit part is paid.
+- Call ERPNext, the Connector, a Console payer route, or the credit-reversal operation.
+- Compute a tax split per payer.
+- Edit `apps/pos/contracts/**` outside the gated pin PR.
 
 ## Status
 
-SPECIFY/PLAN/TASKS level. All POS-020 gates (G-CONTRACT-CONSUME, G-OPERATOR-ENVELOPE, G-INTENT-ONLY,
-G-IDEMPOTENT-OUTBOX, G-TAX-PENDING) are **UNSATISFIED**. The upstream DP-2 035 G2 contract is RATIFIED
-(consumed by reference). Nothing here is built, done, or dispatched.
-
----
-
-*Design documentation for the build lane. Authors no code, OpenAPI, migration, package, or CI.*
+Draft docs. Every gate in the spec is unsatisfied. Nothing is built or dispatched.
