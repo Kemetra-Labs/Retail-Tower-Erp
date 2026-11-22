@@ -69,7 +69,11 @@ Jira state: RT-352 is In Review (packaged evidence pending). No issue for RT-116
 | any cart with a `started` payment attempt or live tender (RT-116 M7) | I-8, RT-116. A sale with money on it is never parked. |
 | any cart already parked | Idempotent replay excepted (§3.1). |
 
-**Limit:** at most **5 parked sales per terminal**, counted across all operators. The 6th is refused `park_limit_reached`. Stale parked sales count.
+**Limit (amended by RT-838, §11):**
+
+- **[Decided 2026-10-23]** There is **no limit by default**. With no limit configured, any number of sales may be parked and `park_limit_reached` is never returned. This supersedes the original rule "at most 5 parked sales per terminal; the 6th is refused" (kept in §11 as history).
+- **[Decided 2026-10-23]** A limit can be configured later from the Admin-Console. Where it lives and how it reaches the POS is **[DRAFT, pending owner confirmation]**: see §11 and `rt-838-park-limit-plan.md`.
+- **[DRAFT, pending owner confirmation]** When a limit of `N` is configured, it is counted per terminal across all operators, stale parked sales included (unchanged from the original rule). A park is refused `park_limit_reached` when the count is already `N` or more.
 
 **Durability:** a parked sale is an ordinary durable cart row. It survives restart, sign-out, session end, lock and takeover.
 
@@ -137,7 +141,7 @@ Main checks, in one SQLite transaction:
 
 1. The session owns the cart: `cart.operator_session_id === session.id` (existing M4 check).
 2. The cart is parkable (K2).
-3. The terminal has fewer than 5 parked sales (K2).
+3. No limit is configured, or the terminal has fewer parked sales than the configured limit (K2, RT-838; the original rule was "fewer than 5").
 4. `label`, if present, is plain text of 1–40 characters after trimming.
 
 Then it sets `parked_at = now`, `park_label`, `last_action_id = idempotency_key`, `updated_at`, and writes `cart.parked`.
@@ -145,7 +149,7 @@ Then it sets `parked_at = now`, `park_label`, `last_action_id = idempotency_key`
 - Returns `{ kind: 'parked' }`.
 - **The renderer clears the Sale screen only after this returns** (durable save, then clear — I-13).
 - **Replay:** a key found in `cart_park_actions` with the same `request_hash` returns its recorded outcome and writes nothing, even after later actions on the cart. The same key with a different request is refused `idempotency_payload_mismatch`. A refusal writes no `cart_park_actions` row, so a retry is evaluated again.
-- **Refusals:** `not_parkable`, `park_limit_reached`, `wrong_owner`, `session_locked`, `invalid_label`. Each writes `cart.park_refused` with the reason, except `session_locked` (central refusal, nothing reaches the handler).
+- **Refusals** (`park_limit_reached` only when a limit is configured, RT-838): `not_parkable`, `park_limit_reached`, `wrong_owner`, `session_locked`, `invalid_label`. Each writes `cart.park_refused` with the reason, except `session_locked` (central refusal, nothing reaches the handler).
 
 ### 3.2 `cart.listParked()`
 
@@ -179,7 +183,7 @@ For a parked cart owned by the current operator, compares each active line with 
 
 **If the current session already has a non-empty `editing` cart** (I-13 conflict, VN-R10):
 
-- `current_cart: 'park'` parks the current cart in the same transaction, under the K2 rules and limit (I-13 primary: suspend current, resume selected). The limit is counted **after** the selected sale leaves the parked set, so a full terminal can still swap.
+- `current_cart: 'park'` parks the current cart in the same transaction, under the K2 rules and limit (I-13 primary: suspend current, resume selected). With no limit configured (the default, RT-838), the swap is never refused for room. **[DRAFT, pending owner confirmation]** With a limit configured, the limit is counted **after** the selected sale leaves the parked set, so a terminal at its limit can still swap; and a swap that does not increase the parked count is always allowed, even when the limit has been lowered below the current count (existing parked sales are never discarded, K4). A resume with no current sale is never limited.
 - `current_cart: 'keep'` refuses `current_cart_active` (I-13 secondary: keep the current sale, resume nothing).
 
 An **`empty`** current cart is not a conflict. It is closed in the same transaction by the mechanism RT-352 already uses for a dead empty cart (`held-carts.ts` `closeEmpty`: cancel + outbox row, no audit), so the resumed cart is the session's only draft (see §5, R-6).
@@ -283,10 +287,35 @@ This section is the RT-439 amendment of the RT-116 contract (Confluence RETAIL 1
 | **PK-2** | main + bridge: migration (§K5, incl. `cart_park_actions`); `cart.park` / `listParked` / `previewResume` / `resume`; the K5 exclusions; `cart_parked` refusal on mutations; limit; audit; shift-close refusal with a blocking count (K4, OP-2) | PK-1 (this) | §A2, §A4 |
 | **RT-116 S6** | manager recovery (RT-116 §5), including parked carts in `recovery.listHeld` and `recovery.cancelHeldCart` (§4.3) | RT-116 S5, RT-114 MA-1 + MA-2 | §A2, §A4; **before pilot** (OP-2) |
 | **PK-3** | VN-S11 UI: `SuspendedSaleList`, park button, `ResumeConflictPanel` (VN-R10), stale badge, durable save then clear; Suspend visually distinct from Cancel and Void (I-2) | PK-2 | owner visual approval |
-| **PK-V** | packaged verification: park → next customer → resume; 5 parked then a 6th; restart and sign-out with parked sales; price change between park and resume; another cashier cannot see them; (after S6) manager cancel | PK-3 | — |
+| **PK-V** | packaged verification: park → next customer → resume; 5 parked then a 6th; restart and sign-out with parked sales; price change between park and resume (RT-838: "5 parked then a 6th" applies only when a limit is configured; by default the 6th is accepted); another cashier cannot see them; (after S6) manager cancel | PK-3 | — |
 
-PK-2 acceptance criteria (from the record, plus §5): a test for every refusal; a parked cart survives restart, sign-out and lock; it is never auto re-attached; never visible to or resumable by another operator; the 6th park is refused; a price change needs acceptance; an unavailable line is removed only on an accepted resume; a catalogue failure refuses preview and resume with `catalogue_unavailable` and removes nothing; a delayed retry of a park key after later cart actions replays and does not park again; no tender is touched; no Undo across a park.
+PK-2 acceptance criteria (from the record, plus §5): a test for every refusal; a parked cart survives restart, sign-out and lock; it is never auto re-attached; never visible to or resumable by another operator; the 6th park is refused (as shipped by RT-440; superseded by RT-838, §11: refused only when a limit is configured); a price change needs acceptance; an unavailable line is removed only on an accepted resume; a catalogue failure refuses preview and resume with `catalogue_unavailable` and removes nothing; a delayed retry of a park key after later cart actions replays and does not park again; no tender is touched; no Undo across a park.
 
 ## 10. Next safe action
 
 OP-2 is decided. Create **PK-2**, and an issue for **RT-116 S6** so the pilot dependency is tracked.
+
+(Historical; PK-2 and S6 have since shipped. For the park limit, see §11.)
+
+---
+
+## 11. RT-838 amendment (owner decision 2026-10-23): no limit by default
+
+Recorded in Jira RT-838 (Planning). The full plan, options and slices are in [`rt-838-park-limit-plan.md`](rt-838-park-limit-plan.md). This section governs where it disagrees with K2, §3.1, §3.4 and §9 above.
+
+**Original K2 limit (history, superseded):** "at most 5 parked sales per terminal, counted across all operators. The 6th is refused `park_limit_reached`. Stale parked sales count." RT-446 S2 passed against this text on packaged build `e33fca25`; that result stays valid for the text as it then stood.
+
+| # | Rule | Status |
+|---|---|---|
+| L-1 | No limit on parked sales per terminal by default. `park_limit_reached` is never returned while no limit is configured. | **Decided 2026-10-23** |
+| L-2 | A limit can be configured later from the Admin-Console. | **Decided 2026-10-23** |
+| L-3 | The limit lives at tenant level and applies to each terminal (the count it limits stays per terminal). Alternatives: tenant + store override; per device. | DRAFT, pending owner confirmation |
+| L-4 | A configured limit is a positive integer; `0` is not accepted; absent or `null` means no limit. | DRAFT, pending owner confirmation |
+| L-5 | `park_limit_reached` and its closed refusal category stay in the bridge and the audit payload. The refusal copy drops the fixed «5» (with or without the number: owner to choose); the copy is owner-approved text (RT-471 OD process). | DRAFT, pending owner confirmation |
+| L-6 | Swap-when-full (§3.4): never refused for room with no limit; with a limit, the selected sale leaves first, and a swap that does not raise the count is always allowed even if the limit was lowered below the count. Existing parked sales are never discarded. | DRAFT, pending owner confirmation |
+| L-7 | The terminal enforces the limit locally from the last value it read. Offline, the cached value applies with no maximum age. A terminal that has never read a value has no limit. A re-pair ignores a value cached for another tenant or branch. | DRAFT, pending owner confirmation |
+| L-8 | Shift close is unchanged: refused while any parked sale exists on the terminal, whoever parked it (K4, OP-2). With no limit this refusal is the only bound on accumulation. | Unchanged; owner to confirm |
+
+**Not decided here:** the parked-list layout at large counts (needs a drawn, approved reference), a bulk manager cancel, and how often the POS refreshes the value. See plan §10.
+
+**Gated work this amendment implies, none authorised here:** the Backend-Core contract (`[GATED: contract]`), its migration and runtime, and a POS cache migration (`[GATED: migration]`). Implementation slices are proposed in the plan (§9), not created.
