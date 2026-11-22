@@ -21,7 +21,7 @@ import { createHash } from "node:crypto";
 
 import { z } from "zod";
 
-import { InvalidCursorError, decodeOpaque, encodeOpaque } from "../common/cursor/opaque-cursor";
+import { InvalidCursorError, KEY_INSTANT, decodeOpaque, encodeOpaque, namesRealInstant } from "../common/cursor/opaque-cursor";
 import { UUID_RE } from "../common/ids";
 import {
   isCalendarDate,
@@ -151,7 +151,6 @@ export class InvalidConsoleSaleCursorError extends InvalidCursorError {
 const OPERATION = "console_sales";
 /** The lower-case UUID shape, under the name the console modules import. */
 export const LOWER_UUID = UUID_RE;
-export const KEY_INSTANT = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{6}Z$/;
 
 const CursorPayload = z
   .object({
@@ -166,17 +165,6 @@ const CursorPayload = z
   .strict();
 
 type CursorPayload = z.infer<typeof CursorPayload>;
-
-/**
- * True when `key` (UTC, six fractional digits) names a real instant, not a
- * rolled-over one, that Postgres can represent (year 0000 is a 22008), so a
- * tampered cursor is refused here, before any read.
- */
-export function namesRealInstant(key: string): boolean {
-  if (key.startsWith("0000")) return false;
-  const ms = Date.parse(key);
-  return !Number.isNaN(ms) && new Date(ms).toISOString().slice(0, 19) === key.slice(0, 19);
-}
 
 function digestOf(filters: ConsoleSaleFilters): string {
   const ordered = [

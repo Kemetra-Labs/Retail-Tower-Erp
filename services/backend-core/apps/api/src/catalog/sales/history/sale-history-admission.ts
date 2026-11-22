@@ -27,7 +27,7 @@ import {
   CashierEligibilityRepository,
   type CashierEligibilityReader,
 } from "../../../pos-cashier-admissions/cashier-eligibility";
-import { CLOCK_SKEW_TOLERANCE_SECONDS, MAX_WINDOW_AGE_SECONDS } from "../operator-attribution";
+import { CLOCK_SKEW_TOLERANCE_SECONDS, MAX_WINDOW_AGE_SECONDS } from "../../../pos-cashier-admissions";
 import type {
   CashierAdmissionInput,
   CashierAdmissionSelector,

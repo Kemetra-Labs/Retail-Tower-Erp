@@ -33,8 +33,8 @@ import {
   CashierEligibilityRepository,
   type CashierEligibilityReader,
   type RefusalReason,
-} from "../../../pos-cashier-admissions/cashier-eligibility";
-import type { DeviceScope } from "../../../pos-cashier-admissions/device-scope";
+} from "./cashier-eligibility";
+import type { DeviceScope } from "./device-scope";
 
 export type TrackedLineCashierRefusal = "no_live_admission" | RefusalReason;
 

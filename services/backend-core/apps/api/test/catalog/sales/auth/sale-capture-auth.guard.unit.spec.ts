@@ -33,7 +33,7 @@ import {
   type AttributionVerdict,
   type OperatorAttributionInput,
   type OperatorAttributionVerifier,
-} from "../../../../src/catalog/sales/operator-attribution";
+} from "../../../../src/pos-cashier-admissions/operator-attribution";
 import { SaleCaptureAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
 
 const TENANT_ID = "0a240000-0000-4000-8000-000000000001";

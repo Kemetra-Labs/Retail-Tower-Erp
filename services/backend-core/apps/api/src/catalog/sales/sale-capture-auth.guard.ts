@@ -57,28 +57,14 @@ import type { DeviceScope } from "../../pos-cashier-admissions/device-scope";
 import { CaptureSaleRequestPipe } from "./dto/capture-sale-request.pipe";
 import { RecordCashierVoidRequestSchema } from "./dto/record-void-request.dto";
 import {
-  SALE_VOID_CASHIER_VERIFIER,
-  type SaleVoidCashierRefusal,
-  type SaleVoidCashierVerifier,
-} from "./tracked-lines/tracked-line-cashier";
-import {
   ATTRIBUTION_REFUSAL_EVENTS,
   OPERATOR_ATTRIBUTION_VERIFIER,
+  SALE_VOID_CASHIER_VERIFIER,
+  selectsDevicePath,
   type OperatorAttributionVerifier,
-} from "./operator-attribution";
-
-/** The body field whose presence selects the device path (sales.yaml). */
-export const OPERATOR_USER_ID_FIELD = "operatorUserId";
-
-/** True when the JSON body object carries `operatorUserId` (any value). */
-export function selectsDevicePath(body: unknown): boolean {
-  return (
-    typeof body === "object" &&
-    body !== null &&
-    !Array.isArray(body) &&
-    Object.hasOwn(body, OPERATOR_USER_ID_FIELD)
-  );
-}
+  type SaleVoidCashierRefusal,
+  type SaleVoidCashierVerifier,
+} from "../../pos-cashier-admissions";
 
 /**
  * The flow (selection, envelope, device first, publish) is

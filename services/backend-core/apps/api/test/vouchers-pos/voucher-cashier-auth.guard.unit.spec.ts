@@ -13,7 +13,7 @@ import "reflect-metadata";
 import { BadRequestException, ForbiddenException, UnauthorizedException, type ExecutionContext } from "@nestjs/common";
 import type { IdempotencyKeyStore } from "@data-pulse-2/shared";
 
-import type { TrackedLineCashierVerifier } from "../../src/catalog/sales/tracked-lines/tracked-line-cashier";
+import type { TrackedLineCashierVerifier } from "../../src/pos-cashier-admissions/tracked-line-cashier";
 import { bodyFingerprint, deviceClientKey } from "../../src/idempotency/idempotency.interceptor";
 import { nonReplayableMarker } from "../../src/idempotency/non-replayable";
 import { composeStoreKey } from "../../src/idempotency/store-key";

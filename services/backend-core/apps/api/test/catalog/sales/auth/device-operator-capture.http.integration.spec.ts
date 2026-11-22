@@ -60,7 +60,7 @@ import {
   OPERATOR_ATTRIBUTION_VERIFIER,
   type OperatorAttributionInput,
   type OperatorAttributionVerifier,
-} from "../../../../src/catalog/sales/operator-attribution";
+} from "../../../../src/pos-cashier-admissions/operator-attribution";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";

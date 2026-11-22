@@ -58,7 +58,7 @@ import {
   OPERATOR_ATTRIBUTION_VERIFIER,
   PgOperatorAttributionVerifier,
   type OperatorAttributionVerifier,
-} from "./operator-attribution";
+} from "../../pos-cashier-admissions";
 import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "./sale-capture-auth.guard";
 import { CashierEligibilityRepository } from "../../pos-cashier-admissions/cashier-eligibility";
 import { PgCashierAdmissionSelector } from "./history/sale-history-admission";
@@ -84,7 +84,7 @@ import {
   TRACKED_LINE_CASHIER_VERIFIER,
   type SaleVoidCashierVerifier,
   type TrackedLineCashierVerifier,
-} from "./tracked-lines/tracked-line-cashier";
+} from "../../pos-cashier-admissions";
 import { TrackedLineValidationAuthGuard } from "./tracked-lines/tracked-line-validation-auth.guard";
 import { TrackedLineValidationController } from "./tracked-lines/tracked-line-validation.controller";
 import { TrackedLineValidationService } from "./tracked-lines/tracked-line-validation.service";

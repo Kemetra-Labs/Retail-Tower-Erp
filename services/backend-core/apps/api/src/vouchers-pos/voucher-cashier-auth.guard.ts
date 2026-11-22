@@ -46,7 +46,7 @@ import {
   TRACKED_LINE_CASHIER_VERIFIER,
   type TrackedLineCashierRefusal,
   type TrackedLineCashierVerifier,
-} from "../catalog/sales/tracked-lines/tracked-line-cashier";
+} from "../pos-cashier-admissions";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import type { TenantContextRequest } from "../context/types";
 import { bodyFingerprint, deviceClientKey, IDEMPOTENCY_KEY_STORE } from "../idempotency/idempotency.interceptor";
