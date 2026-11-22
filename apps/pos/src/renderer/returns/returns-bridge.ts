@@ -1,6 +1,7 @@
 import { useCallback, useRef, useState } from 'react';
 
 import type { OperatorBridgeAPI } from '../../shared/bridge-api.js';
+import type { ManagerApprovalBridgeAPI } from '../../shared/operator/manager-approval.js';
 import type { ReturnsBridgeAPI, ReturnsRefused } from '../../shared/returns/types.js';
 import type { FlowNotice } from './return-flow-state.js';
 
@@ -11,6 +12,15 @@ import type { FlowNotice } from './return-flow-state.js';
 export function windowReturnsBridge(): ReturnsBridgeAPI | null {
   const api = (window as unknown as { api?: { returns?: ReturnsBridgeAPI } }).api;
   return api?.returns ?? null;
+}
+
+/**
+ * RT-1498 S4/S5: the manager approval bridge (`window.api.approval`), which an escalation's PIN sheet
+ * uses to ask for a single-use approval. Null when the preload has none (no escalation is offered).
+ */
+export function windowApprovalBridge(): ManagerApprovalBridgeAPI | null {
+  const api = (window as unknown as { api?: { approval?: ManagerApprovalBridgeAPI } }).api;
+  return api?.approval ?? null;
 }
 
 /** Main's session-state push (lock, unlock, end), from the operator bridge. */

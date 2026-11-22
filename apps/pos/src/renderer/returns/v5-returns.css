@@ -248,6 +248,13 @@
   white-space: nowrap;
 }
 
+/* RT-1498 S4/S5: a journal row's actions (resend, hand to support) side by side, wrapping. */
+.v5-returns-row-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+}
+
 /* ── tables (the quote, the journal) ─────────────────────────────── */
 .v5-returns-table {
   inline-size: 100%;

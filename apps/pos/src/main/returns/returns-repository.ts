@@ -79,9 +79,15 @@ export interface ReturnsRepository {
   read(returnId: string): JournalEntry | null;
   /** This terminal's returns, newest first. */
   listRecent(scope: ReturnScope, limit: number): JournalEntry[];
-  /** This terminal's `pending` / `unknown` returns, oldest first (resolver order). */
+  /**
+   * This terminal's `pending` / `unknown` returns the resolver may resend, oldest first: a
+   * return with a disposition (closed, or needs_support) is not listed (RT-1498 S4).
+   */
   listUnresolved(scope: ReturnScope): JournalEntry[];
-  /** True when the sale already has a `pending` / `unknown` return. */
+  /**
+   * True when the sale already has a `pending` / `unknown` return that is not closed. A
+   * needs_support return still blocks (OD-196-4); only a close frees the sale (RT-1498 S4).
+   */
   hasUnresolvedForSale(saleId: string): boolean;
   recordAttempt(stamp: ReturnStamp): void;
   /** pending/unknown → unknown. False when the row was already final. */
@@ -123,6 +129,17 @@ interface HeaderRow {
 }
 
 const UNRESOLVED = `state IN ('pending', 'unknown')`;
+
+/**
+ * RT-1498 S4 (migration 0070): a row with a terminal close is out of the flow for good, and a row
+ * with any disposition (a close or needs_support) is not resent by the resolver. `needs_support`
+ * is NOT a close: it keeps blocking the sale and can still be confirmed by a matching answer.
+ */
+const DISPOSITION_OF_ROW = `FROM return_journal_dispositions d WHERE d.return_id = return_journal.return_id`;
+const CLOSED = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind = 'not_recorded_closed')`;
+const DISPOSED = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind IN ('not_recorded_closed', 'needs_support'))`;
+/** Still in the flow: unresolved and not closed (every guarded transition requires it). */
+const OPEN = `${UNRESOLVED} AND NOT ${CLOSED}`;
 const SCOPE_WHERE = 'tenant_id = ? AND branch_id = ? AND terminal_id = ?';
 
 function scopeParams(scope: ReturnScope): string[] {
@@ -234,19 +251,19 @@ class SqlReturnsRepository implements ReturnsRepository {
 
   listUnresolved(scope: ReturnScope): JournalEntry[] {
     const sql = `SELECT * FROM return_journal WHERE ${SCOPE_WHERE} AND ${UNRESOLVED}
-                 ORDER BY created_at ASC, return_id ASC`;
+                 AND NOT ${DISPOSED} ORDER BY created_at ASC, return_id ASC`;
     return this.hydrate(this.prepare(sql).all(...scopeParams(scope)));
   }
 
   hasUnresolvedForSale(saleId: string): boolean {
-    const sql = `SELECT 1 FROM return_journal WHERE sale_id = ? AND ${UNRESOLVED} LIMIT 1`;
+    const sql = `SELECT 1 FROM return_journal WHERE sale_id = ? AND ${OPEN} LIMIT 1`;
     return this.prepare(sql).get(saleId) !== undefined;
   }
 
   recordAttempt({ returnId, now }: ReturnStamp): void {
     this.update({
       sql: `UPDATE return_journal SET attempt_count = attempt_count + 1, last_attempt_at = ?,
-         updated_at = ? WHERE return_id = ? AND ${UNRESOLVED}`,
+         updated_at = ? WHERE return_id = ? AND ${OPEN}`,
       params: [now, now, returnId],
     });
   }
@@ -254,7 +271,7 @@ class SqlReturnsRepository implements ReturnsRepository {
   markUnknown({ returnId, now }: ReturnStamp): boolean {
     return this.update({
       sql: `UPDATE return_journal SET state = 'unknown', updated_at = ?
-       WHERE return_id = ? AND ${UNRESOLVED}`,
+       WHERE return_id = ? AND ${OPEN}`,
       params: [now, returnId],
     });
   }
@@ -262,7 +279,7 @@ class SqlReturnsRepository implements ReturnsRepository {
   markConfirmed(input: ConfirmInput): boolean {
     return this.update({
       sql: `UPDATE return_journal SET state = 'confirmed', return_ref = ?, return_total_minor = ?,
-         confirmed_at = ?, updated_at = ? WHERE return_id = ? AND ${UNRESOLVED}`,
+         confirmed_at = ?, updated_at = ? WHERE return_id = ? AND ${OPEN}`,
       params: [input.returnRef, input.returnTotalMinor, input.now, input.now, input.returnId],
     });
   }
@@ -270,7 +287,7 @@ class SqlReturnsRepository implements ReturnsRepository {
   markRefused(input: RefuseInput): boolean {
     return this.update({
       sql: `UPDATE return_journal SET state = 'refused', refusal_reason = ?, updated_at = ?
-       WHERE return_id = ? AND ${UNRESOLVED}`,
+       WHERE return_id = ? AND ${OPEN}`,
       params: [input.reason, input.now, input.returnId],
     });
   }

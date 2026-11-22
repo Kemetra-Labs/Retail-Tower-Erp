@@ -15,6 +15,7 @@ import { nn } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js
 import { createReturnsAudit } from '../returns-audit.js';
 import { createReturnsClient } from '../returns-client.js';
 import { createReturnsDispatcher } from '../returns-dispatch.js';
+import { createReturnDispositionsRepository } from '../returns-dispositions-repository.js';
 import type { ReturnsRepository } from '../returns-repository.js';
 import {
   MANAGER_ACTOR,
@@ -62,6 +63,7 @@ function standaloneDispatcher(repo: ReturnsRepository = h.repo) {
       fetch: h.backend.fetch,
     }),
     repo,
+    dispositions: createReturnDispositionsRepository(h.handle),
     audit: createReturnsAudit({
       sink: h.auditSink,
       now: () => NOW,
@@ -157,7 +159,12 @@ describe('returns dispatcher', () => {
       jsonResponse(201, tamper(saleReturnFor(JSON.parse(call.body ?? '{}') as never)));
     const res = await h.service.submit(ONE_A);
     expect(res).toMatchObject({ kind: 'unconfirmed', ret: { state: 'unknown' } });
-    expect(categories(h.audits)).toEqual(['sale.return.attempted', 'sale.return.attempt_unknown']);
+    // RT-1498 S4: an answer the till cannot match hands the return to support by itself.
+    expect(categories(h.audits)).toEqual([
+      'sale.return.attempted',
+      'sale.return.attempt_unknown',
+      'sale.return.needs_support',
+    ]);
     expect(h.warnings).toContain('returns:confirmation_mismatch');
   });
 });

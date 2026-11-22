@@ -19,7 +19,9 @@ const composeSaleVoidSource = readFileSync(
 describe('main/index.ts hands the returns wiring to bootstrap/returns.ts', () => {
   it('calls registerReturns exactly once, with the returns code gone from index.ts', () => {
     expect(indexSource.match(/registerReturns\(/g)?.length ?? 0).toBe(1);
-    expect(indexSource).toMatch(/import \{ registerReturns \} from '\.\/bootstrap\/returns\.js';/);
+    expect(indexSource).toMatch(
+      /import \{ registerReturns, returnResolveApprovalResolvers \} from '\.\/bootstrap\/returns\.js';/,
+    );
     expect(indexSource).not.toMatch(/composeReturns\(/);
     expect(indexSource).not.toMatch(/scheduleReturnsResolver\(/);
     expect(indexSource).not.toMatch(/registerReturnsHandlers\(/);

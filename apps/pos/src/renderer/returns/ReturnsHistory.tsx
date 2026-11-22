@@ -8,6 +8,8 @@ import { ReturnNotice } from './ReturnNotice';
 import { ReturnsPanel, StatePill } from './ReturnsPanel';
 import { formatReturnMoney, formatReturnTime } from './returns-format.js';
 import {
+  DISPOSITION_COPY,
+  ESCALATE_COPY,
   OUTCOME_COPY,
   PAYOUT_COPY,
   UNRESOLVED_COPY,
@@ -15,6 +17,7 @@ import {
   reprintMessage,
   stateLabel,
 } from './returns-messages.js';
+import type { HistoryEscalate } from './useHistoryEscalate.js';
 import type { HistoryReprint } from './useHistoryReprint.js';
 import type { HistoryResend } from './useHistoryResend.js';
 import type { HistoryState, ReturnHistory } from './useReturnHistory.js';
@@ -28,6 +31,11 @@ import type { HistoryState, ReturnHistory } from './useReturnHistory.js';
  * RT-15 S4 (R5): each row offers the one payout action it allows: a
  * confirmed return "pay out", a started-but-unpaid payout "complete" (never a
  * fresh start), a paid-out return "print a copy" of its slip.
+ *
+ * RT-1498 S4/S5: an unresolved return the server never answered for can be handed to support
+ * («تحويل إلى الدعم», another manager's PIN). A return with a recorded disposition reads as such
+ * («بانتظار الدعم», «لم يُسجَّل — مغلق»): a closed one offers nothing, a needs-support one keeps only
+ * its own «إعادة الإرسال» (the resolver and the bar no longer resend it).
  */
 const HEADING_ID = 'v5-returns-history';
 
@@ -56,37 +64,61 @@ export interface HistoryActions {
   readonly resend: HistoryResend;
   /** RT-1498: the bar's "check unresolved" is running (it holds the per-row resend). */
   readonly checking: boolean;
+  /**
+   * RT-1498 S4/S5: hand an unresolved return to support. Null when the terminal has no manager
+   * approval bridge, so «تحويل إلى الدعم» is not offered at all.
+   */
+  readonly escalate: HistoryEscalate | null;
 }
 
-type RowAction = 'pay' | 'complete' | 'reprint' | 'resend' | null;
+type RowAction = 'pay' | 'complete' | 'reprint' | 'resend' | 'escalate';
 
-function rowAction(row: ReturnJournalView): RowAction {
-  if (UNRESOLVED.has(row.state)) return 'resend';
-  if (row.state === 'paid_out') return 'reprint';
-  if (row.state !== 'confirmed') return null;
-  return row.payout === null ? 'pay' : 'complete';
+/** RT-1498 S4: a return the till closed as "not recorded" is out of the flow for good. */
+function isClosed(row: ReturnJournalView): boolean {
+  return row.disposition === 'closed';
 }
 
-const ACTION_LABEL: Readonly<Record<Exclude<RowAction, null>, string>> = {
+/** RT-1498 S4/S5: unresolved and with no disposition: the resolver and the bar still act on it. */
+function isOpenUnresolved(row: ReturnJournalView): boolean {
+  return UNRESOLVED.has(row.state) && row.disposition === null;
+}
+
+/** The actions a row offers, in order. */
+function rowActions(row: ReturnJournalView, actions: HistoryActions): readonly RowAction[] {
+  if (UNRESOLVED.has(row.state)) {
+    if (isClosed(row)) return [];
+    // Handing a return to support needs a sent attempt to judge (a never-sent one is sent first).
+    const support =
+      actions.escalate !== null && row.disposition === null && row.lastAttemptAt !== null;
+    return support ? ['resend', 'escalate'] : ['resend'];
+  }
+  if (row.state === 'paid_out') return ['reprint'];
+  if (row.state !== 'confirmed') return [];
+  return [row.payout === null ? 'pay' : 'complete'];
+}
+
+const ACTION_LABEL: Readonly<Record<RowAction, string>> = {
   pay: PAYOUT_COPY.historyPay,
   complete: PAYOUT_COPY.historyComplete,
   reprint: PAYOUT_COPY.historyReprint,
   resend: UNRESOLVED_COPY.resend,
+  escalate: ESCALATE_COPY.action,
 };
 
 /** Is the row's action held by another one in flight (one call at a time)? */
-function actionHeld(action: Exclude<RowAction, null>, actions: HistoryActions): boolean {
+function actionHeld(action: RowAction, actions: HistoryActions): boolean {
   if (action === 'reprint') return actions.reprint.printing !== null;
-  if (action === 'resend') return actions.resend.sending !== null || actions.checking;
+  if (action === 'resend' || action === 'escalate') {
+    return actions.resend.sending !== null || actions.checking;
+  }
   return false;
 }
 
 function RowActionButton({
   row,
+  action,
   actions,
-}: Readonly<{ row: ReturnJournalView; actions: HistoryActions }>) {
-  const action = rowAction(row);
-  if (action === null) return null;
+}: Readonly<{ row: ReturnJournalView; action: RowAction; actions: HistoryActions }>) {
   const { reprint, resend } = actions;
   const busy =
     (action === 'reprint' && reprint.printing === row.returnId) ||
@@ -94,6 +126,7 @@ function RowActionButton({
   const onClick = (): void => {
     if (action === 'reprint') void reprint.run(row.returnId);
     else if (action === 'resend') void resend.run(row.returnId, row.saleNumber);
+    else if (action === 'escalate') actions.escalate?.open(row);
     else actions.pay(row);
   };
   return (
@@ -110,6 +143,21 @@ function RowActionButton({
   );
 }
 
+function RowActions({
+  row,
+  actions,
+}: Readonly<{ row: ReturnJournalView; actions: HistoryActions }>): JSX.Element | null {
+  const offered = rowActions(row, actions);
+  if (offered.length === 0) return null;
+  return (
+    <div className="v5-returns-row-actions">
+      {offered.map((action) => (
+        <RowActionButton key={action} row={row} action={action} actions={actions} />
+      ))}
+    </div>
+  );
+}
+
 /**
  * RT-1498: what the local audit proves about an unresolved return: how many
  * sends were attempted, when the last one was, and why it left the return
@@ -118,6 +166,14 @@ function RowActionButton({
  */
 function UnresolvedDetail({ row }: Readonly<{ row: ReturnJournalView }>): JSX.Element | null {
   if (!UNRESOLVED.has(row.state)) return null;
+  // RT-1498 S4: a closed return is no longer unresolved: it says so, and does not tell to wait.
+  if (isClosed(row)) {
+    return (
+      <div className="v5-returns-state__detail">
+        <span>{DISPOSITION_COPY.closedDetail}</span>
+      </div>
+    );
+  }
   const cause = row.lastCause === null ? '' : UNRESOLVED_COPY.cause(row.lastCause);
   return (
     <div className="v5-returns-state__detail">
@@ -140,6 +196,7 @@ function UnresolvedDetail({ row }: Readonly<{ row: ReturnJournalView }>): JSX.El
           </span>
         </span>
       )}
+      {row.disposition === 'needs_support' && <span>{DISPOSITION_COPY.supportDetail}</span>}
       <strong>{UNRESOLVED_COPY.doNotPay}</strong>
     </div>
   );
@@ -159,7 +216,9 @@ function Row({
       </td>
       <td>
         <StatePill state={row.state} icon={STATE_ICON[row.state]}>
-          {stateLabel(row.state)}
+          {row.disposition === null
+            ? stateLabel(row.state)
+            : DISPOSITION_COPY.label[row.disposition]}
         </StatePill>
         {row.refusalReason !== null && (
           <span className="v5-returns-state__reason">{refusalMessage(row.refusalReason)}</span>
@@ -173,7 +232,7 @@ function Row({
         <bdi className="v5-manager-num v5-returns-code">{row.returnRef ?? '—'}</bdi>
       </td>
       <td>
-        <RowActionButton row={row} actions={actions} />
+        <RowActions row={row} actions={actions} />
       </td>
     </tr>
   );
@@ -242,8 +301,9 @@ function Body({
   }
 }
 
+/** The bar re-sends what the resolver would: a return with a disposition is not part of it. */
 function hasUnresolved(state: HistoryState): boolean {
-  return state.status === 'ok' && state.rows.some((r) => UNRESOLVED.has(r.state));
+  return state.status === 'ok' && state.rows.some(isOpenUnresolved);
 }
 
 /** The last journal reprint's result, announced politely. */
@@ -271,11 +331,25 @@ function ResendNotice({ resend }: Readonly<{ resend: HistoryResend }>): JSX.Elem
   );
 }
 
+/** RT-1498 S4/S5: the last return main handed to support (only once main recorded it). */
+function EscalateNotice({
+  escalate,
+}: Readonly<{ escalate: HistoryEscalate | null }>): JSX.Element | null {
+  if (escalate === null || escalate.done === null) return null;
+  return (
+    // `info`, not `success`: the return is still unresolved and its sale still blocked.
+    <Notice tone="info">
+      <bdi className="v5-manager-num">{escalate.done.saleNumber}</bdi>: {ESCALATE_COPY.raised}
+    </Notice>
+  );
+}
+
 function hasNotice(history: ReturnHistory, actions: HistoryActions): boolean {
   return (
     history.checkNotice !== null ||
     actions.reprint.result !== null ||
-    actions.resend.result !== null
+    actions.resend.result !== null ||
+    (actions.escalate?.done ?? null) !== null
   );
 }
 
@@ -305,6 +379,7 @@ export function ReturnsHistory({
           <ReturnNotice notice={history.checkNotice} />
           <ReprintNotice reprint={actions.reprint} />
           <ResendNotice resend={actions.resend} />
+          <EscalateNotice escalate={actions.escalate} />
         </div>
       )}
       {state.status === 'ok' && state.rows.length > 0 ? (

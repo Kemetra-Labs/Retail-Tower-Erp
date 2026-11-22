@@ -1,6 +1,7 @@
 import type { JSX } from 'react';
 
 import type { Role } from '../../shared/operator/role.js';
+import type { ManagerApprovalBridgeAPI } from '../../shared/operator/manager-approval.js';
 import type { ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import { ScreenSection } from '../v5/foundation/ScreenSection';
 import { HonestNotice } from '../v5/manager/honest/HonestNotice';
@@ -13,7 +14,12 @@ import {
   windowRecentSalesBridge,
   type RecentSalesBridge,
 } from '../sale-lookup/recent-sales-bridge';
-import { windowReturnsBridge, windowSessionEvents, type SessionEvents } from './returns-bridge.js';
+import {
+  windowApprovalBridge,
+  windowReturnsBridge,
+  windowSessionEvents,
+  type SessionEvents,
+} from './returns-bridge.js';
 import { OUTCOME_COPY, refusalMessage } from './returns-messages.js';
 import { ReturnsScreen } from './ReturnsScreen';
 import '../v5/foundation/messages.css';
@@ -40,6 +46,8 @@ export interface ReturnsRouteProps {
   readonly sessionEvents?: SessionEvents | null;
   /** RT-1192: tests inject today's-sales read (null = none); production reads window.api.sales. */
   readonly sales?: RecentSalesBridge | null;
+  /** RT-1498 S4/S5: tests inject the manager approval bridge (null = none); production reads window.api. */
+  readonly approval?: ManagerApprovalBridgeAPI | null;
 }
 
 const RETURNS_ROLES: ReadonlySet<Role> = new Set<Role>(['manager', 'admin']);
@@ -58,6 +66,7 @@ export function ReturnsRoute({
   bridge,
   sessionEvents,
   sales,
+  approval,
 }: ReturnsRouteProps): JSX.Element | null {
   const session = useOperatorSessionStore((s) =>
     s.state.kind === 'signedIn' ? s.state.session : null,
@@ -66,6 +75,7 @@ export function ReturnsRoute({
   const api = bridge === undefined ? windowReturnsBridge() : bridge;
   const events = sessionEvents === undefined ? windowSessionEvents() : sessionEvents;
   const recent = sales === undefined ? windowRecentSalesBridge() : sales;
+  const approvals = approval === undefined ? windowApprovalBridge() : approval;
   if (session === null) return null;
   const blocked = gateMessage(session, enabled, api);
 
@@ -78,7 +88,13 @@ export function ReturnsRoute({
         </div>
       ) : (
         <div className="v5-returns">
-          <ReturnsScreen key={session.id} bridge={api} sessionEvents={events} sales={recent} />
+          <ReturnsScreen
+            key={session.id}
+            bridge={api}
+            sessionEvents={events}
+            sales={recent}
+            approval={approvals}
+          />
         </div>
       )}
     </ScreenSection>

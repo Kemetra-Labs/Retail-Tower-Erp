@@ -472,7 +472,11 @@ describe('submit', () => {
     },
   );
 
-  it.each<{ label: string; respond: () => Response | Promise<Response> }>([
+  it.each<{
+    label: string;
+    respond: () => Response | Promise<Response>;
+    extra?: string[];
+  }>([
     {
       label: 'a timeout',
       respond: () => Promise.reject(new DOMException('timed out', 'TimeoutError')),
@@ -483,10 +487,12 @@ describe('submit', () => {
     {
       label: 'a 201 with an unreadable body',
       respond: () => new Response('<html>', { status: 201 }),
+      // RT-1498 S4: an unreadable 2xx is handed to support by itself (it never confirms).
+      extra: ['sale.return.needs_support'],
     },
   ])(
     'AC9 / AC10: $label leaves the return unknown — unconfirmed, no payout',
-    async ({ respond }) => {
+    async ({ respond, extra }) => {
       setup();
       h.backend.onReturn = respond;
       const res = await h.service.submit(ONE_A);
@@ -497,6 +503,7 @@ describe('submit', () => {
       expect(categories(h.audits)).toEqual([
         'sale.return.attempted',
         'sale.return.attempt_unknown',
+        ...(extra ?? []),
       ]);
     },
   );

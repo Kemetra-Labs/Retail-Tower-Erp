@@ -7,7 +7,7 @@ import { Dialog } from '../foundation/Dialog';
 import { dismissUnlessBusy, useSingleFlight } from '../shift/shift-bridge';
 import { normalizeDigits } from '../shift/shift-format';
 import { VOID_COPY, voidRefusalMessage } from './void-copy';
-import type { VoidBridges } from './void-bridges';
+import type { ApprovalBridges } from './void-bridges';
 import { ManagerChoice, useApprovers } from './void-approver';
 import { VoidAlert, VoidCode, VoidMoney } from './void-parts';
 import './void.css';
@@ -19,7 +19,7 @@ import './void.css';
  * (never stored, never logged). `spend` answers an error message, or null when it succeeded.
  */
 export function useApprovalSubmit(input: {
-  bridges: VoidBridges;
+  bridges: ApprovalBridges;
   kind: ManagerActionKind;
   subjectRef: string;
   reasonCode: string;
@@ -58,7 +58,7 @@ export function useApprovalSubmit(input: {
 }
 
 interface Props {
-  readonly bridges: VoidBridges;
+  readonly bridges: ApprovalBridges;
   readonly actionKind: ManagerActionKind;
   readonly title: string;
   readonly body: string;

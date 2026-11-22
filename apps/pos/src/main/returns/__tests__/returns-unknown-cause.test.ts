@@ -89,7 +89,13 @@ describe('RT-196 S1 — the cause of each unknown attempt', () => {
     const res = await h.service.submit(ONE_A);
 
     expect(res).toMatchObject({ kind: 'unconfirmed', ret: { state: 'unknown' } });
-    expect(categories(h.audits)).toEqual(['sale.return.attempted', UNKNOWN]);
+    // RT-1498 S4: an unreadable or non-matching 2xx also hands the return to support by itself.
+    const handedToSupport = cause === 'unreadable_body' || cause === 'confirmation_mismatch';
+    expect(categories(h.audits)).toEqual([
+      'sale.return.attempted',
+      UNKNOWN,
+      ...(handedToSupport ? ['sale.return.needs_support'] : []),
+    ]);
     const [event] = unknownAudits();
     expect(event?.payload).toEqual({
       return_id: res.ret?.returnId,
@@ -248,6 +254,8 @@ describe('RT-196 S1 — returns.list shows the attempt history summary', () => {
         'attemptCount',
         'lastAttemptAt',
         'lastCause',
+        // RT-1498 S4: the one further addition (a closed set or null; never an id or a code)
+        'disposition',
       ].sort(),
     );
     const text = JSON.stringify(row);

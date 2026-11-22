@@ -28,7 +28,7 @@ vi.mock('../../operator/resolve-session-scope.js', () => ({
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 
 import { RETURNS_DRAIN_TIMEOUT_MS } from '../../returns/compose-returns.js';
-import { registerReturns } from '../returns.js';
+import { registerReturns, returnResolveApprovalResolvers } from '../returns.js';
 import type { ReturnsDeps } from '../returns.js';
 
 /**
@@ -62,6 +62,7 @@ function makeHarness(): Harness {
     operatorSessionManager: { getCurrent },
     operatorEnvelopeHolder: { marker: 'envelope-holder' },
     pairingStore: { getCurrentTerminalId: vi.fn(() => 'terminal-1') },
+    managerApprovals: { marker: 'manager-approvals' },
     auditEmitter: { marker: 'audit-emitter' },
     drawerKickTransport: { marker: 'drawer' },
     printPipeline: { marker: 'print-pipeline' },
@@ -207,5 +208,37 @@ describe('registerReturns composition (both flag states pass the same sources)',
     m.registerReturnsHandlers.mockImplementation(() => order.push('handlers'));
     registerReturns(h.deps);
     expect(order).toEqual(['compose', 'handlers']);
+  });
+});
+
+describe('registerReturns escalation wiring (RT-1498 S4/S5)', () => {
+  it('hands the one manager approval service and the requester users.id to the domain', () => {
+    const h = makeHarness();
+    registerReturns(h.deps);
+    const escalation = composed().escalation as {
+      approvals: unknown;
+      userId: () => string | null;
+    };
+
+    expect(escalation.approvals).toBe(h.deps.managerApprovals);
+    h.getCurrent.mockReturnValue(null);
+    expect(escalation.userId()).toBeNull();
+    h.getCurrent.mockReturnValue({ role: 'manager', manager_user_id: 'ABCD-EF' });
+    expect(escalation.userId()).toBe('abcd-ef');
+    h.getCurrent.mockReturnValue({ role: 'manager' });
+    expect(escalation.userId()).toBeNull();
+  });
+});
+
+describe('returnResolveApprovalResolvers (RT-1498 S4/S5)', () => {
+  it('names exactly the one kind, a resolver for the approval service', () => {
+    const resolvers = returnResolveApprovalResolvers(
+      { prepare: vi.fn(), transaction: vi.fn() } as never,
+      {
+        getCurrentTerminalId: () => 'terminal-1',
+      },
+    );
+    expect(Object.keys(resolvers)).toEqual(['return.resolve_unknown']);
+    expect(typeof resolvers['return.resolve_unknown']).toBe('function');
   });
 });

@@ -54,6 +54,11 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
   session_changed: 'تغيّرت جلسة التشغيل أثناء الطلب، فلم تُعرض النتيجة.',
   // RT-196 S1 — a resend of a return that is no longer unresolved.
   already_resolved: 'حُسمت حالة هذا المرتجع من قبل. حدّث السجل.',
+  // RT-1498 S4/S5 — PROPOSED copy (owner copy review pending): handing a return to support.
+  never_sent: 'لم يُرسل هذا المرتجع إلى الخادم بعد. أعد إرساله أولًا، ثم حوّله إلى الدعم إن لزم.',
+  approval_invalid:
+    'انتهى تأكيد المدير أو لا يخص هذا المرتجع. اطلب التأكيد من جديد من مدير آخر غيرك.',
+  approval_stale: 'تغيّرت حالة هذا المرتجع منذ التأكيد. حدّث السجل ثم اطلب التأكيد من جديد.',
   // RT-15 S4 — payout and slip.
   return_not_found: 'لا يوجد هذا المرتجع على هذا الجهاز.',
   not_payable: 'لم يتأكد هذا المرتجع على الخادم، فلا يُصرف نقده.',
@@ -222,3 +227,47 @@ export const UNRESOLVED_COPY = Object.freeze({
   cause: (cause: ReturnUnknownCause): string =>
     cause in UNKNOWN_CAUSE_COPY ? UNKNOWN_CAUSE_COPY[cause] : '',
 });
+
+/**
+ * RT-1498 S4/S5 — handing an unresolved return to support. PROPOSED copy, pending owner review,
+ * except the three lines the RT-196 design §3.9 fixes verbatim (`action`, `raised`, and the two
+ * disposition labels). One locale, no English; the verbs stay within what the evidence proves:
+ * «حُوّل» only once main recorded the disposition. A return handed to support is still unresolved:
+ * the do-not-pay line stays.
+ */
+export const ESCALATE_COPY = Object.freeze({
+  /** RT-196 §3.9 `action.support`. */
+  action: 'تحويل إلى الدعم',
+  title: 'تحويل المرتجع إلى الدعم',
+  body: 'يلزم مدير آخر، ليس أنت، ليؤكد التحويل برقمه السري. لا يُعاد إرسال المرتجع تلقائيًا بعد ذلك، ويبقى هذا البيع موقوفًا عن المرتجعات حتى يُحسم. لم يُصرف أي نقد.',
+  approve: 'تأكيد التحويل',
+  /** RT-196 §3.9 `supportRaised`. */
+  raised: 'حُوّل المرتجع إلى الدعم. يبقى هذا البيع موقوفًا عن المرتجعات حتى يُحسم.',
+  approvalUnavailable:
+    'تعذّر التأكيد: الرقم السري غير صحيح أو غير مفعّل، أو أن المؤكِّد هو من طلب التحويل. يجب أن يؤكد مدير آخر غيرك.',
+});
+
+/** RT-1498 S4: how a return with a recorded disposition reads in the journal. */
+export const DISPOSITION_COPY = Object.freeze({
+  /** RT-196 §3.9 `status.needs_support` and `status.not_recorded_closed`. */
+  label: Object.freeze({
+    needs_support: 'بانتظار الدعم',
+    closed: 'لم يُسجَّل — مغلق',
+  }),
+  supportDetail:
+    'لا يُعاد إرسال هذا المرتجع تلقائيًا، ويبقى هذا البيع موقوفًا عن المرتجعات. إعادة الإرسال متاحة بيدك.',
+  /** RT-196 §3.9 `closed`. */
+  closedDetail: 'أُغلق المرتجع كغير مسجَّل. يمكن الآن إرجاع هذا البيع من جديد.',
+});
+
+/** The message of a refused manager approval of an escalation (never says which part failed, C3). */
+export function escalateApprovalMessage(
+  reason: string,
+  fallback: (reason: string) => string,
+): string {
+  if (reason === 'approval_unavailable') return ESCALATE_COPY.approvalUnavailable;
+  if (reason === 'approval_invalid' || reason === 'approval_stale') {
+    return refusalMessage(reason);
+  }
+  return fallback(reason);
+}

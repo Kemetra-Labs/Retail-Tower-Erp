@@ -505,7 +505,16 @@ export interface SaleReturnRefusedPayload {
   return_id: string | null;
   sale_id: string | null;
   sale_ref: string | null;
-  operation: 'lookup' | 'quote' | 'submit' | 'resolve' | 'list' | 'payout' | 'reprint' | 'resend';
+  operation:
+    | 'lookup'
+    | 'quote'
+    | 'submit'
+    | 'resolve'
+    | 'list'
+    | 'payout'
+    | 'reprint'
+    | 'resend'
+    | 'escalate';
   reason: string;
 }
 
@@ -525,6 +534,21 @@ export interface SaleReturnAttemptUnknownPayload {
 /** RT-196 S1 — `sale.return.resend_requested`: a manager resent one return. */
 export interface SaleReturnResendRequestedPayload {
   return_id: string;
+}
+
+/**
+ * RT-1498 S4 — `sale.return.needs_support`: a return was handed to support. `approval_id` is the
+ * spent RT-114 approval of a manager's raise, and null for an automatic one; `verdict_source` and
+ * `reason` are the closed codes of the disposition row (migration 0070). Ids and codes only.
+ * `origin_user_unknown` is true on a manager's raise: the return's originating `users.id` is not
+ * captured (RT-196 §9), so four-eyes excluded only the requester.
+ */
+export interface SaleReturnNeedsSupportPayload {
+  return_id: string;
+  approval_id: string | null;
+  verdict_source: 'provenance_read' | 'send_response' | 'auth_failure' | 'operator';
+  reason: 'mismatch' | 'auth_failure' | 'operator';
+  origin_user_unknown?: true;
 }
 
 /** `sale.return.confirmed` — Backend-Core answered 201/200 (a replay counts). */
@@ -940,6 +964,8 @@ export type AuditPayloadMap = {
   // RT-196 S1
   'sale.return.attempt_unknown': SaleReturnAttemptUnknownPayload;
   'sale.return.resend_requested': SaleReturnResendRequestedPayload;
+  // RT-1498 S4
+  'sale.return.needs_support': SaleReturnNeedsSupportPayload;
   // RT-215
   'pairing.device_revoked': PairingDeviceRevokedPayload;
   'pairing.device_revoked_cleared': PairingDeviceRevokedClearedPayload;

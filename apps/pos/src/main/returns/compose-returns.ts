@@ -7,6 +7,7 @@
  */
 import { randomUUID } from 'node:crypto';
 
+import type { ManagerApprovalService } from '../operator/manager-approval-service.js';
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import type { DatabaseHandle } from '../db/client.js';
 import type { DrawerKickTransport } from '../drawer/drawer-kick-transport.js';
@@ -25,6 +26,10 @@ import {
   type CreateReturnsClientDeps,
 } from './returns-client.js';
 import { createReturnsDispatcher } from './returns-dispatch.js';
+import {
+  createReturnDispositionsRepository,
+  type ReturnDispositionsRepository,
+} from './returns-dispositions-repository.js';
 import { createReturnsPayoutService } from './returns-payout.js';
 import {
   createReturnPayoutsRepository,
@@ -94,6 +99,15 @@ export interface ComposeReturnsDeps {
    * none, enqueues nothing, and its returns post at acceptance with untracked settlement.
    */
   readonly isShiftCashupEnabled: () => boolean;
+  /**
+   * RT-1498 S4/S5: what `returns.escalate` spends: the manager approval service (it consumes the
+   * single-use `return.resolve_unknown` approval) and the live operator's provider-neutral
+   * `users.id` (null when the session has none). Absent, escalation refuses (`approval_invalid`).
+   */
+  readonly escalation?: {
+    readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
+    readonly userId: () => string | null;
+  };
 }
 
 export interface ComposedReturns {
@@ -112,16 +126,26 @@ export interface ComposedReturns {
 function viewsWithPayouts(
   payouts: ReturnPayoutsRepository,
   causes: ReturnCauseReader,
+  dispositions: Pick<ReturnDispositionsRepository, 'statesOf'>,
   now: () => string,
 ) {
   return (entries: readonly JournalEntry[]): ReturnJournalView[] => {
     const rows = payouts.readMany(entries.map((e) => e.returnId));
     const unresolved = entries.filter((e) => e.state === 'pending' || e.state === 'unknown');
-    const lastCauses = causes.lastCauses(unresolved.map((e) => e.returnId));
+    const ids = unresolved.map((e) => e.returnId);
+    const lastCauses = causes.lastCauses(ids);
+    const states = dispositions.statesOf(ids);
     const at = now();
-    return entries.map((e) =>
-      toJournalView(e, rows.get(e.returnId) ?? null, at, lastCauses.get(e.returnId) ?? null),
-    );
+    return entries.map((e) => {
+      const state = states.get(e.returnId);
+      return toJournalView(
+        e,
+        rows.get(e.returnId) ?? null,
+        at,
+        lastCauses.get(e.returnId) ?? null,
+        state === undefined ? null : state === 'closed' ? 'closed' : 'needs_support',
+      );
+    });
   };
 }
 
@@ -132,8 +156,9 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
   const transaction = <T>(fn: () => T): T => deps.db.transaction(fn)();
   const client = createReturnsClient(deps.http);
   const repo = createReturnsRepository(deps.db);
+  const dispositions = createReturnDispositionsRepository(deps.db);
   const payouts = createReturnPayoutsRepository(deps.db);
-  const views = viewsWithPayouts(payouts, createReturnCauseReader(deps.db), now);
+  const views = viewsWithPayouts(payouts, createReturnCauseReader(deps.db), dispositions, now);
   const sales = bindSalesRepository(deps.db);
   const audit = createReturnsAudit({ sink: deps.auditSink, now, newEventId: randomUUID });
   // RT-530: a sale with a live void (requested, sent or confirmed) is not returnable.
@@ -148,6 +173,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     authorizer,
     client,
     repo,
+    dispositions,
     audit,
     now,
     logger: deps.logger,
@@ -187,6 +213,10 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     newExternalId: () => newReturnExternalId(),
     newAllocationRef: () => (deps.isShiftCashupEnabled() ? uuidv7() : undefined),
     views,
+    dispositions,
+    transaction,
+    newDispositionId: uuidv7,
+    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
     recordLineDetails: (returnId, details) => {
       payouts.recordLineDetails(returnId, details);
     },
@@ -227,6 +257,8 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     reprintSlip: (req) => payout.reprintSlip(req),
     // RT-1498: the `returns:resend` bridge member (RT-196 S1; §A4 record C-1).
     resend: (req) => core.resend(req),
+    // RT-1498 S4/S5: hand one unresolved return to support (a single-use manager approval).
+    escalate: (req) => core.escalate(req),
   };
   const stop = (): void => {
     stopped = true;

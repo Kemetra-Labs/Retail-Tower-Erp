@@ -161,9 +161,17 @@ interface Row1 {
   get(...params: unknown[]): unknown;
 }
 
-const LIVE_RETURN_SQL = `
+/**
+ * A live return blocks a void of its sale (`has_return`). RT-1498 S4: a return the till closed as
+ * "not recorded" (migration 0070, a terminal disposition) is not live; a needs_support one still is.
+ */
+export const LIVE_RETURN_SQL = `
   SELECT 1 FROM return_journal
-   WHERE sale_id = ? AND state IN ('pending', 'unknown', 'confirmed', 'paid_out') LIMIT 1`;
+   WHERE sale_id = ? AND state IN ('pending', 'unknown', 'confirmed', 'paid_out')
+     AND NOT EXISTS (
+       SELECT 1 FROM return_journal_dispositions d
+        WHERE d.return_id = return_journal.return_id AND d.kind = 'not_recorded_closed')
+   LIMIT 1`;
 
 export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
   const { db, now } = deps;

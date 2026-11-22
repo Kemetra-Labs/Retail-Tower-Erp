@@ -16,7 +16,10 @@
  *     and an action in the closed set; `reprintSlip`: exactly `{ returnId }`.
  *     No amount can be sent: main pays the journal's server-confirmed total;
  *   • RT-1498 `resend`: exactly `{ returnId }` with a canonical UUID. The key,
- *     the body, the scope and the operator are derived in main from the row.
+ *     the body, the scope and the operator are derived in main from the row;
+ *   • RT-1498 S4/S5 `escalate`: exactly `{ returnId, approvalId }`, both canonical UUIDs.
+ *     The disposition is fixed by the channel, and the approval (bound to this return and to
+ *     `escalate`) is spent in main; no operator, scope, amount or reason can be smuggled in.
  *
  * Session, role, feature gate and every business rule live in the service.
  * The channels are not on the locked-session allowlist, so the guarded
@@ -30,6 +33,7 @@ import {
   type ReturnLineInput,
   type ReturnPayoutAction,
   type ReturnsBridgeAPI,
+  type ReturnsEscalateRequest,
   type ReturnsPayoutRequest,
   type ReturnsQuoteRequest,
   type ReturnsReprintRequest,
@@ -52,6 +56,7 @@ const QUOTE_KEYS = ['saleNumber', 'lines'] as const;
 const PAYOUT_KEYS = ['returnId', 'action'] as const;
 const REPRINT_KEYS = ['returnId'] as const;
 const RESEND_KEYS = ['returnId'] as const;
+const ESCALATE_KEYS = ['returnId', 'approvalId'] as const;
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   if (typeof value !== 'object' || value === null) return false;
@@ -152,6 +157,13 @@ export function readResendRequest(value: unknown): ReturnsResendRequest | null {
   return isReturnId(returnId) ? { returnId } : null;
 }
 
+/** `{ returnId, approvalId }` exactly (RT-1498 `escalate`), or null. */
+export function readEscalateRequest(value: unknown): ReturnsEscalateRequest | null {
+  if (!isClosedShape(value, ESCALATE_KEYS)) return null;
+  const { returnId, approvalId } = value;
+  return isReturnId(returnId) && isReturnId(approvalId) ? { returnId, approvalId } : null;
+}
+
 /** `resolve` / `list` accept no payload (undefined or `{}`). */
 function isEmptyPayload(value: unknown): boolean {
   return value === undefined || isClosedShape(value, []);
@@ -201,5 +213,11 @@ export function registerReturnsHandlers(ipcMain: IpcMain, deps: ReturnsIpcDeps):
   ipcMain.handle(RETURNS_IPC_CHANNELS.RESEND, (_event, request: unknown) => {
     const req = readResendRequest(request);
     return req === null ? { ...INVALID, ret: null } : service.resend(req);
+  });
+
+  // RT-1498 S4/S5: a refusal carries `ret: null`, like `resend`.
+  ipcMain.handle(RETURNS_IPC_CHANNELS.ESCALATE, (_event, request: unknown) => {
+    const req = readEscalateRequest(request);
+    return req === null ? { ...INVALID, ret: null } : service.escalate(req);
   });
 }
