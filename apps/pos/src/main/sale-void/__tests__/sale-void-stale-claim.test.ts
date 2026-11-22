@@ -39,6 +39,8 @@ import {
 import { APPROVAL_B, SCOPE } from './__helpers__/sale-void-fixture.js';
 import { journalVoid } from './__helpers__/sale-void-payout-fixture.js';
 import {
+  AFTER_LEASE,
+  WITHIN_LEASE,
   createHarness,
   freshState,
   viewOfV1,
@@ -97,10 +99,8 @@ function openShift(iso: string): string {
 }
 
 /** The server told the till a manager closed the shift: the shift's open fact (seq 1) was answered. */
-function forceClose(shiftId: string): void {
-  expect(
-    shiftRepo.recordManagerClosure({ seq: 1, now: FORCE_CLOSED, shiftId, factKind: 'open' }),
-  ).toBe(true);
+function forceClose(shiftId: string, now = FORCE_CLOSED): void {
+  expect(shiftRepo.recordManagerClosure({ seq: 1, now, shiftId, factKind: 'open' })).toBe(true);
   expect(shiftRepo.findOpenShift(SCOPE)).toBeNull();
 }
 
@@ -250,7 +250,7 @@ describe('a void claim that outlives its shift (a manager force-close on the ser
     });
   });
 
-  it('the approval is a manager other than the requester and is spent once', async () => {
+  it('refuses a self-approval and a missing approval, and records and spends nothing', async () => {
     const shift1 = await claimedInShift1();
     forceClose(shift1);
     openShift(SHIFT_2_OPENED);
@@ -270,6 +270,9 @@ describe('a void claim that outlives its shift (a manager force-close on the ser
     });
     expect(h.record()).toBeNull();
     expect(pendingClaimRows()).toBe(1);
+    // The approval was asked for twice, and both attempts rolled back with the record.
+    expect(h.consumed).toHaveLength(2);
+    expect(rowsOf('manager_approvals')).toBe(0);
   });
 
   it('a second exception, or a payout, for the settled cash is refused', async () => {
@@ -300,7 +303,7 @@ describe('a void claim that outlives its shift (a manager force-close on the ser
   });
 
   it('a claim whose kick is still mid-flight (sending) is not settled, and no approval is spent', async () => {
-    const shift1 = openShift(SHIFT_1_OPENED);
+    openShift(SHIFT_1_OPENED);
     at(CLAIMED);
     let release: () => void = () => undefined;
     h.state.kick = () =>
@@ -310,9 +313,7 @@ describe('a void claim that outlives its shift (a manager force-close on the ser
         };
       });
     const running = h.service.payOut(start);
-    // The shift is force-closed and a new one opened while the kick is still in flight.
-    forceClose(shift1);
-    openShift(CLAIMED);
+    // The kick may still open the drawer: the exception must wait for its answer (or its lease).
     expect(await h.service.recordCashException(exception)).toEqual({
       kind: 'refused',
       reason: 'payout_drawer_in_progress',
@@ -415,6 +416,83 @@ describe('a claim of the CURRENT open shift still holds the till', () => {
   });
 });
 
+describe('a stale claim whose kick is still in flight keeps holding the till (c18188 L1)', () => {
+  it('refuses the next open during the 10 s kick lease and opens after it', async () => {
+    const shift1 = openShift(SHIFT_1_OPENED);
+    at(CLAIMED);
+    let release: () => void = () => undefined;
+    h.state.kick = () =>
+      new Promise<DrawerResult>((resolve) => {
+        release = () => {
+          resolve('opened');
+        };
+      });
+    const running = h.service.payOut(start);
+    expect(h.payouts.readClaim('v1')).toMatchObject({ shiftId: shift1, kickOutcome: 'sending' });
+    forceClose(shift1, CLAIMED);
+
+    expect(openRefusal(WITHIN_LEASE)).toBe('drawer_activity_pending');
+    expect(openRefusal(AFTER_LEASE)).toBeNull();
+    release();
+    await running;
+  });
+
+  it('measures the lease as the kick does: held up to 10 s on either side of the kick, never after', () => {
+    const shift1 = openShift(SHIFT_1_OPENED);
+    at(CLAIMED);
+    h.state.kick = () => new Promise<DrawerResult>(() => undefined);
+    void h.service.payOut(start);
+    forceClose(shift1, CLAIMED);
+    const sources = createShiftCashupSources(handleFor(db));
+    const held = (now?: string): number => sources.pendingDrawerActivity(SCOPE, now).voidPayouts;
+    expect(held('2026-06-07T13:00:09.999Z')).toBe(1);
+    expect(held('2026-06-07T13:00:10.000Z')).toBe(0);
+    // A clock that stepped back bounds the lease, it never extends it.
+    expect(held('2026-06-07T12:59:50.000Z')).toBe(1);
+    expect(held('2026-06-07T12:59:49.999Z')).toBe(0);
+    // No clock given: a kick still `sending` counts (conservative, as the kick rule does).
+    expect(held()).toBe(1);
+  });
+
+  it('a kick that resolved (unknown) no longer holds a stale claim', async () => {
+    const shift1 = await claimedInShift1();
+    forceClose(shift1);
+    const sources = createShiftCashupSources(handleFor(db));
+    expect(sources.pendingDrawerActivity(SCOPE, LATER).voidPayouts).toBe(0);
+    expect(sources.pendingDrawerActivity(SCOPE).voidPayouts).toBe(0);
+  });
+});
+
+describe('the business day passes inside the same shift', () => {
+  it('the claim still holds the shift, the exception settles it, then the shift closes', async () => {
+    const shift1 = await claimedInShift1();
+    const nextDay = '2026-06-08T00:30:00.000Z';
+    at(nextDay);
+    // Still the claim's own shift: it holds the close, and retry or manual cannot complete it.
+    expect(() => shifts.service.closeShift({ countedCashMinor: FLOAT })).toThrow(
+      expect.objectContaining({ reason: 'drawer_activity_pending' }) as Error,
+    );
+    expect(await h.service.payOut(manual)).toEqual({
+      kind: 'refused',
+      reason: 'payout_wrong_day',
+    });
+
+    expect(await h.service.recordCashException(exception)).toEqual({
+      kind: 'exception_recorded',
+      mismatch_reason: 'payout_window_closed',
+    });
+    expect(h.record()).toMatchObject({ shiftId: shift1, businessDate: '2026-06-08' });
+    expect(pending().voidPayouts).toBe(0);
+
+    at('2026-06-08T01:00:00.000Z');
+    expect(shifts.service.closeShift({ countedCashMinor: FLOAT - 1500 })).toMatchObject({
+      cashRefundsTotalMinor: 1500,
+      expectedCashMinor: FLOAT - 1500,
+      varianceMinor: 0,
+    });
+  });
+});
+
 describe('the rest of the drawer hold is unchanged', () => {
   it('an unpaid refund payout still blocks the next shift from opening, a stale void claim does not', async () => {
     const shift1 = await claimedInShift1();
@@ -453,6 +531,41 @@ describe('the payout view says a stale claim needs a manager exception', () => {
       state: 'claimed',
       claim_actions: [],
       claim_window_closed: true,
+    });
+  });
+
+  it('carries the claim kick state and date on a stale claim only: unknown, then opened', async () => {
+    const shift1 = await claimedInShift1();
+    at(LATER);
+    const live = viewOfV1(db, h.service);
+    expect(live.claim_window_closed).toBeUndefined();
+    expect(live.claim_kick_state).toBeUndefined();
+    expect(live.claimed_at).toBeUndefined();
+
+    forceClose(shift1);
+    expect(viewOfV1(db, h.service)).toMatchObject({
+      claim_window_closed: true,
+      claim_kick_state: 'unknown',
+      claimed_at: CLAIMED,
+    });
+  });
+
+  it('says the drawer opened when the kick opened but the record never followed', async () => {
+    const shift1 = openShift(SHIFT_1_OPENED);
+    at(CLAIMED);
+    h.state.kick = () => {
+      // The kick opened the drawer, then the till locked before the record: claimed, kick opened.
+      h.state.locked = true;
+      return Promise.resolve('opened');
+    };
+    expect(await h.service.payOut(start)).toMatchObject({ kind: 'refused' });
+    h.state.locked = false;
+    forceClose(shift1);
+    at(LATER);
+    expect(viewOfV1(db, h.service)).toMatchObject({
+      claim_window_closed: true,
+      claim_kick_state: 'opened',
+      claimed_at: CLAIMED,
     });
   });
 

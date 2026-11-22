@@ -630,8 +630,12 @@ function requireClockFrom(input: { now: string; floor: string | null; gapMs: 0 |
  * Review P2-2: no drawer cash in flight on the terminal, else `drawer_activity_pending`. A void payout
  * claim counts only while its own shift is open (c18183), so a stale one never blocks an open.
  */
-function requireDrawerSettled(input: { sources: ShiftCashupSources; scope: ShiftScope }): void {
-  const pending = input.sources.pendingDrawerActivity(input.scope);
+function requireDrawerSettled(input: {
+  sources: ShiftCashupSources;
+  scope: ShiftScope;
+  now: string;
+}): void {
+  const pending = input.sources.pendingDrawerActivity(input.scope, input.now);
   if (pending.refundPayouts + pending.voidPayouts + pending.unfinalizedSales > 0) {
     refuse('drawer_activity_pending');
   }
@@ -844,7 +848,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
     });
     const closedAt = deps.now();
     const open = openShiftAt({ scope, now: closedAt });
-    requireDrawerSettled({ sources: deps.sources, scope });
+    requireDrawerSettled({ sources: deps.sources, scope, now: closedAt });
     requireNoParkedSales({ sources: deps.sources, scope });
     const cashup = cashupOf({ scope, open, until: closedAt });
     const varianceMinor = input.countedCashMinor - cashup.expectedCashMinor;
@@ -928,7 +932,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
     now: string;
   }): void {
     if (input.movement.kind !== 'pay_out') return;
-    requireDrawerSettled({ sources: deps.sources, scope: input.scope });
+    requireDrawerSettled({ sources: deps.sources, scope: input.scope, now: input.now });
     const { expectedCashMinor } = cashupOf({ ...input, until: input.now });
     if (input.movement.amountMinor <= expectedCashMinor) return;
     tally.record({ shiftId: input.open.shiftId, kind: 'payOut' });
@@ -945,7 +949,7 @@ export function createShiftCashupService(deps: ShiftCashupServiceDeps): ShiftCas
       });
       const now = deps.now();
       requireClockFrom({ now, floor: deps.sources.lastClosedAt(scope), gapMs: 1 });
-      requireDrawerSettled({ sources: deps.sources, scope });
+      requireDrawerSettled({ sources: deps.sources, scope, now });
       const opened = { shiftId: deps.newId(), openedAt: now };
       // RT-388 (K-2): the policy is frozen with the open; a later change applies from the next.
       const frozenPolicy = deps.resolvePolicy({ scope, shiftCurrencyCode: deps.currencyCode });

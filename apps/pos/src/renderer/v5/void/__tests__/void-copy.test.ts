@@ -8,8 +8,10 @@ import {
   SALE_VOID_STATES,
   SERVER_VOID_REFUSALS,
 } from '../../../../shared/sale-void/types';
+import { formatShiftTime } from '../../shift/shift-format';
 import {
   VOID_COPY,
+  voidClaimOpenedWarning,
   voidMismatchMessage,
   voidRefusalMessage,
   voidStateLabel,
@@ -26,9 +28,13 @@ describe('void copy', () => {
     },
   );
 
-  it('has Arabic copy for a claim whose window closed, naming the manager exception', () => {
+  it('has Arabic copy for a stale claim: another manager, the overage, and the opened-drawer date', () => {
     expect(VOID_COPY.claimWindowClosed).toMatch(/[؀-ۿ]/);
     expect(VOID_COPY.claimWindowClosed).toContain('مدير آخر');
+    expect(VOID_COPY.claimStaleOverage).toMatch(/[؀-ۿ]/);
+    const warning = voidClaimOpenedWarning('2026-06-07T10:45:00.000Z');
+    expect(warning).toMatch(/[؀-ۿ]/);
+    expect(warning).toContain(formatShiftTime('2026-06-07T10:45:00.000Z'));
   });
 
   it('falls back to the generic message for an unknown reason', () => {

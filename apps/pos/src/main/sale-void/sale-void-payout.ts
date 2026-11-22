@@ -42,6 +42,7 @@ import type {
   SaleVoidPayoutView,
 } from '../../shared/sale-void/types.js';
 import { createDrawerSlot } from '../drawer/drawer-slot.js';
+import { kickStateOf } from '../returns/returns-drawer.js';
 import type { PayoutActor } from './sale-void-payout-audit.js';
 import { createCashException } from './sale-void-cash-exception.js';
 import { createPayoutSteps, refuse } from './sale-void-payout-steps.js';
@@ -142,7 +143,13 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
         state: 'claimed',
         claim_actions: open ? claimActionsOf(claim, now) : [],
         overdue: false,
-        ...(open ? {} : { claim_window_closed: true as const }),
+        ...(open
+          ? {}
+          : {
+              claim_window_closed: true as const,
+              claim_kick_state: kickStateOf(claim, now),
+              claimed_at: claim.claimedAt,
+            }),
       };
     }
     if (entry.state !== 'confirmed' || entry.cashMinor === 0) {

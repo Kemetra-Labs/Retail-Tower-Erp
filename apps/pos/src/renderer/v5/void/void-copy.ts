@@ -4,6 +4,7 @@ import type {
   SaleVoidState,
 } from '../../../shared/sale-void/types';
 import type { ManagerApprovalRefusalReason } from '../../../shared/operator/manager-approval';
+import { formatShiftTime } from '../shift/shift-format';
 
 /**
  * RT-530 — sale void copy. Arabic, one message per outcome. Never an approver
@@ -58,9 +59,13 @@ export const VOID_COPY = Object.freeze({
   manualComplete: 'تأكيد صرف النقد يدويًا',
   managerPays: 'يصرف النقد مدير.',
   drawerMayBeOpen: 'قد يكون الدرج مفتوحًا. لا تُسلِّم النقد للعميل قبل أن يؤكد المدير الصرف.',
-  // RT-1403 (PROPOSED): a claim whose shift is gone or whose day passed: only a manager exception settles it.
+  // RT-1403 c18188 (PROPOSED): a claim whose shift is gone or whose day passed. One coherent set:
+  // it cannot be completed here; only another manager's exception settles it, after checking that the
+  // customer was not already paid; and an earlier shift's drawer shows as an overage in this count.
   claimWindowClosed:
-    'انتهت وردية هذا الصرف أو يومه، فلا يُكمَل بإعادة فتح الدرج ولا يدويًا. يحتاج إلى مدير آخر ليقرّ به في وردية مفتوحة.',
+    'انتهت وردية هذا الصرف أو يومه، فلا يُكمَل بإعادة فتح الدرج ولا يدويًا. لا يُسجَّل إلا بإقرار مدير آخر في وردية مفتوحة، بعد التأكد من أن العميل لم يستلم نقده.',
+  claimStaleOverage:
+    'إن كان الدرج قد فُتح في وردية سابقة، فسيظهر في جرد هذه الوردية فائض مطابق لهذا المبلغ، وتبقى الوردية السابقة كما أُغلقت.',
   voidStateIs: 'حالة الإلغاء',
   // RT-1403 S2 (PROPOSED): cash that left the drawer outside the payout gate.
   exceptionAction: 'تسجيل نقد صُرف خارج الإجراء',
@@ -156,6 +161,14 @@ const STATE_LABELS: Readonly<Record<SaleVoidState, string>> = {
 
 export function voidStateLabel(state: SaleVoidState): string {
   return STATE_LABELS[state];
+}
+
+/**
+ * RT-1403 c18188 (PROPOSED): a stale claim whose drawer opened on `claimedAt` (the claim and its
+ * kick are one step): check the customer was not already paid before paying again.
+ */
+export function voidClaimOpenedWarning(claimedAt: string): string {
+  return `فُتح الدرج بتاريخ ${formatShiftTime(claimedAt)}. تأكد أن العميل لم يستلم نقده من قبل قبل أن تصرف له مرة أخرى.`;
 }
 
 /** What a queued void is waiting for, in words; the requester is named, nobody else. */

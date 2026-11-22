@@ -204,6 +204,13 @@ export interface SaleVoidPayoutView {
    */
   claim_window_closed?: true;
   /**
+   * Set only with `claim_window_closed`: what the claim's drawer kick proved (`opened`: the drawer
+   * opened and cash may have been handed over; `in_flight`: still sending within its lease), so the
+   * manager can check before paying again, and `claimed_at` (ISO) the instant it was claimed.
+   */
+  claim_kick_state?: 'none' | 'in_flight' | 'opened' | 'failed_before_send' | 'unknown';
+  claimed_at?: string;
+  /**
    * A confirmed void with cash that was never paid out and whose payout window (day or shift) has
    * passed: flagged for the manager (audit only; no stored flag).
    */

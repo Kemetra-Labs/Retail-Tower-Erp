@@ -151,7 +151,7 @@ export function createShiftCashupStatusReader(db: DatabaseHandle): ShiftCashupSt
           openShifts: foreignOpen.n,
         },
         pendingDrawerActivity:
-          scope === null ? NO_DRAWER_ACTIVITY : sources.pendingDrawerActivity(scope),
+          scope === null ? NO_DRAWER_ACTIVITY : sources.pendingDrawerActivity(scope, now),
       };
     },
   };
