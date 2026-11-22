@@ -61,6 +61,7 @@ import { PriceChangeSetsModule } from "../../src/pricing/change-sets/price-chang
 import { PriceChangeSetsService } from "../../src/pricing/change-sets/price-change-sets.service";
 import { StoresRepository } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
+import { PricingStoreLifecycleAdapter } from "../../src/pricing/store-lifecycle/pricing-store-lifecycle.adapter";
 import { seedConsoleMember } from "../_helpers/console-members";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 import { APP_ROLE_NAME, applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
@@ -625,12 +626,20 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
   it("a Store created after validation stales the set (Q-B8) and gets its bootstrap row at the head", async () => {
     if (skip()) return;
     const set = await validated({ items: [bookPrice(P5, "14", "2043-01-01T00:00:00Z")] });
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const store = await stores.create(ctx, { code: "RT1484PUB", name: "RT-1484 new store" });
     try {
       const h = await head();
       expect(await scalar(`SELECT revision_no::text AS v FROM pricing_revision_stores WHERE tenant_id = $1 AND store_id = $2`, [TENANT_A, store.id])).toBe(String(h));
+      // RT-1525: the stores port's bootstrap is idempotent: a repeat at the same head keeps the one row.
+      await new PricingStoreLifecycleAdapter().bootstrapStore(env!.admin, {
+        tenantId: TENANT_A,
+        storeId: store.id,
+        actorUserId: USER_OWNER_ALL,
+        correlationId: "01890000-0000-7000-8000-000000001525",
+      });
+      expect(await scalar(`SELECT count(*)::text AS v FROM pricing_revision_stores WHERE tenant_id = $1 AND store_id = $2`, [TENANT_A, store.id])).toBe("1");
       refused(await send(op(set.header.id, "submit"), SES_OWNER_ALL, { expectedVersion: 1 }), 409, "stale_validation");
       expect(await scalar(`SELECT state || ':' || version AS v FROM change_sets WHERE id = $1`, [set.header.id])).toBe("draft:2");
       // Re-validated, the set reaches the new Store.
@@ -854,7 +863,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
     } finally {
       await env!.admin.query(`UPDATE stores SET timezone = 'UTC' WHERE id = $1`, [STORE_A_X]);
     }
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const doomed = await stores.create(ctx, { code: "RT1484GONE", name: "RT-1484 doomed store" });
     const set = await validated({ items: [{ op: "set_price", scope: { kind: "stores", storeIds: [doomed.id, STORE_A_X] }, products: items([P5]), price: "16", ...at("2048-06-01T00:00:00Z") }] });
@@ -866,7 +875,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
   // §2.6 bootstraps a (re)activated Store at the head, so a deactivated Store gets no fan-out rows.
   it("RT-1531: deactivating a Store stales a validated set that targets it, by Store line or by Book line", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1531STALE", name: "RT-1531 stale" });
     try {
@@ -887,7 +896,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("RT-1531: a deactivated Store gets no fan-out row from a Book revision; its reactivation bootstraps it at the head", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1531FAN", name: "RT-1531 fan-out" });
     const fan = async (revisionNo: number): Promise<string[]> =>
@@ -907,7 +916,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("m5: a no-op activation PATCH takes no bootstrap row; a real activation does", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1484ACT", name: "RT-1484 activation" });
     const rows = async (): Promise<string> => (await scalar(`SELECT count(*)::text AS v FROM pricing_revision_stores WHERE store_id = $1`, [s.id]))!;
@@ -933,7 +942,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
     if (skip()) return;
     // RT-1484 PR-6 (#750 review nit): self-contained. A Store of its own, moved into a Zone only
     // this case uses, so no earlier case's membership is assumed.
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1484SOU", name: "RT-1484 South" });
     try {
@@ -1152,7 +1161,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("m1: a store_local line starting in a DST gap where the head event ends publishes (replaced by wall clock, no 23P01)", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const cairo = await stores.create(ctx, { code: "RT1484CAI", name: "RT-1484 Cairo", timezone: "Africa/Cairo" });
     const scope = { kind: "stores", storeIds: [cairo.id] };
@@ -1225,7 +1234,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("RT-1530: an absolute line ignores the zone; a deleted Store keeps its stored instant", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const tokyo = await stores.create(ctx, { code: "RT1530TYO", name: "RT-1530 Tokyo", timezone: "Asia/Tokyo" });
     try {
@@ -1270,7 +1279,7 @@ describe("RT-1484 PR-5 price Change Set submit, approve, reject and publish over
 
   it("RT-1530 m1: a Zone line keeps the Store's membership start as a floor when a zone change moves the line earlier", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1530ZON", name: "RT-1530 zone floor" });
     try {

@@ -55,6 +55,7 @@ import { loadResolutionData } from "../../src/pricing/inquiry/price-inquiry.repo
 import { resolvePrice } from "../../src/pricing/resolution/resolve";
 import { StoresRepository } from "../../src/stores/stores.repository";
 import { StoresService } from "../../src/stores/stores.service";
+import { PricingStoreLifecycleAdapter } from "../../src/pricing/store-lifecycle/pricing-store-lifecycle.adapter";
 import { seedConsoleMember } from "../_helpers/console-members";
 import { allContracts, contractDocument } from "../_helpers/openapi-contract";
 import { APP_ROLE_NAME, applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
@@ -360,7 +361,7 @@ async function atClock<T>(iso: string, work: () => Promise<T>): Promise<T> {
 
 /** A Store of the tenant in `timezone`, created through the Store lifecycle (it takes the publish lock). */
 async function newStore(code: string, timezone: string): Promise<{ id: string }> {
-  const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+  const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
   const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
   return stores.create(ctx, { code, name: `RT-1484 rollback ${code}`, timezone });
 }
@@ -575,7 +576,7 @@ describe("RT-1484 PR-6 price Change Set rollback over HTTP", () => {
 
   it("a Zone move is undone by a move restoring the prior Zone (the default Zone fallback), fanned out to the Store", async () => {
     if (skip()) return;
-    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app));
+    const stores = new StoresService(env!.app, new StoresRepository(), new MembershipRepository(env!.app), new PricingStoreLifecycleAdapter());
     const ctx = { tenantId: TENANT_A, userId: USER_OWNER_ALL, storeId: null, isPlatformAdmin: false, source: "session" } as ResolvedContext;
     const s = await stores.create(ctx, { code: "RT1484RBZ", name: "RT-1484 rollback zone" });
     try {

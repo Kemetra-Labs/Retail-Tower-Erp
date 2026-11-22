@@ -22,6 +22,7 @@ import request from "supertest";
 import { ConsoleCatalogModule } from "../../src/catalog/console-catalog/console-catalog.module";
 import { OffersModule } from "../../src/offers/offers.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { idempotencyProviders } from "../_helpers/idempotency-providers";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 import { SES_ADMIN_SPEC, bootScopedApp } from "../catalog/erpnext-reconciliation/__support__/read-store-scope";
@@ -41,7 +42,7 @@ import {
   seedOffersFixture,
 } from "./__support__/offers-fixture";
 
-@Module({ imports: [OffersModule, ConsoleCatalogModule, StoresModule] })
+@Module({ imports: [OffersModule, ConsoleCatalogModule, StoresModule, PricingStoreLifecycleModule] })
 class OffersWiringModule {}
 
 let env: PgTestEnv | null = null;

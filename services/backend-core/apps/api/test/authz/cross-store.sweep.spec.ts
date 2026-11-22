@@ -83,6 +83,7 @@ import type {
 import type { AuthedRequest } from "../../src/auth/auth.guard";
 import { StoresController } from "../../src/stores/stores.controller";
 import { StoresService } from "../../src/stores/stores.service";
+import { PricingStoreLifecycleAdapter } from "../../src/pricing/store-lifecycle/pricing-store-lifecycle.adapter";
 import type { StoresRepository, StoreRecord } from "../../src/stores/stores.repository";
 import type { ResolvedContext } from "../../src/context/types";
 
@@ -341,6 +342,7 @@ function buildStoresStack(): {
     {} as never, // pool — not reached; passthroughTx is injected
     storesRepo as unknown as StoresRepository,
     memberships as unknown as MembershipRepository,
+    new PricingStoreLifecycleAdapter(),
     passthroughTx as never,
   );
   const controller = new StoresController(service);

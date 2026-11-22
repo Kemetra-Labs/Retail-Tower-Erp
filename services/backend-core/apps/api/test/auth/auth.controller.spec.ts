@@ -72,6 +72,7 @@ import {
 } from "../../src/auth/email-job.enqueuer";
 import { ContextModule } from "../../src/context/context.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor, ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
@@ -1331,7 +1332,7 @@ describe("T313 / C-5 — multi-tenant sign-in: no active tenant set, subsequent 
       );
 
       const moduleRef = await Test.createTestingModule({
-        imports: [AuthModule, ContextModule, StoresModule],
+        imports: [AuthModule, ContextModule, StoresModule, PricingStoreLifecycleModule],
       })
         .overrideProvider(PG_POOL)
         .useValue(c5Pool)
