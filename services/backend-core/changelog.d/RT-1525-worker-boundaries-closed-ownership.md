@@ -6,5 +6,5 @@
   ports, with unchanged SQL and behaviour. `unownedTables` is removed: every live migration table needs an
   owner, the error names the migration, a dropped or renamed table fails as stale (`RENAME TO` is now
   handled), and a `sharedTables` entry needs a reason and an approving RT issue. The worker violations
-  that existed before are baselined once (owner-approved) and may only shrink. `audit-db-pool.ts` moved to
+  that existed before are baselined once (owner-approved) and may only shrink (RT-1551 removes them). `audit-db-pool.ts` moved to
   `common/`, which removed 13 module-cycle edges from the import-cycle baseline.

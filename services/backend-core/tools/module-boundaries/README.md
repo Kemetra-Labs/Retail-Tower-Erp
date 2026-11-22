@@ -15,7 +15,8 @@ module reaches into another module instead of asking it for a port. It scans eve
   imports the owning module's worker port (`apps/worker/src/<module>/index.ts`), which runs on the
   caller's client. The worked example is `sync-failure-alert.repository.ts`, through `tenants`, `catalog`,
   `stores`, `memberships`, `auth` and `audit` (RT-1525). The worker violations that existed when the
-  scanner reached the worker are in `baseline.json` (owner-approved once, in RT-1525) and may only shrink.
+  scanner reached the worker are in `baseline.json` (owner-approved once, in RT-1525) and may only shrink;
+  RT-1551 removes them.
 - **Public surface (the port convention):** another module may import only a module's root `index.ts`
   (the barrel with its ports), a root `*.module.ts` (Nest wiring) or a file listed in that module's
   `publicFiles`. Create an `index.ts` only for a module somebody needs a port from. A port that touches the
