@@ -419,7 +419,7 @@ describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
   });
 
   it("recordReturn states the same issuance-only guarantee and no completion claim (CodeRabbit follow-up)", () => {
-    const text = description(sales.paths["/api/pos/v1/sales/{saleRef}/returns"].post);
+    const text = description(operation("/api/pos/v1/sales/{saleRef}/returns", "post"));
     expect(text).not.toContain("cannot be recorded later");
     expect(text).toContain("no `recordReturn` request it sent has a COMMIT still to be issued");
     expect(text).toContain("This is an issuance guarantee only");
