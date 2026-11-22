@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.27.0-draft"
+  version: "1.28.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -703,6 +703,37 @@ info:
     `returns_unavailable` and nothing is sent. No runtime, migration, POS or
     Console change.
 
+    RT-1548 (1.28.0-draft; [GATED: contract] owner approval on RT-1548 comment
+    18204, "RT-1548 contract approved", for the RT-196 design spec section 4,
+    BR-2 and BR-7; slice 1 of 2): AFFIRMATIVE RETURN STATUS READ. CONTRACT ONLY.
+    One new operation, `readReturnStatusByProvenance`
+    (`GET /api/pos/v1/sales/{saleRef}/returns/by-provenance/status`), answers for
+    one return provenance of a sale either `recorded` (the exact `SaleReturn`,
+    plus a `creditLinked` flag) or `not_recorded`, and the BR-7 late-commit bound
+    is stated on it and on `recordReturn`. It is `x-runtime-status:
+    contract-only`: no route, no migration and no POS change; the runtime is
+    slice 2, after this contract is merged. Additive: one new path, three new
+    schemas (`ReturnProvenanceStatus`, `ReturnRecordedStatus`,
+    `ReturnNotRecordedStatus`) and one new response (`ReturnStatusNotFound`); no
+    existing field, status, `required` list or response changes, and
+    `readReturnByProvenance` is unchanged: it keeps answering 200 or a single
+    404, and a 404 there still proves nothing. The `recordReturn` description
+    gains the BR-7 paragraph, which binds only from the slice-2 runtime. NOT in
+    this version, because the design spec gives no source for it: there is no
+    `unknown` or `pending` verdict (an inconclusive read is an HTTP failure that
+    the POS treats as no verdict, spec 3.2), and no server timestamp or
+    tombstone that refuses a later commit of a key (spec Option B, deferred to
+    post-pilot hardening because it needs a Backend-Core write and a migration;
+    BR-6 says no migration). ROLLOUT ORDER: (1) this contract; (2) the BR-7
+    bound on `recordReturn`, deployed FIRST to every instance that serves it;
+    (3) the status read (the route and its audit event), which must not answer a
+    verdict until every instance that serves `recordReturn` enforces the bound:
+    ship the bound first, or keep the read off until the rollout has completed,
+    and slice 2 first verifies and documents the `synchronous_commit` and
+    replica setting; (4) the POS repin and the close writer (RT-1498). Until (3) is deployed the
+    path answers 404, which the POS reads as inconclusive, so a POS must not
+    close a return as not recorded before then.
+
 servers:
   - url: https://api.example.com
 
@@ -1365,7 +1396,9 @@ paths:
         fields, the `returnPolicy` echo and the three Return Policy 422 codes
         apply from the RP-3 runtime (enforcement stays off until the owner sets
         the legal minimum window); until then the strict DTO rejects the line
-        fields (400).
+        fields (400). The RT-1548 (BR-7) 60-second commit bound applies from the
+        slice 2 runtime, and must be live on every instance that serves this
+        route before `readReturnStatusByProvenance` answers a verdict.
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
@@ -1646,6 +1679,31 @@ paths:
         turning the flag off again never strands it, and a return emitted at
         acceptance is never emitted again. A return recorded through
         `recordCreditSaleReversal` keeps its RT-577 posting unchanged.
+
+
+        Late-commit bound (RT-1548 (BR-7), RT-196 design spec section 4; binds
+        from the RT-1548 slice 2 runtime, not before). The runtime issues no
+        COMMIT for a `recordReturn` request later than 60 seconds after
+        receiving the request, and a request that was abandoned, refused or
+        timed out under this bound never commits afterwards: its transaction is
+        rolled back and nothing is recorded under its provenance. The bound runs
+        from receipt and covers the whole request, including the wait for the
+        sale row lock, not only the database statements. It bounds when the
+        COMMIT is issued, not when the database finishes it. Completion is
+        bounded only under a deployment assumption that is a normative rollout
+        precondition: no unbounded synchronous-replication commit wait. Slice 2
+        verifies and documents the `synchronous_commit` and replica setting
+        before `readReturnStatusByProvenance` answers verdicts, and the margin
+        inside the quiet period covers the commit itself. It is what
+        gives `readReturnStatusByProvenance` its affirmative `not_recorded`: once
+        a client has sent nothing for its quiet period (the POS: 15 minutes), no
+        `recordReturn` request it sent has a COMMIT still to be issued. This is
+        an issuance guarantee only; a return closed on `not_recorded` that is
+        later seen as recorded is a mismatch the client raises to support and
+        never pays cash on (see `readReturnStatusByProvenance`). The bound
+        is shorter than that quiet period by design, and the quiet period must
+        also cover the transport delay before receipt, which the bound does
+        not.
       parameters:
         - $ref: "#/components/parameters/SaleRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1780,6 +1838,129 @@ paths:
           $ref: "#/components/responses/Unauthorized"
         "404":
           $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+  /api/pos/v1/sales/{saleRef}/returns/by-provenance/status:
+    get:
+      summary: Read an affirmative recorded or not-recorded verdict for a return provenance.
+      operationId: readReturnStatusByProvenance
+      x-audit-action: pos_sales.return_read
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1548 slice 1: contract only. No route is registered until the RT-1548
+        slice 2 runtime (the read, its ref-only audit event and the BR-7 commit
+        bound on `recordReturn`; no migration). The read must not answer a
+        verdict until every instance that serves `recordReturn` enforces the
+        BR-7 bound: ship the bound first, or keep the read off until the
+        rollout has completed, and slice 2 first verifies and documents the
+        `synchronous_commit` and replica setting (no unbounded synchronous
+        replication commit wait). Until then the path answers 404, which a client
+        reads as inconclusive, never as `not_recorded`.
+      tags: [pos-sales]
+      security:
+        - operatorAuthorization: []
+      description: >
+        RT-1548 slice 1, CONTRACT ONLY (owner approval on RT-1548 comment
+        18204), for RT-196 (design spec section 4, BR-1 to BR-7). The
+        AFFIRMATIVE `not_recorded` that `readReturnByProvenance` cannot give:
+        that read answers 200 or one 404, and its 404 is not proof of anything.
+        This read answers for ONE return provenance `(sourceSystem,
+        externalId)` of THIS sale, the provenance the POS journaled before it
+        sent `recordReturn`, with one of two verdicts, told apart by `status`.
+        `recorded`: a return of this sale has that provenance; the body is the
+        same `SaleReturn` that `recordReturn` answers with (BR-3) and a
+        `creditLinked` flag. `not_recorded`: no return of this sale has that
+        provenance at the moment of the read. It changes and records nothing.
+
+
+        Decision order (BR-2): 1. the returns gate; 2. the sale resolves in the
+        caller's (tenant, store) scope; 3. only then the provenance is looked
+        up. The verdict is decided after the returns gate and the sale resolve.
+        A refusal at 1 or 2 is 404 `not_found`, one body, and is NEVER
+        `not_recorded`, so `not_recorded` is only ever said about a sale the
+        caller can read. Behind `POS_RETURNS_ENABLED` (unlike
+        `readReturnByProvenance`): with returns switched off the read answers
+        404, which a client treats as inconclusive, so an affirmative verdict is
+        never served while returns are off.
+
+
+        Scope and disclosure. The lookup is limited to returns of THIS sale. A
+        key recorded against another sale of the tenant, in any store, answers
+        `not_recorded` exactly as a key recorded nowhere does, so the answer
+        carries no existence leak across sales or stores; and a `recordReturn`
+        of that key under this sale is refused 409 `conflict` by the provenance
+        rule, so it can never be recorded here. A key of another tenant is not
+        visible at all and is the same as a key recorded nowhere.
+
+
+        Credit-sale reversal (BR-4). A return recorded by
+        `recordCreditSaleReversal`, a credit-sale reversal, for THIS sale under
+        the key answers `recorded` with `creditLinked: true`: it is neither a
+        404 nor `not_recorded`, unlike on `readReturnByProvenance` and
+        `listSaleReturns`. The client treats `creditLinked: true` as a mismatch:
+        a till never pays out a credit reversal, and it must not close the row
+        as not recorded. `creditLinked` is `false` for a return that
+        `recordReturn` recorded.
+
+
+        Audit and storage (BR-5, BR-6). Each authorized 200 audits one
+        ref-only `pos_sales.return_read` event: the sale ref, and the return ref
+        when `recorded`. No migration: the lookup uses the existing
+        `(tenant, source_system, external_id)` uniqueness of `sale_returns`,
+        filtered to this sale.
+
+
+        Late-commit bound (RT-1548 (BR-7); binds from the slice 2 runtime).
+        The `recordReturn` runtime issues no COMMIT later than 60 seconds after
+        receiving the request, and a request that was abandoned, refused or
+        timed out under this bound never commits afterwards (see
+        `recordReturn`). So a `not_recorded` verdict guarantees that no
+        `recordReturn` request received more than 60 seconds before the read
+        has a COMMIT still to be issued. The bound is on issuing the COMMIT, not
+        on its completion: completion is bounded only under a deployment
+        assumption that is a normative rollout precondition of this read, no
+        unbounded synchronous-replication commit wait, and slice 2 verifies and
+        documents the `synchronous_commit` and replica setting before the read
+        answers verdicts. It does not by itself cover a `recordReturn` request
+        received less than 60 seconds before the read, which may still commit
+        after it. A client therefore closes a
+        return only after its own quiet period since its last send of it (the
+        POS: 15 minutes, RT-196 OD-196-5), which must exceed the bound plus its
+        request timeout plus the transport delay before receipt, and only on a
+        fresh `not_recorded` read after that period. The quiet period is
+        elapsed time: a client that cannot show that it has elapsed (its clock
+        stepped forward, or it restarted) treats it as not elapsed.
+        `not_recorded` makes no claim about an in-flight
+        `recordCreditSaleReversal`, which is outside the bound (the POS never
+        returns a credit sale, RT-196 D-c). Late commit: if a return the client
+        closed as not recorded is later seen as recorded (a later `recorded`
+        verdict for its key, `readSale` showing it, or any server answer for the
+        closed key), the client treats it as a mismatch: it raises the row to
+        support (`needs_support`, mismatch) and never pays cash on it (RT-1498
+        owns that code; this contract states the obligation). Rollout: the read must not answer a
+        verdict until every instance that serves `recordReturn` enforces the
+        bound; ship the bound first, or keep the read off (404) until the
+        rollout has completed. Inconclusive outcomes (offline, 401, 404, 5xx, an
+        unreadable body) are not verdicts.
+      parameters:
+        - $ref: "#/components/parameters/SaleRef"
+        - $ref: "#/components/parameters/ReturnSourceSystem"
+        - $ref: "#/components/parameters/ReturnExternalId"
+      responses:
+        "200":
+          description: >
+            The verdict: `recorded` with the return and its `creditLinked` flag,
+            or `not_recorded`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ReturnProvenanceStatus"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/ReturnStatusNotFound"
         "500":
           $ref: "#/components/responses/SystemFailure"
   /api/pos/v1/sales/{saleRef}/returns/{returnRef}/executions:
@@ -4362,6 +4543,169 @@ components:
           anyOf:
             - $ref: "#/components/schemas/RefundSettlement"
             - type: "null"
+    ReturnProvenanceStatus:
+      description: >
+        RT-1548 (BR-2). The verdict of `readReturnStatusByProvenance`: exactly
+        two outcomes, told apart by `status`. There is no third, non-final
+        verdict: an inconclusive read is an HTTP failure, never a body.
+      oneOf:
+        - $ref: "#/components/schemas/ReturnRecordedStatus"
+        - $ref: "#/components/schemas/ReturnNotRecordedStatus"
+      discriminator:
+        propertyName: status
+        mapping:
+          recorded: "#/components/schemas/ReturnRecordedStatus"
+          not_recorded: "#/components/schemas/ReturnNotRecordedStatus"
+    ReturnRecordedStatus:
+      type: object
+      additionalProperties: false
+      required: [status, saleReturn, creditLinked]
+      description: >
+        RT-1548 (BR-2, BR-3, BR-4). A return of this sale is recorded under the
+        provenance. `saleReturn` is the same `SaleReturn` that `recordReturn`
+        answers with, so the POS reuses its own matcher; it carries no
+        `settlement` (`readReturnByProvenance` and `listSaleReturns` do).
+        `creditLinked` is `true` when the return was recorded by
+        `recordCreditSaleReversal`, a credit-sale reversal: the POS treats it as
+        a mismatch and never pays it out. It is `false` for a return
+        `recordReturn` recorded, and it is always present, so a client never
+        reads an absent flag. One exception to "the same `SaleReturn`": a
+        credit-sale reversal whose cash refund is 0 has no refund row, so its
+        `saleReturn.refundTenders` is empty, which `SaleReturn` does not allow
+        (`minItems: 1`). For `creditLinked: true` only, `saleReturn` may
+        therefore be `ReturnStatusZeroRefundReturn` (identical but for the empty
+        `refundTenders`); for `creditLinked: false` it is always a full
+        `SaleReturn` with at least one refund allocation.
+      properties:
+        status:
+          type: string
+          const: recorded
+        saleReturn:
+          oneOf:
+            - $ref: "#/components/schemas/SaleReturn"
+            - $ref: "#/components/schemas/ReturnStatusZeroRefundReturn"
+        creditLinked:
+          type: boolean
+          description: >
+            `true` when the return belongs to a credit-sale reversal
+            (RT-577); the client treats it as a mismatch.
+      if:
+        required: [creditLinked]
+        properties:
+          creditLinked:
+            const: false
+      then:
+        properties:
+          saleReturn:
+            $ref: "#/components/schemas/SaleReturn"
+    ReturnStatusZeroRefundReturn:
+      type: object
+      additionalProperties: false
+      required:
+        - returnRef
+        - saleRef
+        - recordedAt
+        - businessDate
+        - sourceSystem
+        - externalId
+        - currencyCode
+        - returnTotal
+        - lines
+        - refundTenders
+        - reason
+      description: >
+        RT-1548. `SaleReturn` as a credit-sale reversal with nothing refunded in
+        cash projects it: every property, type and required field of
+        `SaleReturn`, except that `refundTenders` is EMPTY. A credit-sale
+        reversal whose cash refund is 0 records no refund row (the empty list
+        `recordCreditSaleReversal` accepts for a zero refund), so its return
+        cannot meet `SaleReturn.refundTenders.minItems: 1`. Used only by
+        `ReturnRecordedStatus` when `creditLinked` is `true`; `SaleReturn` itself
+        is unchanged. A test pins that the two stay identical but for this field.
+      properties:
+        returnRef:
+          type: string
+          format: uuid
+          description: Stable reference to the return row.
+        saleRef:
+          type: string
+          format: uuid
+          description: The sale this return is against.
+        recordedAt:
+          type: string
+          format: date-time
+          description: Server-clock stamp of the return (never a client time).
+        businessDate:
+          type: string
+          format: date
+          description: >
+            The return's own business day: `recordedAt` in the store timezone,
+            persisted at insert so a later timezone change never rewrites it
+            (RT-63 P2). The sale's `businessDate` is unaffected.
+        sourceSystem:
+          type: string
+        externalId:
+          type: string
+        currencyCode:
+          $ref: "#/components/schemas/CurrencyCode"
+        returnTotal:
+          $ref: "#/components/schemas/DecimalAmount"
+          description: >
+            Σ returned `lineAmount` — the server-computed refund total — less
+            Σ `promotionClawbacks.amount` when an automatic offer is clawed
+            back, plus the give-back of an earlier clawback (RT-1335, OD-11
+            Hybrid, see `recordReturn`).
+        lines:
+          type: array
+          minItems: 1
+          items:
+            $ref: "#/components/schemas/ReturnLine"
+        refundTenders:
+          type: array
+          maxItems: 0
+          items:
+            $ref: "#/components/schemas/RefundTender"
+          description: >
+            Always empty here: the credit-sale reversal refunded no cash, so
+            there is no allocation (see `SaleReturn.refundTenders`).
+        reason:
+          type: [string, "null"]
+        promotionClawbacks:
+          type: array
+          maxItems: 50
+          items:
+            $ref: "#/components/schemas/PromotionClawback"
+          description: >
+            RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the
+            discount the customer no longer earns on the units they keep,
+            deducted from `returnTotal`. Absent when no offer is clawed back
+            and from a Backend-Core that predates RT-1337. Since RT-1367 PR 2
+            an accepted return carries one entry for each offer whose clawback
+            is above 0 (from RT-1337 until then such a return was refused, so
+            the field was never present; see `recordReturn`, Automatic
+            offers). The posting feed carries the per-line clawback
+            (`posting-feed.yaml` 1.13.0-draft, OD-11 option A plus Hybrid).
+        returnPolicy:
+          $ref: "#/components/schemas/SaleReturnPolicy"
+    ReturnNotRecordedStatus:
+      type: object
+      additionalProperties: false
+      required: [status]
+      description: >
+        RT-1548 (BR-2, BR-7). No return of this sale had this provenance when
+        the read ran: the affirmative answer `readReturnByProvenance` never
+        gives. Together with the late-commit bound of 60 seconds stated on
+        `readReturnStatusByProvenance` and `recordReturn`, it means that no
+        `recordReturn` request received more than 60 seconds earlier has a
+        COMMIT still to be issued. It is not by itself proof about a request
+        received within the last 60 seconds, so a client closes only after its
+        quiet period; and a client that later sees the return as recorded
+        treats it as a mismatch, raises it to support and never pays cash on
+        it. It carries no other field: no timestamp, no reason.
+      properties:
+        status:
+          type: string
+          const: not_recorded
     SaleReturnList:
       type: object
       additionalProperties: false
@@ -4641,6 +4985,18 @@ components:
         does not resolve as a return of that sale. Non-disclosing: identical for cross-tenant,
         out-of-scope, and genuinely-absent ids, with no existence leak via any
         response or error shape (FR-102, SI-004, §II/§XII).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    ReturnStatusNotFound:
+      description: >
+        FR-101 `not-found` for `readReturnStatusByProvenance` (RT-1548, BR-2):
+        the returns gate is off, or the sale ref does not resolve in the
+        caller's (tenant, store) scope. Non-disclosing: one body for both and
+        for a malformed sale ref, identical for cross-tenant, out-of-scope and
+        absent ids. It is NEVER `not_recorded`: a 404 is not a verdict, and a
+        client treats it as inconclusive.
       content:
         application/json:
           schema:
