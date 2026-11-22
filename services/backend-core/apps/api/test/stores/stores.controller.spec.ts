@@ -54,6 +54,7 @@ import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import type { RedisLike } from "../../src/auth/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
@@ -186,7 +187,7 @@ beforeAll(async () => {
     await seed();
 
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, ContextModule, StoresModule],
+      imports: [AuthModule, ContextModule, StoresModule, PricingStoreLifecycleModule],
     })
       .overrideProvider(PG_POOL)
       .useValue(env.app) // non-superuser app role — enforces RLS

@@ -52,6 +52,7 @@ import {
   type NewCashUpShift,
 } from "../../src/pos-shifts/shift-cash-up.repository";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import {
   applyAllUpAndCreateAppRole,
   startPgEnv,
@@ -194,7 +195,7 @@ beforeAll(async () => {
     await applyAllUpAndCreateAppRole(env);
     await seed();
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, ContextModule, StoresModule],
+      imports: [AuthModule, ContextModule, StoresModule, PricingStoreLifecycleModule],
     })
       .overrideProvider(PG_POOL)
       .useValue(env.app)

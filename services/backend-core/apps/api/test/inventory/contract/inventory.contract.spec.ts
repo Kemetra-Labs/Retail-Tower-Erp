@@ -125,6 +125,9 @@ const OPERATION_IDS = [
   "listShipmentTransferReceipts",
   "listShipmentTransfers",
   "recordShipmentTransferReceipt",
+  // RT-1517: the tenant's shipment-Transfer activation switch.
+  "getShipmentTransfersSetting",
+  "setShipmentTransfersSetting",
 ] as const;
 
 // Operator-surface ops use cookieAuth.
@@ -187,6 +190,9 @@ const OPERATOR_OPERATION_IDS = [
   "listShipmentTransferReceipts",
   "listShipmentTransfers",
   "recordShipmentTransferReceipt",
+  // RT-1517: the tenant's shipment-Transfer activation switch.
+  "getShipmentTransfersSetting",
+  "setShipmentTransfersSetting",
 ];
 
 // Write ops that MUST carry a required Idempotency-Key.
@@ -1544,7 +1550,7 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
   it("keeps the 1.16.0 note (version moved on in RT-1423, RT-1424 and RT-1444), a wording-only note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1579,7 +1585,7 @@ describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
 
   it("keeps the 1.17.0 note (version moved on in RT-1424 and RT-1444), the activation note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
     expect(description).toContain("`count_sessions_readiness_unmet`");
@@ -1621,7 +1627,7 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
     "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation";
 
   it("keeps the 1.18.0 note (version moved on in RT-1444); the note cites the owner delegation and the oasdiff acknowledgement", () => {
-    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.18.0-draft (RT-1424, additive;");
     expect(description).toContain("`erp_absorbed`");
@@ -1722,8 +1728,8 @@ describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft; 
   };
   const U = (n: number) => `0198b000-0000-7000-8000-${String(n).padStart(12, "0")}`;
 
-  it("bumps to 1.21.0-draft with a note citing the planning record, the owner rulings and the runtime issue", () => {
-    expect(inventoryDoc.info?.version).toBe("1.21.0-draft");
+  it("keeps the 1.21.0 note (version moved on in RT-1517), citing the planning record, the owner rulings and the runtime issue", () => {
+    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
     const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
     expect(description).toContain("**1.21.0-draft (RT-1512, additive, contract-only;");
     expect(description).toContain("RT-291 comments 17800 and 17801");
@@ -1867,5 +1873,63 @@ describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft; 
     expect(items("RecordShipmentTransferReceiptCommand", "lines")).toBe(100);
     expect(items("ShipmentTransfer", "lines")).toBe(100);
     expect(items("ShipmentTransferReceipt", "lines")).toBe(100);
+  });
+});
+
+// RT-1517 (Inventory Gate 5, RT-291) — the tenant's shipment-Transfer activation switch (1.22.0-draft)
+describe("inventory/inventory.yaml — RT-1517 shipment-Transfer activation switch (1.22.0-draft)", () => {
+  const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
+  const PATH = "/api/inventory/v1/settings/shipment-transfers";
+
+  it("bumps to 1.22.0-draft with a note citing the owner decision and the legacy 409", () => {
+    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+    const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
+    expect(description).toContain("**1.22.0-draft (RT-1517, additive;");
+    expect(description).toContain("`shipment_transfers_readiness_unmet`");
+    expect(description).toContain("`transfer_workflow_required`");
+  });
+
+  it("declares the read and the PUT of the switch on one path, cookie-authenticated and served, with the typed 409", () => {
+    const path = inventoryDoc.paths?.[PATH] as Record<string, any> | undefined;
+    expect(path?.["get"]?.operationId).toBe("getShipmentTransfersSetting");
+    expect(path?.["put"]?.operationId).toBe("setShipmentTransfersSetting");
+    for (const m of ["get", "put"]) {
+      expect(path?.[m]?.security).toEqual([{ cookieAuth: [] }]);
+      expect(path?.[m]?.["x-runtime-status"]).toBeUndefined();
+      expect(path?.[m]?.parameters).toBeUndefined();
+      for (const status of ["200", "401", "403", "429", "5XX"]) expect(path?.[m]?.responses).toHaveProperty(status);
+    }
+    expect(path?.["put"]?.responses?.["400"]).toBeDefined();
+    expect(path?.["put"]?.responses?.["409"]?.$ref).toBe("#/components/responses/ShipmentTransfersSettingConflict");
+    expect(path?.["get"]?.responses?.["409"]).toBeUndefined();
+  });
+
+  it("the setting body is strict, the command carries only enabled, and every readiness code is typed", () => {
+    expect(schema("ShipmentTransfersSetting").additionalProperties).toBe(false);
+    expect(schema("ShipmentTransfersSetting").required).toEqual([
+      "enabled",
+      "changedAt",
+      "changedBy",
+      "delayedTransferThresholdDays",
+      "readinessMet",
+      "unmetReadiness",
+    ]);
+    expect(schema("SetShipmentTransfersSettingCommand").additionalProperties).toBe(false);
+    expect(schema("SetShipmentTransfersSettingCommand").required).toEqual(["enabled"]);
+    expect(Object.keys(schema("SetShipmentTransfersSettingCommand").properties)).toEqual(["enabled"]);
+    expect(schema("ShipmentTransfersReadinessBoundary").additionalProperties).toBe(false);
+    expect(schema("ShipmentTransfersReadinessBoundary").properties.code.enum).toEqual([
+      "connector_not_seen",
+      "connector_version_unlisted",
+      "erp_back_dated_role_unverified",
+      "transit_warehouse_unmapped",
+    ]);
+  });
+
+  it("names both 409 codes on the conflict response", () => {
+    const conflict = (inventoryDoc.components as Record<string, any>)?.["responses"]?.["ShipmentTransfersSettingConflict"];
+    const text = String(conflict?.description ?? "").replace(/\s+/g, " ");
+    expect(text).toContain("`shipment_transfers_readiness_unmet`");
+    expect(text).toContain("`shipment_transfers_in_flight`");
   });
 });

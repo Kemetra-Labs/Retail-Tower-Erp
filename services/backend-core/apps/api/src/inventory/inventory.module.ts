@@ -44,6 +44,7 @@ import { InventoryPositionEventsController } from "./position-events/position-ev
 import { InventoryPositionEventsService } from "./position-events/position-events.service";
 import { ShipmentTransferActivationService } from "./shipment-transfers/shipment-transfer-activation.service";
 import { ShipmentTransfersController } from "./shipment-transfers/shipment-transfers.controller";
+import { ShipmentTransfersSettingController } from "./shipment-transfers/shipment-transfers-setting.controller";
 import { ShipmentTransfersService } from "./shipment-transfers/shipment-transfers.service";
 import { IdentityExpiryService } from "./safety/identity-expiry.service";
 import { InventoryRecallsService } from "./safety/inventory-recalls.service";
@@ -111,6 +112,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // RT-1513: the shipment Transfer lifecycle (cookieAuth, RolesGuard; dark until the tenant's
     // shipment_transfers_enabled is on).
     ShipmentTransfersController,
+    ShipmentTransfersSettingController,
   ],
   providers: [
     InventoryService,

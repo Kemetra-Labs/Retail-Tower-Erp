@@ -6,3 +6,9 @@
  */
 export { isLiveStore, liveAndNamedStores, liveStoreIdsAfter, liveStoreTimezone } from "./store-lookups";
 export { isIanaTimezoneShape } from "./timezone";
+// RT-1525: the inverted port Store lifecycle writes need from Pricing (Pricing implements it).
+export {
+  STORE_PRICING_LIFECYCLE,
+  type StorePricingBootstrap,
+  type StorePricingLifecycle,
+} from "./store-pricing-lifecycle.port";

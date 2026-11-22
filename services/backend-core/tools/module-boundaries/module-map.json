@@ -44,6 +44,9 @@
     "catalog": {
       "tables": [
         "catalog_change_log",
+        "catalog_import_batches",
+        "catalog_import_mapping_profiles",
+        "catalog_import_rows",
         "erp_stock_import_findings",
         "erp_stock_import_pages",
         "erp_stock_import_row_resolutions",
@@ -221,6 +224,23 @@
         "pairing_codes"
       ]
     },
+    "pricing": {
+      "tables": [
+        "change_sets",
+        "price_books",
+        "price_change_set_item_lists",
+        "price_change_set_items",
+        "price_change_set_lines",
+        "price_change_set_preview_lines",
+        "price_change_set_preview_memberships",
+        "price_change_set_validations",
+        "price_events",
+        "price_zone_memberships",
+        "price_zones",
+        "pricing_revision_stores",
+        "pricing_revisions"
+      ]
+    },
     "settlement": {
       "tables": [
         "payer_account"
@@ -273,22 +293,6 @@
     }
   },
   "unownedTables": [
-    "catalog_import_batches",
-    "catalog_import_mapping_profiles",
-    "catalog_import_rows",
-    "change_sets",
-    "price_books",
-    "price_change_set_item_lists",
-    "price_change_set_items",
-    "price_change_set_lines",
-    "price_change_set_preview_lines",
-    "price_change_set_preview_memberships",
-    "price_change_set_validations",
-    "price_events",
-    "price_zone_memberships",
-    "price_zones",
-    "pricing_revision_stores",
-    "pricing_revisions",
     "sync_failure_alert_deliveries",
     "sync_failure_alert_windows"
   ]

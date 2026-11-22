@@ -12,7 +12,10 @@
  *     └─ StoresService
  *          ├─ PG_POOL          (from AuthModule)
  *          ├─ StoresRepository (provided here)
- *          └─ MembershipRepository (from ContextModule)
+ *          ├─ MembershipRepository (from ContextModule)
+ *          └─ STORE_PRICING_LIFECYCLE (RT-1525; provided by Pricing's @Global()
+ *             PricingStoreLifecycleModule, imported by app.module.ts only —
+ *             never import Pricing here, that closes a module cycle)
  *
  * `ContextModule` is imported for both `TenantContextGuard` (which it
  * exports for downstream modules to mount) and `MembershipRepository`

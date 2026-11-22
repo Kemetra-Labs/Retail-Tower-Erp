@@ -25,7 +25,7 @@ import { ErpnextPostingService } from '../../../src/catalog/erpnext-posting/erpn
 import type { FeedWorkItem } from '../../../src/catalog/erpnext-posting/posting-work-item.projection';
 import { canonicalJson } from '../../../src/common/hashing/canonical-json';
 import type { MembershipRepository } from '../../../src/context/membership.repository';
-import { readShipmentTransferHealth } from '../../../src/inventory';
+import { listLegacyTransferDrift, readShipmentTransferHealth } from '../../../src/inventory';
 import { StockTransferService } from '../../../src/inventory/stock-transfer.service';
 import {
   ShipmentTransferActivationService,
@@ -884,5 +884,72 @@ describe('delayed-transfer health facts (RT-1516)', () => {
     const other = await health(TENANT_B);
     expect(other.openTransferAgesSeconds).toEqual([]);
     expect(other.workItems).toEqual([]);
+  });
+});
+
+describe('legacy transfer drift report (RT-1517)', () => {
+  const legacyInput = (quantity: string) =>
+    ({
+      tenantId: TENANT_A, userId: OWNER, sourceStoreId: STORE_A_X, destinationStoreId: STORE_A_Y,
+      tenantProductRef: PRODUCT_A_ACTIVE, quantity, stockingUnit: 'each', reason: null,
+    }) as never;
+  const drift = (tenantId = TENANT_A, contextTenantId = tenantId) =>
+    runWithTenantContext(env!.app as unknown as Pool, { tenantId: contextTenantId, isPlatformAdmin: false }, (client) =>
+      listLegacyTransferDrift(client, tenantId),
+    );
+
+  it('lists every legacy leg still not_posted, per store, with item, quantity, unit and date, and nothing else', async () => {
+    if (skipped()) return;
+    await seedStock(STORE_A_X, '100');
+    await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
+    const first = await legacy.createStockTransfer(legacyInput('4'));
+    const second = await legacy.createStockTransfer(legacyInput('2.5'));
+    // A legacy leg whose effect is no longer not_posted is not drift.
+    const done = await legacy.createStockTransfer(legacyInput('1'));
+    await admin.query(
+      `UPDATE inventory_effect_integration SET state = 'external', erp_confirmed_at = now()
+        WHERE effect_id IN (SELECT id FROM stock_movements WHERE transfer_group_id = $1)`,
+      [(done as { transferGroupId: string }).transferGroupId],
+    );
+    // A shipment Transfer receipt stays not_posted until its dispatch is confirmed, but it is not a legacy leg.
+    await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = true WHERE tenant_id = $1`, [TENANT_A]);
+    const shipment = await svc.create(owner(), draft({}, '3'));
+    await svc.approve(owner(), shipment.id, FAR_FUTURE);
+    const inTransit = await svc.dispatch(owner(), shipment.id, 'on the truck');
+    await svc.receive(owner(), shipment.id, recv(inTransit, '3'));
+    const shipmentNotPosted = await admin.query(
+      `SELECT count(*)::int AS n FROM stock_movements sm JOIN inventory_effect_integration i ON i.effect_id = sm.id
+        WHERE sm.transfer_group_id = $1 AND sm.movement_type = 'transfer_in' AND i.state = 'not_posted'`,
+      [shipment.id],
+    );
+    expect(shipmentNotPosted.rows[0].n).toBe(1);
+
+    const rows = await drift();
+    const groups = [first, second].map((t) => (t as { transferGroupId: string }).transferGroupId);
+    expect(rows).toHaveLength(4);
+    expect(new Set(rows.map((r) => r.transferGroupId))).toEqual(new Set(groups));
+    // Ordered by store, then time: every source-store leg comes before every destination-store leg.
+    const sourceFirst = [STORE_A_X, STORE_A_Y].sort()[0];
+    expect(rows.slice(0, 2).every((r) => r.storeId === sourceFirst)).toBe(true);
+    for (const r of rows) {
+      expect(r.tenantProductRef).toBe(PRODUCT_A_ACTIVE);
+      expect(r.stockingUnit).toBe('each');
+      expect(r.occurredAt).toMatch(/^\d{4}-\d{2}-\d{2}T/);
+      expect(r.movementType === 'transfer_out' ? r.storeId : STORE_A_X).toBe(STORE_A_X);
+      expect(r.movementType === 'transfer_in' ? r.storeId : STORE_A_Y).toBe(STORE_A_Y);
+    }
+    const qty = rows.map((r) => `${r.movementType}:${r.quantity}`).sort();
+    expect(qty).toEqual(['transfer_in:2.5000', 'transfer_in:4.0000', 'transfer_out:-2.5000', 'transfer_out:-4.0000']);
+  });
+
+  it('is empty for a tenant with no legacy drift, and never shows another tenant\'s legs (RLS)', async () => {
+    if (skipped()) return;
+    await seedStock(STORE_A_X, '100');
+    await admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
+    await legacy.createStockTransfer(legacyInput('4'));
+    expect(await drift(TENANT_B)).toEqual([]);
+    // Asked for tenant A's legs from inside tenant B's context: RLS, not the WHERE clause, must hide them.
+    expect(await drift(TENANT_A, TENANT_B)).toEqual([]);
+    expect(await drift(TENANT_A)).toHaveLength(2);
   });
 });

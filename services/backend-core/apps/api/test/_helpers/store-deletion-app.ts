@@ -29,6 +29,7 @@ import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { ContextModule } from "../../src/context/context.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { idempotencyProviders } from "./idempotency-providers";
 import {
   applyAllUpAndCreateAppRole,
@@ -207,7 +208,7 @@ export async function startHarness(seed: (admin: Pool) => Promise<void>): Promis
     await seedBase(env.admin);
     await seed(env.admin);
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, ContextModule, StoresModule],
+      imports: [AuthModule, ContextModule, StoresModule, PricingStoreLifecycleModule],
       providers: idempotencyProviders(),
     })
       .overrideProvider(PG_POOL)

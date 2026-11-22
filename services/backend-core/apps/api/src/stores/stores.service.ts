@@ -55,7 +55,6 @@
  *   - persisted business dates are never rewritten (215).
  */
 import { rebuildOfferPackForStoreChange } from "../offers/offer-pack.rebuild";
-import { bootstrapStorePricing, lockPricingPublish } from "../common/pricing-store-lifecycle";
 import { storeDeletionBlocked } from "./deletion/store-deletion.errors";
 import {
   evaluateStoreDeletionBlockers,
@@ -86,6 +85,10 @@ import {
   type StoreRecord,
   type ZoneFacts,
 } from "./stores.repository";
+import {
+  STORE_PRICING_LIFECYCLE,
+  type StorePricingLifecycle,
+} from "./store-pricing-lifecycle.port";
 import {
   INVALID_TIMEZONE,
   STORE_HAS_OPEN_SHIFT,
@@ -175,6 +178,9 @@ export class StoresService {
     private readonly pool: Pool,
     private readonly stores: StoresRepository,
     private readonly memberships: MembershipRepository,
+    /** RT-1525: Pricing's side of a Store lifecycle write (the publish lock, the bootstrap row). Not optional. */
+    @Inject(STORE_PRICING_LIFECYCLE)
+    private readonly pricingLifecycle: StorePricingLifecycle,
     /** Optional injected runner for tests. Production callers omit it. */
     @Optional() tx?: TenantTxRunner,
   ) {
@@ -228,7 +234,7 @@ export class StoresService {
       return await this.tx(this.pool, txCtx(ctx), async (client) => {
         // RT-1484 (spec 042 §8): a Store lifecycle write takes the tenant's pricing publish lock
         // first, so a Change Set publish's target-Store re-check and this create serialize.
-        await lockPricingPublish(client, ctx.tenantId as string);
+        await this.pricingLifecycle.lockForStoreWrite(client, ctx.tenantId as string);
         if (input.timezone !== undefined) {
           await this.requireKnownZone(client, input.timezone);
         }
@@ -242,7 +248,7 @@ export class StoresService {
         // RT-1337: an offer with `allStores: true` includes stores added later.
         await rebuildOfferPackForStoreChange(client, ctx.tenantId as string);
         // The new Store starts at the tenant's head revision (spec 041 data-model §2.6).
-        await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
+        await this.pricingLifecycle.bootstrapStore(client, pricingBootstrapOf(ctx, storeId));
         return created;
       });
     } catch (err) {
@@ -343,7 +349,7 @@ export class StoresService {
       // RT-1484 (spec 042 §8): activation, deactivation and a time-zone change are Store lifecycle
       // writes: the tenant's pricing publish lock first, before the store row lock.
       if (timezoneChange !== undefined || next.is_active !== undefined) {
-        await lockPricingPublish(client, ctx.tenantId as string);
+        await this.pricingLifecycle.lockForStoreWrite(client, ctx.tenantId as string);
       }
       // Review round 1 (m5): only a real activation (inactive → active) bootstraps the Store. The
       // pre-read runs under the publish lock, which every lifecycle write takes first.
@@ -353,7 +359,7 @@ export class StoresService {
         : await this.stores.update(client, storeId, { name: next.name, isActive: next.is_active });
       if (!row) throw notFound();
       // An activation starts the Store at the head revision (spec 041 data-model §2.6).
-      if (activates) await bootstrapStorePricing(client, pricingBootstrapOf(ctx, storeId));
+      if (activates) await this.pricingLifecycle.bootstrapStore(client, pricingBootstrapOf(ctx, storeId));
       return row;
     });
   }
@@ -504,7 +510,7 @@ export class StoresService {
   ): Promise<void> {
     await this.tx(this.pool, txCtx(ctx), async (client) => {
       // RT-1484 (spec 042 §8): the pricing publish lock first, before the store row lock.
-      await lockPricingPublish(client, ctx.tenantId as string);
+      await this.pricingLifecycle.lockForStoreWrite(client, ctx.tenantId as string);
       const store = await this.stores.findByIdForUpdate(client, storeId);
       if (!store) throw notFound();
       const facts = await readStoreDeletionFacts(client, factsStoreOf(store), store.tenantId, { withEligibility: false });
