@@ -134,13 +134,15 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
     const now = deps.now();
     const claim = deps.payouts.readClaim(entry.voidId);
     if (claim !== null) {
-      // A step the server would refuse (the window passed) is never offered: only the exception is.
+      // A step the gate would refuse (the claim's shift is gone, or the day passed) is never
+      // offered: only the manager-attested exception is, and the view says so.
       const open = ctx.blockAt(entry, now, claim) === null;
       return {
         ...none,
         state: 'claimed',
         claim_actions: open ? claimActionsOf(claim, now) : [],
         overdue: false,
+        ...(open ? {} : { claim_window_closed: true as const }),
       };
     }
     if (entry.state !== 'confirmed' || entry.cashMinor === 0) {

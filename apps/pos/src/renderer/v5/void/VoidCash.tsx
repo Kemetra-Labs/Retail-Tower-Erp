@@ -132,7 +132,8 @@ function RecordedCash({ entry }: { entry: SaleVoidJournalView }): JSX.Element {
 /**
  * A payout that was claimed and has no record: the drawer may be open (RT-15's rule). A manager may
  * retry the drawer (only after a kick that never left) or complete it by hand; anyone may ask for the
- * manager-attested exception.
+ * manager-attested exception. A claim whose window closed (its shift is gone, or the day passed) says
+ * so and offers only that exception (RT-1403 c18183).
  */
 function ClaimedCash(props: CashProps): JSX.Element {
   const { entry } = props;
@@ -143,6 +144,9 @@ function ClaimedCash(props: CashProps): JSX.Element {
         {VOID_COPY.claimed}: <VoidMoney minor={entry.cash_minor} />
       </span>
       <VoidAlert message={VOID_COPY.drawerMayBeOpen} />
+      {entry.payout.claim_window_closed === true && (
+        <VoidAlert message={VOID_COPY.claimWindowClosed} />
+      )}
       {error !== null && <VoidAlert message={error} />}
       <div className="v5-void-row__actions">
         {props.canPayOut &&

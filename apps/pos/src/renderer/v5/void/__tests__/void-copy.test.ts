@@ -26,6 +26,11 @@ describe('void copy', () => {
     },
   );
 
+  it('has Arabic copy for a claim whose window closed, naming the manager exception', () => {
+    expect(VOID_COPY.claimWindowClosed).toMatch(/[؀-ۿ]/);
+    expect(VOID_COPY.claimWindowClosed).toContain('مدير آخر');
+  });
+
   it('falls back to the generic message for an unknown reason', () => {
     expect(voidRefusalMessage('something_new')).toBe(VOID_COPY.unavailable);
   });

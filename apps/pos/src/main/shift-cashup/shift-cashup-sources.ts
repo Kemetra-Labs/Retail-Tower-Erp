@@ -37,7 +37,10 @@
  *   • refundPayouts     RT-15 payouts started (the drawer may already be
  *                       open) but not completed (`paid_at IS NULL`);
  *   • voidPayouts       RT-1403 S2 void payout claims (migration 0069) with no
- *                       payout record yet: same shape, same hold;
+ *                       payout record yet, while the claim's own shift is open: same
+ *                       shape, same hold. A claim whose shift is closed (locally or by a
+ *                       manager closure) is stale: it holds nothing, and only the
+ *                       manager-attested cash exception settles it;
  *   • unfinalizedSales  `payment.settled` audits of the terminal that the 008
  *                       finalize listener has not turned into a sale yet —
  *                       the listener's own pending-set filter — PLUS (RT-496)
@@ -75,7 +78,8 @@ export interface PendingDrawerActivity {
   refundPayouts: number;
   /**
    * RT-1403 S2 (H1, M1): void payouts CLAIMED (the drawer may be open or the kick unresolved) with no
-   * payout record yet: the shift cannot close over them.
+   * payout record yet, in a shift that is still open: that shift cannot close over them. A claim of a
+   * closed shift is not counted (c18183): it never blocks the next shift from opening.
    */
   voidPayouts: number;
   unfinalizedSales: number;
@@ -157,11 +161,19 @@ const PENDING_PAYOUTS_SQL = `
   FROM return_payouts p JOIN return_journal j ON j.return_id = p.return_id
   WHERE j.tenant_id = ? AND j.branch_id = ? AND j.terminal_id = ? AND p.paid_at IS NULL`;
 
+/**
+ * Void payout claims that hold the till: no record yet AND the claim's own shift still open (no
+ * close, no manager closure: the repo's definition of an open shift). A claim whose shift is gone can
+ * never be completed by `retry_drawer` or `manual` (they need that shift), so it must not block the
+ * next shift from opening; only the manager-attested cash exception settles it (RT-1403 c18183).
+ */
 const PENDING_VOID_PAYOUTS_SQL = `
   SELECT COUNT(*) AS n
   FROM sale_void_payout_claims c
   WHERE c.tenant_id = ? AND c.branch_id = ? AND c.terminal_id = ?
-    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)`;
+    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes cl WHERE cl.shift_id = c.shift_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = c.shift_id)`;
 
 const PARKED_SALES_SQL = `
   SELECT COUNT(*) AS n FROM carts

@@ -626,7 +626,10 @@ function requireClockFrom(input: { now: string; floor: string | null; gapMs: 0 |
   if (Date.parse(input.now) - Date.parse(input.floor) < input.gapMs) refuse('clock_regressed');
 }
 
-/** Review P2-2: no drawer cash in flight on the terminal, else `drawer_activity_pending`. */
+/**
+ * Review P2-2: no drawer cash in flight on the terminal, else `drawer_activity_pending`. A void payout
+ * claim counts only while its own shift is open (c18183), so a stale one never blocks an open.
+ */
 function requireDrawerSettled(input: { sources: ShiftCashupSources; scope: ShiftScope }): void {
   const pending = input.sources.pendingDrawerActivity(input.scope);
   if (pending.refundPayouts + pending.voidPayouts + pending.unfinalizedSales > 0) {

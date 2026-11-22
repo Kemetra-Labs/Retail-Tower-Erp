@@ -252,6 +252,26 @@ describe('a claimed payout (the drawer may be open)', () => {
     expect(exceptionButton(r)).toBeInTheDocument();
   });
 
+  it('a claim whose window closed says it needs another manager, offers only the exception, and never a retry or manual step', async () => {
+    show([
+      confirmed({
+        needs_attention: true,
+        payout: { ...NO_PAYOUT, state: 'claimed', claim_actions: [], claim_window_closed: true },
+      }),
+    ]);
+    const r = await row();
+    expect(r).toHaveTextContent(VOID_COPY.claimed);
+    expect(r).toHaveTextContent(VOID_COPY.claimWindowClosed);
+    expect(button(r, VOID_COPY.retryDrawer)).not.toBeInTheDocument();
+    expect(button(r, VOID_COPY.manualComplete)).not.toBeInTheDocument();
+    expect(exceptionButton(r)).toBeInTheDocument();
+  });
+
+  it('a claim still inside its window does not show the window-closed message', async () => {
+    show([claimed(['manual'])]);
+    expect(await row()).not.toHaveTextContent(VOID_COPY.claimWindowClosed);
+  });
+
   it('shows a cashier the warning and no payout step (a manager completes it)', async () => {
     useOperatorSessionStore.getState().reset();
     signIn('cashier');

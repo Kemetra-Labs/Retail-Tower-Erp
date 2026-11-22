@@ -58,6 +58,9 @@ export const VOID_COPY = Object.freeze({
   manualComplete: 'تأكيد صرف النقد يدويًا',
   managerPays: 'يصرف النقد مدير.',
   drawerMayBeOpen: 'قد يكون الدرج مفتوحًا. لا تُسلِّم النقد للعميل قبل أن يؤكد المدير الصرف.',
+  // RT-1403 (PROPOSED): a claim whose shift is gone or whose day passed: only a manager exception settles it.
+  claimWindowClosed:
+    'انتهت وردية هذا الصرف أو يومه، فلا يُكمَل بإعادة فتح الدرج ولا يدويًا. يحتاج إلى مدير آخر ليقرّ به في وردية مفتوحة.',
   voidStateIs: 'حالة الإلغاء',
   // RT-1403 S2 (PROPOSED): cash that left the drawer outside the payout gate.
   exceptionAction: 'تسجيل نقد صُرف خارج الإجراء',
