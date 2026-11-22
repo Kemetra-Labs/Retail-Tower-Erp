@@ -19,7 +19,7 @@ import {
   RepeatableWorker,
   type WorkerErrorLogger,
 } from "../common/repeatable-worker";
-import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email/email.worker";
+import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email";
 import { ReservationSweepProcessor } from "./reservation-sweep.processor";
 
 export const RESERVATION_SWEEP_QUEUE_NAME = QUEUE_NAMES.aiUsageReservationSweep;

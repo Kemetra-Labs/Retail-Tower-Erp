@@ -71,7 +71,6 @@ const PLATFORM_ADMIN_ALLOWLIST = [
   "apps/api/src/pos-pilot-releases/pilot-tenants.service.ts",
   "apps/api/src/tenant-access-entitlement/access-entitlement.service.ts",
   "apps/api/src/tenants/tenants.service.ts",
-  "apps/worker/src/ai-usage/reservation-sweep.repository.ts",
   "apps/worker/src/audit/drizzle-audit-retention.repository.ts",
   "apps/worker/src/erpnext-reconciliation/stock-run-sweep.repository.ts",
   "apps/worker/src/observability/metrics/worker.metrics.ts",
@@ -134,8 +133,9 @@ describe("system privilege fences (RT-1389)", () => {
     expect(src).not.toMatch(/runWithTenantContext\(/);
   });
 
-  it("the allowlist no longer carries any of the five bootstrap files and has shrunk to 27 (RT-1457; it only shrinks)", () => {
-    expect(PLATFORM_ADMIN_ALLOWLIST).toHaveLength(27);
+  it("the allowlist no longer carries any of the five bootstrap files and has shrunk to 26 (RT-1457, RT-1551; it only shrinks)", () => {
+    // RT-1551: the AI usage reservation sweep lists tenants through the shared tenants port.
+    expect(PLATFORM_ADMIN_ALLOWLIST).toHaveLength(26);
     for (const file of BOOTSTRAP_FILES) expect(PLATFORM_ADMIN_ALLOWLIST).not.toContain(file);
   });
 

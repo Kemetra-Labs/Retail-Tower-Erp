@@ -3,4 +3,5 @@
  * other worker modules share. Import it type-only where a runtime edge to `email/` would close a
  * module cycle (RT-1454).
  */
-export { WORKER_FACTORY, type JobLike, type WorkerFactory } from "./email.worker";
+export { WORKER_FACTORY, type EmailJobHandler, type JobLike, type WorkerFactory, type WorkerLike } from "./email.worker";
+export { EMAIL_JOB_NAMES } from "./job-names";

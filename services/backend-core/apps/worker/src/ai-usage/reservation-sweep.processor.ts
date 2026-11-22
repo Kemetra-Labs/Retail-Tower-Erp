@@ -21,7 +21,7 @@
  */
 import { z } from "zod";
 
-import { errorFields } from "../erpnext-reconciliation/stock-run-sweep.processor";
+import { errorFields } from "../common/error-class-name";
 import { DEFAULT_RESERVATION_SWEEP_BATCH_SIZE, DEFAULT_RESERVATION_SWEEP_LOOKBACK_SECONDS } from "./reservation-sweep.config";
 import type { ReservationSweepRepository } from "./reservation-sweep.repository";
 

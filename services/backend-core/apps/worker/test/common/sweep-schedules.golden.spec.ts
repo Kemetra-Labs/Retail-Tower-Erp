@@ -18,7 +18,7 @@ import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 import { ReservationSweepScheduler } from "../../src/ai-usage/reservation-sweep.scheduler";
 import { ProvisioningSweepScheduler } from "../../src/erp-provisioning/provisioning-sweep.scheduler";
 import { AuditRetentionScheduler } from "../../src/audit/audit-retention.scheduler";
-import { ReplayPurgeScheduler } from "../../src/cashier-admissions/replay-purge.scheduler";
+import { ReplayPurgeScheduler } from "../../src/pos-cashier-admissions/replay-purge.scheduler";
 import { StockRunSweepScheduler } from "../../src/erpnext-reconciliation/stock-run-sweep.scheduler";
 import { OutboxRetentionScheduler } from "../../src/outbox/retention.scheduler";
 import { SaleRedriveScheduler } from "../../src/sales/sale-redrive.scheduler";

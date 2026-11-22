@@ -57,7 +57,7 @@ import {
   type WorkerFactory,
   type WorkerLike,
   WORKER_FACTORY,
-} from "../email/email.worker";
+} from "../email";
 import { QUEUE_NAMES } from "@data-pulse-2/shared";
 
 /**
@@ -80,8 +80,8 @@ export const AUDIT_QUEUE_NAME = QUEUE_NAMES.audit;
  * so the audit worker doesn't define a parallel set. Both workers
  * consume the same minimal `JobLike` shape — `{ name, data }`.
  */
-export type { JobLike, WorkerFactory, WorkerLike } from "../email/email.worker";
-export { WORKER_FACTORY } from "../email/email.worker";
+export type { JobLike, WorkerFactory, WorkerLike } from "../email";
+export { WORKER_FACTORY } from "../email";
 export type AuditJobHandler = JobHandler;
 
 @Injectable()

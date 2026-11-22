@@ -11,7 +11,7 @@ import type { OnModuleDestroy } from "@nestjs/common";
 import { DEFAULT_WORKER_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 import { createLogger, type Logger } from "@data-pulse-2/shared";
 
-import type { JobLike, WorkerFactory, WorkerLike } from "../email/email.worker";
+import type { JobLike, WorkerFactory, WorkerLike } from "../email";
 import { errorClassName } from "./error-class-name";
 
 export abstract class RepeatableWorker implements OnModuleDestroy {

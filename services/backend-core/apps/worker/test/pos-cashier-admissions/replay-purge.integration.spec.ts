@@ -34,8 +34,8 @@ import {
 import {
   REPLAY_PURGE_JOB_NAME,
   ReplayPurgeProcessor,
-} from "../../src/cashier-admissions/replay-purge.processor";
-import { PgReplayPurgeRepository } from "../../src/cashier-admissions/replay-purge.repository";
+} from "../../src/pos-cashier-admissions/replay-purge.processor";
+import { PgReplayPurgeRepository } from "../../src/pos-cashier-admissions/replay-purge.repository";
 
 const TENANT_A = "0a000000-0000-7000-8000-000000209a01";
 const TENANT_B = "0b000000-0000-7000-8000-000000209b01";

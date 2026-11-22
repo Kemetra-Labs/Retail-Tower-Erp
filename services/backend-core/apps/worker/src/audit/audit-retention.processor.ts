@@ -91,7 +91,9 @@ import {
  * Convention: `<domain>-<verb>` hyphenated, matching the existing patterns
  * ("audit-fanout", "soft-delete-sweep").
  */
-export const AUDIT_RETENTION_JOB_NAME = "audit-retention-sweep";
+// RT-1551: defined in ./job-names (the audit port re-exports it without loading this processor).
+import { AUDIT_RETENTION_JOB_NAME } from "./job-names";
+export { AUDIT_RETENTION_JOB_NAME };
 
 // ---------------------------------------------------------------------------
 // Scheduled job payload schema

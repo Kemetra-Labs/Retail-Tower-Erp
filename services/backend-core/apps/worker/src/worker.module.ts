@@ -84,6 +84,7 @@ import {
   QueueLagGaugeRegistrar,
   OutboxPendingGaugeRegistrar,
   WorkerDbPoolGaugeRegistrar,
+  OUTBOX_PENDING_ROWS,
 } from "./observability/gauge-registrars";
 import { poolOrNoOp } from "./observability/pool-or-noop";
 import { InstrumentedRedis } from "./observability/instrumented-redis";
@@ -131,6 +132,7 @@ import {
 } from "./audit/audit-retention-db-pool";
 import { AuditRetentionScheduler } from "./audit/audit-retention.scheduler";
 import { OutboxModule, OutboxDrainerRunner } from "./outbox/outbox.module";
+import { pendingOutboxByEventType } from "./outbox";
 import { OutboxConsumerRegistry } from "./outbox/registry";
 import { DrainerProcessor } from "./outbox/drainer.processor";
 import { PostingRequestedConsumer } from "./erpnext-posting/posting-requested.consumer";
@@ -169,13 +171,13 @@ import {
 import { ProvisioningSweepScheduler } from "./erp-provisioning/provisioning-sweep.scheduler";
 import { ProvisioningSweepWorker } from "./erp-provisioning/provisioning-sweep.worker";
 import { resolveReservationSweepLookbackSeconds } from "./ai-usage/reservation-sweep.config";
-import { ReplayPurgeProcessor } from "./cashier-admissions/replay-purge.processor";
+import { ReplayPurgeProcessor } from "./pos-cashier-admissions/replay-purge.processor";
 import {
   NoOpReplayPurgeRepository,
   PgReplayPurgeRepository,
-} from "./cashier-admissions/replay-purge.repository";
-import { ReplayPurgeScheduler } from "./cashier-admissions/replay-purge.scheduler";
-import { ReplayPurgeWorker } from "./cashier-admissions/replay-purge.worker";
+} from "./pos-cashier-admissions/replay-purge.repository";
+import { ReplayPurgeScheduler } from "./pos-cashier-admissions/replay-purge.scheduler";
+import { ReplayPurgeWorker } from "./pos-cashier-admissions/replay-purge.worker";
 import { ImportRetentionProcessor } from "./catalog-import/import-retention.processor";
 import {
   NoOpImportRetentionRepository,
@@ -976,6 +978,8 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     // AuditDbPool on Nest init. Lifecycle is independent of the drainer
     // (the gauge keeps emitting whether the drainer is in mid-tick or
     // not). The no-DB path is handled inside the registrar itself.
+    // RT-1551: its read is outbox's, bound here (observability may not import outbox).
+    { provide: OUTBOX_PENDING_ROWS, useValue: pendingOutboxByEventType },
     OutboxPendingGaugeRegistrar,
   ],
   exports: [

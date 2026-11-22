@@ -71,12 +71,10 @@ const JOB_NAME_EMAIL = "email" as const;
  * in `apps/api/src/auth/email-queue.producer.ts`. The values MUST
  * match the producer literally — see the unit test.
  */
-export const EMAIL_JOB_NAMES = {
-  passwordReset: "auth.password-reset",
-  emailVerification: "auth.email-verify",
-  invitation: "memberships.invitation",
-  signupLink: "auth.signup-link",
-} as const;
+import { EMAIL_JOB_NAMES } from "./job-names";
+
+// RT-1551: defined in ./job-names (the email port re-exports it without loading this processor).
+export { EMAIL_JOB_NAMES };
 
 /**
  * Payload schema for auth jobs (password-reset, email-verify). The producer

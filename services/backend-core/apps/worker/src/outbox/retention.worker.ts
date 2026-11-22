@@ -24,13 +24,13 @@ import {
   type JobLike,
   type WorkerFactory,
   WORKER_FACTORY,
-} from "../email/email.worker";
+} from "../email";
 import { QUEUE_NAMES } from "@data-pulse-2/shared";
 
 export const OUTBOX_RETENTION_QUEUE_NAME = QUEUE_NAMES.outboxRetention;
 
-export type { JobLike, WorkerFactory, WorkerLike } from "../email/email.worker";
-export { WORKER_FACTORY } from "../email/email.worker";
+export type { JobLike, WorkerFactory, WorkerLike } from "../email";
+export { WORKER_FACTORY } from "../email";
 export type OutboxRetentionJobHandler = (job: JobLike) => Promise<void>;
 
 @Injectable()

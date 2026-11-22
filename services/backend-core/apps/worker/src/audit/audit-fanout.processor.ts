@@ -103,7 +103,9 @@ const JOB_NAME_AUDIT_FANOUT = "audit-fanout" as const;
  * `"memberships.invitation"` patterns and the worker package.json description
  * which already uses the string "audit-fanout").
  */
-export const AUDIT_FANOUT_JOB_NAME = "audit-fanout";
+// RT-1551: defined in ./job-names (the audit port re-exports it without loading this processor).
+import { AUDIT_FANOUT_JOB_NAME } from "./job-names";
+export { AUDIT_FANOUT_JOB_NAME };
 
 // ---------------------------------------------------------------------------
 // Worker-local job schema (no import from apps/api)

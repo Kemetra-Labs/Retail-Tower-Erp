@@ -3,7 +3,7 @@
  * `worker.module.ts`; `worker.module.ts` re-exports them). Pool teardown stays on
  * `AuditDbPool`; each registrar only registers and removes its callbacks.
  */
-import { Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
+import { Inject, Injectable, type OnModuleDestroy, type OnModuleInit } from "@nestjs/common";
 import { Queue } from "bullmq";
 
 import { GaugeHandleOwner } from "@data-pulse-2/shared";
@@ -15,8 +15,16 @@ import {
   registerOutboxPendingGauge,
   registerQueueLagGauge,
   WORKER_QUEUE_NAMES,
+  type OutboxPendingRowsQuery,
   type WorkerQueueName,
 } from "./metrics/worker.metrics";
+
+/**
+ * RT-1551: the DI token of the outbox gauge's per-client read. `outbox` implements it
+ * (`pendingOutboxByEventType`) and the worker root binds it: observability may not import outbox,
+ * which already imports observability (RT-1454).
+ */
+export const OUTBOX_PENDING_ROWS = "OUTBOX_PENDING_ROWS";
 
 /**
  * Nest-aware registrar for the `db_pool_in_use` and `db_pool_waiters`
@@ -118,11 +126,14 @@ export class QueueLagGaugeRegistrar implements OnModuleInit, OnModuleDestroy {
  */
 @Injectable()
 export class OutboxPendingGaugeRegistrar extends GaugeHandleOwner implements OnModuleInit {
-  constructor(private readonly wrapper: AuditDbPool) {
+  constructor(
+    private readonly wrapper: AuditDbPool,
+    @Inject(OUTBOX_PENDING_ROWS) private readonly pendingRows: OutboxPendingRowsQuery,
+  ) {
     super();
   }
 
   onModuleInit(): void {
-    this.handle = registerOutboxPendingGauge({ pool: this.wrapper.pool });
+    this.handle = registerOutboxPendingGauge({ pool: this.wrapper.pool, pendingRows: this.pendingRows });
   }
 }

@@ -25,6 +25,8 @@ import { listExpiredAiReservations, runWithTenantContext, settleAiReservation } 
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
+import { listAllTenantIds } from "../tenants";
+
 export interface ReservationSweepRepository {
   /** True when 0055 is migrated and the role holds the sweep's grants. */
   isProvisioned(): Promise<boolean>;
@@ -66,10 +68,8 @@ export class PgReservationSweepRepository implements ReservationSweepRepository 
   }
 
   listTenantIds(): Promise<string[]> {
-    return runWithTenantContext(this.pool, { tenantId: null, isPlatformAdmin: true }, async (client) => {
-      const r = await client.query<{ id: string }>(`SELECT id FROM tenants ORDER BY id`);
-      return r.rows.map((row) => row.id);
-    });
+    // RT-1551: the shared platform-admin tenant listing (the `tenants` port, one RT-1389 site).
+    return listAllTenantIds(this.pool);
   }
 
   async releaseExpiredBatch(tenantId: string, input: SweepBatchInput): Promise<SweepBatchResult> {
