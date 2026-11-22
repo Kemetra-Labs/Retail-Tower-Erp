@@ -35,6 +35,7 @@ import { OUTBOX_EVENT_TYPES, runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, QueryResult, QueryResultRow } from "pg";
 
 import { PG_POOL } from "../database";
+import { readShipmentTransferHealth } from "../inventory";
 import {
   type ConnectorRegistrationFacts,
   type ConsoleSystemStatus,
@@ -103,14 +104,17 @@ export class ConsoleSystemStatusService {
   /** The tenant's system status, computed on read at one `asOf`. */
   async read(input: { tenantId: string }): Promise<ConsoleSystemStatus> {
     const now = new Date();
-    const [saleSync, registrations] = await Promise.all([
+    const [saleSync, registrations, shipmentTransfers] = await Promise.all([
       this.bounded(input.tenantId, (query) => this.saleSyncFacts(query)),
       this.bounded(input.tenantId, (query) => this.registrations(query)),
+      // RT-1516: the inventory port reads on this check's guarded query, under the tenant's RLS.
+      this.bounded(input.tenantId, (query) => readShipmentTransferHealth(query)),
     ]);
     return toConsoleSystemStatus(
       now,
       saleSync === TIMED_OUT ? null : saleSync,
       registrations === TIMED_OUT ? null : registrations,
+      shipmentTransfers === TIMED_OUT ? null : shipmentTransfers,
     );
   }
 

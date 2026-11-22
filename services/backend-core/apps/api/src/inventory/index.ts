@@ -27,3 +27,12 @@ export { loadTransferLeg } from "./shipment-transfers/shipment-transfer.feed";
  * report CLI. Read only, on the caller's client.
  */
 export { listLegacyTransferDrift, type LegacyTransferDriftRow } from "./shipment-transfers/legacy-transfer-drift";
+/**
+ * RT-1516: the raw facts of the delayed-transfer health alert (open Transfer ages, the tenant threshold and the transfer
+ * work items not yet confirmed), read by `console-system-status` on its guarded query, under the tenant's RLS.
+ */
+export {
+  readShipmentTransferHealth,
+  type HealthQuery,
+  type ShipmentTransferHealthRaw,
+} from "./shipment-transfers/shipment-transfer.health";
