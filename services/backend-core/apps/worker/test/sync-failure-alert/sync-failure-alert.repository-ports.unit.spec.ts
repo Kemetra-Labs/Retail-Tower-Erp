@@ -36,7 +36,7 @@ function fakePool(rules: Rule[]): { pool: Pool; statements: Array<{ sql: string;
 }
 
 const ACTIVE_TENANT: Rule = { match: /FROM tenants WHERE id = \$1 AND status = 'active'/, answer: () => ({ rows: [{ x: 1 }] }) };
-const domain = (statements: Array<{ sql: string }>, re: RegExp) => statements.filter((s) => re.test(s.sql));
+const domain = (statements: Array<{ sql: string; params: unknown[] }>, re: RegExp) => statements.filter((s) => re.test(s.sql));
 
 describe("PgSyncFailureAlertRepository composes the worker ports (RT-1525)", () => {
   it("observeConditions drops a deleted store's failures and keeps catalog's store-then-condition order", async () => {

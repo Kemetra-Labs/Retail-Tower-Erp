@@ -19,7 +19,7 @@ const USER_B = "01890000-0000-7000-8000-0000000000b1";
 type Row = Record<string, unknown>;
 
 function client(rows: Row[] = [], rowCount?: number): { query: jest.Mock; sql: () => string[]; params: () => unknown[][] } {
-  const query = jest.fn(async () => ({ rows, rowCount: rowCount ?? rows.length }));
+  const query = jest.fn(async (_sql: string, _params?: unknown[]) => ({ rows, rowCount: rowCount ?? rows.length }));
   const squash = (s: string): string => s.replace(/\s+/g, " ").trim();
   return {
     query,
