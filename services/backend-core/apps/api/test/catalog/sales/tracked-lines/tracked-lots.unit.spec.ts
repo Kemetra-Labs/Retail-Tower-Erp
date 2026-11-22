@@ -22,7 +22,7 @@ import {
 import {
   isTrackedSellingEnabled,
   TRACKED_SELLING_GATE,
-} from "../../../../src/catalog/sales/tracked-lines/tracked-selling-gate";
+} from "../../../../src/inventory/tracked-selling/tracked-selling-gate";
 
 const CTX = {} as ExecutionContext;
 

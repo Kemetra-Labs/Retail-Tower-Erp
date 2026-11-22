@@ -57,7 +57,7 @@ import { newId } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
 import { PG_POOL } from '../../database';
-import { writeSaleLineFindings } from '../../catalog/sales/tracked-lines/capture-tracking';
+import { writeSaleLineFindings } from './sale-line-findings.writer';
 import { MembershipRepository } from '../../context/membership.repository';
 import { callerStoreScope, inStoreScope, scopeStoreIds } from '../../context/operator-store-scope';
 import type { ResolvedContext } from '../../context/types';

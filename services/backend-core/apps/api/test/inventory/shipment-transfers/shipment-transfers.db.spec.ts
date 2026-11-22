@@ -37,6 +37,7 @@ import {
   type TransferContext,
 } from '../../../src/inventory/shipment-transfers/shipment-transfers.service';
 import type { TransferBody } from '../../../src/inventory/shipment-transfers/shipment-transfer.store';
+import { transferErpAdapter } from '../../../src/catalog/erpnext-posting/transfer-erp.adapter';
 import { startPgEnvOrSkip } from '../../_helpers/device-module-app';
 import { stopPgEnv, type PgTestEnv } from '../../_helpers/postgres-container';
 import {
@@ -207,10 +208,10 @@ beforeAll(async () => {
     );
   }
   const memberships = { findRoleCodeForUserInTenant: async () => role } as unknown as MembershipRepository;
-  svc = new ShipmentTransfersService(env.app as unknown as Pool, memberships);
+  svc = new ShipmentTransfersService(env.app as unknown as Pool, memberships, transferErpAdapter);
   legacy = new StockTransferService(env.app as unknown as Pool);
   posting = new ErpnextPostingService(env.app as unknown as Pool);
-  activation = new ShipmentTransferActivationService(env.app as unknown as Pool, memberships);
+  activation = new ShipmentTransferActivationService(env.app as unknown as Pool, memberships, transferErpAdapter);
 }, 240_000);
 
 afterAll(async () => {

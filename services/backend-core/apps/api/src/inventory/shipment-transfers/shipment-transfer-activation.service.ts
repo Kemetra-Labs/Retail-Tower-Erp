@@ -20,12 +20,12 @@ import { ConflictException, ForbiddenException, Inject, Injectable } from '@nest
 import { runWithTenantContext } from '@data-pulse-2/db';
 import type { Pool, PoolClient } from 'pg';
 
-import { hasActiveTransitWarehouse } from '../../catalog';
 import { latestConnectorEvidence } from '../../connector-health';
 import { MembershipRepository } from '../../context';
 import { PG_POOL } from '../../database';
 import { CONNECTOR_HEARTBEAT_MAX_AGE_MS } from '../count-sessions/count-readiness';
 import { writeAudit } from '../position-events/position-event.writer';
+import { TRANSFER_ERP_PORT, type TransferErpPort } from './transfer-erp.port';
 
 const AUDIT_ACTION = 'inventory.shipment_transfers.update';
 const AUDIT_TARGET_TYPE = 'tenant_inventory_settings';
@@ -115,10 +115,15 @@ async function readSwitch(client: PoolClient, tenantId: string, forUpdate: boole
   return r.rows[0];
 }
 
-async function gatherEvidence(client: PoolClient, tenantId: string, now: Date): Promise<TransferReadinessEvidence> {
+async function gatherEvidence(
+  erp: TransferErpPort,
+  client: PoolClient,
+  tenantId: string,
+  now: Date,
+): Promise<TransferReadinessEvidence> {
   return {
     now,
-    hasTransitWarehouse: await hasActiveTransitWarehouse(client, tenantId),
+    hasTransitWarehouse: await erp.hasActiveTransitWarehouse(client, tenantId),
     connector: await latestConnectorEvidence(client, tenantId),
   };
 }
@@ -138,6 +143,7 @@ export class ShipmentTransferActivationService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(MembershipRepository) private readonly memberships: MembershipRepository,
+    @Inject(TRANSFER_ERP_PORT) private readonly erp: TransferErpPort,
   ) {}
 
   private async requireOwnerOrAdmin(client: PoolClient, caller: TransferActivationCaller): Promise<void> {
@@ -152,7 +158,7 @@ export class ShipmentTransferActivationService {
     return runWithTenantContext(this.pool, { tenantId: caller.tenantId, isPlatformAdmin: false }, async (client) => {
       await this.requireOwnerOrAdmin(client, caller);
       const row = await readSwitch(client, caller.tenantId, false);
-      return stateOf(row, evaluateTransferReadiness(await gatherEvidence(client, caller.tenantId, now)));
+      return stateOf(row, evaluateTransferReadiness(await gatherEvidence(this.erp, client, caller.tenantId, now)));
     });
   }
 
@@ -166,7 +172,7 @@ export class ShipmentTransferActivationService {
       ]);
       const existing = await readSwitch(client, caller.tenantId, true);
       const before = existing?.shipment_transfers_enabled ?? false;
-      const evidence = await gatherEvidence(client, caller.tenantId, now);
+      const evidence = await gatherEvidence(this.erp, client, caller.tenantId, now);
       if (before === enabled) return stateOf(existing, evaluateTransferReadiness(evidence));
       if (enabled) this.assertReady(evidence);
       else await this.assertNoneInFlight(client, caller.tenantId);

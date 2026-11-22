@@ -30,7 +30,7 @@ import { lockPostingFeedSequence, runWithTenantContext, type InventoryStatus } f
 import { newId } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
-import { trackingModesOfProducts, postingLegStatus } from '../../catalog';
+import { trackingModesOfProducts } from '../../catalog';
 import { InvalidCursorError } from '../../common/cursor/opaque-cursor';
 import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
 import {
@@ -65,6 +65,7 @@ import {
   lineRefs,
   releaseReceiptLegs,
 } from './shipment-transfer.posting';
+import { TRANSFER_ERP_PORT, type TransferErpPort } from './transfer-erp.port';
 import {
   TRANSFER_LINE_MAX,
   TRANSFER_SOURCE_SYSTEM,
@@ -167,6 +168,7 @@ export class ShipmentTransfersService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
     @Inject(MembershipRepository) private readonly memberships: MembershipRepository,
+    @Inject(TRANSFER_ERP_PORT) private readonly erp: TransferErpPort,
   ) {}
 
   // ---- plumbing ------------------------------------------------------------------------------------------------
@@ -468,8 +470,8 @@ export class ShipmentTransfersService {
       }
       assertSameLegalEntity(tenantOnlyLegalEntity(caller.tenantId), t.source_store_id, t.destination_store_id);
       const lines = await this.lockedLines(client, t.id);
-      await assertWarehousesMapped(client, t.source_store_id, t.destination_store_id);
-      await lineRefs(client, lines);
+      await assertWarehousesMapped(this.erp, client, t.source_store_id, t.destination_store_id);
+      await lineRefs(this.erp, client, lines);
       await this.assertIdentitiesSendable(client, t.source_store_id, lines);
 
       // The source position: the store's primary location, where the dispatch effect will land.
@@ -557,8 +559,8 @@ export class ShipmentTransfersService {
         const lines = await this.lockedLines(client, t.id);
         await this.assertIdentitiesSendable(client, t.source_store_id, lines);
         // Fail closed BEFORE any stock moves: a dispatch that deducts stock it cannot post is a stuck leg (886).
-        await assertWarehousesMapped(client, t.source_store_id, t.destination_store_id);
-        await lineRefs(client, lines);
+        await assertWarehousesMapped(this.erp, client, t.source_store_id, t.destination_store_id);
+        await lineRefs(this.erp, client, lines);
 
         const position = await resolvePosition(client, t.source_store_id);
         const effects: { lineId: string; movementId: string }[] = [];
@@ -607,7 +609,7 @@ export class ShipmentTransfersService {
           `SELECT id, tenant_id, source_store_id, destination_store_id, dispatched_at FROM shipment_transfers WHERE id = $1`,
           [t.id],
         );
-        const intentId = await emitDispatchLeg(client, head.rows[0]!, effects);
+        const intentId = await emitDispatchLeg(this.erp, client, head.rows[0]!, effects);
         await this.audit(client, caller, 'dispatch', t, { note, lineCount: lines.length, dispatchIntentId: intentId });
         await emitMovementCreated(client, {
           tenantId: caller.tenantId,
@@ -738,9 +740,9 @@ export class ShipmentTransfersService {
     );
     const intentId = dispatch.rows[0]?.intent_id;
     if (!intentId) return 0;
-    const leg = await postingLegStatus(client, intentId);
+    const leg = await this.erp.postingLegStatus(client, intentId);
     if (leg?.status !== 'posted') return 0;
-    return (await releaseReceiptLegs(client, tenantId, intentId)).length;
+    return (await releaseReceiptLegs(this.erp, client, tenantId, intentId)).length;
   }
 
   // ---- close (812) ---------------------------------------------------------------------------------------------

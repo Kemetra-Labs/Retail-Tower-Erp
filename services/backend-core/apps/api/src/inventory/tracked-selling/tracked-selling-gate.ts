@@ -32,11 +32,24 @@
  * until an operator sets it in `backend.env`, and turning tracked selling on for
  * a tenant stays an owner decision.
  */
-import { isEnvFlagOn } from "../sale-tenders-gate";
+import type { PoolClient } from "pg";
+
+import { isEnvFlagOn } from "../../common/env-flag";
 
 export const TRACKED_SELLING_GATE = "POS_TRACKED_SELLING_ENABLED";
 
 export function isTrackedSellingEnabled(): boolean {
   // The literal name, so the RT-984 compose env sweep resolves it.
   return isEnvFlagOn("POS_TRACKED_SELLING_ENABLED");
+}
+
+/** Tracked selling is on for the tenant: the deployment gate AND the tenant's switch (0086, OD-T1). */
+export async function readTrackedSellingOn(client: PoolClient, tenantId: string): Promise<boolean> {
+  if (!isTrackedSellingEnabled()) return false;
+  const r = await client.query<{ enabled: boolean }>(
+    `SELECT COALESCE((SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)
+              AS enabled`,
+    [tenantId],
+  );
+  return r.rows[0]?.enabled === true;
 }

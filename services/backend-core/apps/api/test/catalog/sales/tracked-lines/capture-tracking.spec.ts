@@ -49,8 +49,8 @@ import {
   STORE_A_X,
   type HarnessHandle,
 } from "../capture/__capture-harness";
-import { TRACKED_SELLING_GATE } from "../../../../src/catalog/sales/tracked-lines/tracked-selling-gate";
-import { lockProductProfiles } from "../../../../src/catalog/sales/tracked-lines/capture-tracking";
+import { TRACKED_SELLING_GATE } from "../../../../src/inventory/tracked-selling/tracked-selling-gate";
+import { lockProductProfiles } from "../../../../src/catalog/tracking-profile/tracking-profile-lock";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { TrackingProfileService } from "../../../../src/catalog/tracking-profile/tracking-profile.service";
 

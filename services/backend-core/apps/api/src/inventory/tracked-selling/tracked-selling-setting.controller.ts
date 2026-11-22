@@ -34,7 +34,7 @@ import { z } from 'zod';
 import { DashboardAuthGuard } from '../../auth/dashboard-auth.guard';
 import { Roles } from '../../auth/roles.decorator';
 import { RolesGuard } from '../../auth/roles.guard';
-import { isTrackedSellingEnabled } from '../../catalog/sales/tracked-lines/tracked-selling-gate';
+import { isTrackedSellingEnabled } from './tracked-selling-gate';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { TenantContextGuard } from '../../context/tenant-context.guard';
 import type { TenantContextRequest } from '../../context/types';

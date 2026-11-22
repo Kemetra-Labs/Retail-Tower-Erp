@@ -1,3 +1,5 @@
+import { isEnvFlagOn } from "../../common/env-flag";
+
 /**
  * RT-77 deployment gate for tender acceptance on `captureSale`.
  *
@@ -44,10 +46,4 @@ export function isPosSaleTendersSameMethodEnabled(): boolean {
  */
 export function isPosSaleVoucherTenderEnabled(): boolean {
   return isEnvFlagOn("POS_SALE_VOUCHER_TENDER_ENABLED");
-}
-
-/** A deployment flag: "1", "true" or "yes", case-insensitive, trimmed; anything else is off. */
-export function isEnvFlagOn(name: string): boolean {
-  const raw = (process.env[name] ?? "").trim().toLowerCase();
-  return raw === "1" || raw === "true" || raw === "yes";
 }

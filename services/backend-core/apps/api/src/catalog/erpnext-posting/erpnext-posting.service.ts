@@ -31,7 +31,8 @@ import {
   type AckLine,
 } from "../../inventory/count-sessions/count-posting-ack";
 import { applyPostingSignalToEffects } from "../../inventory/effect-integration/effect-integration.transitions";
-import { releaseTransferReceiptLegs } from "../../inventory";
+import { isTrackedSellingEnabled, releaseTransferReceiptLegs } from "../../inventory";
+import { transferErpAdapter } from "./transfer-erp.adapter";
 import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
 import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
 import {
@@ -48,7 +49,6 @@ import {
 import { PostingFeedReporter } from "./posting-feed-reporter";
 import { sanitizeRejectionMessage } from "./rejection-message";
 import { isFeedResponsibilitiesEnabled } from "./responsibilities-feed-gate";
-import { isTrackedSellingEnabled } from "../sales/tracked-lines/tracked-selling-gate";
 
 /**
  * Hard ceiling on a single pull page — the 012 contract `Limit.maximum` (500),
@@ -686,7 +686,7 @@ export class ErpnextPostingService {
         // RT-1513: a confirmed dispatch releases the receipt legs that waited for it, in this same transaction (the
         // tenant's feed sequence lock is held), so a new leg's sequence is past the Connector's cursor.
         if (row.kind === "transfer_dispatch" && recorded.outcome === "posted") {
-          await releaseTransferReceiptLegs(client, input.tenantId, input.workItemRef);
+          await releaseTransferReceiptLegs(transferErpAdapter, client, input.tenantId, input.workItemRef);
         }
         return { replayed: false, outcome: recorded };
       },

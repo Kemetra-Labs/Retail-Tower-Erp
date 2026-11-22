@@ -36,3 +36,19 @@ export {
   type HealthQuery,
   type ShipmentTransferHealthRaw,
 } from "./shipment-transfers/shipment-transfer.health";
+/**
+ * RT-1463: the tracked-selling gate (deployment flag AND the tenant's switch in `tenant_inventory_settings`), read by
+ * sale capture, the posting feed and the Tracking Profile setter on the caller's client.
+ */
+export { isTrackedSellingEnabled, readTrackedSellingOn } from "./tracked-selling/tracked-selling-gate";
+/** RT-1463: the append-only `sale_line_findings` writer, used by sale capture on its own transaction client. */
+export { writeSaleLineFindings } from "./tracking-resolution/sale-line-findings.writer";
+/**
+ * RT-1463: what the shipment Transfer emission needs from the ERP posting side, as an inverted port. The ERP posting side
+ * provides `TRANSFER_ERP_PORT` from a `@Global()` module that only `app.module.ts` imports.
+ */
+export {
+  TRANSFER_ERP_PORT,
+  type TransferErpPort,
+  type TransferWarehouseRefs,
+} from "./shipment-transfers/transfer-erp.port";
