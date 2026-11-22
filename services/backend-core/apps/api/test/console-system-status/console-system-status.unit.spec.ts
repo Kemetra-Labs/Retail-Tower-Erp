@@ -8,15 +8,24 @@
  */
 import type { Pool } from "pg";
 
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
+import { load } from "js-yaml";
+
 import {
   type ComponentState,
   type ConnectorRegistrationFacts,
   erpConnectorComponent,
   saleSyncComponent,
   serverComponent,
+  SHIPMENT_POSTING_PENDING_SLA_SECONDS,
+  SHIPMENT_TRANSFERS_REASONS,
+  shipmentTransfersComponent,
+  summarizeShipmentTransferHealth,
   toConsoleSystemStatus,
   worstOf,
 } from "../../src/console-system-status/console-system-status.projections";
+import type { ShipmentTransferHealthRaw } from "../../src/inventory";
 import { ConsoleSystemStatusService } from "../../src/console-system-status/console-system-status.service";
 
 const NOW = new Date("2026-11-02T12:00:00.000Z");
@@ -165,7 +174,7 @@ describe("RT-1062 overall (worst of down > degraded > unknown > ok)", () => {
   });
 
   it("the body: asOf, server, every component evaluated at the same time", () => {
-    const body = toConsoleSystemStatus(NOW, null, []);
+    const body = toConsoleSystemStatus(NOW, null, [], null);
     expect(body.asOf).toBe(NOW.toISOString());
     expect(body.components.server.observedAt).toBe(body.asOf);
     expect(body.overall).toBe("unknown");
@@ -175,7 +184,7 @@ describe("RT-1062 overall (worst of down > degraded > unknown > ok)", () => {
 describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
   const TENANT = "0a000000-0000-7000-8000-000000000001";
 
-  it("a pool that never yields a connection is check_timed_out for both checks, never a hang or a 500", async () => {
+  it("a pool that never yields a connection is check_timed_out for every check, never a hang or a 500", async () => {
     const pool = { connect: () => new Promise(() => undefined) } as unknown as Pool;
     const service = new ConsoleSystemStatusService(pool, 50);
     const started = Date.now();
@@ -183,6 +192,7 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     expect(Date.now() - started).toBeLessThan(1000);
     expect(body.components.saleSync.reason).toBe("check_timed_out");
     expect(body.components.erpConnector.reason).toBe("check_timed_out");
+    expect(body.components.shipmentTransfers?.reason).toBe("check_timed_out");
     expect(body.overall).toBe("unknown");
   });
 
@@ -205,13 +215,13 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     expect(body.components.saleSync.reason).toBe("check_timed_out");
     expect(body.components.erpConnector.reason).toBe("check_timed_out");
     await new Promise((r) => setTimeout(r, 200));
-    expect(released).toBe(2);
-    expect(statements.some((s) => /outbox_events|sale_sync_deadletters|connector_registration|statement_timeout/.test(s))).toBe(false);
+    expect(released).toBe(3);
+    expect(statements.some((s) => /outbox_events|sale_sync_deadletters|connector_registration|shipment_transfers|statement_timeout/.test(s))).toBe(false);
   });
 
   it.each([
     ["set_config", /statement_timeout/],
-    ["the first status query", /outbox_events|connector_registration/],
+    ["the first status query", /outbox_events|connector_registration|tenant_inventory_settings/],
   ])("a deadline that passes during %s starts no later status query", async (_label, slow) => {
     const statements: string[] = [];
     let released = 0;
@@ -243,10 +253,10 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     expect(body.components.erpConnector.reason).toBe("check_timed_out");
     const atDeadline = statements.length;
     await new Promise((r) => setTimeout(r, 250));
-    expect(released).toBe(2);
+    expect(released).toBe(3);
     // After the deadline only the transaction end may run: no status query starts.
     const later = statements.slice(atDeadline);
-    expect(later.filter((s) => /outbox_events|sale_sync_deadletters|connector_registration/.test(s))).toEqual([]);
+    expect(later.filter((s) => /outbox_events|sale_sync_deadletters|connector_registration|shipment_transfers/.test(s))).toEqual([]);
     expect(statements.filter((s) => s.includes("sale_sync_deadletters"))).toEqual([]);
   });
 
@@ -269,10 +279,11 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     const body = await new ConsoleSystemStatusService(pool, 1500).read({ tenantId: TENANT });
     expect(body.components.saleSync.reason).toBe("check_timed_out");
     expect(body.components.erpConnector.reason).toBe("check_timed_out");
-    expect(statements.filter((s) => s.includes("statement_timeout") && s.includes('"1500ms"'))).toHaveLength(2);
+    expect(body.components.shipmentTransfers?.reason).toBe("check_timed_out");
+    expect(statements.filter((s) => s.includes("statement_timeout") && s.includes('"1500ms"'))).toHaveLength(3);
     // Every check runs under the caller's tenant, never as a platform admin.
-    expect(statements.filter((s) => s.includes("app.current_tenant") && s.includes(TENANT))).toHaveLength(2);
-    expect(statements.filter((s) => s.includes("app.is_platform_admin") && s.includes('["false"]'))).toHaveLength(2);
+    expect(statements.filter((s) => s.includes("app.current_tenant") && s.includes(TENANT))).toHaveLength(3);
+    expect(statements.filter((s) => s.includes("app.is_platform_admin") && s.includes('["false"]'))).toHaveLength(3);
   });
 
   it("any other error is not hidden as a timeout: the read rejects (500)", async () => {
@@ -284,6 +295,13 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
     const { pool } = poolWith((sql) => {
       if (sql.includes("outbox_events")) return Promise.resolve({ rows: [{ undelivered_count: 2, oldest_age_seconds: "400" }] });
       if (sql.includes("sale_sync_deadletters")) return Promise.resolve({ rows: [{ needs_repair_count: 1 }] });
+      if (sql.includes("tenant_inventory_settings")) return Promise.resolve({ rows: [{ threshold_days: 2 }] });
+      if (sql.includes("shipment_transfers") && sql.includes("dispatched_at")) {
+        return Promise.resolve({ rows: [{ age_seconds: "200000" }, { age_seconds: "10" }] });
+      }
+      if (sql.includes("inventory_effect_integration")) {
+        return Promise.resolve({ rows: [{ state: "rejected", age_seconds: "5" }] });
+      }
       return Promise.resolve({
         rows: [{ disabled_at: null, last_seen_at: new Date(), erpnext_reachable: true }],
       });
@@ -295,5 +313,107 @@ describe("RT-1062 ConsoleSystemStatusService check bound (D-4)", () => {
       facts: { undeliveredCount: 2, oldestUndeliveredAgeSeconds: 400, needsRepairCount: 1 },
     });
     expect(body.components.erpConnector).toMatchObject({ state: "ok", reason: "heartbeat_fresh" });
+    expect(body.components.shipmentTransfers).toMatchObject({
+      state: "degraded",
+      reason: "postings_need_attention",
+      link: "none",
+      facts: {
+        openTransferCount: 2,
+        delayedTransferCount: 1,
+        oldestOpenTransferAgeSeconds: 200000,
+        delayedThresholdDays: 2,
+        stuckPostingCount: 0,
+        postingsNeedingAttentionCount: 1,
+      },
+    });
+  });
+});
+
+describe("RT-1516 shipmentTransfers (delayed Transfers and stuck transfer postings)", () => {
+  const DAY = 86_400;
+  const raw = (over: Partial<ShipmentTransferHealthRaw> = {}): ShipmentTransferHealthRaw => ({
+    delayedThresholdDays: 3,
+    openTransferAgesSeconds: [],
+    workItems: [],
+    ...over,
+  });
+
+  it("the pending SLA is 60 minutes", () => {
+    expect(SHIPMENT_POSTING_PENDING_SLA_SECONDS).toBe(3600);
+  });
+
+  it("a Transfer is delayed only once it is open longer than the threshold (3 days by default)", () => {
+    expect(summarizeShipmentTransferHealth(raw({ openTransferAgesSeconds: [3 * DAY] })).delayedTransferCount).toBe(0);
+    expect(summarizeShipmentTransferHealth(raw({ openTransferAgesSeconds: [3 * DAY + 1] })).delayedTransferCount).toBe(1);
+  });
+
+  it("follows the tenant's own threshold", () => {
+    const ages = [1 * DAY + 1, 2 * DAY + 1, 5 * DAY];
+    expect(summarizeShipmentTransferHealth(raw({ delayedThresholdDays: 1, openTransferAgesSeconds: ages })).delayedTransferCount).toBe(3);
+    expect(summarizeShipmentTransferHealth(raw({ delayedThresholdDays: 3, openTransferAgesSeconds: ages })).delayedTransferCount).toBe(1);
+    expect(summarizeShipmentTransferHealth(raw({ delayedThresholdDays: 90, openTransferAgesSeconds: ages })).delayedTransferCount).toBe(0);
+  });
+
+  it("a pending work item is stuck only past 60 minutes", () => {
+    const at = (ageSeconds: number) => summarizeShipmentTransferHealth(raw({ workItems: [{ state: "pending", ageSeconds }] }));
+    expect(at(3600).stuckPostingCount).toBe(0);
+    expect(at(3601).stuckPostingCount).toBe(1);
+    expect(at(3601).postingsNeedingAttentionCount).toBe(0);
+  });
+
+  it.each(["rejected", "reconciliation_required"] as const)("a %s work item needs attention at once", (state) => {
+    const f = summarizeShipmentTransferHealth(raw({ workItems: [{ state, ageSeconds: 0 }] }));
+    expect(f.postingsNeedingAttentionCount).toBe(1);
+    expect(f.stuckPostingCount).toBe(0);
+  });
+
+  it("counts every open Transfer and reports the oldest age, null when none is open", () => {
+    expect(summarizeShipmentTransferHealth(raw({ openTransferAgesSeconds: [10, 400, 7] }))).toMatchObject({
+      openTransferCount: 3,
+      oldestOpenTransferAgeSeconds: 400,
+    });
+    expect(summarizeShipmentTransferHealth(raw()).oldestOpenTransferAgeSeconds).toBeNull();
+  });
+
+  it("first match wins: attention, then stuck, then delayed, else keeping_up (all degraded but keeping_up)", () => {
+    const stuck = { state: "pending" as const, ageSeconds: 7200 };
+    const attention = { state: "rejected" as const, ageSeconds: 1 };
+    const delayed = [10 * DAY];
+    const verdict = (r: ShipmentTransferHealthRaw) => {
+      const c = shipmentTransfersComponent(r, NOW);
+      return `${c.state}/${c.reason}`;
+    };
+    expect(verdict(raw({ openTransferAgesSeconds: delayed, workItems: [stuck, attention] }))).toBe("degraded/postings_need_attention");
+    expect(verdict(raw({ openTransferAgesSeconds: delayed, workItems: [stuck] }))).toBe("degraded/postings_stuck");
+    expect(verdict(raw({ openTransferAgesSeconds: delayed }))).toBe("degraded/transfers_delayed");
+    expect(verdict(raw({ openTransferAgesSeconds: [60], workItems: [{ state: "pending", ageSeconds: 60 }] }))).toBe("ok/keeping_up");
+    expect(verdict(raw())).toBe("ok/keeping_up");
+  });
+
+  it("observes at the read time, and is unknown / check_timed_out with no facts when not read in time", () => {
+    expect(shipmentTransfersComponent(raw(), NOW)).toMatchObject({ observedAt: NOW.toISOString(), link: "none" });
+    expect(shipmentTransfersComponent(null, NOW)).toEqual({
+      state: "unknown",
+      reason: "check_timed_out",
+      observedAt: null,
+      link: "none",
+      facts: null,
+    });
+  });
+
+  it("is part of overall: a delayed Transfer makes the whole status degraded", () => {
+    const body = toConsoleSystemStatus(NOW, facts(0, null), [reg()], raw({ openTransferAgesSeconds: [10 * DAY] }));
+    expect(body.components.shipmentTransfers?.state).toBe("degraded");
+    expect(body.overall).toBe("degraded");
+    expect(toConsoleSystemStatus(NOW, facts(0, null), [reg()], raw()).overall).toBe("ok");
+  });
+
+  it("the runtime reasons are exactly the contract's closed set", () => {
+    const doc = load(
+      readFileSync(join(__dirname, "../../../../packages/contracts/openapi/console-system-status.openapi.yaml"), "utf8"),
+    ) as { components: { schemas: Record<string, { properties: { reason: { enum: string[] } } }> } };
+    expect([...SHIPMENT_TRANSFERS_REASONS].sort()).toEqual(
+      [...doc.components.schemas["ShipmentTransfersComponent"]!.properties.reason.enum].sort(),
+    );
   });
 });

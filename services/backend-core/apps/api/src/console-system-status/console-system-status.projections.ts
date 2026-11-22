@@ -10,6 +10,7 @@ import {
   DEFAULT_STALENESS_THRESHOLD_MS,
   deriveLiveness,
 } from "../connector-health/connector-health.liveness";
+import type { ShipmentTransferHealthRaw } from "../inventory";
 
 export type ComponentState = "ok" | "degraded" | "down" | "unknown";
 
@@ -75,6 +76,38 @@ export interface ErpConnectorComponent {
   readonly facts: ErpConnectorFacts | null;
 }
 
+/** RT-1516: a `pending` transfer work item older than this is stuck (owner decision, RT-1516). */
+export const SHIPMENT_POSTING_PENDING_SLA_SECONDS = 60 * 60;
+
+const SECONDS_PER_DAY = 86_400;
+
+/** Contract `ShipmentTransfersFacts`. */
+export interface ShipmentTransfersFacts {
+  readonly openTransferCount: number;
+  readonly delayedTransferCount: number;
+  readonly oldestOpenTransferAgeSeconds: number | null;
+  readonly delayedThresholdDays: number;
+  readonly stuckPostingCount: number;
+  readonly postingsNeedingAttentionCount: number;
+}
+
+export const SHIPMENT_TRANSFERS_REASONS = [
+  "keeping_up",
+  "transfers_delayed",
+  "postings_stuck",
+  "postings_need_attention",
+  "check_timed_out",
+] as const;
+export type ShipmentTransfersReason = (typeof SHIPMENT_TRANSFERS_REASONS)[number];
+
+export interface ShipmentTransfersComponent {
+  readonly state: ComponentState;
+  readonly reason: ShipmentTransfersReason;
+  readonly observedAt: string | null;
+  readonly link: "none";
+  readonly facts: ShipmentTransfersFacts | null;
+}
+
 export interface ConsoleSystemStatus {
   readonly asOf: string;
   readonly overall: ComponentState;
@@ -82,6 +115,7 @@ export interface ConsoleSystemStatus {
     readonly server: ServerComponent;
     readonly saleSync: SaleSyncComponent;
     readonly erpConnector: ErpConnectorComponent;
+    readonly shipmentTransfers?: ShipmentTransfersComponent;
   };
 }
 
@@ -179,6 +213,43 @@ export function erpConnectorComponent(
   };
 }
 
+/**
+ * RT-1516 — the counts over the raw facts. A Transfer is delayed once it has been open (in transit or partially received)
+ * for longer than the tenant's threshold; a `pending` work item is stuck past the 60-minute SLA; a `rejected` or
+ * `reconciliation_required` one needs attention at once.
+ */
+export function summarizeShipmentTransferHealth(raw: ShipmentTransferHealthRaw): ShipmentTransfersFacts {
+  const thresholdSeconds = raw.delayedThresholdDays * SECONDS_PER_DAY;
+  const ages = raw.openTransferAgesSeconds;
+  return {
+    openTransferCount: ages.length,
+    delayedTransferCount: ages.filter((a) => a > thresholdSeconds).length,
+    oldestOpenTransferAgeSeconds: ages.length === 0 ? null : Math.max(...ages),
+    delayedThresholdDays: raw.delayedThresholdDays,
+    stuckPostingCount: raw.workItems.filter((w) => w.state === "pending" && w.ageSeconds > SHIPMENT_POSTING_PENDING_SLA_SECONDS)
+      .length,
+    postingsNeedingAttentionCount: raw.workItems.filter((w) => w.state === "rejected" || w.state === "reconciliation_required")
+      .length,
+  };
+}
+
+/**
+ * `shipmentTransfers` (RT-1516, first match wins): not read in time → `unknown`; a work item that needs attention →
+ * `degraded` / `postings_need_attention`; a stuck pending one → `degraded` / `postings_stuck`; a delayed Transfer →
+ * `degraded` / `transfers_delayed`; otherwise (no Transfer included) `ok` / `keeping_up`. `raw === null` means the check
+ * did not answer in time.
+ */
+export function shipmentTransfersComponent(raw: ShipmentTransferHealthRaw | null, now: Date): ShipmentTransfersComponent {
+  const base = { link: "none" as const };
+  if (raw === null) return { ...base, state: "unknown", reason: "check_timed_out", observedAt: null, facts: null };
+  const facts = summarizeShipmentTransferHealth(raw);
+  const observed = { ...base, observedAt: now.toISOString(), facts };
+  if (facts.postingsNeedingAttentionCount > 0) return { ...observed, state: "degraded", reason: "postings_need_attention" };
+  if (facts.stuckPostingCount > 0) return { ...observed, state: "degraded", reason: "postings_stuck" };
+  if (facts.delayedTransferCount > 0) return { ...observed, state: "degraded", reason: "transfers_delayed" };
+  return { ...observed, state: "ok", reason: "keeping_up" };
+}
+
 const SEVERITY: Readonly<Record<ComponentState, number>> = { ok: 0, unknown: 1, degraded: 2, down: 3 };
 
 /** The worst state, in the order `down` > `degraded` > `unknown` > `ok` (D-1). */
@@ -191,13 +262,15 @@ export function toConsoleSystemStatus(
   now: Date,
   saleSyncFacts: SaleSyncFacts | null,
   registrations: readonly ConnectorRegistrationFacts[] | null,
+  shipmentTransferHealth: ShipmentTransferHealthRaw | null,
 ): ConsoleSystemStatus {
   const server = serverComponent(now);
   const saleSync = saleSyncComponent(saleSyncFacts, now);
   const erpConnector = erpConnectorComponent(registrations, now);
+  const shipmentTransfers = shipmentTransfersComponent(shipmentTransferHealth, now);
   return {
     asOf: now.toISOString(),
-    overall: worstOf([server.state, saleSync.state, erpConnector.state]),
-    components: { server, saleSync, erpConnector },
+    overall: worstOf([server.state, saleSync.state, erpConnector.state, shipmentTransfers.state]),
+    components: { server, saleSync, erpConnector, shipmentTransfers },
   };
 }

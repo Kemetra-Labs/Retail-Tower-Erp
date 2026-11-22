@@ -1,15 +1,22 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Console System Status Read API
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
+    **1.1.0-draft (RT-1516, additive; [GATED: contract] owner decision in chat
+    2026-11-22, recorded on RT-1516).** An optional fourth component,
+    `shipmentTransfers`: the tenant's delayed shipment Transfers and stuck
+    transfer postings (RT-291 Gate 5, W3 S07-D02). It counts in `overall` when
+    present. No existing component, field or reason changes.
+
     Jira RT-1056 (decision record
     `docs/planning/rt-1056-console-system-status-read.md`, D-1 to D-5): the
     read behind the Admin-Console sidebar system-status block (Admin-Console
     DESIGN.md §12.6 sidebar footer, §12.8.6). One read-only operation:
 
       `consoleGetSystemStatus` — a fixed list of three components of the
-      caller's tenant (`server`, `saleSync`, `erpConnector`), each with a
+      caller's tenant (`server`, `saleSync`, `erpConnector`, plus the
+      optional `shipmentTransfers` since 1.1.0-draft), each with a
       state, a closed reason code, the time of its evidence and a few facts,
       plus the server's worst-of `overall` state and the snapshot time
       `asOf`.
@@ -66,9 +73,24 @@ info:
         (`never_seen`), or when the facts were not read in time
         (`check_timed_out`).
 
+      - **`shipmentTransfers`** (optional, RT-1516) — the tenant's shipment
+        Transfers (RT-1513) and their ERP postings. A Transfer is open while
+        it is `in_transit` or `partially_received`, and delayed once it has
+        been open longer than the tenant's `delayed_transfer_threshold_days`
+        (default 3) since dispatch. A `transfer_dispatch` or
+        `transfer_receive` work item is stuck when it has been `pending` for
+        more than 60 minutes, and needs attention at once when it is
+        `rejected` or `reconciliation_required`. First match wins:
+        `degraded` / `postings_need_attention`, then `degraded` /
+        `postings_stuck`, then `degraded` / `transfers_delayed`, otherwise
+        `ok` / `keeping_up` (no Transfer included). `unknown`
+        (`check_timed_out`): the facts were not read in time. The alert
+        clears when the Transfer is received or closed and when the posting
+        is confirmed. Ages are on the server clock.
+
     `overall` is the worst component state, in the order `down`,
-    `degraded`, `unknown`, `ok`: it is `ok` only when every component is
-    `ok`.
+    `degraded`, `unknown`, `ok`: it is `ok` only when every component
+    present is `ok`.
 
 
     **Freshness (D-2).** Computed on read, never cached: `asOf` is the
@@ -343,6 +365,62 @@ components:
         facts:
           $ref: "#/components/schemas/ErpConnectorFacts"
 
+    ShipmentTransfersFacts:
+      type: [object, "null"]
+      additionalProperties: false
+      required:
+        - openTransferCount
+        - delayedTransferCount
+        - oldestOpenTransferAgeSeconds
+        - delayedThresholdDays
+        - stuckPostingCount
+        - postingsNeedingAttentionCount
+      description: >
+        RT-1516. The tenant's shipment-Transfer health facts; null when the
+        check did not answer in time.
+      properties:
+        openTransferCount:
+          $ref: "#/components/schemas/Count"
+        delayedTransferCount:
+          $ref: "#/components/schemas/Count"
+        oldestOpenTransferAgeSeconds:
+          type: [integer, "null"]
+          minimum: 0
+          description: >
+            Whole seconds since the oldest open Transfer was dispatched (server
+            clock); null when none is open.
+        delayedThresholdDays:
+          type: integer
+          minimum: 1
+          maximum: 90
+          description: The tenant's delayed-Transfer threshold in days (default 3).
+        stuckPostingCount:
+          $ref: "#/components/schemas/Count"
+        postingsNeedingAttentionCount:
+          $ref: "#/components/schemas/Count"
+
+    ShipmentTransfersComponent:
+      type: object
+      additionalProperties: false
+      required: [state, reason, observedAt, link, facts]
+      properties:
+        state:
+          $ref: "#/components/schemas/ComponentState"
+        reason:
+          type: string
+          enum: [keeping_up, transfers_delayed, postings_stuck, postings_need_attention, check_timed_out]
+          description: >
+            `keeping_up` → `ok`; `transfers_delayed`, `postings_stuck` and
+            `postings_need_attention` → `degraded`; `check_timed_out` →
+            `unknown`.
+        observedAt:
+          $ref: "#/components/schemas/ObservedAt"
+        link:
+          type: string
+          const: none
+        facts:
+          $ref: "#/components/schemas/ShipmentTransfersFacts"
+
     ConsoleSystemStatus:
       type: object
       additionalProperties: false
@@ -365,6 +443,8 @@ components:
               $ref: "#/components/schemas/SaleSyncComponent"
             erpConnector:
               $ref: "#/components/schemas/ErpConnectorComponent"
+            shipmentTransfers:
+              $ref: "#/components/schemas/ShipmentTransfersComponent"
 
     Error:
       type: object
