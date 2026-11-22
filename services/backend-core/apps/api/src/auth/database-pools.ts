@@ -87,25 +87,59 @@ interface GrantRow {
   table_name: string;
   privilege: string;
   granted: boolean;
+  /**
+   * RT-1559: when granted, the membership chain from current_user to the
+   * first role that holds the privilege; a single element when current_user
+   * holds it itself (directly, through PUBLIC or through an inherited role).
+   */
+  role_path?: string[] | null;
+}
+
+/**
+ * RT-1559: current_user and, with `$n` true, every role it is a member of,
+ * each with its membership chain. Every membership is followed whatever its
+ * INHERIT option, because SET ROLE reaches it (the rule pg_has_role(…,
+ * 'MEMBER') applies; a PG16 WITH SET FALSE membership is followed too, which
+ * errs on the side of refusing boot). Membership graphs are acyclic; the
+ * path check only bounds diamonds.
+ */
+function reachableRolesCte(viaMembershipParam: number): string {
+  return `WITH RECURSIVE reach(oid, path) AS (
+            SELECT r.oid, ARRAY[r.rolname::text] FROM pg_roles r WHERE r.rolname = current_user
+            UNION ALL
+            SELECT m.roleid, reach.path || g.rolname::text
+              FROM reach
+              JOIN pg_auth_members m ON m.member = reach.oid
+              JOIN pg_roles g ON g.oid = m.roleid
+             WHERE $${viaMembershipParam}::boolean AND NOT g.rolname::text = ANY (reach.path))`;
 }
 
 /**
  * `has_table_privilege` for each (table, privilege-list) pair; a list is
  * true when ANY listed privilege is held. Tables that do not exist yet are
  * reported as not granted (a required one then fails, a forbidden one passes).
+ * With `viaMembership` (RT-1559), a privilege held by any role current_user
+ * can SET ROLE to also counts: `has_table_privilege(current_user, …)` sees
+ * inherited privileges only. Required grants must not use it: they must work
+ * without SET ROLE.
  */
 async function readGrants(
   pool: Pool,
   checks: ReadonlyArray<readonly [string, string]>,
+  viaMembership: boolean,
 ): Promise<GrantRow[]> {
   const result = await pool.query<GrantRow>(
-    `SELECT t.table_name, t.privilege,
-            CASE WHEN to_regclass('public.' || t.table_name) IS NULL THEN false
-                 ELSE has_table_privilege(current_user,
-                        to_regclass('public.' || t.table_name), t.privilege)
-            END AS granted
-       FROM unnest($1::text[], $2::text[]) AS t(table_name, privilege)`,
-    [checks.map(([table]) => table), checks.map(([, privilege]) => privilege)],
+    `${reachableRolesCte(3)}
+     SELECT t.table_name, t.privilege, h.path IS NOT NULL AS granted, h.path AS role_path
+       FROM unnest($1::text[], $2::text[]) WITH ORDINALITY AS t(table_name, privilege, ord)
+       LEFT JOIN LATERAL (
+              SELECT reach.path FROM reach
+               WHERE to_regclass('public.' || t.table_name) IS NOT NULL
+                 AND has_table_privilege(reach.oid, to_regclass('public.' || t.table_name), t.privilege)
+               ORDER BY cardinality(reach.path), reach.path
+               LIMIT 1) h ON true
+      ORDER BY t.ord`,
+    [checks.map(([table]) => table), checks.map(([, privilege]) => privilege), viaMembership],
   );
   return result.rows;
 }
@@ -121,8 +155,8 @@ interface ColumnGrantRow extends GrantRow {
  * given order. A missing table or column reads as not granted. With
  * `viaMembership`, a privilege held by any role the checked role is a member
  * of also counts, even without INHERIT: `has_column_privilege` sees inherited
- * privileges only, while SET ROLE reaches every membership (unless granted
- * WITH SET FALSE, PG16+). The worker's retention check uses the same rule.
+ * privileges only, while SET ROLE reaches every membership. The worker's
+ * retention check uses the same rule.
  */
 async function readColumnGrants(
   pool: Pool,
@@ -130,21 +164,21 @@ async function readColumnGrants(
   viaMembership: boolean,
 ): Promise<ColumnGrantRow[]> {
   const result = await pool.query<ColumnGrantRow>(
-    `SELECT t.table_name, t.column_name, t.privilege,
-            CASE WHEN a.attnum IS NULL THEN false
-                 ELSE has_column_privilege(current_user, a.attrelid, a.attnum, t.privilege)
-                      OR ($4::boolean AND EXISTS (
-                        SELECT 1 FROM pg_roles g
-                         WHERE g.rolname <> current_user
-                           AND pg_has_role(current_user, g.oid, 'MEMBER')
-                           AND has_column_privilege(g.oid, a.attrelid, a.attnum, t.privilege)))
-            END AS granted,
+    `${reachableRolesCte(4)}
+     SELECT t.table_name, t.column_name, t.privilege,
+            h.path IS NOT NULL AS granted, h.path AS role_path,
             a.attnum IS NOT NULL AS column_exists
        FROM unnest($1::text[], $2::text[], $3::text[]) WITH ORDINALITY
               AS t(table_name, column_name, privilege, ord)
        LEFT JOIN pg_attribute a
               ON a.attrelid = to_regclass('public.' || t.table_name)
              AND a.attname = t.column_name AND a.attnum > 0 AND NOT a.attisdropped
+       LEFT JOIN LATERAL (
+              SELECT reach.path FROM reach
+               WHERE a.attnum IS NOT NULL
+                 AND has_column_privilege(reach.oid, a.attrelid, a.attnum, t.privilege)
+               ORDER BY cardinality(reach.path), reach.path
+               LIMIT 1) h ON true
       ORDER BY t.ord`,
     [
       checks.map(([table]) => table),
@@ -188,8 +222,8 @@ async function readColumnsWithAcl(pool: Pool, tables: readonly string[]): Promis
  * pool's role holds on the tables of `forbidden`, limited to the privileges each
  * entry lists. `has_table_privilege` ignores column grants, and a BYPASSRLS
  * role with `GRANT SELECT (cells) ON catalog_import_rows` reads that column for
- * every tenant. Same check as readColumnGrants (via a column list), same
- * inherited-privilege semantics as readGrants.
+ * every tenant. Same check as readColumnGrants (via a column list); like the
+ * forbidden table check it follows every membership (RT-1559).
  */
 async function readForbiddenColumnGrants(
   pool: Pool,
@@ -208,12 +242,22 @@ async function readForbiddenColumnGrants(
     (columns.get(table) ?? []).flatMap((column) => [...privileges].map((p) => [table, column, p] as const)),
   );
   if (checks.length === 0) return [];
-  return (await readColumnGrants(pool, checks, false)).filter((g) => g.granted);
+  return (await readColumnGrants(pool, checks, true)).filter((g) => g.granted);
+}
+
+/** RT-1559: " via role path a -> b" when the privilege is held through a membership. */
+function viaPath(grant: GrantRow): string {
+  const path = grant.role_path ?? [];
+  return path.length > 1 ? ` via role path ${path.join(" -> ")}` : "";
 }
 
 function formatGrants(grants: ReadonlyArray<GrantRow | ColumnGrantRow>): string {
   return grants
-    .map((g) => ("column_name" in g ? `${g.privilege} ON ${g.table_name}(${g.column_name})` : `${g.privilege} ON ${g.table_name}`))
+    .map(
+      (g) =>
+        ("column_name" in g ? `${g.privilege} ON ${g.table_name}(${g.column_name})` : `${g.privilege} ON ${g.table_name}`) +
+        viaPath(g),
+    )
     .join(", ");
 }
 
@@ -226,7 +270,7 @@ function forbiddenColumnChecks(): DomainColumnGrant[] {
 
 async function assertDomainGrants(domainPool: Pool): Promise<void> {
   const [required, requiredColumns] = await Promise.all([
-    readGrants(domainPool, DOMAIN_REQUIRED_GRANTS),
+    readGrants(domainPool, DOMAIN_REQUIRED_GRANTS, false),
     readColumnGrants(domainPool, DOMAIN_REQUIRED_COLUMN_GRANTS, false),
   ]);
   const missing = [...required, ...requiredColumns].filter((g) => !g.granted);
@@ -267,8 +311,9 @@ async function assertDomainForbiddenColumns(domainPool: Pool): Promise<void> {
 
 async function assertLookupGrants(lookupPool: Pool): Promise<void> {
   const [required, forbidden, forbiddenColumns] = await Promise.all([
-    readGrants(lookupPool, AUTH_LOOKUP_REQUIRED_GRANTS),
-    readGrants(lookupPool, AUTH_LOOKUP_FORBIDDEN_GRANTS),
+    readGrants(lookupPool, AUTH_LOOKUP_REQUIRED_GRANTS, false),
+    // RT-1559: a forbidden privilege counts when any role the lookup role can SET ROLE to holds it.
+    readGrants(lookupPool, AUTH_LOOKUP_FORBIDDEN_GRANTS, true),
     readForbiddenColumnGrants(lookupPool, AUTH_LOOKUP_FORBIDDEN_GRANTS),
   ]);
   const missing = required.filter((g) => !g.granted);
@@ -283,7 +328,7 @@ async function assertLookupGrants(lookupPool: Pool): Promise<void> {
   if (excess.length > 0) {
     throw new Error(
       "AuthModule: AUTH_LOOKUP_DATABASE_URL role holds forbidden grants on: " +
-        excess.map((g) => g.table_name).join(", ") +
+        excess.map((g) => g.table_name + viaPath(g)).join(", ") +
         " (see docs/operations/database-roles.md)",
     );
   }
