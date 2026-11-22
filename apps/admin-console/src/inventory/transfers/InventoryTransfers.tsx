@@ -13,7 +13,11 @@
  *
  * Gate first, as the other inventory views: a role outside the read roles gets
  * NoAccess and nothing is requested. The API still decides every read (a store
- * manager sees only Transfers touching its stores). Nothing is written here.
+ * manager sees only Transfers touching its stores).
+ *
+ * RT-1515 (PR 2): owner, tenant_admin and store_manager also get «تحويل جديد»,
+ * which drafts a Transfer (a navigation convenience; the API decides). A
+ * recorded Draft opens in the Transfer drawer, read from the server.
  */
 import { Banner } from "@/components/Banner";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
@@ -27,6 +31,7 @@ import { useSearchParams } from "react-router";
 import { BackLink, InventoryReadGate, LoadMore, RetryButton, StaleError } from "../parts";
 import type { InventoryScope, PagedState } from "../useInventory";
 import { usePickerStores } from "../usePickerStores";
+import { TransferCreateDrawer } from "./TransferCreate";
 import { TransferDrawer } from "./TransferDrawer";
 import {
   CaptionedTable,
@@ -45,6 +50,7 @@ import {
   paramsFromFilter,
   transferStateKey,
 } from "./transferLogic";
+import { canWriteTransfers } from "./transferWriteLogic";
 import { useShipmentTransfers } from "./useTransfers";
 import "../../shell/surface.css";
 import "../inventory.css";
@@ -307,6 +313,8 @@ function TransfersView({ scope }: Readonly<{ scope: InventoryScope }>): React.JS
   const [params, setParams] = useSearchParams();
   const filter = filterFromParams(params);
   const [openId, setOpenId] = useState<string | null>(null);
+  const [creating, setCreating] = useState(false);
+  const canWrite = canWriteTransfers(scope.role);
   const picker = usePickerStores(scope);
   const names = useStoreNames(scope.tenantId);
   const list = useShipmentTransfers(scope, filter);
@@ -320,8 +328,15 @@ function TransfersView({ scope }: Readonly<{ scope: InventoryScope }>): React.JS
         subtitle={t("transfers.sub")}
       />
       <div className="inventory__strip">
-        <p className="inventory__note">{t("transfers.note.readOnly")}</p>
+        <p className="inventory__note">
+          {t(canWrite ? "transfers.note.writes" : "transfers.note.readOnly")}
+        </p>
         <p className="inventory__note">{t("transfers.note.inTransit")}</p>
+        {canWrite ? (
+          <button type="button" className="btn-primary" onClick={() => setCreating(true)}>
+            {t("transfers.create.open")}
+          </button>
+        ) : null}
       </div>
       {picker.failed ? (
         <Banner
@@ -346,6 +361,16 @@ function TransfersView({ scope }: Readonly<{ scope: InventoryScope }>): React.JS
           onReset={() => setFilter({})}
         />
       </DetailPanel>
+      {creating ? (
+        <TransferCreateDrawer
+          scope={scope}
+          onClose={() => setCreating(false)}
+          onCreated={(id) => {
+            setCreating(false);
+            setOpenId(id);
+          }}
+        />
+      ) : null}
       {openId ? (
         <TransferDrawer
           scope={scope}

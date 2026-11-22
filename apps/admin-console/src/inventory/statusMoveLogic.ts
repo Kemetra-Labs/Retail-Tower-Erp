@@ -87,7 +87,7 @@ export function reasonKey(code: InventoryReasonCode | string): MessageKey {
 }
 
 /** Contract `PositiveDecimalQuantity`: unsigned, not zero, <= 15 integer and <= 4 fraction digits. */
-const POSITIVE_QUANTITY = /^(?!0+(?:\.0+)?$)[0-9]{1,15}(\.[0-9]{1,4})?$/;
+export const POSITIVE_QUANTITY = /^(?!0+(?:\.0+)?$)[0-9]{1,15}(\.[0-9]{1,4})?$/;
 
 export const NOTE_MAX_LENGTH = 500;
 const UNIT_MAX_LENGTH = 32;

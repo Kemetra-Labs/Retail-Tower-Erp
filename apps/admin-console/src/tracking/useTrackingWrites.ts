@@ -40,7 +40,7 @@ export const WRITE_TIMEOUT_MS = 30_000;
 
 class WriteTimedOut extends Error {}
 
-function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
+export function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: number): Promise<T> {
   const controller = new AbortController();
   let timer: ReturnType<typeof setTimeout> | undefined;
   const timeout = new Promise<never>((_, reject) => {

@@ -1,3 +1,4 @@
+import { Banner } from "@/components/Banner";
 /**
  * RT-1515 (PR 1) — one shipment Transfer, read only, in a drawer over the list
  * (UX-10.31): its route (source to destination store), state, the lifecycle
@@ -11,17 +12,25 @@
  * fresh (`getShipmentTransfer`); receipts are paged oldest first
  * (`listShipmentTransferReceipts`) and a failed continuation keeps them.
  *
- * Nothing is written here: approve, dispatch, receive and close are later PRs.
+ * RT-1515 (PR 2): a draft or approved Transfer also carries its write actions
+ * (approve, dispatch, cancel) for the roles the API accepts; receive and close
+ * are a later PR. A recorded action says so, above the actions, and the
+ * Transfer is read again (never edited locally). The drawer cannot be closed
+ * while a write awaits its answer, so the answer is not lost.
  */
 import { Drawer } from "@/components/Drawer";
 import { ListState } from "@/components/ListState";
 import { DateTime, useT } from "@/i18n";
 import type { ShipmentTransfer, ShipmentTransferReceipt } from "@/lib/inventory-queries";
+import { useState } from "react";
 import { inventoryStatusKey } from "../inventoryLogic";
 import { LoadMore, Machine, Quantity, StaleError } from "../parts";
 import type { InventoryScope, PagedState } from "../useInventory";
+import { TransferActions } from "./TransferActions";
 import { CaptionedTable, LegBadge, StateBadge, StoreName, TransferError } from "./TransferParts";
 import { type ReceiptRow, receiptRowsOf, timelineOf } from "./transferLogic";
+import type { TransferAction } from "./transferWriteLogic";
+import { type TransferActionWrites, useTransferActionWrites } from "./useTransferWrites";
 import { useShipmentTransfer, useShipmentTransferReceipts } from "./useTransfers";
 
 type StoreNames = ReadonlyMap<string, string>;
@@ -274,12 +283,26 @@ function Detail({
   scope,
   transfer,
   names,
-}: Readonly<{ scope: InventoryScope; transfer: ShipmentTransfer; names: StoreNames }>) {
+  writes,
+}: Readonly<{
+  scope: InventoryScope;
+  transfer: ShipmentTransfer;
+  names: StoreNames;
+  writes: TransferActionWrites;
+}>) {
   const t = useT();
   const receipts = useShipmentTransferReceipts(scope, transfer.id);
+  const [notice, setNotice] = useState<TransferAction | null>(null);
   return (
     <>
+      {notice ? <Banner variant="success" message={t(`transfers.recorded.${notice}`)} /> : null}
       <Summary transfer={transfer} names={names} />
+      <TransferActions
+        transfer={transfer}
+        role={scope.role}
+        writes={writes}
+        onRecorded={setNotice}
+      />
       <section className="transfers__section" aria-labelledby="transfer-lines">
         <h3 id="transfer-lines" className="transfers__heading">
           {t("transfers.lines.title")}
@@ -304,6 +327,7 @@ export function TransferDrawer({
 }>): React.JSX.Element {
   const t = useT();
   const read = useShipmentTransfer(scope, transferId);
+  const writes = useTransferActionWrites(transferId);
   let body: React.JSX.Element;
   if (read.isLoading) {
     body = <ListState state="loading" label={t("transfers.detail.loadingNoun")} />;
@@ -319,12 +343,17 @@ export function TransferDrawer({
     body = (
       <>
         <StaleError error={read.inlineError} onRetry={read.retry} />
-        <Detail scope={scope} transfer={read.data} names={names} />
+        <Detail scope={scope} transfer={read.data} names={names} writes={writes} />
       </>
     );
   }
   return (
-    <Drawer title={t("transfers.detail.title")} onClose={onClose} id="transfer-detail">
+    <Drawer
+      title={t("transfers.detail.title")}
+      onClose={onClose}
+      id="transfer-detail"
+      dismissible={!writes.pending}
+    >
       <div className="transfers__drawer">{body}</div>
     </Drawer>
   );

@@ -61,3 +61,102 @@
   font-size: var(--text-section-title);
   font-weight: var(--weight-strong);
 }
+
+/* RT-1515 (PR 2) the write forms. Existing tokens only; logical properties throughout. */
+.transfers__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.transfers__action-form {
+  padding-block-start: var(--space-3);
+  border-block-start: 1px solid var(--color-border);
+}
+.transfers__create {
+  max-inline-size: none;
+}
+.transfers__plain {
+  min-inline-size: 0;
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+.transfers__lines {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+.transfers__line {
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
+.transfers__line .transfers__plain {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.transfers__line-head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--space-2);
+}
+.transfers__name {
+  font-weight: var(--weight-strong);
+  overflow-wrap: anywhere;
+}
+.transfers__figures {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+.transfers__figures dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.transfers__figures dd {
+  margin: 0;
+}
+.transfers__stock-failed {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  align-items: center;
+}
+.transfers__fieldset {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  margin: 0;
+  padding: var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-object);
+}
+.transfers__fieldset legend {
+  padding-inline: var(--space-1);
+  font-weight: var(--weight-strong);
+}
+.transfers__choices {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  max-block-size: 12rem;
+  margin: 0;
+  padding: 0;
+  overflow-y: auto;
+  list-style: none;
+}
+.transfers__choice {
+  display: flex;
+  gap: var(--space-2);
+  align-items: center;
+  min-block-size: var(--control-h);
+  cursor: pointer;
+}
