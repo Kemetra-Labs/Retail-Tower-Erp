@@ -53,7 +53,8 @@ import {
   lockTenantSafety,
   recordSafetyChange,
 } from "../../inventory/safety/safety-revision";
-import { lockProductProfiles, readTrackedSellingOn } from "../sales/tracked-lines/capture-tracking";
+import { readTrackedSellingOn } from "../../inventory";
+import { lockProductProfiles } from "./tracking-profile-lock";
 import type { TrackingProfileRow } from "./tracking-profile.dto";
 
 export type GetTrackingProfileResult =

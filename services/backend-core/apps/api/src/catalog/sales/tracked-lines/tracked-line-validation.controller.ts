@@ -43,7 +43,7 @@ import type { TenantContextRequest } from "../../../context/types";
 import { TrackedLineValidationAuthGuard } from "./tracked-line-validation-auth.guard";
 import { ValidateTrackedLineRequestSchema, type ValidateTrackedLineRequest } from "./tracked-line-validation.dto";
 import { TrackedLineValidationService, type TrackedLineValidation } from "./tracked-line-validation.service";
-import { isTrackedSellingEnabled } from "./tracked-selling-gate";
+import { isTrackedSellingEnabled } from "../../../inventory";
 
 function notFound(): NotFoundException {
   return new NotFoundException("not_found");

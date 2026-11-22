@@ -3,7 +3,7 @@
  * Both are off by default and read per request (the `isPosReturnsEnabled`
  * convention); each accepts "1", "true" or "yes", case-insensitive, trimmed.
  */
-import { isEnvFlagOn } from "./sale-tenders-gate";
+import { isEnvFlagOn } from "../../common/env-flag";
 
 /**
  * R-7 settle before post (`pos-sales/sales.yaml` `recordReturn`, Posting).

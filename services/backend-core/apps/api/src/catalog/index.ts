@@ -6,12 +6,9 @@
  */
 export { listActiveWarehouseRefsOfStore } from "./erpnext-warehouse-map/store-warehouse-refs";
 export {
-  batchRefsOfIdentities,
-  confirmedItemRefs,
-  hasActiveTransitWarehouse,
-  insertTransferLeg,
-  postingLegStatus,
+  isTenantProduct,
+  liveProductsOfCategories,
+  tenantProductLiveness,
   trackingModesOfProducts,
-  transferWarehouseRefs,
-} from "./erpnext-posting/transfer-posting.port";
-export { isTenantProduct, liveProductsOfCategories, tenantProductLiveness } from "./product-lookups";
+} from "./product-lookups";
+export { lockProductProfiles } from "./tracking-profile/tracking-profile-lock";
