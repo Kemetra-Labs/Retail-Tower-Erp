@@ -52,6 +52,23 @@ describe("HeartbeatReportSchema count activation evidence (RT-1427)", () => {
     ).toBe(false);
   });
 
+  it("accepts the shipment-transfer kinds (RT-1519)", () => {
+    const parsed = HeartbeatReportSchema.parse({
+      acceptedWorkItemKinds: ["sale_post", "inventory_count", "transfer_dispatch", "transfer_receive"],
+    });
+    expect(parsed.acceptedWorkItemKinds).toEqual(
+      expect.arrayContaining(["transfer_dispatch", "transfer_receive"]),
+    );
+  });
+
+  it("still rejects a transfer-like kind that is not in the contract", () => {
+    for (const kind of ["transfer", "transfer_out", "transfer_dispatch "]) {
+      expect(HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: [kind] }).success).toBe(
+        false,
+      );
+    }
+  });
+
   it("rejects an unknown work-item kind", () => {
     expect(HeartbeatReportSchema.safeParse({ acceptedWorkItemKinds: ["refund"] }).success).toBe(
       false,

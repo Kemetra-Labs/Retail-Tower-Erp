@@ -177,6 +177,16 @@ describe("RT-1427 — count activation evidence", () => {
     }
   });
 
+  it("stores and reads back the shipment-transfer kinds (RT-1519)", async () => {
+    if (maybeSkip()) return;
+    const identity = { registrationId: REG_A_NEVER, tenantId: TENANT_A };
+    const kinds = ["sale_post", "inventory_count", "transfer_dispatch", "transfer_receive"];
+    await service.recordHeartbeat(identity, { acceptedWorkItemKinds: kinds });
+    expect((await evidence(REG_A_NEVER))?.accepted_work_item_kinds).toEqual(kinds);
+    const view = await service.getHealth({ tenantId: TENANT_A, registrationId: REG_A_NEVER });
+    expect(view?.acceptedWorkItemKinds).toEqual(kinds);
+  });
+
   it("the operator read returns the evidence, null before any report", async () => {
     if (maybeSkip()) return;
     const before = await service.getHealth({ tenantId: TENANT_A, registrationId: REG_A_NEVER });
