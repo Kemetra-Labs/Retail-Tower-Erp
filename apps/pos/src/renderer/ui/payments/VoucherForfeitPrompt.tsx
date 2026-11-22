@@ -16,7 +16,7 @@ import { formatCheckoutMoney } from './format-checkout-money.js';
  *
  * Owner decision (chat, 2026-11-19): forfeiting the unused balance is allowed, so decision
  * 1A stands and this prompt is the cashier's confirmation of it. The wording below is
- * proposed copy for the owner to review (no governing page defines it). Shape follows UX-12:
+ * owner-approved as final 2026-11-22 (RT-1331 comment). Shape follows UX-12:
  * what, safety, action. The consequence is stated as a fact and never as "cannot be undone":
  * reversing the sale restores the voucher whole.
  *
