@@ -1,127 +1,99 @@
-# Research: POS Credit & Third-Party Tender Flow
+# Research: POS Credit & Third-Party Payer Flow
 
 **Feature:** 020-pos-credit-and-third-party-tender-flow
-**Plan:** [./plan.md](./plan.md)
-**Spec:** [./spec.md](./spec.md)
-**Created:** 2026-06-16
+**Spec:** [./spec.md](./spec.md) · **Plan:** [./plan.md](./plan.md)
+**Re-verified:** 2026-11-22 against `origin/main` `510706c4d` (read-only inspection)
 
-> **Phase 0 — Research.** This artifact records the **verified ground truth** the plan binds to. Because
-> the four load-bearing decisions (consumed contract surface, ownership boundary, actor/identity, gates)
-> are pinned by upstream ground truth, Phase 0 is mostly *recording* facts, not resolving open questions.
-> The remaining non-critical ambiguities were resolved in spec.md `## Clarifications` (C-1..C-6). No
-> NEEDS CLARIFICATION remains. **No code, OpenAPI, migration, package, or CI is authored here.**
+> Records the verified ground truth the spec binds to. Jira and Confluence are context; the code and
+> contracts named here are what was read on `main`.
 
----
+## R1. The allocation lives in the sale (decision)
 
-## R1 — Consumed contract surface (verified)
+Owner decision R-1 (RT-413 comment 11669, 2026-10-12): the payer responsibility is captured on the sale at
+checkout, as an optional `responsibilities` field on `captureSale`, hashed into the sale payload. The old
+post-sale intent route was retired from the contract (RT-417, `settlement.yaml` 2.0.0) and its runtime and
+tables were removed (RT-422, #772, `403c14f0c`). Under `apps/pos/src` no code used the retired route; the
+remaining references were documentation.
 
-**Source (read-only):** Data-Pulse-2 `origin/main:packages/contracts/openapi/settlement/settlement.yaml`
-(the RATIFIED DP-2 035 G2 contract — 035 §10: "G2 RATIFIED 2026-06-15 (T012), PR #574, `cb4a7e5`").
+## R2. Offline and path (owner decision, Option A, 2026-10-16)
 
-POS-020 consumes **exactly one** operation:
+Credit is accepted only on the operator-envelope path, only from `owner`, `tenant_admin` or `store_manager`,
+and is captured synchronously, online, before finalize. The device path answers 422
+`sale_responsibility_offline_refused`; a non-eligible envelope operator gets 403
+`sale_responsibility_role_refused`. Offline credit stays disabled until a cached credit decision with
+freshness and amount limits exists (RT-413 R-1; baseline 1361 to 1447). Source: pinned
+`apps/pos/contracts/backend-core/openapi/pos-sales/sales.yaml`, notes on `responsibilities` and
+`CaptureForbidden` / `CaptureUnprocessable`.
 
-| Property | Value (verified from `settlement.yaml`) |
+## R3. What the contract says about the body (verified)
+
+- `responsibilities`: `minItems 1`, `maxItems 1`; item `{ payerRef (uuid), amount (positive decimal string),
+  sequence (integer >= 1) }`; unique `payerRef` and `sequence` per sale.
+- Coverage: `sum(tenders) + sum(responsibilities) = posTotal`, exact decimal; an absent `tenders` counts as
+  zero, so full credit is valid and not tender-unknown (RT-10 D8 applies only when both are absent).
+- Check order: authentication, replay answer, role (403), then 422s: offline refusal, coverage, voucher,
+  line price, payers.
+- A transient failure (timeout, 429, 5xx) leaves the sale unfinalized; the till may retry the same capture
+  synchronously with the same `Idempotency-Key`, never through the background drain; a refusal is never
+  silently retried; the sale is never re-sent without the responsibility or with it turned into a tender.
+- Rollout: the server accepts the field from RT-418 (Done). POS's pin is `1.28.0-draft` and already carries it.
+- A credit sale is reversed only through `recordCreditSaleReversal`; the ordinary void, return and refund
+  routes answer 403 `credit_sale_reversal_restricted`.
+
+## R4. The payer read exists server-side; POS has no pin (verified, corrects the brief)
+
+`posListChargeablePayers` (`GET /api/pos/v1/payer-accounts`) is in Backend-Core
+`packages/contracts/openapi/pos-payers.openapi.yaml` (`1.0.0-draft`), runtime RT-802 (changelog entry
+`RT-802-added.md`; controller `apps/api/src/catalog/sales/payers/pos-payers.controller.ts`). Envelope only,
+role re-checked live, keyset pages, minimum disclosure, `chargeable` shared with capture's payer predicate,
+`Cache-Control: no-store`, no offline freshness rule, no search parameter. RT-570 and RT-802 are Done.
+
+`apps/pos/contracts/backend-core/openapi/` has no `pos-payers` file, so the generated client has no such
+operation. The pin is the missing piece (spec D-1).
+
+## R5. POS code facts (verified)
+
+- No file under `apps/pos/src` references the retired route. `grep` for "responsibilit" in `src` finds only
+  unrelated hits (read-down, payments, receipts print pipeline wording, returns messages, generated
+  `api-types.ts`). There is no responsibility capture in product code.
+- Sale capture-up is the background engine in `src/main/sales-sync/` (`sale-sync-engine.ts`,
+  `create-sale-sync-client.ts`) wired by `src/main/bootstrap/sale-sync.ts`. The envelope is read in-process
+  per POST; the device path is composed separately (`compose-device-path.ts`, RT-224). The client already
+  uses a deterministic `Idempotency-Key` (the payload `externalId`) and classifies 425 and 429 as transient
+  and other 4xx as permanent (dead-letter). **A credit sale needs a different mode: none of that
+  dead-lettering or queuing may apply to it** (R-SYNC).
+- `src/main/bootstrap/sale-void.ts` is the existing precedent for a synchronous envelope-authenticated call
+  with the shared backend transport and the approval service.
+- Specs index lists 020 as Deferred. `apps/pos/README.md` line 132 lists credit and third-party tender as not
+  implemented.
+
+## R6. Pilot and UX constraints that apply
+
+Pilot is cash only, no split tender (RT-536 D4); RT-420 is fix version Post-Pilot. POS wave 1 is keyless
+(D-K1). No insurance or prescription claims on the till (I-17). Verbs must not exceed evidence (UX-12.13).
+Machine data (amounts, ids) is LTR-isolated in Arabic text. Offline copy and state come from real signals
+only. These are why the spec labels all copy as proposed and adds no shortcut.
+
+## Alternatives considered and rejected
+
+- **Keep a separate post-sale intent route.** Retired by owner decision R-1 and removed server-side.
+- **Queue a credit sale and send it later.** Forbidden by Option A and refused server-side on the device path.
+- **Cache the payer list for offline use.** The payer contract forbids it in v1; an offline mode needs its own
+  decision and a new contract version.
+- **Multi-payer split (patient plus third party).** The contract caps at one payer; a split needs a later
+  version once RT-419 fixes the ERPNext shape.
+- **Show a credit balance or "settled" state.** ERPNext owns the balance; Backend-Core holds none.
+- **Authoring the payer contract pin in this issue.** It is a gated contract pin with its own exemption and
+  preflight; docs-only scope forbids it.
+
+## Traceability
+
+| Spec element | Where it is pinned |
 |:--|:--|
-| operationId | `posRecordSettlementIntent` |
-| path / method | `POST /api/v1/settlement/settlement-intent` |
-| tags | `settlement-pos` |
-| idempotency | `x-idempotency: required` (header `Idempotency-Key`) |
-| security | `operatorAuthorization: []` (HTTP bearer, opaque 031 envelope) |
-| request body | `SettlementIntentCreate` (required) |
-| success | `201` → `SettlementIntentResult` |
-| errors | `400` ValidationFailure · `401` Unauthorized · `409` Conflict (unknown / cross-tenant payer) · `500` SystemFailure |
-
-**NOT consumed by POS-020** (Console- or Connector-owned, verified present in the same contract):
-`consoleCreatePayerAccount`, `consoleListPayerAccounts`, `consoleListReceivables`,
-`consoleGetReceivable`, `consoleApplyPayment`, `consoleSubmitClaim`, `consoleReconcileRemittance`.
-POS references payer accounts only; it never manages them, applies cash, submits claims, or reconciles.
-
-### Schema facts (verified)
-
-- `SettlementIntentCreate`: `required [saleRef, payers]`; `saleRef` uuid (already-captured sale, NOT
-  mutated); `cashTendered` exact-decimal string or null; `payers` array `minItems 1, maxItems 16` of
-  `SettlementIntentPayer`. `additionalProperties: false` (server resolves tenant/actor — they MUST NOT
-  appear in the body).
-- `SettlementIntentPayer`: `required [payerRef, owedAmount]`; `payerRef` uuid (in-scope payer account;
-  unknown/cross-tenant → `409`); `owedAmount` = `Money`; `claimMetadata` opaque object or null.
-- `SettlementIntentResult`: `required [saleRef, receivables]`; `receivables` array `maxItems 16` of
-  `Receivable`.
-- `PayerCategory` enum: `credit_customer | corporate | insurer` (v1 set; extensible).
-- `ReceivableState` enum: `open | partially_applied | settled | claimed | flagged`. **`reversal_consumed`
-  is intentionally EXCLUDED** in v1 (lands in a later additive bump after DP-026 closes — 035 OQ-4).
-- `Money`: exact-decimal **string** ("120.00"); no floats (§III); tax NOT apportioned into the value
-  (tax-pending, OQ-2).
-
-## R2 — Ownership boundary (verified, DP-2 035 §2 / FR-016..018)
-
-| Role | Responsibility | POS-020 stance |
-|:--|:--|:--|
-| **POS-Pulse** | Capture **settlement intent + payer metadata** at the till; submit to DP-2. | This feature. Intent only. |
-| **Console** | Manage payer accounts, receivable balances, cash application, claim/remittance reconciliation. | Out of scope (Console 017/018/019). |
-| **Connector** | Later consumer; posts approved movements to ERPNext. | Out of scope; never in POS path. |
-| **Data-Pulse-2** | Authority; owns settlement state, receivable lifecycle, idempotency, audit, isolation, the G2 contract. | Producer; POS consumes its contract. |
-
-Core principle (035 §1): **the sale fact is immutable; settlement is a separate lifecycle layered over
-it.** POS captures intent; it never authorizes a receivable, applies cash, posts money, or holds
-authoritative settlement state.
-
-## R3 — Actor / identity (verified, DP-2 035 §2, §8, OQ-7)
-
-- **Authorization:** the **031 operator-authorization envelope** (`operatorAuthorization` bearer, opaque,
-  DP-2-issued `pos_operator`), adopted into POS by 016. Device-token-only is insufficient for settlement
-  writes. The backend re-evaluates the operator predicate (membership/device/store/role/non-expiry) LIVE;
-  any refusal collapses to a generic `401` (no factor disclosure).
-- **Payer = account record, not a principal.** The insurer/corporate/credit payer is modeled as a payer
-  account the receivable is owed by (referenced by `payerRef`); it is not a system user.
-- **The settlement *act* vs intent capture (OQ-7 7-C).** The cashier **captures intent** — which *is* the
-  `posRecordSettlementIntent` call. The settlement **act** (cash application / payment entry) is performed
-  by the **Console admin/accounting operator** via `consoleApplyPayment`, never by the cashier. DP-2 owns
-  the operational receivable + cash-application truth; ERPNext owns the accounting Payment Entry as a
-  reconciled valuation projection (referenced by external refs); POS/Console never call ERPNext directly.
-
-## R4 — Offline / money / tax decisions (chosen defaults; see spec Clarifications)
-
-- **C-1 (offline sequencing):** capture intent at the till immediately; **submit only once the sale has a
-  server `saleRef`**, queued via the 011 outbox, idempotent on `Idempotency-Key`. The contract requires an
-  already-captured `saleRef` and does not mutate the sale, so capture-up + idempotency (011) is the
-  least-surprising offline-first behavior.
-- **C-4 (money):** POS keeps integer minor units internally (`src/shared/money.ts`); converts to/from the
-  exact-decimal string `Money` **only at the contract boundary**; float never decides a settlement amount.
-- **Tax-pending (OQ-2 / ADR-0003):** POS computes NO VAT apportionment across payers / co-pays; money
-  carriers are placeholders only.
-
-## R5 — Prior art (verified)
-
-- POS `origin/main:specs/0xx-insurance-copay/visual-spike/` is an **exploratory** insurance/co-pay tender
-  UI spike (`InsuranceTenderSpike.tsx`, `copay-math.ts`, preview render). It is **not** a ratified design
-  and is **not** contract-bound. This feature **supersedes** it as the contract-bound definition of the
-  capture surface; nothing from the spike is inherited as authority.
-- Reuse anchors for reversal/return/rejection: **POS-014** (POS return flow) + **DP-026** (returns/reversal
-  contract) + **Connector Arc A** (forward-feed reversal posting). POS-020 defines no competing reversal
-  workflow (035 NG-1, FR-015).
-
-## Alternatives considered (and rejected)
-
-- **Submit intent synchronously, blocking the sale on settlement.** Rejected: violates the core principle
-  (capture never waits on settlement, 035 FR-010) and Offline-First (Constitution I). Chose
-  capture-then-queue (C-1).
-- **POS creating payer accounts when one is missing.** Rejected: payer-account creation is the Console-
-  owned `consoleCreatePayerAccount`; POS creating payers would breach the ownership boundary (035
-  FR-009/017). Chose reference-only + `409` → "create in Console" (C-2).
-- **Capping POS to a single payer in v1.** Rejected: the contract permits `payers[]` 1..16 and the
-  canonical co-pay + insurer split is the feature's reason to exist; capping would under-deliver. Chose to
-  support the contract split (C-3).
-- **Authoring a POS-side settlement OpenAPI / receivable state machine.** Rejected: DP-2 owns the contract
-  and settlement state (035); POS authors no YAML and holds no authoritative settlement state. Chose
-  consume-only + read-only projection.
-
-## Traceability note (filled at Polish — see tasks T020)
-
-Spec FR-1..FR-11 and NFR-1..NFR-5 each map to a section of data-model.md / contracts/
-settlement-intent-consumption.md / quickstart.md, satisfying Success Criteria SC-1..SC-6. The artifact
-set authors zero OpenAPI/code/migration/package/CI and invents zero VAT allocation rules (SC-5).
-
----
-
-*Phase 0 complete: no open NEEDS CLARIFICATION remains; the four load-bearing decisions are pinned by
-ground truth and the six non-critical clarifications are resolved (spec C-1..C-6).*
+| R-SALE, FR-4, FR-5 | consumption note sections 3 and 4; data-model E1, E2 |
+| R-OFFLINE, R-PATH, R-ROLE | spec rules table; consumption note sections 2, 3, 5 |
+| R-COVER | data-model validation; spec scenarios 1 to 3 |
+| R-FRESH, R-NOSUBMIT | consumption note section 2; spec scenarios 4, 9, 10 |
+| FR-6, FR-7, FR-8 | consumption note section 4; data-model E4 |
+| FR-9, Q-5, Q-6 | spec scenario 13; data-model E5 |
+| D-1 to D-7, Q-1 to Q-8 | spec Dependencies and Owner questions |
