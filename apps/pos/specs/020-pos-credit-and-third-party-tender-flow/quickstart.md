@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - The POS pin of `pos-payers.openapi.yaml` is merged (spec D-1). Without it the till cannot read payers.
-- The owner has answered the spec's owner questions Q-1 to Q-9.
+- The owner has answered the spec's owner questions Q-1 to Q-10.
 - An online session of an `owner`, `tenant_admin` or `store_manager` holding the operator envelope.
 - At least one payer in the store scope that is active and linked to an ERPNext Customer (created and linked
   in the Console, not at the till).

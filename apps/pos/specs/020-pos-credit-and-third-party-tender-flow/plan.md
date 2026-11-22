@@ -62,7 +62,7 @@ Safety: Backend-Core owns allocation, ERPNext owns A/R; POS never calls ERPNext;
    R-FINALIZE, Q-9): the automatic finalize scan of settled payments must not pick up a credit checkout, a
    full-credit sale needs its own route to finalize, and an accepted sale is recorded as already captured with
    no pending outbox row.
-4. **Checkout UI (renderer).** Credit option (role and connectivity gated), payer picker (online, device
+4. **Checkout UI (renderer).** Credit option (role, connectivity and no-offer gated: spec R-NOPROMO, Q-10), payer picker (online, device
    filter, greyed unlinked payers), amount entry, remainder, coverage check with persistent reason, commit.
 5. **Local fact and receipt line.** Persist the accepted payer fact with the local sale (a POS migration, a
    gated path; spec FR-5b), then the payer responsibility line without a "paid" claim (Q-5, Q-6).
@@ -90,7 +90,7 @@ Safety: Backend-Core owns allocation, ERPNext owns A/R; POS never calls ERPNext;
 
 - **Finalize path (Q-9).** The existing finalize is poller-driven and always enqueues; the credit mode must
   not use it as is. This is the largest design item for the implementation issue.
-- **Owner questions Q-1 to Q-9** in the spec block the implementation issue, not this docs change.
+- **Owner questions Q-1 to Q-10** in the spec block the implementation issue, not this docs change.
 - **Pin missing (D-1).** Until it merges the till cannot read payers.
 - **Posting held (D-3, RT-419).** A captured credit sale is held in the posting feed until the Connector
   supports it, so there is no ERPNext proof yet.

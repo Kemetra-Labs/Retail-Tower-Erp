@@ -71,6 +71,7 @@ remainder (if any) in the immediate tender, and the till captures it honestly or
 | **R-FRESH** | The payer list is read online at the moment the manager opens the picker, is never stored for later use and is never shown from a cache. `chargeable` is advisory, not a reservation. | pos-payers contract |
 | **R-NOSUBMIT** | A payer with `chargeable: false` may be listed greyed out with its reason, and is never selectable or submitted. | pos-payers contract |
 | **R-TRUTH** | The till never describes the credit part as paid, received or settled. It shows only what the server returned. | UX-12.13; I-17 |
+| **R-NOPROMO** | No automatic offer is applied to a credit sale. The contract refuses a line `promotion` together with `responsibilities` (400), because a credit sale is reversed through the credit reversal, which does not settle an offer clawback, and says the till applies no offer to a credit sale. How the till gets there when the cart already has an offer is owner question Q-10. | sales.yaml (RT-1337 note on `promotion`) |
 | **R-NOTAX** | The till computes no tax split per payer. Tax stays as it is today (pending). | sales.yaml `SaleResponsibility` |
 
 ## User scenarios and testing
@@ -156,6 +157,14 @@ wire form is an exact-decimal string and the till works in integer minor units.
     Then it shows the immediate tender as taken and a separate line naming the payer and the amount owed
     by the payer, with no word that says the credit part was paid, received or settled.
 
+14. **Offers never reach a credit sale.**
+    Given a cart on which an automatic offer applies, and a manager who chooses credit,
+    When the manager commits,
+    Then no line of the capture body carries `promotion`, so the server never answers 400 for
+    `promotion` plus `responsibilities`. How the cart reaches that state (credit is blocked while an offer
+    applies, or the cart is re-priced without the offer) is Q-10; until decided, the till blocks credit while
+    an offer applies, with a persistent reason, and nothing is sent.
+
 ### Edge cases
 
 - **Amount bounds.** The responsibility amount is strictly positive and not above the amount due. An
@@ -164,7 +173,7 @@ wire form is an exact-decimal string and the till works in integer minor units.
   how change is computed; there is no change on the credit part.
 - **No payers.** An empty payer page is a normal state ("no payer is available for this store"), with a
   pointer that an admin creates payers in the Console. The till does not create a payer.
-- **Payer list fails.** If the read fails (401, 403, 429, 5xx, timeout), no payer is offered and the
+- **Payer list fails.** If the read fails (400 `validation_error` for a bad cursor or category, 401, 403, 429, 5xx, timeout), no payer is offered and the
   credit option stays blocked with the reason. The till does not fall back to any stored list.
 - **Settled cash before capture.** The immediate tender may settle before the capture call. That must not finalize the sale (R-FINALIZE, FR-5a). If the capture is then refused, Q-2 decides what happens to the cash.
 - **Restart mid-capture.** The key and the frozen body survive a restart (see FR-8) so a retry is a
@@ -213,6 +222,8 @@ wire form is an exact-decimal string and the till works in integer minor units.
 - **FR-11.** The till MUST NOT call ERPNext or the Connector and MUST NOT compute any balance, aging,
   credit limit or tax split (R-NOTAX).
 
+- **FR-12.** The till MUST NOT send `promotion` on any line of a responsibility-bearing capture (R-NOPROMO) and MUST keep the credit option unavailable while an automatic offer applies to the cart, until Q-10 is decided. A 400 from `promotion` plus `responsibilities` is therefore a till defect, never an expected outcome.
+
 ### Non-functional requirements
 
 - **NFR-1. Boundary.** Egress is Backend-Core only. No POS to ERPNext path (root `CLAUDE.md` section 4).
@@ -238,8 +249,8 @@ wire form is an exact-decimal string and the till works in integer minor units.
   scenarios above (scenarios 3, 4, 5, 6).
 - **SC-3.** Every server outcome of the consumed operations maps to one till behavior with no outcome that
   finalizes a sale except acceptance.
-- **SC-4.** The folder contains no reference to the retired intent route, no insurance or co-pay flow is
-  specified and no claim fields exist.
+- **SC-4.** The folder consumes nothing from the retired intent route (history notes only), no insurance or
+  co-pay flow is specified and no claim fields exist.
 - **SC-5.** The open owner questions are listed (see Owner questions).
 
 ## Key entities
@@ -284,6 +295,7 @@ wire form is an exact-decimal string and the till works in integer minor units.
 | D-5 | A POS **implementation issue** for the till flow (not yet written). Needs an owner go-ahead and the answers to the owner questions. | Not created. |
 | D-6 | Pilot scope: pilot is cash only with no split tender (RT-536 D4); RT-420 is fix version Post-Pilot. This flow is post-pilot. | Stated. |
 | D-7 | Admin Console specs 017 to 019 still describe the retired model (RT-421 re-pointed the Console). | Follow-up, not this issue. |
+| D-8 | **Future cached credit decision** with freshness and amount limits, the condition under which offline credit could ever be enabled (RT-413 R-1; baseline 1361 to 1447). Needs its own owner decision and a new contract version. Until then R-OFFLINE stands and the payer read defines no offline freshness rule. | Not started; named as a future dependency, not a blocker. |
 
 ## Owner questions
 
@@ -298,6 +310,7 @@ These are listed, not decided. Each states the default the docs assume.
   can fix the payer and retry, or reverse it through the existing recovery path? Touches RT-24 core rules 1 and 3.
   *Recommended:* keep the applied tender, stay in Checkout with the reason, and never start a second sale.
 - **Q-9. How does a credit checkout reach finalize?** The existing finalize path is a background scan of settled payments that always enqueues the sale for the background drain. Options: (a) gate that scan so it skips a credit checkout, and add a finalize variant that records an accepted, already-captured sale with no outbox row; (b) build a separate credit finalize that does not use the scan at all, which also covers a full-credit sale (no settled tender). Either changes finalize or the scan, not only the capture client. *Recommended:* (b), because a full-credit sale has no settled payment to key on and a gate on the shared scan puts the cash-sale path at risk.
+- **Q-10. Offers on a credit sale.** The contract refuses an automatic offer on a credit sale. When a cart already has an offer and the manager chooses credit: (a) block credit while an offer applies, so the manager removes the offer's items or pays normally, or (b) re-price the cart without the offer, which changes the amount due the manager already saw. *Assumed until decided:* (a), because (b) changes a price after the cashier agreed it (a truth risk). Also decide whether the manager is told which offer blocks credit.
 - **Q-3. Shift rule for a full-credit sale.** RT-998 refuses cash without an open shift. Does a sale with
   no cash tender need an open shift? *Assumed:* the existing rule is unchanged and applies only when a
   cash tender exists.

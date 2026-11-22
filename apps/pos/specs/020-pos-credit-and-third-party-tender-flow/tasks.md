@@ -6,7 +6,7 @@
 
 > **Two parts.** Part A is the docs deliverable of RT-420 (done by this change). Part B is the task outline
 > for the **separate implementation issue** (spec D-5). Part B is not authorized work: it starts only after
-> an owner go-ahead and the Q-1 to Q-9 answers. Nothing in Part B is built.
+> an owner go-ahead and the Q-1 to Q-10 answers. Nothing in Part B is built.
 
 ## Part A: RT-420 docs deliverable
 
@@ -16,7 +16,7 @@
 - [x] A4 Specify the offline rule and the coverage pre-check with Given/When/Then scenarios (spec scenarios 3, 4, 5, 6).
 - [x] A5 Record the envelope-path / synchronous-capture mode (R-SYNC, FR-5, FR-7, FR-8) and its departure from the old draft.
 - [x] A6 State the payer-lookup dependency correctly (server side done, POS pin missing, D-1).
-- [x] A7 List the owner questions (Q-1 to Q-9).
+- [x] A7 List the owner questions (Q-1 to Q-10).
 - [x] A8 Remove healthcare-specific framing (no insurance, co-pay, claim or policy fields).
 - [x] A9 Check: a case-insensitive search of this folder for the retired route's names returns nothing. Command: `grep -rniE "settlement[-]intent|Settlement[I]ntent" apps/pos/specs/020-pos-credit-and-third-party-tender-flow` (exit 1 means clean).
 
@@ -25,7 +25,7 @@
 Order follows the plan phases. `[T]` means a test is written first (RED, then GREEN).
 
 ### B0. Gate and pin
-- [ ] B0.1 Owner answers Q-1 to Q-9 and approves the implementation issue.
+- [ ] B0.1 Owner answers Q-1 to Q-10 and approves the implementation issue.
 - [ ] B0.2 `[GATED: contract pin]` PR: vendor `pos-payers.openapi.yaml`, regenerate `api-types.ts` and the snapshot; narrow source-scope-guard exemption on that branch; `pos` preflight on CircleCI (RT-981 rules).
 
 ### B1. Payer read (main process)
@@ -45,6 +45,7 @@ Order follows the plan phases. `[T]` means a test is written first (RED, then GR
 - [ ] B3.1 [T] Credit option shown only for an online, eligible, flag-on session; offline shows the reason (scenarios 4, 12).
 - [ ] B3.2 [T] Picker: online load, device filter, greyed `chargeable: false` payers, empty and error states (scenarios 9, 10).
 - [ ] B3.3 [T] Amount entry and coverage pre-check, exact arithmetic, persistent reason, commit disabled on mismatch (scenarios 1 to 3). Scanner bursts rejected in the amount field (M-S5).
+- [ ] B3.3a [T] Credit is unavailable while an automatic offer applies to the cart, with a persistent reason, and no capture body for a credit sale ever carries `promotion` (R-NOPROMO, FR-12, scenario 14; Q-10).
 - [ ] B3.4 Arabic copy approved by the owner before it ships; RTL, logical properties, 44px targets, no new shortcuts.
 
 ### B4. Receipt and guards
