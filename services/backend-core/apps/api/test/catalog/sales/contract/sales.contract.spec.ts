@@ -122,6 +122,10 @@ const APPROVED_TENDER_FIELDS = [
   // RT-490 (RT-271 R-2): a refund allocation names the sale tender it is
   // refunded against.
   "RefundTender.originalTenderRef",
+  // RT-1548: the status read's mirror of the approved `SaleReturn.refundTenders`
+  // for a credit-sale reversal with a 0 cash refund (always empty; pinned to
+  // `SaleReturn` by return-status-by-provenance.contract.spec.ts).
+  "ReturnStatusZeroRefundReturn.refundTenders",
 ];
 
 /**

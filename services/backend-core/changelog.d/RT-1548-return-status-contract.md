@@ -17,8 +17,15 @@
   15 minutes (OD-196-5; the quiet period is elapsed time and also covers the
   transport delay before receipt). The status read must not answer a verdict
   until every instance that serves `recordReturn` enforces the bound (ship the
-  bound first). `not_recorded` makes no claim about an in-flight
-  `recordCreditSaleReversal`. Strictly additive
+  bound first, and slice 2 verifies and documents the `synchronous_commit` and
+  replica setting). `not_recorded` means no `recordReturn` request received more
+  than 60 seconds earlier has a COMMIT still to be issued; a return that later
+  shows up as recorded is a mismatch the POS raises to support and never pays.
+  `not_recorded` makes no claim about an in-flight `recordCreditSaleReversal`.
+  A credit-sale reversal with a 0 cash refund has no refund row, so for
+  `creditLinked: true` the returned `saleReturn.refundTenders` may be empty
+  (new schema `ReturnStatusZeroRefundReturn`; `SaleReturn` is unchanged).
+  Strictly additive
   (oasdiff: INFO only); `readReturnByProvenance` and its 404 semantics are
   unchanged. No runtime, migration or POS change. Not in this version for want
   of a spec source: a third `unknown` or `pending` verdict, and a server

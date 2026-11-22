@@ -274,7 +274,12 @@ describe("pos-sales/sales.yaml — RT-1548 ReturnProvenanceStatus", () => {
     expect([...(s.required ?? [])].sort()).toEqual(["creditLinked", "saleReturn", "status"]);
     expect(Object.keys(props("ReturnRecordedStatus")).sort()).toEqual(["creditLinked", "saleReturn", "status"]);
     expect(props("ReturnRecordedStatus")["status"]).toMatchObject({ type: "string", const: "recorded" });
-    expect(props("ReturnRecordedStatus")["saleReturn"]).toEqual({ $ref: "#/components/schemas/SaleReturn" });
+    // BR-3: the exact SaleReturn, except a zero-refund credit reversal (Finding 2, below).
+    expect(props("ReturnRecordedStatus")["saleReturn"]).toMatchObject({
+      oneOf: [{ $ref: "#/components/schemas/SaleReturn" }, { $ref: "#/components/schemas/ReturnStatusZeroRefundReturn" }],
+    });
+    expect(schema("ReturnRecordedStatus")["if"]).toEqual({ required: ["creditLinked"], properties: { creditLinked: { const: false } } });
+    expect(schema("ReturnRecordedStatus")["then"]).toEqual({ properties: { saleReturn: { $ref: "#/components/schemas/SaleReturn" } } });
     expect(props("ReturnRecordedStatus")["creditLinked"]).toMatchObject({ type: "boolean" });
     expect(props("ReturnRecordedStatus")["settlement"]).toBeUndefined();
   });
@@ -293,10 +298,59 @@ describe("pos-sales/sales.yaml — RT-1548 ReturnProvenanceStatus", () => {
     expect(recorded).toContain("`creditLinked`");
     expect(recorded).toContain("never pays");
     expect(recorded).toContain("same `SaleReturn` that `recordReturn` answers with");
+    expect(recorded).toContain("a credit-sale reversal whose cash refund is 0 has no refund row");
+    expect(recorded).toContain("for `creditLinked: false` it is always a full `SaleReturn` with at least one refund allocation");
     const notRecorded = flat(schema("ReturnNotRecordedStatus").description);
     expect(notRecorded).toContain("late-commit bound");
     expect(notRecorded).toContain("60 seconds");
     expect(notRecorded).toContain("not by itself");
+    expect(notRecorded).toContain("has a COMMIT still to be issued");
+    expect(notRecorded).toContain("treats it as a mismatch, raises it to support and never pays cash on it");
+  });
+
+  // ---- CodeRabbit Finding 2: a zero-refund credit-sale reversal has an empty refundTenders ----
+  describe("a credit-sale reversal with nothing refunded in cash (empty refundTenders)", () => {
+    const ZERO_REFUND_RETURN = { ...SALE_RETURN, refundTenders: [] };
+    const v = (): ValidateFunction => validator("ReturnProvenanceStatus");
+
+    it("validates as recorded when creditLinked is true", () => {
+      expect({ ok: v()({ status: "recorded", saleReturn: ZERO_REFUND_RETURN, creditLinked: true }), errors: v().errors }).toEqual({ ok: true, errors: null });
+    });
+
+    it("a credit-linked return that did refund cash still validates, as a plain SaleReturn", () => {
+      expect(v()({ status: "recorded", saleReturn: SALE_RETURN, creditLinked: true })).toBe(true);
+    });
+
+    it("is rejected when creditLinked is false: an ordinary return always has a refund allocation", () => {
+      expect(v()({ status: "recorded", saleReturn: ZERO_REFUND_RETURN, creditLinked: false })).toBe(false);
+    });
+
+    it("is rejected without the flag, and a plain SaleReturn still refuses an empty refundTenders", () => {
+      expect(v()({ status: "recorded", saleReturn: ZERO_REFUND_RETURN })).toBe(false);
+      expect(validator("SaleReturn")(ZERO_REFUND_RETURN)).toBe(false);
+    });
+
+    it("the empty-refund shape accepts no allocation: a credit-linked return with one matches only SaleReturn", () => {
+      expect(validator("ReturnStatusZeroRefundReturn")(SALE_RETURN)).toBe(false);
+      expect(validator("ReturnStatusZeroRefundReturn")(ZERO_REFUND_RETURN)).toBe(true);
+    });
+
+    it("stays identical to SaleReturn except refundTenders and the description (no drift)", () => {
+      const strip = (name: string): Record<string, unknown> => {
+        const s = schema(name);
+        const properties = Object.fromEntries(
+          Object.entries(s.properties ?? {}).filter(([key]) => key !== "refundTenders"),
+        );
+        return { type: s.type, additionalProperties: s.additionalProperties, required: s.required, properties };
+      };
+      expect(strip("ReturnStatusZeroRefundReturn")).toEqual(strip("SaleReturn"));
+      const refund = props("ReturnStatusZeroRefundReturn")["refundTenders"];
+      expect(refund).toMatchObject({ type: "array", maxItems: 0 });
+      expect(refund?.["minItems"]).toBeUndefined();
+      expect(props("ReturnStatusZeroRefundReturn")["lines"]).toEqual(props("SaleReturn")["lines"]);
+      // SaleReturn itself is untouched: refundTenders keeps minItems 1.
+      expect(props("SaleReturn")["refundTenders"]).toMatchObject({ type: "array", minItems: 1 });
+    });
   });
 
   it("accepts a recorded verdict, flagged and unflagged, and a not_recorded verdict", () => {
@@ -348,7 +402,28 @@ describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
     expect(text).toContain("never commits afterwards");
     expect(text).toContain("slice 2");
     expect(text).toContain("It bounds when the COMMIT is issued, not when the database finishes it");
-    expect(text).toContain("slice 2 records the deployment assumption it relies on (synchronous replication)");
+    expect(text).toContain("no unbounded synchronous-replication commit wait");
+    expect(text).toContain("Slice 2 verifies and documents the `synchronous_commit` and replica setting before `readReturnStatusByProvenance` answers verdicts");
+  });
+
+  it("the guarantee is that no COMMIT is still to be issued; completion is bounded only under the replication precondition (Finding 1)", () => {
+    const text = description(statusRead());
+    expect(text).toContain("has a COMMIT still to be issued");
+    expect(text).not.toContain("can still commit a return under this provenance");
+    expect(text).toContain("The bound is on issuing the COMMIT, not on its completion");
+    expect(text).toContain("a normative rollout precondition of this read, no unbounded synchronous-replication commit wait");
+    expect(text).toContain("slice 2 verifies and documents the `synchronous_commit` and replica setting before the read answers verdicts");
+    const note = flat(statusRead()["x-runtime-note"]);
+    expect(note).toContain("slice 2 first verifies and documents the `synchronous_commit` and replica setting");
+    expect(flat(sales.info?.description)).toContain("and slice 2 first verifies and documents the `synchronous_commit` and replica setting");
+  });
+
+  it("states the late-commit obligation of the client: a later recorded verdict is a mismatch, raised to support, never paid (Finding 1)", () => {
+    const text = description(statusRead());
+    expect(text).toContain("Late commit: if a return the client closed as not recorded is later seen as recorded");
+    expect(text).toContain("a later `recorded` verdict for its key, `readSale` showing it, or any server answer for the closed key");
+    expect(text).toContain("it raises the row to support (`needs_support`, mismatch) and never pays cash on it");
+    expect(text).toContain("RT-1498 owns that code; this contract states the obligation");
   });
 
   it('says "timed out under this bound", never a bare "timed out" (L-2)', () => {
@@ -425,7 +500,7 @@ describe("pos-sales/sales.yaml — RT-1548 is additive", () => {
     expect(keys).not.toContain("status");
   });
 
-  it("RT-1548 tags exactly one path, three schemas and one response (additivity itself is oasdiff's check)", () => {
+  it("RT-1548 tags exactly one path, four schemas and one response (additivity itself is oasdiff's check)", () => {
     const tagged = (value: unknown): boolean => /\bRT-1548\b/.test(String((value as { description?: unknown })?.description ?? ""));
     // Paths: the operations whose own description cites RT-1548 (recordReturn's BR-7 paragraph is the one documented edit).
     const taggedOps = Object.entries(sales.paths ?? {}).flatMap(([path, item]) =>
@@ -438,7 +513,12 @@ describe("pos-sales/sales.yaml — RT-1548 is additive", () => {
     const taggedSchemas = Object.entries(sales.components?.schemas ?? {})
       .filter(([, def]) => tagged(def))
       .map(([name]) => name);
-    expect(taggedSchemas.sort()).toEqual(["ReturnNotRecordedStatus", "ReturnProvenanceStatus", "ReturnRecordedStatus"]);
+    expect(taggedSchemas.sort()).toEqual([
+      "ReturnNotRecordedStatus",
+      "ReturnProvenanceStatus",
+      "ReturnRecordedStatus",
+      "ReturnStatusZeroRefundReturn",
+    ]);
     const taggedResponses = Object.entries(sales.components?.responses ?? {})
       .filter(([, def]) => tagged(def))
       .map(([name]) => name);
