@@ -40,7 +40,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { deterministicId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { listAllTenantIds } from "../common/all-tenant-ids";
+import { listAllTenantIds } from "../tenants";
 import {
   CLOSED_ROWS_RETENTION_DAYS,
   PUBLISHED_ROWS_RETENTION_MONTHS,

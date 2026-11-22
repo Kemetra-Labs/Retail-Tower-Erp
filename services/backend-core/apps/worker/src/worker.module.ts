@@ -79,7 +79,7 @@ import {
 import { Worker as BullMqWorker } from "bullmq";
 import { Pool } from "pg";
 
-import { AuditDbPool } from "./audit-db-pool";
+import { AuditDbPool } from "./common/audit-db-pool";
 import {
   QueueLagGaugeRegistrar,
   OutboxPendingGaugeRegistrar,

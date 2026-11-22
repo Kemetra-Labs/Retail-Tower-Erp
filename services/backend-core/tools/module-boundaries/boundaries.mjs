@@ -1,16 +1,20 @@
-// RT-1453: intra-api module boundaries for Backend-Core (`apps/api/src`).
+// RT-1453: module boundaries for Backend-Core, across every app source tree (`apps/*/src`, RT-1525).
 //
 // Pure functions only (no CLI, no process exit); `check.mjs` is the CLI and `__tests__/` pins both.
 // No new dependency: it reuses the RT-1454 scanner (`tools/import-cycles/cycles.mjs`: file listing,
 // import specifiers, relative resolution) and the `typescript` parser the package already carries.
 //
-// MODULE: one top-level directory under `apps/api/src`. Files directly in `src` (main.ts,
-// app.module.ts, instrumentation.ts) are the composition root: they may import any module's public
-// surface and are never an import target of the check. `shared` modules (module-map.json) are
-// cross-cutting infrastructure that every module may import freely.
+// MODULE: a logical name, the top-level directory of a module under any app source tree. RT-1525: the
+// check scans every `apps/<app>/src` tree (today `api` and `worker`), and a module's files may live in
+// `apps/api/src/<name>/`, `apps/worker/src/<name>/` or both: same-named directories are ONE module (an
+// import between them is a same-module import, and both may name the module's tables). A module that
+// exists only in the worker tree may own tables. Files directly in an app's `src` (main.ts,
+// app.module.ts, worker.module.ts, instrumentation.ts) are that app's composition root: they may import
+// any module's public surface and are never an import target of the check. `shared` modules
+// (module-map.json) are cross-cutting infrastructure that every module may import freely.
 //
 // PUBLIC SURFACE (the port convention): another module may import only
-//   - `index.ts` at the module root: the barrel with the module's ports, the only place a port is
+//   - `index.ts` at the module root (in either tree): the barrel with the module's ports, the only place a port is
 //     declared (create it only for a module somebody needs a port from);
 //   - a Nest wiring file `*.module.ts` at the module root: DI wiring, not business code;
 //   - a file listed in that module's `publicFiles` in module-map.json (an explicit, reviewable
@@ -29,11 +33,13 @@
 // KNOWN LIMITS (none occurs in the repo today; widen the scanner before one does): SQL keywords in
 // lower case, SQL built by concatenation or with `${schema}.table` / `${table}` interpolation, a comma
 // join's second table, `ALTER TABLE` / `LOCK TABLE`, `jest.mock` paths (tests are outside
-// `apps/api/src`), and a string literal that holds prose with an UPPER-CASE keyword (a rare false
+// `apps/*/src`), and a string literal that holds prose with an UPPER-CASE keyword (a rare false
 // positive).
 //
-// Completeness: every table the db migrations create must be owned in module-map.json, listed in
-// `sharedTables` or listed in `unownedTables`, so a new table is never silently unchecked.
+// Completeness (RT-1525): every live table of the db migrations (created, minus dropped, with renames
+// applied) must be owned by exactly one module in module-map.json, or be in `sharedTables` with a reason
+// and the approving RT issue. There is no "unowned" list. A new table without an owner fails, and the
+// message names its migration; a declared table that a migration dropped or renamed fails as stale.
 //
 // Baseline unit: a violation KEY with an OCCURRENCE COUNT: `<file> -> <target file>` for an import
 // (counted per import statement) and `<file> :: <table>` for SQL (counted per mention). The baseline
@@ -50,26 +56,41 @@ import { resolveRelative, runtimeSpecifiers } from "../import-cycles/cycles.mjs"
 const require = createRequire(import.meta.url);
 const ts = require("typescript");
 
-export const API_SRC = "apps/api/src";
+/** The scanned trees: every `apps/<app>/src` (no app name is hard-coded). */
+export const SRC_TREES = "apps/*/src";
 export const ROOT_MODULE = "(root)";
+const SRC_PREFIX = /^apps\/[^/]+\/src\//;
 
-/** The module of a file under `apps/api/src`: its top-level directory, or `(root)`. Null outside the tree. */
+/** `apps/<app>/src/` of a file, or null outside every source tree. */
+const srcPrefixOf = (relFile) => SRC_PREFIX.exec(relFile)?.[0] ?? null;
+
+/** The module of a file under `apps/<app>/src`: its top-level directory, or `(root)`. Null outside the trees. */
 export function moduleOf(relFile) {
-  if (!relFile.startsWith(`${API_SRC}/`)) return null;
-  const rest = relFile.slice(API_SRC.length + 1).split("/");
+  const prefix = srcPrefixOf(relFile);
+  if (prefix === null) return null;
+  const rest = relFile.slice(prefix.length).split("/");
   return rest.length === 1 ? ROOT_MODULE : rest[0];
 }
 
-/** Every api source file (posix, relative to the package root) from a full file list. */
-export const apiFiles = (files) => files.filter((f) => f.startsWith(`${API_SRC}/`));
+/** A file's path inside its module directory (`deep/x.ts` for `apps/worker/src/sales/deep/x.ts`). */
+const insideModule = (relFile, mod) => relFile.slice(srcPrefixOf(relFile).length + mod.length + 1);
+
+/** Every scanned source file (posix, relative to the package root) from a full file list. */
+export const srcFiles = (files) => files.filter((f) => SRC_PREFIX.test(f));
 
 const TABLE_NAME = /^[a-z_][a-z0-9_]*$/;
 const isStringArray = (v) => Array.isArray(v) && v.every((e) => typeof e === "string");
 
+/** `module-map.json` relative to the repository root, for the messages that tell the author what to edit. */
+export const MODULE_MAP_PATH = "services/backend-core/tools/module-boundaries/module-map.json";
+const APPROVED_IN = /^RT-[1-9][0-9]*$/;
+
 /**
  * Validate and normalise module-map.json; throws with every problem found. `moduleDirs`: the
- * directories under `apps/api/src`. `opts.files`: every scanned file (to check `publicFiles` exist).
- * `opts.migrationTables`: the tables the migrations create (completeness, see the header).
+ * module names of every `apps/<app>/src` tree. `opts.files`: every scanned file (to check `publicFiles` exist).
+ * `opts.migrationTables`: the live migration tables, `Map<table, migration file that created it>`
+ * (completeness, see the header). `opts.goneTables`: `Map<table, how a migration removed it>`, to name
+ * the migration in a stale-entry message.
  */
 export function parseModuleMap(raw, moduleDirs, opts = {}) {
   const problems = [];
@@ -79,22 +100,28 @@ export function parseModuleMap(raw, moduleDirs, opts = {}) {
     if (!isStringArray(value)) problems.push(`${name} must be an array of strings`);
     return isStringArray(value) ? value : [];
   };
+  // RT-1525: there is no "nobody checks this table" list any more; even an empty one is refused.
+  if (Object.hasOwn(raw, "unownedTables")) {
+    problems.push("unownedTables is no longer supported: every table needs an owning module (RT-1525)");
+  }
   const shared = arrayField("shared", raw.shared);
-  const sharedTables = arrayField("sharedTables", raw.sharedTables);
-  const unownedTables = arrayField("unownedTables", raw.unownedTables);
+  const sharedTables = sharedTableNames(raw.sharedTables, problems);
   const modulesOk = raw.modules !== null && typeof raw.modules === "object" && !Array.isArray(raw.modules);
   if (!modulesOk) problems.push("modules must be an object");
   const modules = modulesOk ? raw.modules : {};
   const dirs = new Set(moduleDirs);
-  const fileSet = opts.files ? new Set(opts.files) : null;
+  // `<module>/<path inside it>` for every scanned file, in any tree (a publicFiles entry may live in either).
+  const moduleFiles = opts.files
+    ? new Set(srcFiles(opts.files).filter((f) => moduleOf(f) !== ROOT_MODULE).map((f) => `${moduleOf(f)}/${insideModule(f, moduleOf(f))}`))
+    : null;
   for (const dir of shared) {
-    if (!dirs.has(dir)) problems.push(`shared module "${dir}" is not a directory under ${API_SRC}`);
+    if (!dirs.has(dir)) problems.push(`shared module "${dir}" is not a directory under ${SRC_TREES}`);
     if (dir in modules) problems.push(`"${dir}" is both a shared module and a module with tables`);
   }
   const owner = new Map();
   const nameProblem = (table, where) => (TABLE_NAME.test(table) ? [] : [`${where}: "${table}" is not a lower-case table name (no schema prefix)`]);
   for (const [dir, def] of Object.entries(modules)) {
-    if (!dirs.has(dir)) problems.push(`module "${dir}" is not a directory under ${API_SRC}`);
+    if (!dirs.has(dir)) problems.push(`module "${dir}" is not a directory under ${SRC_TREES}`);
     const tables = arrayField(`module "${dir}" tables`, def.tables);
     const publicFiles = arrayField(`module "${dir}" publicFiles`, def.publicFiles);
     for (const table of tables) {
@@ -105,25 +132,30 @@ export function parseModuleMap(raw, moduleDirs, opts = {}) {
     }
     for (const f of publicFiles) {
       if (!f.endsWith(".ts")) problems.push(`module "${dir}" publicFiles "${f}" must be a .ts path relative to the module`);
-      else if (fileSet && !fileSet.has(`${API_SRC}/${dir}/${f}`)) problems.push(`module "${dir}" publicFiles "${f}" does not exist`);
+      else if (moduleFiles && !moduleFiles.has(`${dir}/${f}`)) problems.push(`module "${dir}" publicFiles "${f}" does not exist`);
     }
   }
   for (const table of sharedTables) {
     problems.push(...nameProblem(table, "sharedTables"));
     if (owner.has(table)) problems.push(`table "${table}" is both shared and owned by "${owner.get(table)}"`);
   }
-  for (const table of unownedTables) {
-    problems.push(...nameProblem(table, "unownedTables"));
-    if (owner.has(table) || sharedTables.includes(table)) problems.push(`table "${table}" is in unownedTables but also owned or shared`);
-  }
   if (opts.migrationTables) {
-    const created = new Set(opts.migrationTables);
-    const declared = new Set([...owner.keys(), ...sharedTables, ...unownedTables]);
-    for (const table of [...created].sort()) {
-      if (!declared.has(table)) problems.push(`table "${table}" is created by a migration but is not owned, shared or listed in unownedTables`);
+    const live = opts.migrationTables;
+    const gone = opts.goneTables ?? new Map();
+    const declared = new Set([...owner.keys(), ...sharedTables]);
+    for (const [table, file] of [...live].sort(([x], [y]) => (x < y ? -1 : 1))) {
+      if (!declared.has(table)) {
+        problems.push(
+          `table "${table}" is created by ${file} but has no owner. Add it to modules["<dir>"].tables in ${MODULE_MAP_PATH}, ` +
+            "where <dir> is the apps/api/src or apps/worker/src module that will read and write it.",
+        );
+      }
     }
     for (const table of [...declared].sort()) {
-      if (!created.has(table)) problems.push(`table "${table}" is declared but no migration creates it (renamed or dropped?)`);
+      if (!live.has(table)) {
+        const how = gone.get(table);
+        problems.push(`table "${table}" is declared but no migration creates it (renamed or dropped?)${how ? `: ${how}` : ""}`);
+      }
     }
   }
   if (problems.length > 0) throw new Error(`module-map.json is invalid:\n  ${problems.join("\n  ")}`);
@@ -131,38 +163,91 @@ export function parseModuleMap(raw, moduleDirs, opts = {}) {
 }
 
 /**
- * Tables the db migrations leave in place (`CREATE TABLE` minus a later `DROP TABLE`, up migrations only, in
- * file order), sorted, from `packages/db/drizzle`. A dropped table needs no owner (RT-422).
+ * RT-1525: `sharedTables` is a list of `{ table, reason, approvedIn }`. A table every module may name is an
+ * exception the owner approves in the PR (like a baseline line), so each entry says why and where.
  */
-export function migrationTables(root) {
+function sharedTableNames(value, problems) {
+  if (value === undefined) return [];
+  if (!Array.isArray(value)) {
+    problems.push("sharedTables must be an array of { table, reason, approvedIn }");
+    return [];
+  }
+  const names = [];
+  for (const entry of value) {
+    const ok = entry !== null && typeof entry === "object" && !Array.isArray(entry);
+    const table = ok && typeof entry.table === "string" ? entry.table : null;
+    if (table === null) {
+      problems.push(`sharedTables entry ${JSON.stringify(entry)} must be { table, reason, approvedIn }`);
+      continue;
+    }
+    if (typeof entry.reason !== "string" || entry.reason.trim() === "") problems.push(`sharedTables "${table}" needs a non-empty reason`);
+    if (typeof entry.approvedIn !== "string" || !APPROVED_IN.test(entry.approvedIn)) {
+      problems.push(`sharedTables "${table}" needs approvedIn: the RT issue that approved it (for example "RT-1525")`);
+    }
+    names.push(table);
+  }
+  return names;
+}
+
+// One statement that creates, drops or renames a table, matched in text order across an up migration.
+const TABLE_DDL =
+  /^\s*(?:(CREATE TABLE(?: IF NOT EXISTS)?|DROP TABLE(?: IF EXISTS)?)\s+([^;(]+)|ALTER TABLE(?: IF EXISTS)?(?: ONLY)?\s+((?:public\.)?"?[a-z_][a-z0-9_]*"?)\s+RENAME TO\s+("?[a-z_][a-z0-9_]*"?))/gim;
+const tableNameOf = (text) => /^(?:public\.)?"?([a-z_][a-z0-9_]*)"?/i.exec(text.trim())?.[1];
+
+/**
+ * The live tables of the db migrations and the ones they removed, from `packages/db/drizzle` (up migrations
+ * only, in file order, each file in text order). `live`: `Map<table, migration file>` for every table a
+ * `CREATE TABLE` made (or an `ALTER TABLE ... RENAME TO` named) and nothing later dropped or renamed away.
+ * `gone`: `Map<table, "dropped by <file>" | "renamed to \"<new>\" by <file>">`. A dropped table needs no
+ * owner (RT-422); a renamed table is owned under its new name (RT-1525). Files are repo-relative.
+ */
+export function migrationHistory(root) {
   const dir = path.join(root, "packages", "db", "drizzle");
+  const rel = (name) => `services/backend-core/packages/db/drizzle/${name}`;
+  const live = new Map();
+  const gone = new Map();
   let names = [];
   try {
     names = readdirSync(dir).filter((n) => n.endsWith(".sql") && !n.endsWith(".down.sql"));
   } catch {
-    return [];
+    return { live, gone };
   }
-  const found = new Set();
   for (const name of names.sort()) {
     const sql = readFileSync(path.join(dir, name), "utf8");
-    // One pass in text order, so a DROP then a CREATE of the same name inside one file keeps the table.
-    for (const m of sql.matchAll(/^\s*(CREATE TABLE(?: IF NOT EXISTS)?|DROP TABLE(?: IF EXISTS)?)\s+([^;(]+)/gim)) {
+    for (const m of sql.matchAll(TABLE_DDL)) {
+      if (m[3] !== undefined) {
+        const [from, to] = [tableNameOf(m[3]), tableNameOf(m[4])];
+        if (from === undefined || to === undefined) continue;
+        live.delete(from);
+        gone.set(from, `renamed to "${to}" by ${rel(name)}`);
+        live.set(to, rel(name));
+        gone.delete(to);
+        continue;
+      }
       const isDrop = m[1].toUpperCase().startsWith("DROP");
       // `DROP TABLE a, b CASCADE` names several tables; a CREATE names one (the capture stops at its `(`).
       for (const part of isDrop ? m[2].split(",") : [m[2]]) {
-        const table = /^(?:public\.)?"?([a-z_][a-z0-9_]*)"?/i.exec(part.trim())?.[1];
+        const table = tableNameOf(part);
         if (table === undefined) continue;
-        if (isDrop) found.delete(table);
-        else found.add(table);
+        if (isDrop) {
+          live.delete(table);
+          gone.set(table, `dropped by ${rel(name)}`);
+        } else {
+          live.set(table, rel(name));
+          gone.delete(table);
+        }
       }
     }
   }
-  return [...found].sort();
+  return { live, gone };
 }
+
+/** The live migration tables, `Map<table, migration file>` (see `migrationHistory`). */
+export const migrationTables = (root) => migrationHistory(root).live;
 
 /** Is `relFile` (a file of module `mod`) part of that module's public surface? */
 export function isPublicFile(relFile, mod, map) {
-  const inside = relFile.slice(`${API_SRC}/${mod}/`.length);
+  const inside = insideModule(relFile, mod);
   if (inside === "index.ts" || (!inside.includes("/") && inside.endsWith(".module.ts"))) return true;
   return (map.publicFiles[mod]?.publicFiles ?? []).includes(inside);
 }
@@ -174,7 +259,7 @@ const bump = (counts, key) => counts.set(key, (counts.get(key) ?? 0) + 1);
 export function importViolations(files, readSource, map) {
   const fileSet = new Set(files);
   const out = new Map();
-  for (const from of apiFiles(files)) {
+  for (const from of srcFiles(files)) {
     const fromMod = moduleOf(from);
     if (fromMod === ROOT_MODULE) continue;
     for (const spec of runtimeSpecifiers(readSource(from), from, true)) {
@@ -213,7 +298,7 @@ export function sqlTablesIn(sourceText, fileName = "x.ts") {
 /** Foreign-table violations: `{ "<file> :: <table>": mentions }`, sorted by key. */
 export function sqlViolations(files, readSource, map) {
   const out = new Map();
-  for (const file of apiFiles(files)) {
+  for (const file of srcFiles(files)) {
     const mod = moduleOf(file);
     if (mod === ROOT_MODULE) continue;
     for (const [table, mentions] of sqlTablesIn(readSource(file), file)) {
@@ -237,8 +322,8 @@ export function compareToBaseline(current, baseline) {
   return { added, stale };
 }
 
-/** The directories under `apps/api/src`, for map validation. */
-export const moduleDirsOf = (files) => [...new Set(apiFiles(files).map(moduleOf))].filter((m) => m !== ROOT_MODULE).sort();
+/** The module names (top-level directories of every `apps/<app>/src` tree, merged), for map validation. */
+export const moduleDirsOf = (files) => [...new Set(srcFiles(files).map(moduleOf))].filter((m) => m !== ROOT_MODULE).sort();
 
 /** Read helper for the CLI. */
 export const readFrom = (root) => (rel) => readFileSync(path.join(root, rel), "utf8");

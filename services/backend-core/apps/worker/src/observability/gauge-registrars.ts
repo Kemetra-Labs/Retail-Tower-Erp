@@ -8,7 +8,7 @@ import { Queue } from "bullmq";
 
 import { GaugeHandleOwner } from "@data-pulse-2/shared";
 
-import { AuditDbPool } from "../audit-db-pool";
+import { AuditDbPool } from "../common/audit-db-pool";
 import { InstrumentedRedis } from "./instrumented-redis";
 import {
   registerDbPoolGauges,

@@ -11,7 +11,7 @@ import {
   logWorkerErrorClass,
   RepeatableWorker,
 } from "../common/repeatable-worker";
-import type { JobLike, WORKER_FACTORY, WorkerFactory } from "../email/email.worker";
+import type { JobLike, WORKER_FACTORY, WorkerFactory } from "../email";
 import { SyncFailureAlertProcessor } from "./sync-failure-alert.processor";
 
 export const SYNC_FAILURE_ALERT_QUEUE_NAME = QUEUE_NAMES.syncFailureAlertSweep;

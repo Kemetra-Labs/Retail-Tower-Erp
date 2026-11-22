@@ -13,6 +13,8 @@ Retail Tower is one platform in one repository: one CI, one contract source and 
 
 Integration path: `POS / Admin-Console -> Backend-Core -> ERPNext-Connector -> ERPNext / Frappe`. POS and Admin-Console never call ERPNext or Frappe directly.
 
+Inside Backend-Core, every database table is owned by one module, declared in `services/backend-core/tools/module-boundaries/module-map.json`, and `lint:module-boundaries` checks both `apps/api/src` and `apps/worker/src` against it (RT-1453, RT-1525). Adding a table: give it an owner there in the same PR as its migration, or the check fails.
+
 ## Allowed edges
 
 `tools/project-graph/graph.yaml` `edges` is the full list. Any other cross-product reference fails `boundary-check`.

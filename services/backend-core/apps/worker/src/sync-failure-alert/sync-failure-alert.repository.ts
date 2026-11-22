@@ -10,6 +10,12 @@
  * read (one site, RT-1389 ratchet); every other statement runs in its own transaction under ONE
  * tenant's GUC (`isPlatformAdmin: false`).
  *
+ * Module boundaries (RT-1525): this file's SQL names only its own two tables. Everything else goes
+ * through the owning module's worker port, on this transaction's client: the tenant check and the
+ * tenant listing (`../tenants`), the failure counts (`../catalog`), the live store names
+ * (`../stores`), the recipient rule (`../memberships`), the addresses (`../auth`) and the audit rows
+ * (`../audit`).
+ *
  * Dedup (S3/S4, AC2): a (window, recipient) delivery row is CLAIMED by an INSERT guarded by the
  * unique key BEFORE the provider is called. A redelivery finds the row and does not send. The
  * only way a row is claimed again is `failed` (the provider threw, so nothing was sent) -> a
@@ -26,7 +32,12 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import { newId } from "@data-pulse-2/shared";
 import type { Pool, PoolClient } from "pg";
 
-import { listAllTenantIds } from "../common/all-tenant-ids";
+import { insertSystemAuditEvent } from "../audit";
+import { liveUserEmails } from "../auth";
+import { syncFailureCounts, syncFailurePresent } from "../catalog";
+import { storeAlertRecipientUserIds } from "../memberships";
+import { liveStoreNames } from "../stores";
+import { isTenantActive, listAllTenantIds } from "../tenants";
 import type { SyncFailureCondition } from "./sync-failure-alert.template";
 
 /** `audit_events.actor_label` of every alert audit row (no human actor). */
@@ -124,63 +135,6 @@ function auditFactId(...parts: readonly string[]): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-5${hex.slice(13, 16)}-a${hex.slice(17, 20)}-${hex.slice(20, 32)}`;
 }
 
-const OBSERVE_SQL = `
-  SELECT s.store_id, st.name AS store_name, 'posting_permanently_rejected' AS condition_key,
-         count(*)::int AS failure_count
-    FROM erpnext_posting_status s
-    JOIN stores st ON st.id = s.store_id AND st.tenant_id = s.tenant_id
-   WHERE s.tenant_id = $1 AND s.status = 'permanently_rejected' AND st.deleted_at IS NULL
-   GROUP BY s.store_id, st.name
-  UNION ALL
-  SELECT sa.store_id, st.name AS store_name, 'sale_failed_needs_repair' AS condition_key,
-         count(*)::int AS failure_count
-    FROM sales sa
-    JOIN stores st ON st.id = sa.store_id AND st.tenant_id = sa.tenant_id
-   WHERE sa.tenant_id = $1 AND sa.sync_status = 'failed-needs-repair' AND st.deleted_at IS NULL
-   GROUP BY sa.store_id, st.name
-  ORDER BY store_id, condition_key`;
-
-const RECIPIENT_SQL = `
-  SELECT u.id AS user_id, u.email
-    FROM memberships m
-    JOIN roles r ON r.tenant_id = m.tenant_id AND r.id = m.role_id
-    JOIN users u ON u.id = m.user_id
-   WHERE m.tenant_id = $1
-     AND m.revoked_at IS NULL AND m.deleted_at IS NULL AND u.deleted_at IS NULL
-     AND (
-       r.code IN ('owner', 'tenant_admin')
-       OR (r.code = 'store_manager'
-           AND (m.store_access_kind = 'all'
-                OR (m.store_access_kind = 'specific'
-                    AND EXISTS (SELECT 1 FROM store_access sa
-                                 WHERE sa.tenant_id = m.tenant_id
-                                   AND sa.membership_id = m.id
-                                   AND sa.store_id = $2))))
-     )`;
-
-/** Whether a condition still holds for one store, re-read under the lock before a window closes. */
-const CONDITION_PRESENT_SQL: Readonly<Record<SyncFailureCondition, string>> = {
-  posting_permanently_rejected: `
-    SELECT 1 FROM erpnext_posting_status s
-      JOIN stores st ON st.id = s.store_id AND st.tenant_id = s.tenant_id
-     WHERE s.tenant_id = $1 AND s.store_id = $2 AND s.status = 'permanently_rejected'
-       AND st.deleted_at IS NULL
-     LIMIT 1`,
-  sale_failed_needs_repair: `
-    SELECT 1 FROM sales sa
-      JOIN stores st ON st.id = sa.store_id AND st.tenant_id = sa.tenant_id
-     WHERE sa.tenant_id = $1 AND sa.store_id = $2 AND sa.sync_status = 'failed-needs-repair'
-       AND st.deleted_at IS NULL
-     LIMIT 1`,
-};
-
-interface ObservedRow {
-  store_id: string;
-  store_name: string;
-  condition_key: SyncFailureCondition;
-  failure_count: number;
-}
-
 /** Failed attempts of one delivery that get an audit row; later ones are only in the delivery row. */
 const FAILED_AUDIT_MAX_ATTEMPTS = 3;
 
@@ -201,18 +155,15 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
 
   observeConditions(tenantId: string): Promise<ObservedCondition[] | null> {
     return this.inTenant(tenantId, async (client) => {
-      const active = await client.query(
-        `SELECT 1 FROM tenants WHERE id = $1 AND status = 'active' AND deleted_at IS NULL`,
-        [tenantId],
-      );
-      if (active.rowCount === 0) return null;
-      const r = await client.query<ObservedRow>(OBSERVE_SQL, [tenantId]);
-      return r.rows.map((row) => ({
-        storeId: row.store_id,
-        storeName: row.store_name,
-        condition: row.condition_key,
-        failureCount: row.failure_count,
-      }));
+      if (!(await isTenantActive(client, tenantId))) return null;
+      // RT-1525: the failure counts are catalog's and the store names are stores'; a deleted store's
+      // failures are dropped here (the counts keep catalog's store-then-condition order).
+      const counts = await syncFailureCounts(client, tenantId);
+      const names = await liveStoreNames(client, tenantId, [...new Set(counts.map((c) => c.storeId))]);
+      return counts.flatMap((c) => {
+        const storeName = names.get(c.storeId);
+        return storeName === undefined ? [] : [{ storeId: c.storeId, storeName, condition: c.condition, failureCount: c.failureCount }];
+      });
     });
   }
 
@@ -294,8 +245,7 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
     let closed = 0;
     for (const w of candidates) {
       await this.lockCondition(client, tenantId, w.store_id, w.condition_key);
-      const present = await client.query(CONDITION_PRESENT_SQL[w.condition_key], [tenantId, w.store_id]);
-      if (present.rowCount !== 0) continue; // the condition is back: keep the window open
+      if (await this.conditionPresent(client, tenantId, w.store_id, w.condition_key)) continue; // back: keep it open
       const r = await client.query(
         `UPDATE sync_failure_alert_windows SET cleared_at = $3
           WHERE tenant_id = $1 AND id = $2 AND cleared_at IS NULL`,
@@ -304,6 +254,17 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
       closed += r.rowCount ?? 0;
     }
     return closed;
+  }
+
+  /** The condition still holds for a live store (catalog's failure rows, stores' liveness). */
+  private async conditionPresent(
+    client: PoolClient,
+    tenantId: string,
+    storeId: string,
+    condition: SyncFailureCondition,
+  ): Promise<boolean> {
+    if (!(await syncFailurePresent(client, tenantId, storeId, condition))) return false;
+    return (await liveStoreNames(client, tenantId, [storeId])).has(storeId);
   }
 
   /** Serialise concurrent sweeps of one (store, condition): the check and the write are atomic. */
@@ -320,22 +281,15 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
 
   listRecipients(tenantId: string, storeId: string): Promise<AlertRecipient[]> {
     return this.inTenant(tenantId, async (client) => {
-      const r = await client.query<{ user_id: string; email: string }>(
-        `${RECIPIENT_SQL} ORDER BY u.id`,
-        [tenantId, storeId],
-      );
-      return r.rows.map((row) => ({ userId: row.user_id, email: row.email }));
+      // RT-1525: the role rule is memberships'; whether the user is live, and the address, are auth's.
+      return await liveUserEmails(client, await storeAlertRecipientUserIds(client, tenantId, storeId));
     });
   }
 
   authorizedEmail(tenantId: string, storeId: string, userId: string): Promise<string | null> {
     return this.inTenant(tenantId, async (client) => {
-      const r = await client.query<{ email: string }>(`${RECIPIENT_SQL} AND u.id = $3`, [
-        tenantId,
-        storeId,
-        userId,
-      ]);
-      return r.rows[0]?.email ?? null;
+      const admitted = await storeAlertRecipientUserIds(client, tenantId, storeId, userId);
+      return (await liveUserEmails(client, admitted))[0]?.email ?? null;
     });
   }
 
@@ -471,23 +425,8 @@ export class PgSyncFailureAlertRepository implements SyncFailureAlertRepository 
       metadata: Record<string, unknown>;
     },
   ): Promise<number> {
-    const r = await client.query(
-      `INSERT INTO audit_events
-         (id, actor_user_id, actor_label, tenant_id, store_id, action, target_type, target_id, metadata)
-       VALUES ($1, NULL, $2, $3, $4, $5, $6, $7, $8::jsonb)
-       ON CONFLICT (id) DO NOTHING`,
-      [
-        row.id,
-        SYNC_FAILURE_ALERT_ACTOR_LABEL,
-        row.tenantId,
-        row.storeId,
-        row.action,
-        row.targetType,
-        row.targetId,
-        JSON.stringify(row.metadata),
-      ],
-    );
-    return r.rowCount ?? 0;
+    // RT-1525: the row is audit's to write (same statement, same deterministic id).
+    return await insertSystemAuditEvent(client, { ...row, actorLabel: SYNC_FAILURE_ALERT_ACTOR_LABEL });
   }
 }
 

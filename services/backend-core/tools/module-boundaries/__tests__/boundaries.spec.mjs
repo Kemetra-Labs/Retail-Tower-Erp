@@ -1,4 +1,4 @@
-// RT-1453: pins the module-boundary check (tools/module-boundaries/boundaries.mjs) with in-memory fixtures.
+// RT-1453 / RT-1525: pins the module-boundary check (tools/module-boundaries/boundaries.mjs) with in-memory fixtures.
 // Run: node --test tools/module-boundaries/__tests__/boundaries.spec.mjs
 import assert from "node:assert/strict";
 import { spawnSync } from "node:child_process";
@@ -13,6 +13,7 @@ import {
   compareToBaseline,
   importViolations,
   isPublicFile,
+  migrationHistory,
   migrationTables,
   moduleDirsOf,
   moduleOf,
@@ -23,12 +24,14 @@ import {
 
 const A = "apps/api/src";
 const f = (rel) => `${A}/${rel}`;
+const w = (rel) => `apps/worker/src/${rel}`;
+const SHARED = (table) => ({ table, reason: "every module writes it", approvedIn: "RT-1" });
 
 const MAP = parseModuleMap(
   {
     version: 1,
     shared: ["common"],
-    sharedTables: ["audit_events"],
+    sharedTables: [SHARED("audit_events")],
     modules: {
       shifts: { tables: ["shifts"] },
       stores: { tables: ["stores"] },
@@ -40,10 +43,14 @@ const MAP = parseModuleMap(
 
 const run = (sources, check) => check(Object.keys(sources), (rel) => sources[rel], MAP);
 
-test("moduleOf: top-level directory, (root) for src files, null outside apps/api/src", () => {
+test("moduleOf: top-level directory of any apps/<app>/src tree, (root) for src files, null outside the trees", () => {
   assert.equal(moduleOf(f("shifts/deep/x.ts")), "shifts");
   assert.equal(moduleOf(f("app.module.ts")), "(root)");
-  assert.equal(moduleOf("apps/worker/src/x.ts"), null);
+  assert.equal(moduleOf(w("sales/x.ts")), "sales");
+  assert.equal(moduleOf(w("worker.module.ts")), "(root)");
+  assert.equal(moduleOf("apps/foo/src/bar/x.ts"), "bar", "no app name is hard-coded (RT-1525)");
+  assert.equal(moduleOf("packages/db/src/x.ts"), null);
+  assert.equal(moduleOf("apps/api/test/x.ts"), null);
 });
 
 test("isPublicFile: index.ts, a root *.module.ts and an explicit publicFiles entry; nothing else", () => {
@@ -137,7 +144,7 @@ test("parseModuleMap rejects a stale directory, a doubly-owned table and a table
     () => parseModuleMap({ version: 1, modules: { a: { tables: ["t"] }, b: { tables: ["t"] } } }, dirs),
     /owned by both "a" and "b"/,
   );
-  assert.throws(() => parseModuleMap({ version: 1, sharedTables: ["t"], modules: { a: { tables: ["t"] } } }, dirs), /both shared and owned/);
+  assert.throws(() => parseModuleMap({ version: 1, sharedTables: [SHARED("t")], modules: { a: { tables: ["t"] } } }, dirs), /both shared and owned/);
 });
 
 test("parseModuleMap rejects malformed shapes, bad names, a missing publicFiles file and a shared/module clash", () => {
@@ -151,16 +158,75 @@ test("parseModuleMap rejects malformed shapes, bad names, a missing publicFiles 
   bad({ modules: { a: { tables: ["public.shifts"] } } }, /not a lower-case table name/);
   bad({ shared: ["a"], modules: { a: { tables: [] } } }, /both a shared module and a module with tables/);
   bad({ modules: { a: { publicFiles: ["x.ts"] } } }, /publicFiles "x.ts" does not exist/, { files: [] });
-  bad({ unownedTables: ["t"], modules: { a: { tables: ["t"] } } }, /unownedTables but also owned/);
+  bad({ unownedTables: ["t"], modules: {} }, /unownedTables is no longer supported: every table needs an owning module \(RT-1525\)/);
+  bad({ unownedTables: [], modules: {} }, /unownedTables is no longer supported/);
   assert.doesNotThrow(() => parseModuleMap({ version: 1, modules: { a: { publicFiles: ["x.ts"] } } }, dirs, { files: [f("a/x.ts")] }));
 });
 
-test("completeness: a migration table nobody owns fails, a declared table no migration creates fails", () => {
-  const raw = { version: 1, sharedTables: ["audit_events"], unownedTables: ["legacy"], modules: { a: { tables: ["shifts"] } } };
+test("completeness: a migration table nobody owns fails naming its migration and module-map.json; a declared table no migration leaves fails", () => {
+  const raw = { version: 1, sharedTables: [SHARED("audit_events")], modules: { a: { tables: ["shifts", "legacy"] } } };
   const dirs = ["a"];
-  assert.doesNotThrow(() => parseModuleMap(raw, dirs, { migrationTables: ["shifts", "audit_events", "legacy"] }));
-  assert.throws(() => parseModuleMap(raw, dirs, { migrationTables: ["shifts", "audit_events", "legacy", "new_table"] }), /"new_table" is created by a migration but is not owned/);
-  assert.throws(() => parseModuleMap(raw, dirs, { migrationTables: ["shifts", "audit_events"] }), /"legacy" is declared but no migration creates it/);
+  const live = (...tables) => new Map(tables.map((t) => [t, `services/backend-core/packages/db/drizzle/0001_${t}.sql`]));
+  assert.doesNotThrow(() => parseModuleMap(raw, dirs, { migrationTables: live("shifts", "audit_events", "legacy") }));
+  assert.throws(
+    () => parseModuleMap(raw, dirs, { migrationTables: live("shifts", "audit_events", "legacy", "foo_bars") }),
+    /table "foo_bars" is created by services\/backend-core\/packages\/db\/drizzle\/0001_foo_bars\.sql but has no owner\. Add it to modules\["<dir>"\]\.tables in services\/backend-core\/tools\/module-boundaries\/module-map\.json/,
+  );
+  assert.throws(() => parseModuleMap(raw, dirs, { migrationTables: live("shifts", "audit_events") }), /"legacy" is declared but no migration creates it/);
+  assert.throws(
+    () =>
+      parseModuleMap(raw, dirs, {
+        migrationTables: live("shifts", "audit_events"),
+        goneTables: new Map([["legacy", "dropped by services/backend-core/packages/db/drizzle/0002_x.sql"]]),
+      }),
+    /"legacy" is declared but no migration creates it \(renamed or dropped\?\): dropped by services\/backend-core\/packages\/db\/drizzle\/0002_x\.sql/,
+  );
+});
+
+test("sharedTables entries need a table, a non-empty reason and an RT approvedIn (RT-1525)", () => {
+  const dirs = ["a"];
+  const bad = (sharedTables, re) => assert.throws(() => parseModuleMap({ version: 1, sharedTables, modules: {} }, dirs), re);
+  bad(["audit_events"], /must be \{ table, reason, approvedIn \}/);
+  bad([{ table: "audit_events", approvedIn: "RT-1" }], /"audit_events" needs a non-empty reason/);
+  bad([{ table: "audit_events", reason: "  ", approvedIn: "RT-1" }], /"audit_events" needs a non-empty reason/);
+  bad([{ table: "audit_events", reason: "why" }], /"audit_events" needs approvedIn/);
+  bad([{ table: "audit_events", reason: "why", approvedIn: "rt-1" }], /"audit_events" needs approvedIn/);
+  bad("audit_events", /sharedTables must be an array/);
+  assert.doesNotThrow(() => parseModuleMap({ version: 1, sharedTables: [SHARED("audit_events")], modules: {} }, dirs));
+});
+
+test("logical modules across trees: worker-only module may own tables; a name in neither tree fails; same name is one module (RT-1525)", () => {
+  const files = [f("sales/a.ts"), w("sales/b.ts"), w("sync-failure-alert/repo.ts"), w("sync-failure-alert/index.ts"), w("worker.module.ts")];
+  const dirs = moduleDirsOf(files);
+  assert.deepEqual(dirs, ["sales", "sync-failure-alert"]);
+  const map = parseModuleMap(
+    { version: 1, modules: { "sync-failure-alert": { tables: ["alerts"] }, sales: { tables: ["sales"], publicFiles: ["b.ts"] } } },
+    dirs,
+    { files },
+  );
+  assert.equal(map.tableOwner.get("alerts"), "sync-failure-alert");
+  assert.equal(isPublicFile(w("sync-failure-alert/index.ts"), "sync-failure-alert", map), true, "a worker index.ts is the port");
+  assert.equal(isPublicFile(w("sales/b.ts"), "sales", map), true, "publicFiles resolve in either tree");
+  assert.throws(() => parseModuleMap({ version: 1, modules: { ghost: { tables: [] } } }, dirs), /module "ghost" is not a directory under apps\/\*\/src/);
+});
+
+test("the worker tree is scanned: a foreign table or a deep import fails, the same module across trees and a worker port do not (RT-1525)", () => {
+  const map = parseModuleMap(
+    { version: 1, shared: ["common"], modules: { catalog: { tables: ["sales"] }, "sync-failure-alert": { tables: ["alerts"] } } },
+    ["catalog", "sync-failure-alert", "common", "email"],
+  );
+  const sources = {
+    [w("sync-failure-alert/repo.ts")]: `const own = "SELECT 1 FROM alerts"; const q = \`SELECT 1 FROM sales\`; import { x } from "../catalog";`,
+    [w("sync-failure-alert/deep.ts")]: `import { y } from "../email/email.worker";`,
+    [w("catalog/index.ts")]: `export const x = 1;`,
+    [w("catalog/obs.ts")]: `const q = "SELECT 1 FROM sales"; import { z } from "../../../api/src/catalog/inner";`,
+    [f("catalog/inner.ts")]: `const q = "SELECT 1 FROM sales";`,
+    [w("email/email.worker.ts")]: ``,
+    [w("worker.module.ts")]: `import "./sync-failure-alert/repo"; const q = "SELECT 1 FROM sales";`,
+  };
+  const read = (rel) => sources[rel];
+  assert.deepEqual(sqlViolations(Object.keys(sources), read, map), { [`${w("sync-failure-alert/repo.ts")} :: sales`]: 1 });
+  assert.deepEqual(importViolations(Object.keys(sources), read, map), { [`${w("sync-failure-alert/deep.ts")} -> ${w("email/email.worker.ts")}`]: 1 });
 });
 
 test("compareToBaseline: a new key or a higher count fails, a stale key or a lower count fails, equal passes", () => {
@@ -176,9 +242,10 @@ test("the checked-in module map is valid and complete against the real tree and 
   const root = path.resolve(here, "..", "..", "..");
   const files = listSourceFiles(root);
   const raw = JSON.parse(readFileSync(path.join(here, "..", "module-map.json"), "utf8"));
-  const tables = migrationTables(root);
-  assert.ok(tables.length > 100, "the migrations must be found");
-  assert.doesNotThrow(() => parseModuleMap(raw, moduleDirsOf(files), { files, migrationTables: tables }));
+  const { live, gone } = migrationHistory(root);
+  assert.ok(live.size > 100, "the migrations must be found");
+  assert.equal(Object.hasOwn(raw, "unownedTables"), false, "RT-1525: no unownedTables key");
+  assert.doesNotThrow(() => parseModuleMap(raw, moduleDirsOf(files), { files, migrationTables: live, goneTables: gone }));
 });
 
 test("migrationTables leaves out a table a later up migration drops (also several in one DROP), and keeps a re-created one (RT-422)", () => {
@@ -191,7 +258,31 @@ test("migrationTables leaves out a table a later up migration drops (also severa
     writeFileSync(path.join(dir, "0002_b.sql"), lines("-- DROP TABLE kept (a comment drops nothing)", "DROP TABLE gone;", "DROP TABLE IF EXISTS public.again;", "DROP TABLE gone2, public.gone3 CASCADE;", "DROP TABLE recycled;", "CREATE TABLE recycled (id uuid);"));
     writeFileSync(path.join(dir, "0003_c.sql"), lines("CREATE TABLE again (id uuid);"));
     writeFileSync(path.join(dir, "0003_c.down.sql"), lines("DROP TABLE again;"));
-    assert.deepEqual(migrationTables(root), ["again", "kept", "recycled"]);
+    assert.deepEqual([...migrationTables(root).keys()].sort(), ["again", "kept", "recycled"]);
+    assert.equal(migrationTables(root).get("again"), "services/backend-core/packages/db/drizzle/0003_c.sql", "the file that created the live table");
+    assert.equal(migrationHistory(root).gone.get("gone2"), "dropped by services/backend-core/packages/db/drizzle/0002_b.sql");
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
+});
+
+test("migrationHistory applies ALTER TABLE ... RENAME TO: the old name is gone, the new one is live (RT-1525)", () => {
+  const root = mkdtempSync(path.join(tmpdir(), "mt-"));
+  try {
+    const dir = path.join(root, "packages", "db", "drizzle");
+    mkdirSync(dir, { recursive: true });
+    writeFileSync(path.join(dir, "0001_a.sql"), "CREATE TABLE old_name (id uuid);\nCREATE TABLE other (id uuid);\n");
+    writeFileSync(
+      path.join(dir, "0002_b.sql"),
+      'ALTER TABLE IF EXISTS public.old_name RENAME TO "new_name";\nALTER TABLE other RENAME COLUMN id TO other_id;\n',
+    );
+    const { live, gone } = migrationHistory(root);
+    assert.deepEqual([...live.keys()].sort(), ["new_name", "other"], "a column rename renames no table");
+    assert.equal(live.get("new_name"), "services/backend-core/packages/db/drizzle/0002_b.sql");
+    assert.equal(gone.get("old_name"), 'renamed to "new_name" by services/backend-core/packages/db/drizzle/0002_b.sql');
+    const raw = { version: 1, modules: { a: { tables: ["old_name", "other"] } } };
+    assert.throws(() => parseModuleMap(raw, ["a"], { migrationTables: live, goneTables: gone }), /"old_name" is declared but no migration creates it \(renamed or dropped\?\): renamed to "new_name"/);
+    assert.throws(() => parseModuleMap(raw, ["a"], { migrationTables: live, goneTables: gone }), /table "new_name" is created by .*0002_b\.sql but has no owner/);
   } finally {
     rmSync(root, { recursive: true, force: true });
   }
