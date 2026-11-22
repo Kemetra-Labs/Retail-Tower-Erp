@@ -1,5 +1,5 @@
 /**
- * RT-1515 (PR 2) the write actions on one Transfer, in its drawer: approve (a
+ * RT-1515 (PR 2, PR 3) the write actions on one Transfer, in its drawer: approve (a
  * draft; the reservation window is 1, 3 or 7 days from submit, with the
  * resulting date shown first), dispatch (an approved Transfer; the WHOLE
  * approved quantity leaves) and cancel (a draft or approved Transfer; a reason
@@ -9,16 +9,18 @@
  * After a recorded write the drawer's reads are invalidated and the Transfer is
  * read again: nothing is edited locally. There is no Undo (no contract).
  */
-import { InlineError } from "@/components/InlineError";
 import { DateTime, type MessageKey, useT } from "@/i18n";
 import type { ShipmentTransfer } from "@/lib/inventory-queries";
 import { useState } from "react";
+import type { InventoryScope } from "../useInventory";
+import { CloseForm, ShortCloseForm } from "./TransferClose";
+import { NoteField } from "./TransferNoteField";
+import { ReceiveForm } from "./TransferReceive";
 import { SubmitRow, WriteNotice } from "./TransferWriteParts";
 import {
   DEFAULT_EXPIRY_DAYS,
   EXPIRY_DAYS,
   type ExpiryDays,
-  REASON_MAX_LENGTH,
   type TransferAction,
   actionsFor,
   buildApproveCommand,
@@ -34,56 +36,6 @@ interface FormProps<C> {
   write: TransferWrite<C>;
   onRecorded: () => void;
   onClose: () => void;
-}
-
-function NoteField({
-  id,
-  label,
-  optional = false,
-  value,
-  disabled,
-  error,
-  onChange,
-}: Readonly<{
-  id: string;
-  label: string;
-  optional?: boolean;
-  value: string;
-  disabled: boolean;
-  error: MessageKey | undefined;
-  onChange: (value: string) => void;
-}>): React.JSX.Element {
-  const t = useT();
-  return (
-    <div className="field">
-      <label htmlFor={id}>
-        {label}
-        {optional ? (
-          <>
-            {" "}
-            <span className="field__required">{t("transfers.write.optional")}</span>
-          </>
-        ) : null}
-      </label>
-      <textarea
-        id={id}
-        className="input"
-        rows={2}
-        dir="auto"
-        maxLength={REASON_MAX_LENGTH}
-        required={!optional}
-        aria-required={optional ? undefined : true}
-        disabled={disabled}
-        aria-invalid={error ? true : undefined}
-        aria-describedby={error ? `${id}-error` : undefined}
-        value={value}
-        onChange={(e) => onChange(e.target.value)}
-      />
-      <div id={`${id}-error`}>
-        <InlineError message={error ? t(error) : undefined} />
-      </div>
-    </div>
-  );
 }
 
 function ApproveForm({
@@ -108,7 +60,10 @@ function ApproveForm({
           className="input"
           value={days}
           disabled={write.pending}
-          onChange={(e) => setDays(Number(e.target.value) as ExpiryDays)}
+          onChange={(e) => {
+            setDays(Number(e.target.value) as ExpiryDays);
+            write.clearRefusal();
+          }}
         >
           {EXPIRY_DAYS.map((d) => (
             <option key={d} value={d}>
@@ -161,6 +116,7 @@ function CancelForm({
         error={error}
         onChange={(value) => {
           setReason(value);
+          write.clearRefusal();
           // A fixed reason drops its stale error; an empty one is caught again on submit.
           if (error) setError(cancelReasonError(value));
         }}
@@ -206,6 +162,7 @@ function DispatchForm({
         error={error}
         onChange={(value) => {
           setNote(value);
+          write.clearRefusal();
           if (error) setError(noteError(value));
         }}
       />
@@ -224,16 +181,23 @@ function DispatchForm({
 const OPENERS: Record<TransferAction, { label: MessageKey; cls: string }> = {
   approve: { label: "transfers.approve.open", cls: "btn-primary" },
   dispatch: { label: "transfers.dispatch.open", cls: "btn-primary" },
+  receive: { label: "transfers.receive.open", cls: "btn-primary" },
+  close: { label: "transfers.close.open", cls: "btn-primary" },
+  shortClose: { label: "transfers.shortClose.open", cls: "btn-danger-quiet" },
   cancel: { label: "transfers.cancel.open", cls: "btn-danger-quiet" },
 };
 
 function ActionForm({
   action,
+  scope,
+  transfer,
   writes,
   onRecorded,
   onClose,
 }: Readonly<{
   action: TransferAction;
+  scope: InventoryScope;
+  transfer: ShipmentTransfer;
   writes: TransferActionWrites;
   onRecorded: () => void;
   onClose: () => void;
@@ -241,23 +205,30 @@ function ActionForm({
   const props = { onRecorded, onClose };
   if (action === "approve") return <ApproveForm write={writes.approve} {...props} />;
   if (action === "dispatch") return <DispatchForm write={writes.dispatch} {...props} />;
+  if (action === "receive") {
+    return <ReceiveForm scope={scope} transfer={transfer} write={writes.receive} {...props} />;
+  }
+  if (action === "close") return <CloseForm write={writes.close} {...props} />;
+  if (action === "shortClose") {
+    return <ShortCloseForm transfer={transfer} write={writes.close} {...props} />;
+  }
   return <CancelForm write={writes.cancel} {...props} />;
 }
 
 export function TransferActions({
+  scope,
   transfer,
-  role,
   writes,
   onRecorded,
 }: Readonly<{
+  scope: InventoryScope;
   transfer: ShipmentTransfer;
-  role: string | null;
   writes: TransferActionWrites;
   onRecorded: (action: TransferAction) => void;
 }>): React.JSX.Element | null {
   const t = useT();
   const [open, setOpen] = useState<TransferAction | null>(null);
-  const actions = actionsFor(transfer.state, role);
+  const actions = actionsFor(transfer.state, scope.role);
   if (actions.length === 0) return null;
   const close = () => setOpen(null);
   return (
@@ -283,6 +254,8 @@ export function TransferActions({
         <ActionForm
           key={open}
           action={open}
+          scope={scope}
+          transfer={transfer}
           writes={writes}
           onClose={close}
           onRecorded={() => {

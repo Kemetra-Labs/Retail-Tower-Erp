@@ -23,7 +23,8 @@
  * `listShipmentTransferReceipts`. PR 2 adds the four writes of a Transfer's
  * first half: `createShipmentTransfer`, `approveShipmentTransfer`,
  * `cancelShipmentTransfer` and `dispatchShipmentTransfer`, each with the
- * required Idempotency-Key. Receive and close are a later PR. Until the
+ * required Idempotency-Key. PR 3 adds the last two: `recordShipmentTransferReceipt`
+ * and `closeShipmentTransfer` (a full close or a short-close). Until the
  * tenant's shipment workflow is switched on, each answers the non-disclosing 404.
  * Same `{ status, data?, error?, retryAfter? }`
  * shape as `src/lib/sale-sync-ops-queries.ts`. Cookie transport is on the
@@ -60,6 +61,9 @@ export type CreateShipmentTransferLine = Schemas["CreateShipmentTransferLine"];
 export type ApproveShipmentTransferCommand = Schemas["ApproveShipmentTransferCommand"];
 export type CancelShipmentTransferCommand = Schemas["CancelShipmentTransferCommand"];
 export type DispatchShipmentTransferCommand = Schemas["DispatchShipmentTransferCommand"];
+export type RecordShipmentTransferReceiptCommand = Schemas["RecordShipmentTransferReceiptCommand"];
+export type ShipmentTransferReceiptLineInput = Schemas["ShipmentTransferReceiptLineInput"];
+export type CloseShipmentTransferCommand = Schemas["CloseShipmentTransferCommand"];
 
 export interface PageQuery {
   cursor?: string;
@@ -245,6 +249,40 @@ export async function dispatchShipmentTransfer(
 ) {
   return resultOf(
     await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/dispatch", {
+      params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+// --- Shipment-Transfer receive and close (RT-1515 PR 3): Idempotency-Key required ---
+
+/** POST .../{transferId}/receipts: in_transit or partially_received; a line cannot exceed its In transit. */
+export async function recordShipmentTransferReceipt(
+  transferId: string,
+  command: RecordShipmentTransferReceiptCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/receipts", {
+      params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+/** POST .../{transferId}/close: a received Transfer with a null reason; otherwise a short-close with a reason. */
+export async function closeShipmentTransfer(
+  transferId: string,
+  command: CloseShipmentTransferCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/close", {
       params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
       body: command,
       signal,

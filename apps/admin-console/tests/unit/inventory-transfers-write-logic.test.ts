@@ -7,6 +7,7 @@ import {
   buildCancelCommand,
   buildCreateCommand,
   buildDispatchCommand,
+  canShortClose,
   canWriteTransfers,
   cancelReasonError,
   expiryAt,
@@ -62,10 +63,42 @@ describe("write roles and state gating", () => {
   test("approve only in draft; cancel in draft or approved; dispatch only in approved", () => {
     expect(actionsFor("draft", "owner")).toEqual(["approve", "cancel"]);
     expect(actionsFor("approved", "store_manager")).toEqual(["dispatch", "cancel"]);
-    for (const state of ["in_transit", "partially_received", "received", "closed", "cancelled"]) {
+    for (const state of ["closed", "cancelled"]) {
       expect(actionsFor(state, "owner")).toEqual([]);
     }
     expect(actionsFor("mystery", "owner")).toEqual([]);
+  });
+
+  test.each([
+    ["owner", ["receive", "shortClose"]],
+    ["tenant_admin", ["receive", "shortClose"]],
+    ["store_manager", ["receive"]],
+    ["store_staff", []],
+    [null, []],
+  ])(
+    "in transit and partially received for %s: short-close only for owner/admin",
+    (role, expected) => {
+      for (const state of ["in_transit", "partially_received"]) {
+        expect(actionsFor(state, role)).toEqual(expected);
+      }
+    },
+  );
+
+  test.each([
+    ["owner", ["close"]],
+    ["tenant_admin", ["close"]],
+    ["store_manager", ["close"]],
+    ["store_staff", []],
+  ])("a received Transfer offers close to %s", (role, expected) => {
+    expect(actionsFor("received", role)).toEqual(expected);
+  });
+
+  test("only owner and tenant_admin may short-close", () => {
+    expect(canShortClose("owner")).toBe(true);
+    expect(canShortClose("tenant_admin")).toBe(true);
+    for (const role of ["store_manager", "store_staff", "", null, undefined]) {
+      expect(canShortClose(role)).toBe(false);
+    }
   });
 
   test("a read-only role gets no action in any state", () => {

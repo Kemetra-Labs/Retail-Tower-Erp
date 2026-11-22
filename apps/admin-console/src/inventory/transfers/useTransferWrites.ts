@@ -1,5 +1,5 @@
 /**
- * RT-1515 (PR 2) the shipment-Transfer write hooks. One POST per submit, with
+ * RT-1515 (PR 2, PR 3) the shipment-Transfer write hooks. One POST per submit, with
  * the Idempotency-Key held while the operator's input is unchanged: a retry
  * after no answer reuses the key and the body, so it cannot record twice; a
  * recorded write, an edit or a key conflict starts a new key.
@@ -12,13 +12,17 @@
 import {
   type ApproveShipmentTransferCommand,
   type CancelShipmentTransferCommand,
+  type CloseShipmentTransferCommand,
   type CreateShipmentTransferCommand,
   type DispatchShipmentTransferCommand,
+  type RecordShipmentTransferReceiptCommand,
   type ShipmentTransfer,
   approveShipmentTransfer,
   cancelShipmentTransfer,
+  closeShipmentTransfer,
   createShipmentTransfer,
   dispatchShipmentTransfer,
+  recordShipmentTransferReceipt,
 } from "@/lib/inventory-queries";
 import { useMutation, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
@@ -51,6 +55,8 @@ export interface TransferWrite<C> {
   submit: (input: unknown, build: () => C) => Promise<TransferWriteResult>;
   /** Whether `input` is the request whose key is held: only then is a resend "the same request". */
   holds: (input: unknown) => boolean;
+  /** On an edit: a refusal no longer describes the input, so it is cleared. "No answer" stays. */
+  clearRefusal: () => void;
   reset: () => void;
 }
 
@@ -96,6 +102,9 @@ function useTransferWrite<C>(send: Send<C>): TransferWrite<C> {
     pending: mutation.isPending,
     submit: (input, build) => mutation.mutateAsync({ input, build }),
     holds: (input) => held.current?.fingerprint === JSON.stringify(input),
+    clearRefusal: () => {
+      if (mutation.data?.outcome.kind === "rejected") mutation.reset();
+    },
     reset: mutation.reset,
   };
 }
@@ -111,11 +120,15 @@ export interface TransferActionWrites {
   approve: TransferWrite<ApproveShipmentTransferCommand>;
   cancel: TransferWrite<CancelShipmentTransferCommand>;
   dispatch: TransferWrite<DispatchShipmentTransferCommand>;
-  /** Any of the three is awaiting its answer: the drawer must not close on it. */
+  /** RT-1515 PR 3: record a receipt. */
+  receive: TransferWrite<RecordShipmentTransferReceiptCommand>;
+  /** RT-1515 PR 3: close a received Transfer, or short-close with a reason (one held key per input). */
+  close: TransferWrite<CloseShipmentTransferCommand>;
+  /** Any of the writes is awaiting its answer: the drawer must not close on it. */
   pending: boolean;
 }
 
-/** The three actions of one Transfer, each with its own held key. */
+/** The actions of one Transfer, each with its own held key. */
 export function useTransferActionWrites(transferId: string): TransferActionWrites {
   const approve = useTransferWrite<ApproveShipmentTransferCommand>((c, k, s) =>
     approveShipmentTransfer(transferId, c, k, s),
@@ -126,10 +139,19 @@ export function useTransferActionWrites(transferId: string): TransferActionWrite
   const dispatch = useTransferWrite<DispatchShipmentTransferCommand>((c, k, s) =>
     dispatchShipmentTransfer(transferId, c, k, s),
   );
+  const receive = useTransferWrite<RecordShipmentTransferReceiptCommand>((c, k, s) =>
+    recordShipmentTransferReceipt(transferId, c, k, s),
+  );
+  const close = useTransferWrite<CloseShipmentTransferCommand>((c, k, s) =>
+    closeShipmentTransfer(transferId, c, k, s),
+  );
   return {
     approve,
     cancel,
     dispatch,
-    pending: approve.pending || cancel.pending || dispatch.pending,
+    receive,
+    close,
+    pending:
+      approve.pending || cancel.pending || dispatch.pending || receive.pending || close.pending,
   };
 }

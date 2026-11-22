@@ -113,7 +113,7 @@ export const transfers = {
   "transfers.receipts.loadMore": "تحميل استلامات أحدث",
 
   "transfers.note.writes":
-    "تُنشأ هنا مسودات التحويل وتُعتمد وتُلغى وتُشحن. الاستلام والإغلاق ليسا متاحين هنا بعد.",
+    "هنا يمكن إنشاء التحويلات واعتمادها وإلغاؤها وشحنها واستلامها وإغلاقها. إغلاق الكمية الناقصة للمالك ومسؤول المؤسسة فقط.",
 
   "transfers.create.open": "تحويل جديد",
   "transfers.create.title": "تحويل جديد",
@@ -195,7 +195,8 @@ export const transfers = {
     "أحد المنتجات غير مربوط بمقابله في ERPNext. اطلب من المسؤول إكمال الربط.",
   "transfers.write.error.keyConflict":
     "تعذّر تأكيد هذا الطلب ولم يُسجَّل. اضغط الإرسال مرة أخرى لإرسال طلب جديد.",
-  "transfers.write.error.overReceipt": "الكمية المستلمة تتجاوز المطلوب وتحتاج إلى موافقة.",
+  "transfers.write.error.overReceipt":
+    "لا يمكن استلام أكثر من الكمية «قيد النقل» في السطر، ولم يُسجَّل شيء على التحويل. لا تُسجَّل الزيادة هنا: تُعالَج خارج التحويل بتسوية مخزون معتمدة.",
   "transfers.write.error.shortCloseReason": "إغلاق الكمية الناقصة يحتاج إلى سبب.",
   "transfers.write.error.generic": "تعذّر على الخادم إكمال الطلب. أعد المحاولة بعد قليل.",
   "transfers.write.error.code": "رمز الخطأ: {code}",
@@ -225,4 +226,34 @@ export const transfers = {
   "transfers.recorded.approve": "سُجّل اعتماد التحويل.",
   "transfers.recorded.cancel": "سُجّل إلغاء التحويل.",
   "transfers.recorded.dispatch": "سُجّل شحن التحويل.",
+
+  "transfers.receive.open": "استلام البضاعة",
+  "transfers.receive.intro":
+    "اكتب الكمية المستلمة لكل سطر. اترك السطر فارغًا إذا لم يكن ضمن هذا الاستلام. ما لا يُستلم يبقى «قيد النقل».",
+  "transfers.receive.lineHead": "السطر {seq}: {product}",
+  "transfers.receive.quantity": "الكمية المستلمة، السطر {seq}",
+  "transfers.receive.disposition": "حالة المخزون عند الاستلام، السطر {seq}",
+  "transfers.receive.location": "الموقع",
+  "transfers.receive.note": "ملاحظة الاستلام",
+  "transfers.receive.submit": "تسجيل الاستلام",
+  "transfers.receive.error.quantity":
+    "اكتب كمية أكبر من صفر بحد أقصى 4 منازل عشرية، أو اترك السطر فارغًا.",
+  "transfers.receive.error.over":
+    "لا يمكن استلام أكثر من الكمية «قيد النقل» في هذا السطر، ولم يُرسَل شيء. لا تُسجَّل الزيادة هنا: تُعالَج خارج التحويل بتسوية مخزون معتمدة.",
+  "transfers.receive.error.noLines": "اكتب كمية لسطر واحد على الأقل.",
+  "transfers.receive.error.note": "ملاحظة الاستلام أطول من 500 حرف.",
+  "transfers.close.open": "إغلاق التحويل",
+  "transfers.close.confirm": "استُلمت كل البضاعة. الإغلاق يُنهي هذا التحويل.",
+  "transfers.close.submit": "تأكيد الإغلاق",
+  "transfers.shortClose.open": "إغلاق مع الكمية الناقصة",
+  "transfers.shortClose.intro":
+    "الكمية التي ما زالت «قيد النقل» في كل سطر أدناه تُشطب كخسارة معتمدة وتبقى خارج المتجرين. لا تُستلم في المتجر الوجهة. السبب مطلوب.",
+  "transfers.shortClose.listLabel": "الكمية التي ستُشطب، حسب السطر",
+  "transfers.shortClose.line": "السطر {seq}: {product}، {quantity} {unit} ما زالت «قيد النقل»",
+  "transfers.shortClose.reason": "سبب إغلاق الكمية الناقصة",
+  "transfers.shortClose.submit": "تأكيد إغلاق الكمية الناقصة",
+  "transfers.shortClose.error.reason": "اكتب سبب إغلاق الكمية الناقصة، من حرف إلى 500 حرف.",
+  "transfers.recorded.receive": "سُجّل استلام التحويل.",
+  "transfers.recorded.close": "سُجّل إغلاق التحويل.",
+  "transfers.recorded.shortClose": "سُجّل إغلاق الكمية الناقصة.",
 };

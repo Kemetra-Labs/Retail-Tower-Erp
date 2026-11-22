@@ -6,11 +6,12 @@ import { readSource, sourcesUnder } from "./source-scan";
  * RT-728 / RT-436 / RT-1515 boundary. The inventory views use the four READ
  * operations of the generated inventory client, the three shipment-Transfer
  * READS (RT-1515 PR 1: list, one Transfer, its receipts) and the writes
- * `createStatusMove` (RT-435) and, from RT-1515 PR 2, exactly four
- * shipment-Transfer writes (create a Draft, approve, cancel, dispatch), through
- * their wrappers, each with the Idempotency-Key header. Receive and close are a
- * later PR, the Transfers setting is not a Console write, and the legacy instant
- * transfer stays forbidden. No other write (createStockMovement /
+ * `createStatusMove` (RT-435) and, from RT-1515 PR 3, exactly six
+ * shipment-Transfer writes (create a Draft, approve, cancel, dispatch, record a
+ * receipt, close), through their wrappers, each with the Idempotency-Key
+ * header. The Transfers setting is not a Console write, the legacy instant
+ * transfer stays forbidden, and an over-receipt excess has no adjustment flow
+ * here (no createStockMovement). No other write (createStockMovement /
  * createStockTransfer / recordStockCount / relocation / holds / recalls /
  * backfill), no ERPNext call, no hand-rolled fetch, no Authorization header,
  * no free-text product entry. Static scan, comments stripped.
@@ -23,16 +24,19 @@ const all = [wrapperSrc, ...feature.map((f) => f.src)];
 const WRITE_FILES = [
   "useStatusMove.ts",
   "StatusMoveSection.tsx",
-  // RT-1515 PR 2: the shipment-Transfer write hooks and forms.
+  // RT-1515 PR 2, PR 3: the shipment-Transfer write hooks and forms.
   "useTransferWrites.ts",
   "TransferCreate.tsx",
   "TransferCreateLines.tsx",
   "TransferActions.tsx",
+  "TransferNoteField.tsx",
+  "TransferReceive.tsx",
+  "TransferClose.tsx",
 ];
 const isWriteFile = (file: string) => WRITE_FILES.some((name) => file.endsWith(`/${name}`));
 
 describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
-  test("exactly the seven read wrappers, the status-move write and the four Transfer writes are exported", () => {
+  test("exactly the seven read wrappers, the status-move write and the six Transfer writes are exported", () => {
     const functions = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
@@ -40,6 +44,7 @@ describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
     expect(functions).toEqual([
       "approveShipmentTransfer",
       "cancelShipmentTransfer",
+      "closeShipmentTransfer",
       "createShipmentTransfer",
       "createStatusMove",
       "dispatchShipmentTransfer",
@@ -50,10 +55,11 @@ describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
       "listStockLocations",
       "listStoreMovements",
       "listTrackingIdentities",
+      "recordShipmentTransferReceipt",
     ]);
   });
 
-  test("the wrappers GET the read paths and POST only the status-move and the four Transfer paths", () => {
+  test("the wrappers GET the read paths and POST only the status-move and the six Transfer paths", () => {
     const paths = [...wrapperSrc.matchAll(/apiClient\.(\w+)\("([^"]+)"/g)].map(
       ([, method, path]) => `${method} ${path}`,
     );
@@ -68,29 +74,25 @@ describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
       "POST /api/inventory/v1/shipment-transfers",
       "POST /api/inventory/v1/shipment-transfers/{transferId}/approve",
       "POST /api/inventory/v1/shipment-transfers/{transferId}/cancel",
+      "POST /api/inventory/v1/shipment-transfers/{transferId}/close",
       "POST /api/inventory/v1/shipment-transfers/{transferId}/dispatch",
+      "POST /api/inventory/v1/shipment-transfers/{transferId}/receipts",
       "POST /api/inventory/v1/stores/{storeId}/status-moves",
     ]);
   });
 
-  test("no receive, close or setting write and no legacy instant transfer (RT-1515 PR 3 is later)", () => {
+  test("no setting write, no legacy instant transfer and no adjustment flow (an over-receipt excess is not recorded here)", () => {
     for (const src of all) {
-      expect(src).not.toMatch(
-        /recordShipmentTransferReceipt|closeShipmentTransfer|ShipmentTransfersSetting/,
-      );
-      expect(src).not.toMatch(/createStockTransfer/);
+      expect(src).not.toMatch(/ShipmentTransfersSetting/);
+      expect(src).not.toMatch(/createStockTransfer|createStockMovement/);
       expect(src).not.toMatch(/apiClient\.\w+\("\/api\/inventory\/v1\/transfers"/);
       expect(src).not.toMatch(/\/api\/inventory\/v1\/transfers(?![\w-])/);
-      expect(src).not.toMatch(/\/shipment-transfers\/\{transferId\}\/close"/);
     }
-    // Only POSTs on the Transfer paths, and only the four approved ones.
+    // Only POSTs on the Transfer paths, and only the six approved ones.
     expect(wrapperSrc).not.toMatch(
       /apiClient\.(PUT|PATCH|DELETE)\("\/api\/inventory\/v1\/(shipment-transfers|transfers|settings)/,
     );
     expect(wrapperSrc).not.toMatch(/apiClient\.POST\("\/api\/inventory\/v1\/(transfers|settings)/);
-    expect(wrapperSrc).not.toMatch(
-      /apiClient\.POST\("\/api\/inventory\/v1\/shipment-transfers\/\{transferId\}\/(receipts|close)"/,
-    );
   });
 
   test("every Transfer write wrapper sends the Idempotency-Key header", () => {
@@ -99,6 +101,8 @@ describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
       "approveShipmentTransfer",
       "cancelShipmentTransfer",
       "dispatchShipmentTransfer",
+      "recordShipmentTransferReceipt",
+      "closeShipmentTransfer",
     ]) {
       const body = wrapperSrc.slice(wrapperSrc.indexOf(`export async function ${name}(`));
       const call = body.slice(0, body.indexOf("\n}\n"));

@@ -104,7 +104,7 @@ export const transfers: MessagesOf<typeof ar> = {
   "transfers.receipts.loadMore": "Load later receipts",
 
   "transfers.note.writes":
-    "Here you can draft, approve, cancel and dispatch transfers. Receiving and closing are not available here yet.",
+    "Here you can draft, approve, cancel, dispatch and receive transfers, and close them. Short-closing a missing quantity is for owners and tenant admins.",
 
   "transfers.create.open": "New transfer",
   "transfers.create.title": "New transfer",
@@ -191,7 +191,7 @@ export const transfers: MessagesOf<typeof ar> = {
   "transfers.write.error.keyConflict":
     "This request could not be confirmed and was not recorded. Submit again to send a new request.",
   "transfers.write.error.overReceipt":
-    "The received quantity exceeds the ordered quantity and needs approval.",
+    "A line cannot receive more than is In transit, and nothing was recorded on the transfer. The excess is not recorded here: it is handled outside the transfer as an approved stock adjustment.",
   "transfers.write.error.shortCloseReason": "Short-closing the missing quantity needs a reason.",
   "transfers.write.error.generic": "The server could not complete the request. Try again shortly.",
   "transfers.write.error.code": "Error code: {code}",
@@ -221,4 +221,34 @@ export const transfers: MessagesOf<typeof ar> = {
   "transfers.recorded.approve": "The approval was recorded.",
   "transfers.recorded.cancel": "The cancellation was recorded.",
   "transfers.recorded.dispatch": "The dispatch was recorded.",
+
+  "transfers.receive.open": "Receive goods",
+  "transfers.receive.intro":
+    "Enter the quantity received for each line. Leave a line blank if it is not in this receipt. Whatever is not received stays In transit.",
+  "transfers.receive.lineHead": "Line {seq}: {product}",
+  "transfers.receive.quantity": "Quantity received, line {seq}",
+  "transfers.receive.disposition": "Stock status on receipt, line {seq}",
+  "transfers.receive.location": "Location",
+  "transfers.receive.note": "Receipt note",
+  "transfers.receive.submit": "Record receipt",
+  "transfers.receive.error.quantity":
+    "Enter a quantity above zero, up to 4 decimal places, or leave the line blank.",
+  "transfers.receive.error.over":
+    "You cannot receive more than is In transit on this line, and nothing was sent. The excess is not recorded here: it is handled outside the transfer as an approved stock adjustment.",
+  "transfers.receive.error.noLines": "Enter a quantity for at least one line.",
+  "transfers.receive.error.note": "The receipt note is longer than 500 characters.",
+  "transfers.close.open": "Close transfer",
+  "transfers.close.confirm": "All the goods were received. Closing ends this transfer.",
+  "transfers.close.submit": "Confirm close",
+  "transfers.shortClose.open": "Short-close",
+  "transfers.shortClose.intro":
+    "The quantity still In transit on each line below is written off as an approved loss and stays out of both stores. It is not received into the destination store. A reason is required.",
+  "transfers.shortClose.listLabel": "Quantity to write off, by line",
+  "transfers.shortClose.line": "Line {seq}: {product}, {quantity} {unit} still In transit",
+  "transfers.shortClose.reason": "Reason for the short-close",
+  "transfers.shortClose.submit": "Confirm short-close",
+  "transfers.shortClose.error.reason": "Enter a reason for the short-close, 1 to 500 characters.",
+  "transfers.recorded.receive": "The receipt was recorded.",
+  "transfers.recorded.close": "The close was recorded.",
+  "transfers.recorded.shortClose": "The short-close was recorded.",
 };
