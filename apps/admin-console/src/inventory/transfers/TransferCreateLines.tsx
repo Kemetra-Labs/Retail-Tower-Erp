@@ -190,10 +190,10 @@ export function LineCard({
         <div className="field">
           <label htmlFor={quantityId}>
             {t("transfers.create.quantity")}
-            {line.unit?.trim() ? (
+            {stock?.onHand?.stockingUnit?.trim() ? (
               <>
                 {" "}
-                (<Machine value={line.unit.trim()} />)
+                (<Machine value={stock.onHand.stockingUnit.trim()} />)
               </>
             ) : null}
           </label>

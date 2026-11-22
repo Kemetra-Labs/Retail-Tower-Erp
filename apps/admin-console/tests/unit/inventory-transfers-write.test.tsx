@@ -210,7 +210,9 @@ async function fillReady(dialog: HTMLElement, quantity = "2.5") {
   await chooseStore(dialog, "Source store", CAIRO, "Cairo Festival");
   await chooseStore(dialog, "Destination store", ALEX, "Alexandria");
   await addProduct(dialog, "Olive oil");
-  await waitFor(() => expect(within(dialog).getByText("kg", { selector: "bdi" })).toBeDefined());
+  await waitFor(() =>
+    expect(within(dialog).getAllByText("kg", { selector: "bdi" }).length).toBeGreaterThan(0),
+  );
   fireEvent.change(within(dialog).getByLabelText(/^Quantity/), { target: { value: quantity } });
 }
 
@@ -282,6 +284,8 @@ describe("create a Draft (RT-1515 PR 2)", () => {
     expect(within(line).getByText("Sellable at source")).toBeDefined();
     expect(within(line).getByText("8.0000")).toBeDefined();
     expect(line.textContent).not.toMatch(/\bStock\b|available to sell/i);
+    // The quantity field names the source store's stocking unit once it is read.
+    expect(within(line).getByLabelText(/^Quantity \(kg\)$/)).toBeDefined();
   });
 
   test("changing the source store reads each line's on-hand again", async () => {
@@ -350,7 +354,9 @@ describe("create a Draft (RT-1515 PR 2)", () => {
     await chooseStore(dialog, "Source store", CAIRO, "Cairo Festival");
     await chooseStore(dialog, "Destination store", ALEX, "Alexandria");
     await addProduct(dialog, "Fresh milk");
-    await waitFor(() => expect(within(dialog).getByText("kg", { selector: "bdi" })).toBeDefined());
+    await waitFor(() =>
+      expect(within(dialog).getAllByText("kg", { selector: "bdi" }).length).toBeGreaterThan(0),
+    );
     fireEvent.change(within(dialog).getByLabelText(/^Quantity/), { target: { value: "3" } });
     fireEvent.click(sendButton(dialog));
     expect(await within(dialog).findByText("Choose a batch for this product.")).toBeDefined();
