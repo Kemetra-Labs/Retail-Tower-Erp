@@ -1695,9 +1695,12 @@ paths:
         verifies and documents the `synchronous_commit` and replica setting
         before `readReturnStatusByProvenance` answers verdicts, and the margin
         inside the quiet period covers the commit itself. It is what
-        gives `readReturnStatusByProvenance` its affirmative `not_recorded`: a
-        return that was not recorded when a client has sent nothing for its
-        quiet period (the POS: 15 minutes) cannot be recorded later. The bound
+        gives `readReturnStatusByProvenance` its affirmative `not_recorded`: once
+        a client has sent nothing for its quiet period (the POS: 15 minutes), no
+        `recordReturn` request it sent has a COMMIT still to be issued. This is
+        an issuance guarantee only; a return closed on `not_recorded` that is
+        later seen as recorded is a mismatch the client raises to support and
+        never pays cash on (see `readReturnStatusByProvenance`). The bound
         is shorter than that quiet period by design, and the quiet period must
         also cover the transport delay before receipt, which the bound does
         not.

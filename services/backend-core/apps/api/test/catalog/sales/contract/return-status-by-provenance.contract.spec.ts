@@ -418,6 +418,14 @@ describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
     expect(flat(sales.info?.description)).toContain("and slice 2 first verifies and documents the `synchronous_commit` and replica setting");
   });
 
+  it("recordReturn states the same issuance-only guarantee and no completion claim (CodeRabbit follow-up)", () => {
+    const text = description(sales.paths["/api/pos/v1/sales/{saleRef}/returns"].post);
+    expect(text).not.toContain("cannot be recorded later");
+    expect(text).toContain("no `recordReturn` request it sent has a COMMIT still to be issued");
+    expect(text).toContain("This is an issuance guarantee only");
+    expect(text).toContain("never pays cash on");
+  });
+
   it("states the late-commit obligation of the client: a later recorded verdict is a mismatch, raised to support, never paid (Finding 1)", () => {
     const text = description(statusRead());
     expect(text).toContain("Late commit: if a return the client closed as not recorded is later seen as recorded");
