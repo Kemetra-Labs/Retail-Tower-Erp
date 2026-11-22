@@ -42,6 +42,11 @@ import { SaleEffectsReport } from "../../inventory/sale-effects/sale-effects-rep
 import type { RecordReturnRequestDto } from "./dto/record-return-request.dto";
 import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { insertReturnClawbacks, loadReturnClawbacks, settleReturnPromotions, type ReturnClawback } from "./sale-return-promotions";
+import {
+  CommitDeadline,
+  isDeadlineTimeoutError,
+  ReturnDeadlineExceededError,
+} from "./return-commit-deadline";
 import { assertAllocationRules, assertOriginalTendersOfSale } from "./refund-allocation";
 import { isRefundSettleBeforePostEnabled } from "./refund-gates";
 import { TerminalEventProvenanceConflictError } from "./sale-errors";
@@ -63,6 +68,11 @@ export interface RecordReturnInput {
   readonly actorUserId: string;
   readonly saleRef: string;
   readonly body: RecordReturnRequestDto;
+  /**
+   * RT-1548 (BR-7): the deadline stamped at request receipt. A caller with none
+   * (a direct call, a test) gets the full budget starting at the call.
+   */
+  readonly deadline?: CommitDeadline;
 }
 
 export interface ReturnLineProjection {
@@ -123,10 +133,13 @@ export class SaleReturnsService {
     const payloadHash = sha256CanonicalHex(body);
     // RT-427: skipped return effects are reported after COMMIT only.
     const effects = new SaleEffectsReport();
+    // RT-1548 (BR-7): no COMMIT later than the budget after receipt.
+    const deadline = input.deadline ?? CommitDeadline.startingNow();
     const result = await runWithTenantContext(
       this.pool,
       { tenantId, isPlatformAdmin: false },
-      async (client): Promise<SaleReturnResult> => {
+      async (rawClient): Promise<SaleReturnResult> => {
+        const client = deadline.guardClient(rawClient);
         const sale = await lockSaleForReversal(client, saleRef, input.storeId);
         // RT-577: a return a credit reversal created is never replayed here; on
         // its own sale the call falls through to the credit refusal below.
@@ -159,7 +172,14 @@ export class SaleReturnsService {
         }
         return { projection: await loadSaleReturn(client, returnId), created: true };
       },
-    );
+      { beforeCommit: () => deadline.assertOpen() },
+    ).catch((err: unknown) => {
+      // A cancelled statement or lock wait of the armed timeouts is the same
+      // refusal as a budget found spent: rolled back, nothing recorded.
+      throw isDeadlineTimeoutError(err) && !(err instanceof ReturnDeadlineExceededError)
+        ? new ReturnDeadlineExceededError(err)
+        : err;
+    });
     effects.flush();
     return result;
   }

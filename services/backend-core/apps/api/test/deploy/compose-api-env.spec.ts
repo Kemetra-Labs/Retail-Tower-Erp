@@ -23,7 +23,11 @@ import { readAiGatewayRuntime } from "../../src/ai/gateway/ai-gateway.runtime";
 import { isOutboxAuditEnabled } from "../../src/audit/audit-enqueuer.module";
 import { descopeAuthFactory } from "../../src/auth/descope-auth.client";
 import { readPublicAuthLimiterTimeoutMs } from "../../src/auth/public-auth-limiter";
-import { isLegacyRefundEnabled, isRefundSettleBeforePostEnabled } from "../../src/catalog/sales/refund-gates";
+import {
+  isLegacyRefundEnabled,
+  isRefundSettleBeforePostEnabled,
+  isReturnStatusReadEnabled,
+} from "../../src/catalog/sales/refund-gates";
 import { isPosReturnsEnabled } from "../../src/catalog/sales/returns-gate";
 import {
   isPosSaleTendersEnabled,
@@ -229,6 +233,7 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["POS_RETURNS_ENABLED", isPosReturnsEnabled],
       ["POS_REFUND_SETTLE_BEFORE_POST_ENABLED", isRefundSettleBeforePostEnabled],
       ["POS_LEGACY_REFUND_ENABLED", isLegacyRefundEnabled],
+      ["POS_RETURN_STATUS_READ_ENABLED", isReturnStatusReadEnabled],
       ["DEVICE_TOKEN_EXPIRY_ENFORCED", isDeviceTokenExpiryEnforced],
       ["AI_GATEWAY_ENABLED", () => readAiGatewayRuntime().isEnabled()],
       ["OUTBOX_AUDIT_ENABLED", isOutboxAuditEnabled],

@@ -135,6 +135,9 @@ services:
       POS_RETURNS_ENABLED: ${POS_RETURNS_ENABLED:-false}
       POS_REFUND_SETTLE_BEFORE_POST_ENABLED: ${POS_REFUND_SETTLE_BEFORE_POST_ENABLED:-false}
       POS_LEGACY_REFUND_ENABLED: ${POS_LEGACY_REFUND_ENABLED:-false}
+      # RT-1548: the affirmative return status read. Off by default; see
+      # docs/operations/return-commit-bound.md before turning it on.
+      POS_RETURN_STATUS_READ_ENABLED: ${POS_RETURN_STATUS_READ_ENABLED:-false}
       DEVICE_TOKEN_EXPIRY_ENFORCED: ${DEVICE_TOKEN_EXPIRY_ENFORCED:-false}
       AI_GATEWAY_ENABLED: ${AI_GATEWAY_ENABLED:-false}
       # Empty, never "false": unset means ON in production (RT-124).

@@ -31,6 +31,7 @@ import { AuthModule } from "../../auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../database";
 import { ContextModule } from "../../context/context.module";
 import { IdempotencyModule } from "../../idempotency/idempotency.module";
+import { ReturnCommitDeadlineModule } from "./return-commit-deadline";
 import { SalesController } from "./sales.controller";
 import { SalesService } from "./sales.service";
 import { SaleReturnsService } from "./sale-returns.service";
@@ -100,7 +101,8 @@ import { SaleQuarantineService } from "./quarantine/sale-quarantine.service";
  * publishes req.context, so TenantContextGuard is not needed on the write routes.
  */
 @Module({
-  imports: [AuthModule, IdempotencyModule, AuditModule, ContextModule],
+  // RT-1548 (BR-7): ReturnCommitDeadlineModule stamps the receipt of `recordReturn` before any guard.
+  imports: [AuthModule, IdempotencyModule, AuditModule, ContextModule, ReturnCommitDeadlineModule],
   // RT-539: the POS sale history is its own controller (no new SalesController
   // dependency), reusing this module's envelope and device guard providers.
   // RT-577: the credit-sale reversal is its own controller too.

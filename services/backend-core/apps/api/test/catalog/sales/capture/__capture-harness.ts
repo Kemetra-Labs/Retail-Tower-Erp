@@ -72,6 +72,11 @@ import { SalesController } from "../../../../src/catalog/sales/sales.controller"
 import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "../../../../src/catalog/sales/sale-capture-auth.guard";
 import { SalesService } from "../../../../src/catalog/sales/sales.service";
 import { SaleReturnsService } from "../../../../src/catalog/sales/sale-returns.service";
+import {
+  RETURN_DEADLINE_CLOCK,
+  ReturnCommitDeadlineModule,
+  type DeadlineClock,
+} from "../../../../src/catalog/sales/return-commit-deadline";
 import { CreditSaleReversalService } from "../../../../src/catalog/sales/credit-sale-reversal.service";
 import { CreditSaleReversalsController } from "../../../../src/catalog/sales/credit-sale-reversals.controller";
 import { RefundExecutionsController } from "../../../../src/catalog/sales/refund-executions.controller";
@@ -187,7 +192,11 @@ export interface HarnessHandle {
  * Docker is unavailable AND MIGRATION_TEST_ALLOW_SKIP=1.
  */
 export async function startCaptureHarness(
-  opts: { auditEnqueuer?: AuditJobEnqueuer } = {},
+  opts: {
+    auditEnqueuer?: AuditJobEnqueuer;
+    /** RT-1548 (BR-7): a fake clock for the `recordReturn` commit deadline (the production one is monotonic). */
+    returnDeadlineClock?: DeadlineClock;
+  } = {},
 ): Promise<HarnessHandle> {
   // RT-787 (RT-271 R-11): the legacy refund route is gated off by default.
   // The capture specs exercise it as a live route; the gate's own specs
@@ -284,10 +293,16 @@ export async function startCaptureHarness(
     // no-op here; req.context is injected by the global ConfigurableContextGuard
     // below. The guard's real envelope auth + live reverify is covered by its
     // own specs.
-    const moduleRef = await Test.createTestingModule({
+    let builder = Test.createTestingModule({
+      // RT-1548 (BR-7): stamps the receipt of `recordReturn`, as SalesModule does.
+      imports: [ReturnCommitDeadlineModule],
       controllers: [SalesController, CreditSaleReversalsController, RefundExecutionsController],
       providers,
-    })
+    });
+    if (opts.returnDeadlineClock) {
+      builder = builder.overrideProvider(RETURN_DEADLINE_CLOCK).useValue(opts.returnDeadlineClock);
+    }
+    const moduleRef = await builder
       // Write routes (capture/void/refund) use PosOperatorEnvelopeSaleGuard
       // (031 D1+D2); the readSale GET uses PosOperatorAuthGuard +
       // TenantContextGuard. All are overridden to no-ops here — these specs

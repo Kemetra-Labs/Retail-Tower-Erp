@@ -82,6 +82,7 @@ import {
   RefundInstrumentNotAllowedError,
 } from "./refund-allocation";
 import { isLegacyRefundEnabled } from "./refund-gates";
+import { commitDeadlineOf } from "./return-commit-deadline";
 import { isPosReturnsEnabled } from "./returns-gate";
 import {
   VoidApprovalInvalidError,
@@ -613,6 +614,8 @@ export class SalesController {
         actorUserId: ctx.userId,
         saleRef,
         body,
+        // RT-1548 (BR-7): the clock started when the request was received.
+        deadline: commitDeadlineOf(request),
       });
       if (result.created) {
         res.status(HttpStatus.CREATED);
