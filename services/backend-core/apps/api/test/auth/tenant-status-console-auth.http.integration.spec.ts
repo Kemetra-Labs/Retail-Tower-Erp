@@ -63,6 +63,7 @@ import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { ContextModule } from "../../src/context/context.module";
 import { MembershipsModule } from "../../src/memberships/memberships.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { TenantsModule } from "../../src/tenants/tenants.module";
 import {
   applyAllUpAndCreateAppRole,
@@ -231,7 +232,7 @@ beforeAll(async () => {
   await seed(env);
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AuthModule, ContextModule, TenantsModule, MembershipsModule, StoresModule],
+    imports: [AuthModule, ContextModule, TenantsModule, MembershipsModule, StoresModule, PricingStoreLifecycleModule],
   })
     .overrideProvider(PG_POOL)
     .useValue(env.app)

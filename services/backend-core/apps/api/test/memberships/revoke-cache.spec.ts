@@ -85,6 +85,7 @@ import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
 import { MembershipsModule } from "../../src/memberships/memberships.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import type { RedisLike } from "../../src/auth/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
@@ -270,7 +271,7 @@ beforeAll(async () => {
     // policies and the canAccessStore check execute as they would in
     // production. The admin pool is used only for setup/reset above.
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, ContextModule, MembershipsModule, StoresModule],
+      imports: [AuthModule, ContextModule, MembershipsModule, StoresModule, PricingStoreLifecycleModule],
     })
       .overrideProvider(PG_POOL).useValue(env.app)
       // RT-1249: sign-in reads password_hash on the lookup role, never app_test.

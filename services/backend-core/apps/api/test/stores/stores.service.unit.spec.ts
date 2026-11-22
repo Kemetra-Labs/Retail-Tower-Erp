@@ -54,6 +54,7 @@ jest.mock("@data-pulse-2/shared", () => ({
 // ---------------------------------------------------------------------------
 
 import { StoresService } from "../../src/stores/stores.service";
+import type { StorePricingLifecycle } from "../../src/stores";
 import type {
   StoreRecord,
   StoresRepository,
@@ -85,14 +86,15 @@ jest.mock("../../src/stores/deletion/store-deletion.write", () => ({
 // RT-1484 PR-5 (spec 042 §8): Store lifecycle writes take the pricing publish lock and write the
 // bootstrap row; these unit specs run on a bare fake client, so the helpers are recorded instead.
 const mockPricingCalls: string[] = [];
-jest.mock("../../src/common/pricing-store-lifecycle", () => ({
-  lockPricingPublish: jest.fn(async () => {
+// RT-1525: the stores port `StorePricingLifecycle`, injected (Pricing's adapter in production).
+const mockPricingLifecycle: StorePricingLifecycle = {
+  lockForStoreWrite: async () => {
     mockPricingCalls.push("lock");
-  }),
-  bootstrapStorePricing: jest.fn(async () => {
+  },
+  bootstrapStore: async () => {
     mockPricingCalls.push("bootstrap");
-  }),
-}));
+  },
+};
 
 jest.mock("../../src/offers/offer-pack.rebuild", () => ({
   rebuildOfferPackForStoreChange: jest.fn(async () => ({ revision: null, changedStoreIds: [] })),
@@ -219,7 +221,8 @@ function buildService(opts: BuildServiceOpts = {}) {
     fakePool,
     storesRepo as unknown as StoresRepository,
     membershipsRepo as unknown as MembershipRepository,
-    tx as unknown as NonNullable<ConstructorParameters<typeof StoresService>[3]>,
+    mockPricingLifecycle,
+    tx as unknown as NonNullable<ConstructorParameters<typeof StoresService>[4]>,
   );
 
   return { service, storesRepo, membershipsRepo, tx };
@@ -252,6 +255,7 @@ describe("StoresService constructor", () => {
       fakePool,
       storesRepo as unknown as StoresRepository,
       membershipsRepo as unknown as MembershipRepository,
+      mockPricingLifecycle,
     );
 
     expect(service).toBeInstanceOf(StoresService);

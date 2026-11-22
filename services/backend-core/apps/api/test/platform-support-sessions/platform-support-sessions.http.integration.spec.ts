@@ -46,6 +46,7 @@ import { ContextModule } from "../../src/context/context.module";
 import { loadOpenApiContracts } from "../../src/openapi/loader";
 import { PlatformSupportSessionsModule } from "../../src/platform-support-sessions/platform-support-sessions.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { TenantsModule } from "../../src/tenants/tenants.module";
 import {
   applyAllUpAndCreateAppRole,
@@ -187,6 +188,7 @@ beforeAll(async () => {
       ContextModule,
       TenantsModule,
       StoresModule,
+      PricingStoreLifecycleModule,
       AuditModule,
       PlatformSupportSessionsModule,
     ],

@@ -46,6 +46,7 @@ import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { ContextModule } from "../../src/context/context.module";
 import { StoresModule } from "../../src/stores/stores.module";
+import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
 import { TenantsModule } from "../../src/tenants/tenants.module";
 import {
   applyAllUpAndCreateAppRole,
@@ -145,7 +146,7 @@ beforeAll(async () => {
     await seed();
 
     const moduleRef = await Test.createTestingModule({
-      imports: [AuthModule, ContextModule, TenantsModule, StoresModule],
+      imports: [AuthModule, ContextModule, TenantsModule, StoresModule, PricingStoreLifecycleModule],
     })
       .overrideProvider(PG_POOL)
       .useValue(env.app) // non-superuser app role — RLS enforced

@@ -27,9 +27,17 @@ export async function lockPricingValidate(client: Pick<PoolClient, "query">, ten
   ]);
 }
 
+/** Advisory-lock key namespace of the publish lock; the tenant id is appended. Never change it. */
+const PRICING_PUBLISH_LOCK_NAMESPACE = "pricing-publish";
+
 /**
- * The tenant's pricing publish lock (namespace 'pricing-publish'). RT-1484 PR-10b: defined in
- * `common/pricing-store-lifecycle.ts`, because the Store lifecycle writes take it too and may not
- * import Pricing (module cycle); re-exported here so Pricing keeps one import site.
+ * The tenant's pricing publish lock, transaction-scoped. The one definition: Store lifecycle writes
+ * take it through the stores port `StorePricingLifecycle.lockForStoreWrite` (RT-1525), which
+ * `store-lifecycle/pricing-store-lifecycle.adapter.ts` implements with this function.
  */
-export { lockPricingPublish } from "../common/pricing-store-lifecycle";
+export async function lockPricingPublish(client: Pick<PoolClient, "query">, tenantId: string): Promise<void> {
+  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended($1 || ':' || $2::text, 0))`, [
+    PRICING_PUBLISH_LOCK_NAMESPACE,
+    tenantId,
+  ]);
+}
