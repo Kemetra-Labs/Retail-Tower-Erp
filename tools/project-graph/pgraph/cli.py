@@ -9,11 +9,13 @@ Output is ASCII JSON so it is safe on any console encoding."""
 
 import argparse
 import json
+import os
 import pathlib
 import sys
 
 from . import aggregate as ag
 from . import boundary as bd
+from . import coverage_evidence as cov
 from . import evaluate as ev
 from . import github as gh
 from . import gitio
@@ -171,6 +173,26 @@ def cmd_privileges(args):
     return 1 if problems else 0
 
 
+def cmd_coverage_evidence(args):
+    """RT-1554 P1. Report mode always exits 0, including when the diff cannot be read."""
+    if args.mode != "report":
+        _emit({"error": "ONLY_REPORT_MODE", "mode": args.mode})
+        return 2
+    body = ""
+    if args.body_file:
+        body = pathlib.Path(args.body_file).read_text(encoding="utf-8")
+    else:
+        body = os.environ.get("COVERAGE_EVIDENCE_BODY", "")
+    graph = _graph_from(args.graph)
+    try:
+        changes = gitio.read_changes(args.repo, args.base, args.head)
+    except gitio.DiffUnavailable as exc:
+        cov.emit(cov.Report(needs_review=(f"NEEDS REVIEW diff unavailable: {exc}",)))
+        return 0
+    cov.emit(cov.judge(graph, changes, body))
+    return 0
+
+
 def main(argv=None):
     p = argparse.ArgumentParser(prog="pgraph")
     sub = p.add_subparsers(dest="cmd", required=True)
@@ -222,6 +244,15 @@ def main(argv=None):
     pv = sub.add_parser("privileges")
     pv.add_argument("--repo", default=".")
     pv.set_defaults(func=cmd_privileges)
+
+    ce = sub.add_parser("coverage-evidence")
+    ce.add_argument("--repo", default=".")
+    ce.add_argument("--base", required=True)
+    ce.add_argument("--head", required=True)
+    ce.add_argument("--mode", choices=("report",), default="report")
+    ce.add_argument("--body-file", help="PR body text. Defaults to COVERAGE_EVIDENCE_BODY.")
+    ce.add_argument("--graph", default=str(DEFAULT_GRAPH))
+    ce.set_defaults(func=cmd_coverage_evidence)
 
     args = p.parse_args(argv)
     return args.func(args)

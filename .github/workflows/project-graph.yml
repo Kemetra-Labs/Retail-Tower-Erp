@@ -56,6 +56,16 @@ jobs:
         working-directory: tools/project-graph
         run: python -m pgraph boundary --repo "$GITHUB_WORKSPACE" --rev HEAD
 
+      # RT-1554 P1: a behavioral-tier diff with no discovered test and no
+      # `coverage-evidence: RT-N` line is printed here. Report mode exits 0.
+      # A test file in the diff is a signal, not proof. Do not switch this to
+      # a failing check without a separate owner decision after a replay.
+      - name: Test evidence annotation (report mode)
+        working-directory: tools/project-graph
+        env:
+          COVERAGE_EVIDENCE_BODY: ${{ github.event.pull_request.body }}
+        run: python -m pgraph coverage-evidence --repo "$GITHUB_WORKSPACE" --base HEAD^1 --head HEAD --mode report
+
       # RT-923: one Node (.nvmrc) and per-project Python (.python-version) across workflows,
       # Dockerfiles, package.json and pyproject.toml. Stdlib + PyYAML (installed above).
       - name: Toolchain version guard logic tests
