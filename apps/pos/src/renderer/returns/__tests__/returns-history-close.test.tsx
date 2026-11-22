@@ -266,11 +266,53 @@ describe('what the read shows (the server’s words, never an inference)', () =>
     expect(await readStatus(ctx, 'T1-000008')).toHaveTextContent(STATUS_COPY.readNotRecordedClosed);
   });
 
+  it.each<[string, ReturnsReadStatusResponse]>([
+    ['the period is over', { kind: 'not_recorded', ret: UNKNOWN, close: { ready: true } }],
+    [
+      'the period is running',
+      {
+        kind: 'not_recorded',
+        ret: UNKNOWN,
+        close: { ready: false, reason: 'too_soon', notBefore: '2026-10-04T09:35:00.000Z' },
+      },
+    ],
+    [
+      'the period cannot be shown',
+      { kind: 'not_recorded', ret: UNKNOWN, close: { ready: false, reason: 'unproven' } },
+    ],
+  ])('an affirmative not_recorded says automatic resends stopped (%s)', async (_n, answer) => {
+    const ctx = await mount();
+    ctx.bridge.readStatus.mockResolvedValue(answer);
+    expect(await readStatus(ctx)).toHaveTextContent(STATUS_COPY.readHeldNote);
+  });
+
+  it('a read that wrote no hold (recorded, no verdict, closed) does not say so', async () => {
+    const answers: ReturnsReadStatusResponse[] = [
+      { kind: 'recorded', ret: UNKNOWN, outcome: 'resend' },
+      { kind: 'inconclusive', ret: UNKNOWN, cause: 'server' },
+    ];
+    for (const answer of answers) {
+      cleanup();
+      const ctx = await mount();
+      ctx.bridge.readStatus.mockResolvedValue(answer);
+      expect(await readStatus(ctx)).not.toHaveTextContent(STATUS_COPY.readHeldNote);
+    }
+    cleanup();
+    const closed = await mount([CLOSED]);
+    closed.bridge.readStatus.mockResolvedValue({
+      kind: 'not_recorded',
+      ret: CLOSED,
+      close: { ready: false, reason: 'closed' },
+    });
+    expect(await readStatus(closed, 'T1-000008')).not.toHaveTextContent(STATUS_COPY.readHeldNote);
+  });
+
   it('no line of the read calls a return paid, and a server answer is never called success', async () => {
     const lines = [
       STATUS_COPY.readNotRecordedReady,
       STATUS_COPY.readNotRecordedWait('10:00'),
       STATUS_COPY.readNotRecordedClosed,
+      STATUS_COPY.readHeldNote,
       STATUS_COPY.readRecordedResend,
       STATUS_COPY.readRecordedSupport,
       STATUS_COPY.readLateCommit,
@@ -582,6 +624,7 @@ describe('copy and accessibility', () => {
       STATUS_COPY.readNotRecordedReady,
       STATUS_COPY.readNotRecordedWait('10:00'),
       STATUS_COPY.readNotRecordedClosed,
+      STATUS_COPY.readHeldNote,
       STATUS_COPY.readRecordedResend,
       STATUS_COPY.readRecordedSupport,
       STATUS_COPY.readLateCommit,

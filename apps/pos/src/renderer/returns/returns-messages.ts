@@ -318,6 +318,11 @@ export const STATUS_COPY = Object.freeze({
   readNotRecordedWait: (time: string): string =>
     `يؤكد الخادم أن هذا المرتجع لم يُسجَّل حتى الآن. لا يُغلق قبل ${time}، ولا تصرف أي نقد.`,
   readNotRecordedClosed: 'لم يُسجَّل هذا المرتجع على الخادم حتى الآن، وهو مغلق ولن يُرسل.',
+  /**
+   * Appended to every affirmative `not_recorded` of an open return: main wrote a hold, so the
+   * background and bar resends stopped (RT-1498 review MEDIUM-1). Only the manager's own resend voids it.
+   */
+  readHeldNote: 'لن يُعاد إرسال هذا المرتجع تلقائيًا بعد الآن، إلا بإعادة إرسال منك.',
   readRecordedResend:
     'سجّل الخادم هذا المرتجع. أعد إرساله ليتأكد على هذا الجهاز، ولا تصرف أي نقد قبل ذلك.',
   readRecordedSupport:
@@ -365,10 +370,7 @@ const NO_VERDICT_REASON: Readonly<Record<ReturnStatusCause, ReturnsRefusalReason
   unreadable: null,
 };
 
-function notRecordedMessage(
-  close: ReturnCloseReadiness,
-  formatTime: (iso: string) => string,
-): string {
+function notRecordedBase(close: ReturnCloseReadiness, formatTime: (iso: string) => string): string {
   if (close.ready) return STATUS_COPY.readNotRecordedReady;
   switch (close.reason) {
     case 'too_soon':
@@ -378,6 +380,16 @@ function notRecordedMessage(
     case 'closed':
       return STATUS_COPY.readNotRecordedClosed;
   }
+}
+
+/** An open return's `not_recorded` also says automatic resends stopped; a closed one is never sent. */
+function notRecordedMessage(
+  close: ReturnCloseReadiness,
+  formatTime: (iso: string) => string,
+): string {
+  const base = notRecordedBase(close, formatTime);
+  const closed = !close.ready && close.reason === 'closed';
+  return closed ? base : `${base} ${STATUS_COPY.readHeldNote}`;
 }
 
 /** The line for one answer of `returns.readStatus` (`formatTime` shows when a running period ends). */

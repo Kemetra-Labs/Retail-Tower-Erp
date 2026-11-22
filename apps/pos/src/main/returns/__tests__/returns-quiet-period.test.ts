@@ -7,7 +7,7 @@
  *   • the journal's `last_attempt_at` is not the attempt this process anchored (another send ran);
  *   • there is no `last_attempt_at` at all.
  */
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 
 import {
   CLOCK_STEP_TOLERANCE_MS,
@@ -141,6 +141,26 @@ describe('a POS that cannot show the elapsed time treats it as not elapsed', () 
     const { quiet } = clocks();
     quiet.markAttempt(RETURN_ID, 'not-a-time');
     expect(quiet.check(entry('not-a-time')).kind).toBe('unproven');
+  });
+});
+
+describe('the production clocks', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('default to Date.now and performance.now when no clocks are given', () => {
+    const wall = vi.spyOn(Date, 'now').mockReturnValue(T0);
+    const mono = vi.spyOn(performance, 'now').mockReturnValue(5_000);
+    const quiet = createReturnQuietPeriod();
+    quiet.markAttempt(RETURN_ID, STAMP);
+    expect(quiet.check(entry(STAMP)).kind).toBe('too_soon');
+
+    wall.mockReturnValue(T0 + RETURN_QUIET_PERIOD_MS);
+    mono.mockReturnValue(5_000 + RETURN_QUIET_PERIOD_MS);
+    expect(quiet.check(entry(STAMP))).toEqual({ kind: 'elapsed' });
+    expect(wall).toHaveBeenCalled();
+    expect(mono).toHaveBeenCalled();
   });
 });
 

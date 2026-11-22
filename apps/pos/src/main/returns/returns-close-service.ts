@@ -459,6 +459,20 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     if (!isDisposable(current) || this.deps.dispositions.stateOf(current.returnId) === 'closed') {
       throw new CloseRefusal('already_resolved');
     }
+    // The read covered the return's last send as `fresh.entry` shows it: a send since makes the verdict
+    // stale. And the quiet period must still be shown (RT-1498 review LOW-1; defence in depth).
+    if (
+      current.attemptCount !== fresh.entry.attemptCount ||
+      current.lastAttemptAt !== fresh.entry.lastAttemptAt
+    ) {
+      throw new CloseRefusal('send_in_flight');
+    }
+    const quiet = this.deps.quiet.check(current);
+    if (quiet.kind !== 'elapsed') {
+      throw new CloseRefusal(
+        quiet.kind === 'too_soon' ? 'reconcile_too_soon' : 'quiet_period_unproven',
+      );
+    }
     const spent = spendResolveApproval(this.deps.escalation, actor, approvalId, current, 'close');
     if (spent.kind === 'refused') throw new CloseRefusal(spent.reason);
     this.deps.dispositions.insert({
