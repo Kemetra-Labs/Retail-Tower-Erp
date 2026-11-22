@@ -12,6 +12,7 @@ import type { ReturnPayoutMethod } from '../../../shared/returns/types.js';
 import {
   createExecutionEnqueuer,
   openShiftRefOf,
+  shiftRefAtOf,
   type ExecutionEnqueueDeps,
 } from '../returns-execution-enqueue.js';
 import {
@@ -167,6 +168,7 @@ describe('the enqueuer', () => {
     const enqueue = createExecutionEnqueuer({
       repo: { enqueue: (rows) => void enqueued.push([...rows]) },
       openShiftRef: () => SHIFT_REF,
+      shiftRefAt: () => null,
       newExecutionRef: () => '0190f5a2-7b3c-7d4e-8f90-0000000000e9',
       logger: { warn: (_o, msg) => void warnings.push(msg) },
       ...over,
@@ -175,10 +177,12 @@ describe('the enqueuer', () => {
   }
 
   const pay = (method: ReturnPayoutMethod = 'drawer') => method;
+  const CLAIMED = secondsAfterNow(-60);
+  const CLAIM_SHIFT = '0190f5a2-7b3c-7d4e-8f90-0000000000c4';
 
   it('enqueues one frozen row per allocation', () => {
     const { enqueue, enqueued } = enqueuer();
-    enqueue(entryWith({}), pay(), NOW);
+    enqueue(entryWith({}), pay(), NOW, CLAIMED);
     expect(enqueued).toHaveLength(1);
     expect(enqueued[0]).toHaveLength(1);
     expect(enqueued[0]?.[0]).toMatchObject({
@@ -196,6 +200,7 @@ describe('the enqueuer', () => {
       entryWith({ requestBodyJson: '{"refundTenders":[{"method":"cash","amount":"1.00"}]}' }),
       pay(),
       NOW,
+      CLAIMED,
     );
     expect(enqueued).toEqual([]);
     expect(warnings).toEqual([]);
@@ -203,9 +208,68 @@ describe('the enqueuer', () => {
 
   it('enqueues nothing, with a warning, when the return has no server ref', () => {
     const { enqueue, enqueued } = enqueuer();
-    enqueue(entryWith({ returnRef: null }), pay(), NOW);
+    enqueue(entryWith({ returnRef: null }), pay(), NOW, CLAIMED);
     expect(enqueued).toEqual([]);
     expect(warnings).toEqual(['returns:execution_no_return_ref']);
+  });
+
+  it('with no shift open now, reports the shift that was open when the payout was claimed', () => {
+    const asked: unknown[] = [];
+    const { enqueue, enqueued } = enqueuer({
+      openShiftRef: () => null,
+      shiftRefAt: (scope, at) => {
+        asked.push([scope, at]);
+        return CLAIM_SHIFT;
+      },
+    });
+    enqueue(entryWith({}), pay(), NOW, CLAIMED);
+    expect(asked).toEqual([[SCOPE, CLAIMED]]);
+    expect(enqueued).toHaveLength(1);
+    const body = JSON.parse(enqueued[0]?.[0]?.requestBodyJson ?? '{}') as {
+      evidence: { shiftRef: string };
+    };
+    expect(body.evidence.shiftRef).toBe(CLAIM_SHIFT);
+    expect(warnings).toEqual([]);
+  });
+
+  it('prefers the shift open now: the claim-time records are not even read', () => {
+    const asked: unknown[] = [];
+    const { enqueue, enqueued } = enqueuer({
+      shiftRefAt: (scope, at) => {
+        asked.push([scope, at]);
+        return CLAIM_SHIFT;
+      },
+    });
+    enqueue(entryWith({}), pay(), NOW, CLAIMED);
+    const body = JSON.parse(enqueued[0]?.[0]?.requestBodyJson ?? '{}') as {
+      evidence: { shiftRef: string };
+    };
+    expect(body.evidence.shiftRef).toBe(SHIFT_REF);
+    expect(asked).toEqual([]);
+  });
+
+  it('no shift now and none at the claim: nothing enqueued, the no-open-shift warning', () => {
+    const { enqueue, enqueued } = enqueuer({ openShiftRef: () => null, shiftRefAt: () => null });
+    enqueue(entryWith({}), pay(), NOW, CLAIMED);
+    expect(enqueued).toEqual([]);
+    expect(warnings).toEqual(['returns:execution_no_open_shift']);
+  });
+
+  it('a failing claim-time read counts as no shift: nothing enqueued, never a throw', () => {
+    const { enqueue, enqueued } = enqueuer({
+      openShiftRef: () => null,
+      shiftRefAt: () => {
+        throw new Error('db busy');
+      },
+    });
+    expect(() => {
+      enqueue(entryWith({}), pay(), NOW, CLAIMED);
+    }).not.toThrow();
+    expect(enqueued).toEqual([]);
+    expect(warnings).toEqual([
+      'returns:execution_claim_shift_read_failed',
+      'returns:execution_no_open_shift',
+    ]);
   });
 
   it('a failing shift read counts as no shift: nothing enqueued, never a throw', () => {
@@ -215,13 +279,20 @@ describe('the enqueuer', () => {
       },
     });
     expect(() => {
-      enqueue(entryWith({}), pay(), NOW);
+      enqueue(entryWith({}), pay(), NOW, CLAIMED);
     }).not.toThrow();
     expect(enqueued).toEqual([]);
     expect(warnings).toEqual([
       'returns:execution_shift_read_failed',
       'returns:execution_no_open_shift',
     ]);
+  });
+});
+
+describe('shiftRefAtOf', () => {
+  it('is the shift id the shift records name at the instant, or null', () => {
+    expect(shiftRefAtOf({ findShiftAt: () => SHIFT_REF })(SCOPE, NOW)).toBe(SHIFT_REF);
+    expect(shiftRefAtOf({ findShiftAt: () => null })(SCOPE, NOW)).toBeNull();
   });
 });
 

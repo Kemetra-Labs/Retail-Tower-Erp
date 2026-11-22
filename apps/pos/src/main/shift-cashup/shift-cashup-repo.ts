@@ -260,6 +260,14 @@ export interface ShiftCashupRepo {
   recordForcedClose(input: RecordForcedCloseInput): RecordedShiftFact;
   findOpenShift(scope: ShiftScope): OpenShiftView | null;
   /**
+   * RT-1543 follow-up — the id of the shift that was open on the terminal at the instant `at`, or
+   * null (none then, or an unreadable instant). From the local open, close and manager-closure
+   * records: opened at or before `at`, and neither closed nor manager-closed (as the till learned
+   * it) at or before `at`. A return payout claimed while a shift was open reports its refund
+   * execution with that shift, even when a manager has since closed it on the server.
+   */
+  findShiftAt(scope: ShiftScope, at: string): string | null;
+  /**
    * RT-1442 — the shift is closed by a manager on the server: one append-only
    * `shift_manager_closures` row (a repeat is a no-op) and the answered row
    * dead-lettered `shift_force_closed`, in one transaction. The shift's other
@@ -287,6 +295,9 @@ interface PrepareGet<Row> {
 }
 interface PrepareRun {
   run(...params: unknown[]): { changes: number };
+}
+interface PrepareAll<Row> {
+  all(...params: unknown[]): Row[];
 }
 
 interface HeadRow {
@@ -358,6 +369,33 @@ const OPEN_SHIFT_SQL = `
   WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
     AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes c WHERE c.shift_id = o.shift_id)
     AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = o.shift_id)`;
+
+/**
+ * RT-1543 follow-up: the terminal's newest shifts with the instants that end them (a close row, or
+ * the manager closure's `recorded_at`, when the till learned of it). Newest first; a payout claim
+ * blocks opening a shift, so the shift of a pending claim is among the latest.
+ */
+const SHIFTS_FOR_AT_SQL = `
+  SELECT o.shift_id AS shiftId, o.opened_at AS openedAt,
+         c.closed_at AS closedAt, m.recorded_at AS managerClosedAt
+  FROM shift_cashup_opens o
+  LEFT JOIN shift_cashup_closes c ON c.shift_id = o.shift_id
+  LEFT JOIN shift_manager_closures m ON m.shift_id = o.shift_id
+  WHERE o.tenant_id = ? AND o.branch_id = ? AND o.terminal_id = ?
+  ORDER BY o.rowid DESC
+  LIMIT 20`;
+
+interface ShiftForAtRow {
+  shiftId: string;
+  openedAt: string;
+  closedAt: string | null;
+  managerClosedAt: string | null;
+}
+
+/** True when the instant `end` (null: never) is at or before `at`. */
+function endedBy(end: string | null, at: number): boolean {
+  return end !== null && Date.parse(end) <= at;
+}
 
 /** RT-388: the open shift's row: its totals and the columns of its frozen policy (all null: legacy). */
 type OpenShiftRow = Omit<OpenShiftView, 'frozenPolicy'> & {
@@ -549,6 +587,20 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
       payOutTotalMinor: row.payOutTotalMinor,
       frozenPolicy: frozenPolicyOfRow(row),
     };
+  }
+
+  function findShiftAt(scope: ShiftScope, at: string): string | null {
+    const instant = Date.parse(at);
+    if (Number.isNaN(instant)) return null;
+    const stmt = db.prepare(SHIFTS_FOR_AT_SQL) as PrepareAll<ShiftForAtRow>;
+    const rows = stmt.all(scope.tenantId, scope.branchId, scope.terminalId);
+    const found = rows.find(
+      (row) =>
+        Date.parse(row.openedAt) <= instant &&
+        !endedBy(row.closedAt, instant) &&
+        !endedBy(row.managerClosedAt, instant),
+    );
+    return found?.shiftId ?? null;
   }
 
   /** The terminal's open shift if it is `shiftId`, else `shift_not_open`. */
@@ -849,6 +901,7 @@ export function createShiftCashupRepo(db: DatabaseHandle): ShiftCashupRepo {
     recordAbandonedCount,
     recordForcedClose,
     findOpenShift,
+    findShiftAt,
     recordManagerClosure,
     latestShiftManagerClosed,
     nextFact,

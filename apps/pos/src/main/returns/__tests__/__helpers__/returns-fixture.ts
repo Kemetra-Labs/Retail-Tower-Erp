@@ -17,7 +17,9 @@ import { AuditEmitter } from '../../../audit/audit-emitter.js';
 import { bindAuditEventsStoreDb } from '../../../audit/audit-events-store.js';
 import type { DatabaseHandle } from '../../../db/client.js';
 import type { DrawerSlot } from '../../../drawer/drawer-slot.js';
+import { createShiftCashupRepo } from '../../../shift-cashup/shift-cashup-repo.js';
 import type { ReturnsAuditSink } from '../../returns-audit.js';
+import { openShiftRefOf, shiftRefAtOf } from '../../returns-execution-enqueue.js';
 import { amount4ToMinor, parseAmount4, parseWholeQuantity } from '../../returns-money.js';
 import type { AuthSnapshot } from '../../returns-auth.js';
 import {
@@ -451,6 +453,12 @@ export interface HarnessOptions {
   /** RT-1403 S2 (M1): the one drawer slot the void payout shares. */
   readonly drawerSlot?: DrawerSlot;
   /**
+   * RT-1543 follow-up: read the open shift and the claim-time shift from the REAL shift cash-up
+   * repository on the harness database (not from `state.shiftRef`), so a test can open, close and
+   * force-close shifts with the real shift cash-up service and see the payout follow them.
+   */
+  readonly realShifts?: boolean;
+  /**
    * RT-1498 S4/S5: the manager approvals and the live operator's `users.id` the escalation spends,
    * built over the harness's database and state. Absent: no escalation is composed (it refuses).
    */
@@ -474,6 +482,15 @@ export interface HarnessState {
   shiftRef: string | null;
   /** RT-1543: shift cash-up is enabled on this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`). */
   shiftCashup: boolean;
+  /**
+   * RT-1543 follow-up: the shift that was open when the payout was claimed, as the (fake) shift
+   * records answer it (null: none). Read only when no shift is open now. Ignored with `realShifts`.
+   */
+  claimShiftRef: string | null;
+  /** RT-1543 follow-up: the shift read throws (fault injection). */
+  failShiftRead: boolean;
+  /** RT-1543 follow-up: the shift cash-up flag read throws (fault injection). */
+  failFlagRead: boolean;
   /** The domain clock (ISO-8601), read per call; starts at `NOW`. */
   now: string;
   /** Runs on every audit emit, before it is written (to change state mid-flow). */
@@ -558,6 +575,9 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     terminalId: SCOPE.terminalId,
     shiftRef: SHIFT_REF,
     shiftCashup: true,
+    claimShiftRef: null,
+    failShiftRead: false,
+    failFlagRead: false,
     now: NOW,
     onAudit: null,
     failAudit: null,
@@ -572,6 +592,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   };
   const drawer = new FakeDrawer();
   const printer = new FakePrinter();
+  const shiftRecords = createShiftCashupRepo(handle);
   const escalation = options.escalation?.({ handle, state });
   const escalationOf = (): Pick<ComposeReturnsDeps, 'escalation'> =>
     escalation === undefined ? {} : { escalation };
@@ -607,8 +628,16 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       drawer,
       ...(options.drawerSlot === undefined ? {} : { drawerSlot: options.drawerSlot }),
       printer,
-      openShiftRef: () => state.shiftRef,
-      isShiftCashupEnabled: () => state.shiftCashup,
+      openShiftRef: (scope) => {
+        if (state.failShiftRead) throw new Error('shift read failed');
+        return options.realShifts === true ? openShiftRefOf(shiftRecords)(scope) : state.shiftRef;
+      },
+      shiftRefAt: (scope, at) =>
+        options.realShifts === true ? shiftRefAtOf(shiftRecords)(scope, at) : state.claimShiftRef,
+      isShiftCashupEnabled: () => {
+        if (state.failFlagRead) throw new Error('flag read failed');
+        return state.shiftCashup;
+      },
       ...escalationOf(),
     });
     return {

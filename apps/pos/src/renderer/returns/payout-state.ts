@@ -56,13 +56,15 @@ export type PayoutPhase =
 
 /**
  * Refusals that hold only for now: a drawer kick in flight (possibly in
- * another instance), another return's payout on this terminal, or a session that locked, ended or changed. Waiting and
+ * another instance), another return's payout on this terminal, no open shift (RT-1543), or a session that locked, ended or changed. Waiting and
  * refreshing re-derives the next step; every other refusal is final here.
  */
 const TRANSIENT_REFUSALS = [
   'drawer_kick_in_progress',
   'another_payout_in_progress',
   'payout_step_in_progress',
+  // RT-1543 follow-up: holds until the cashier opens a shift; a refresh then offers the payout again.
+  'payout_no_open_shift',
   'session_changed',
   'no_session',
   'offline',

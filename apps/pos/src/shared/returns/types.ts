@@ -155,6 +155,10 @@ export const LOCAL_RETURN_REFUSALS = [
   // disposition (expired, spent, another return, or the other disposition), or the row moved since.
   'approval_invalid',
   'approval_stale',
+  // RT-1543 follow-up — shift cash-up is on for this till and no shift is open: a NEW payout (a
+  // `start` with no claim yet) is refused before anything is claimed, kicked or paid, until a shift
+  // is open. A payout already claimed is never refused for it. The same name the void payout uses.
+  'payout_no_open_shift',
 ] as const;
 export type LocalReturnRefusal = (typeof LOCAL_RETURN_REFUSALS)[number];
 

@@ -231,6 +231,24 @@ describe('pay out from the confirmed outcome', () => {
     expect(screen.queryByRole('button', { name: START_NAME })).toBeNull();
   });
 
+  it('RT-1543: a payout refused for no open shift says so, and is offered again after a refresh', async () => {
+    const bridge = fakeBridge();
+    bridge.payout.mockResolvedValueOnce({
+      kind: 'refused',
+      reason: 'payout_no_open_shift',
+      ret: journal(),
+    });
+    const user = await confirmedOutcome(bridge);
+    await user.click(screen.getByRole('button', { name: START_NAME }));
+    expect(await screen.findByText(refusalMessage('payout_no_open_shift'))).toBeInTheDocument();
+    expect(screen.queryByText(PAYOUT_COPY.paid)).toBeNull();
+    expect(screen.queryByRole('button', { name: START_NAME })).toBeNull();
+    // The cashier opens a shift, then refreshes: the payout is ready again.
+    bridge.list.mockResolvedValue({ kind: 'ok', returns: [journal()] });
+    await user.click(screen.getByRole('button', { name: PAYOUT_COPY.refresh }));
+    expect(await screen.findByRole('button', { name: START_NAME })).toBeInTheDocument();
+  });
+
   it('R4: a double click sends one payout', async () => {
     const bridge = fakeBridge();
     const pending = deferred<ReturnsPayoutResponse>();
