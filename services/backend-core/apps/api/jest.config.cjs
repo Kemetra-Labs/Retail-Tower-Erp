@@ -32,6 +32,9 @@ module.exports = {
   // database from a migrated template (test/_helpers/postgres-container.ts).
   globalSetup: "<rootDir>/test/_helpers/jest-global-setup.ts",
   globalTeardown: "<rootDir>/test/_helpers/jest-global-teardown.ts",
+  // RT-1463: compares the ERP posting projection with its frozen pre-refactor copy on every real-database
+  // spec (test/_helpers/posting-equivalence.setup.ts). Remove once RT-1463 is closed.
+  setupFilesAfterEnv: ["<rootDir>/test/_helpers/posting-equivalence.setup.ts"],
   clearMocks: true,
   restoreMocks: true,
   testTimeout: 30000,

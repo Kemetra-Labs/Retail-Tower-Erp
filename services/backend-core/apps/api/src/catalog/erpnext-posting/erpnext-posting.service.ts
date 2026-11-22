@@ -69,6 +69,63 @@ export const POSTING_FEED_MAX_PAGE = 500;
 export const POSTING_RETRY_BUDGET = 5;
 
 /**
+ * The feed page query (`pullPostings`): one statement, so one snapshot decides both the holds and the
+ * Connector cursor (RT-418). RT-1463 pins its text (`posting-sql-frozen.unit.spec.ts`): the catalog split
+ * may compose it from a sales SQL fragment (owner decision, RT-1463 comment 18321) but must not change it.
+ * $1 since (bigint | null), $2 limit, $3 responsibilities on, $4 tracked-selling gate, $5 tenant.
+ */
+export const POSTING_FEED_PAGE_SQL = `WITH ts AS (
+             SELECT ($4::boolean AND COALESCE(
+                       (SELECT tracked_selling_enabled FROM tenant_inventory_settings
+                         WHERE tenant_id = $5::uuid), false)) AS on_
+           )
+           SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
+                  payload_hash, sequence::text AS sequence,
+                  current_resolution_version, (SELECT on_ FROM ts) AS tracking_on
+             FROM erpnext_posting_status
+            WHERE status = 'pending'
+              AND ($1::bigint IS NULL OR sequence > $1::bigint)
+              AND NOT EXISTS (
+                SELECT 1 FROM tenant_access_entitlements tae
+                 WHERE tae.tenant_id = $5::uuid AND tae.state = 'restricted')
+              AND NOT EXISTS (
+                SELECT 1 FROM sales s
+                 WHERE s.id = erpnext_posting_status.sale_id
+                   AND s.responsibility_count > 0
+                   AND (erpnext_posting_status.kind = 'reversal'
+                        OR NOT $3::boolean
+                        OR (SELECT count(*) FROM sale_responsibilities sr
+                             WHERE sr.sale_id = s.id) <> s.responsibility_count
+                        OR NOT (CASE
+                          WHEN erpnext_posting_status.current_resolution_version IS NOT NULL THEN EXISTS (
+                            SELECT 1 FROM erpnext_posting_resolution fr
+                             WHERE fr.intent_id = erpnext_posting_status.id
+                               AND fr.resolution_version = erpnext_posting_status.current_resolution_version
+                               AND fr.payer_external_ref ~ '[^[:space:]]')
+                          ELSE NOT EXISTS (
+                            SELECT 1 FROM sale_responsibilities sr
+                              JOIN payer_account p ON p.id = sr.payer_id
+                             WHERE sr.sale_id = s.id
+                               AND (p.external_ref IS NULL OR p.external_ref !~ '[^[:space:]]'))
+                        END)
+                        OR EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = s.id)
+                        OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
+                        OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
+              AND NOT EXISTS (
+                SELECT 1 FROM sale_lines tsl
+                  LEFT JOIN erpnext_posting_resolution tr
+                    ON tr.intent_id = erpnext_posting_status.id
+                   AND tr.resolution_version = erpnext_posting_status.current_resolution_version
+                   AND tr.sale_line_id = tsl.id
+                 WHERE tsl.sale_id = erpnext_posting_status.sale_id
+                   AND ((tr.tracking_identity_id IS NOT NULL
+                         AND (tr.erp_hold_cause IS NOT NULL OR NOT (SELECT on_ FROM ts)))
+                        OR (erpnext_posting_status.kind = 'sale_post'
+                            AND tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
+            ORDER BY erpnext_posting_status.sequence
+            LIMIT $2`;
+
+/**
  * One dead-letter to record. RT-410: `message` is the Connector's message,
  * already sanitised (`sanitizeRejectionMessage`); absent / null when
  * Backend-Core raised the dead-letter itself or nothing was left.
@@ -393,56 +450,7 @@ export class ErpnextPostingService {
         // lock, and a snapshot that does not see the switch cannot see a
         // later sequence either, so the cursor never passes them.
         const rows = await client.query<FeedRow>(
-          `WITH ts AS (
-             SELECT ($4::boolean AND COALESCE(
-                       (SELECT tracked_selling_enabled FROM tenant_inventory_settings
-                         WHERE tenant_id = $5::uuid), false)) AS on_
-           )
-           SELECT id, kind, sale_id, source_ref_id, source_system, external_id,
-                  payload_hash, sequence::text AS sequence,
-                  current_resolution_version, (SELECT on_ FROM ts) AS tracking_on
-             FROM erpnext_posting_status
-            WHERE status = 'pending'
-              AND ($1::bigint IS NULL OR sequence > $1::bigint)
-              AND NOT EXISTS (
-                SELECT 1 FROM tenant_access_entitlements tae
-                 WHERE tae.tenant_id = $5::uuid AND tae.state = 'restricted')
-              AND NOT EXISTS (
-                SELECT 1 FROM sales s
-                 WHERE s.id = erpnext_posting_status.sale_id
-                   AND s.responsibility_count > 0
-                   AND (erpnext_posting_status.kind = 'reversal'
-                        OR NOT $3::boolean
-                        OR (SELECT count(*) FROM sale_responsibilities sr
-                             WHERE sr.sale_id = s.id) <> s.responsibility_count
-                        OR NOT (CASE
-                          WHEN erpnext_posting_status.current_resolution_version IS NOT NULL THEN EXISTS (
-                            SELECT 1 FROM erpnext_posting_resolution fr
-                             WHERE fr.intent_id = erpnext_posting_status.id
-                               AND fr.resolution_version = erpnext_posting_status.current_resolution_version
-                               AND fr.payer_external_ref ~ '[^[:space:]]')
-                          ELSE NOT EXISTS (
-                            SELECT 1 FROM sale_responsibilities sr
-                              JOIN payer_account p ON p.id = sr.payer_id
-                             WHERE sr.sale_id = s.id
-                               AND (p.external_ref IS NULL OR p.external_ref !~ '[^[:space:]]'))
-                        END)
-                        OR EXISTS (SELECT 1 FROM sale_voids v WHERE v.sale_id = s.id)
-                        OR EXISTS (SELECT 1 FROM sale_refunds f WHERE f.sale_id = s.id)
-                        OR EXISTS (SELECT 1 FROM sale_returns r WHERE r.sale_id = s.id)))
-              AND NOT EXISTS (
-                SELECT 1 FROM sale_lines tsl
-                  LEFT JOIN erpnext_posting_resolution tr
-                    ON tr.intent_id = erpnext_posting_status.id
-                   AND tr.resolution_version = erpnext_posting_status.current_resolution_version
-                   AND tr.sale_line_id = tsl.id
-                 WHERE tsl.sale_id = erpnext_posting_status.sale_id
-                   AND ((tr.tracking_identity_id IS NOT NULL
-                         AND (tr.erp_hold_cause IS NOT NULL OR NOT (SELECT on_ FROM ts)))
-                        OR (erpnext_posting_status.kind = 'sale_post'
-                            AND tr.tracking_mode IS NULL AND tsl.tracking_class IS NOT NULL)))
-            ORDER BY erpnext_posting_status.sequence
-            LIMIT $2`,
+          POSTING_FEED_PAGE_SQL,
           [
             input.since !== null ? input.since.toString() : null,
             limit,

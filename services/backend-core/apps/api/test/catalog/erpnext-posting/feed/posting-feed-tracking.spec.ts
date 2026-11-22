@@ -64,7 +64,8 @@ import {
   POSTING_STATUS_FIXTURE_IDS,
   POST_A_PENDING,
   seedPostingStatusFixture,
-} from "../__support__/seed-posting-status";
+} from "../__support__/seed-posting-status";
+import { describePostingGuardCompared } from "../../../_helpers/posting-equivalence.assert";
 
 const TENANT_A = POSTING_STATUS_FIXTURE_IDS.tenantA;
 const P_NONE = "01960000-0000-7000-8000-0000000b5001";
@@ -465,3 +466,6 @@ describe("RT-451 S6: a reversal mirrors what its sale posted", () => {
     expect(page.items.map((i) => i.workItemRef)).toContain(reversalId);
   });
 });
+
+// RT-1463: declared last, so it runs after the tests above (posting equivalence guard).
+describePostingGuardCompared();

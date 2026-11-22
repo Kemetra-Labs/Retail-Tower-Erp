@@ -37,7 +37,8 @@ import {
   disableSettleBeforePost,
   enableSettleBeforePost,
   uuidFor,
-} from "../../sales/terminal/__returns-support";
+} from "../../sales/terminal/__returns-support";
+import { describePostingGuardCompared } from "../../../_helpers/posting-equivalence.assert";
 
 const h: HarnessHandle = { harness: null, dockerSkipped: false };
 const ERP_ITEM_REF = "ERP-ITEM-RT73";
@@ -216,3 +217,6 @@ describe("RT-73 — reversal work-items from real rows", () => {
     expect(await project(sale.saleRef, v.body.eventRef)).toEqual(first);
   });
 });
+
+// RT-1463: declared last, so it runs after the tests above (posting equivalence guard).
+describePostingGuardCompared();

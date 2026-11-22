@@ -35,7 +35,8 @@ import {
   TENANT_B,
   approvedVoid,
   type HarnessHandle,
-} from "../capture/__capture-harness";
+} from "../capture/__capture-harness";
+import { describePostingGuardCompared } from "../../../_helpers/posting-equivalence.assert";
 
 const FLAG = "POS_SALE_TENDERS_ENABLED";
 const h: HarnessHandle = { harness: null, dockerSkipped: false };
@@ -461,3 +462,6 @@ describe("RT-77 — posting-feed projection from real rows", () => {
     expect(item!.sale).not.toHaveProperty("tenders");
   });
 });
+
+// RT-1463: declared last, so it runs after the tests above (posting equivalence guard).
+describePostingGuardCompared();

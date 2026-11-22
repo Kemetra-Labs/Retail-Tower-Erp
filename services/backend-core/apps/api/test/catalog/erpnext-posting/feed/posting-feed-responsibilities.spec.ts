@@ -41,7 +41,8 @@ import { SaleResponsibilitiesNotVisibleError } from "../../../../src/catalog/sal
 import { loadOpenApiContracts } from "../../../../src/openapi/loader";
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../../../_helpers/postgres-container";
-import { ACTOR_A, seedCatalogIsolationFixture, STORE_A_X, TENANT_A } from "../../__support__/isolation-harness";
+import { ACTOR_A, seedCatalogIsolationFixture, STORE_A_X, TENANT_A } from "../../__support__/isolation-harness";
+import { describePostingGuardCompared } from "../../../_helpers/posting-equivalence.assert";
 
 const FLAG = "ERPNEXT_FEED_RESPONSIBILITIES_ENABLED";
 
@@ -405,3 +406,6 @@ describe("RT-418 — the hold-lift re-head (docs/operations/sql/sale-responsibil
     expect(refs(again)).toEqual([W_CREDIT]);
   });
 });
+
+// RT-1463: declared last, so it runs after the tests above (posting equivalence guard).
+describePostingGuardCompared();
