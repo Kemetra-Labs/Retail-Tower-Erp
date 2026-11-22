@@ -71,6 +71,8 @@ function NoteField({
         rows={2}
         dir="auto"
         maxLength={REASON_MAX_LENGTH}
+        required={!optional}
+        aria-required={optional ? undefined : true}
         disabled={disabled}
         aria-invalid={error ? true : undefined}
         aria-describedby={error ? `${id}-error` : undefined}
@@ -121,6 +123,7 @@ function ApproveForm({
       <WriteNotice outcome={write.outcome} />
       <SubmitRow
         label={t("transfers.approve.submit")}
+        sameRequest={write.holds({ days })}
         pending={write.pending}
         outcome={write.outcome}
         onClose={onClose}
@@ -156,12 +159,17 @@ function CancelForm({
         value={reason}
         disabled={write.pending}
         error={error}
-        onChange={setReason}
+        onChange={(value) => {
+          setReason(value);
+          // A fixed reason drops its stale error; an empty one is caught again on submit.
+          if (error) setError(cancelReasonError(value));
+        }}
       />
       <WriteNotice outcome={write.outcome} />
       <SubmitRow
         label={t("transfers.cancel.submit")}
         className="btn-destructive"
+        sameRequest={write.holds({ reason: reason.trim() })}
         pending={write.pending}
         outcome={write.outcome}
         onClose={onClose}
@@ -196,11 +204,15 @@ function DispatchForm({
         value={note}
         disabled={write.pending}
         error={error}
-        onChange={setNote}
+        onChange={(value) => {
+          setNote(value);
+          if (error) setError(noteError(value));
+        }}
       />
       <WriteNotice outcome={write.outcome} />
       <SubmitRow
         label={t("transfers.dispatch.submit")}
+        sameRequest={write.holds({ note: note.trim() })}
         pending={write.pending}
         outcome={write.outcome}
         onClose={onClose}

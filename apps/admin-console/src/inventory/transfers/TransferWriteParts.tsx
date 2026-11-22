@@ -45,6 +45,7 @@ export function SubmitRow({
   outcome,
   onClose,
   onSubmit,
+  sameRequest,
 }: Readonly<{
   label: string;
   className?: string;
@@ -53,9 +54,12 @@ export function SubmitRow({
   onClose: () => void;
   /** For a form that cannot be a `<form>` (it holds a search form): a click submits. */
   onSubmit?: () => void;
+  /** The input on screen is the unanswered request: only then is the button a resend of it. */
+  sameRequest: boolean;
 }>): React.JSX.Element {
   const t = useT();
-  const retry = outcome?.kind === "failed";
+  // After an edit the button sends a new request, so it must not read as a resend.
+  const retry = outcome?.kind === "failed" && sameRequest;
   return (
     <div className="transfers__actions">
       <GatedButton

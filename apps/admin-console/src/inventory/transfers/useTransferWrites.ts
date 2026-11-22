@@ -49,6 +49,8 @@ export interface TransferWrite<C> {
   pending: boolean;
   /** `input` is what the operator chose (the key follows it); `build` makes the body. */
   submit: (input: unknown, build: () => C) => Promise<TransferWriteResult>;
+  /** Whether `input` is the request whose key is held: only then is a resend "the same request". */
+  holds: (input: unknown) => boolean;
   reset: () => void;
 }
 
@@ -93,6 +95,7 @@ function useTransferWrite<C>(send: Send<C>): TransferWrite<C> {
     outcome: mutation.data?.outcome ?? null,
     pending: mutation.isPending,
     submit: (input, build) => mutation.mutateAsync({ input, build }),
+    holds: (input) => held.current?.fingerprint === JSON.stringify(input),
     reset: mutation.reset,
   };
 }

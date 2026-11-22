@@ -418,6 +418,45 @@ describe("create a Draft (RT-1515 PR 2)", () => {
     await screen.findByRole("dialog", { name: "Transfer details" });
   });
 
+  test("no answer, then an edit: the button stops offering a resend and the new request gets a new key", async () => {
+    api.createShipmentTransfer
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ status: 201, data: transfer({ id: T_NEW }) });
+    const dialog = await openCreate();
+    await fillReady(dialog);
+    fireEvent.click(sendButton(dialog));
+    await within(dialog).findByRole("button", { name: "Send the same request again" });
+    fireEvent.change(within(dialog).getByLabelText(/^Quantity/), { target: { value: "3" } });
+    expect(
+      within(dialog).queryByRole("button", { name: "Send the same request again" }),
+    ).toBeNull();
+    // The unknown-recorded notice stays: the earlier request may still have been recorded.
+    expect(
+      within(dialog).getByText(/it is unknown whether the request was recorded/),
+    ).toBeDefined();
+    fireEvent.click(within(dialog).getByRole("button", { name: "Save transfer draft" }));
+    await waitFor(() => expect(api.createShipmentTransfer).toHaveBeenCalledTimes(2));
+    const [first, second] = api.createShipmentTransfer.mock.calls;
+    expect(second?.[1]).not.toBe(first?.[1]);
+  });
+
+  test("the key follows the operator's input, not the stocking unit read from the source", async () => {
+    api.createShipmentTransfer
+      .mockRejectedValueOnce(new Error("network"))
+      .mockResolvedValueOnce({ status: 201, data: transfer({ id: T_NEW }) });
+    const dialog = await openCreate();
+    await fillReady(dialog);
+    fireEvent.click(sendButton(dialog));
+    await within(dialog).findByRole("button", { name: "Send the same request again" });
+    // The source read now answers a different unit; the operator changed nothing.
+    api.getOnHand.mockResolvedValue(ok(onHandOf(CAIRO, OIL, { stockingUnit: "box" })));
+    fireEvent.click(within(dialog).getByRole("button", { name: "Send the same request again" }));
+    await waitFor(() => expect(api.createShipmentTransfer).toHaveBeenCalledTimes(2));
+    const [first, second] = api.createShipmentTransfer.mock.calls;
+    expect(second?.[1]).toBe(first?.[1]);
+    expect(second?.[0]).toEqual(first?.[0]);
+  });
+
   test("an edit after a refusal starts a new key", async () => {
     api.createShipmentTransfer.mockResolvedValue(failure(400, "validation_error"));
     const dialog = await openCreate();
@@ -621,6 +660,22 @@ describe("cancel (RT-1515 PR 2)", () => {
       await within(dialog).findByText("Enter a reason for cancelling, 1 to 500 characters."),
     ).toBeDefined();
     expect(api.cancelShipmentTransfer).not.toHaveBeenCalled();
+  });
+
+  test("the reason is marked required, and its error clears once a reason is typed", async () => {
+    const dialog = await openTransfer();
+    fireEvent.click(await within(dialog).findByRole("button", { name: "Cancel transfer" }));
+    const field = within(dialog).getByLabelText("Reason for cancelling");
+    expect(field.hasAttribute("required")).toBe(true);
+    expect(field.getAttribute("aria-required")).toBe("true");
+    fireEvent.click(within(dialog).getByRole("button", { name: "Confirm cancellation" }));
+    await within(dialog).findByText("Enter a reason for cancelling, 1 to 500 characters.");
+    expect(field.getAttribute("aria-invalid")).toBe("true");
+    fireEvent.change(field, { target: { value: "Wrong store" } });
+    expect(
+      within(dialog).queryByText("Enter a reason for cancelling, 1 to 500 characters."),
+    ).toBeNull();
+    expect(field.getAttribute("aria-invalid")).toBeNull();
   });
 
   test("sends the trimmed reason with a key, and says it was recorded", async () => {

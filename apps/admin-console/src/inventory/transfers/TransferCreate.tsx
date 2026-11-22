@@ -120,7 +120,11 @@ export function TransferCreateDrawer({
     lines.map((l) => l.productId),
   );
 
-  const edited = () => write.reset();
+  // An edit makes a refusal stale, so it is cleared. "No answer" is not cleared: the
+  // earlier request may still have been recorded, and that stays true until a new answer.
+  const edited = () => {
+    if (write.outcome?.kind !== "failed") write.reset();
+  };
   const addLine = (product: CatalogProduct) => {
     edited();
     const id = nextId.current++;
@@ -145,6 +149,22 @@ export function TransferCreateDrawer({
     if (destination === id) setDestination("");
   };
 
+  /**
+   * What the operator chose: the Idempotency-Key follows this, never the built command.
+   * The stocking unit comes from a live read, so a retry after no answer must not let
+   * a changed read mint a new key and record the Draft twice.
+   */
+  const operatorInput = {
+    sourceStoreId: source,
+    destinationStoreId: destination,
+    reason: reason.trim(),
+    lines: lines.map((l) => ({
+      productId: l.productId,
+      identityId: l.identityId,
+      quantity: l.quantity.trim(),
+    })),
+  };
+
   const submit = async () => {
     const draft = {
       sourceStoreId: source,
@@ -155,8 +175,9 @@ export function TransferCreateDrawer({
     const found = validateCreate(draft);
     setErrors(found);
     if (hasCreateErrors(found)) return;
-    const command = buildCreateCommand(draft);
-    const { outcome, transfer } = await write.submit(command, () => command);
+    const { outcome, transfer } = await write.submit(operatorInput, () =>
+      buildCreateCommand(draft),
+    );
     if (outcome.kind === "recorded" && transfer) onCreated(transfer.id);
   };
 
@@ -264,6 +285,7 @@ export function TransferCreateDrawer({
         <WriteNotice outcome={write.outcome} />
         <SubmitRow
           label={t("transfers.create.submit")}
+          sameRequest={write.holds(operatorInput)}
           pending={write.pending}
           outcome={write.outcome}
           onClose={onClose}
