@@ -431,7 +431,7 @@ describe("transfer drawer (RT-1515)", () => {
     expect(within(dialog).getByText("Cancellation reason")).toBeDefined();
   });
 
-  test("a failed read of the Transfer says so by code; a failed receipts read too", async () => {
+  test("a failed read of the Transfer says so by code", async () => {
     api.getShipmentTransfer.mockResolvedValue(failure(404, "not_found"));
     const dialog = await openFirst();
     expect(await within(dialog).findByText("This transfer is not available.")).toBeDefined();
