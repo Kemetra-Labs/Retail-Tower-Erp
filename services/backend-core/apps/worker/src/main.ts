@@ -48,7 +48,7 @@ import { AuditRetentionWorker } from "./audit/audit-retention.worker";
 import { OutboxRetentionWorker } from "./outbox/retention.worker";
 import { StockRunSweepWorker } from "./erpnext-reconciliation/stock-run-sweep.worker";
 import { ReservationSweepWorker } from "./ai-usage/reservation-sweep.worker";
-import { ReplayPurgeWorker } from "./cashier-admissions/replay-purge.worker";
+import { ReplayPurgeWorker } from "./pos-cashier-admissions/replay-purge.worker";
 import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
 import { SaleRedriveWorker } from "./sales/sale-redrive.worker";
 import { ProvisioningSweepWorker } from "./erp-provisioning/provisioning-sweep.worker";

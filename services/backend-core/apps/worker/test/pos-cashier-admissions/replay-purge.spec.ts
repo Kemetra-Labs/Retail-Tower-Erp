@@ -25,7 +25,7 @@ import {
   MIN_REPLAY_PURGE_INTERVAL_MS,
   REPLAY_PURGE_INTERVAL_ENV,
   resolveReplayPurgeIntervalMs,
-} from "../../src/cashier-admissions/replay-purge.config";
+} from "../../src/pos-cashier-admissions/replay-purge.config";
 import {
   MalformedReplayPurgeJobError,
   REPLAY_PURGE_JOB_NAME,
@@ -33,16 +33,16 @@ import {
   ReplayPurgeProcessor,
   UnknownReplayPurgeJobError,
   type ReplayPurgeLogLine,
-} from "../../src/cashier-admissions/replay-purge.processor";
+} from "../../src/pos-cashier-admissions/replay-purge.processor";
 import {
   NoOpReplayPurgeRepository,
   PgReplayPurgeRepository,
   type ReplayPurgeRepository,
-} from "../../src/cashier-admissions/replay-purge.repository";
+} from "../../src/pos-cashier-admissions/replay-purge.repository";
 import {
   REPLAY_PURGE_QUEUE_NAME,
   ReplayPurgeWorker,
-} from "../../src/cashier-admissions/replay-purge.worker";
+} from "../../src/pos-cashier-admissions/replay-purge.worker";
 import type { JobLike, WorkerFactory, WorkerLike } from "../../src/email/email.worker";
 import {
   AuditDbPool,

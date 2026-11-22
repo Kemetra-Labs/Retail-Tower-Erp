@@ -19,7 +19,7 @@ import {
   RepeatableWorker,
   type WorkerErrorLogger,
 } from "../common/repeatable-worker";
-import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email/email.worker";
+import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email";
 import { ReplayPurgeProcessor } from "./replay-purge.processor";
 
 export const REPLAY_PURGE_QUEUE_NAME = QUEUE_NAMES.cashierAdmissionReplayPurge;

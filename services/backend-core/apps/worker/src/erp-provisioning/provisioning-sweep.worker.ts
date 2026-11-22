@@ -9,7 +9,7 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import { QUEUE_NAMES } from "@data-pulse-2/shared";
 
 import { defaultWorkerLogger, logWorkerErrorClass, RepeatableWorker, type WorkerErrorLogger } from "../common/repeatable-worker";
-import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email/email.worker";
+import { type JobLike, type WorkerFactory, WORKER_FACTORY } from "../email";
 import { ProvisioningSweepProcessor } from "./provisioning-sweep.processor";
 
 export const PROVISIONING_SWEEP_QUEUE_NAME = QUEUE_NAMES.erpProvisioningSweep;

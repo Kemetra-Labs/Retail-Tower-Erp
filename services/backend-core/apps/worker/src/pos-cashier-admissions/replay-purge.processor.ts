@@ -23,7 +23,7 @@
  */
 import { z } from "zod";
 
-import { errorFields } from "../erpnext-reconciliation/stock-run-sweep.processor";
+import { errorFields } from "../common/error-class-name";
 import { DEFAULT_REPLAY_PURGE_BATCH_SIZE } from "./replay-purge.config";
 import type { ReplayPurgeRepository } from "./replay-purge.repository";
 

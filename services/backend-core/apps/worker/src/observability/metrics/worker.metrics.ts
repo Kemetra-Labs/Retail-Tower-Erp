@@ -964,33 +964,30 @@ export interface OutboxPendingRow {
  * `null` on the safe non-prod / no-DB path. `null` makes the registrar a no-op
  * (no callback registered).
  *
- * `queryFn` is an OPTIONAL injection seam for unit tests — production callers
- * omit it. When omitted, the registrar uses the default Drizzle-less SQL
- * shown in the source below, wrapped in `runWithTenantContext` with
+ * `pendingRows` is the per-client read, owned by `outbox` (RT-1551:
+ * `outbox/pending-by-event-type.ts`, bound by the worker root through the
+ * `OUTBOX_PENDING_ROWS` token so observability never imports outbox). The
+ * registrar runs it wrapped in `runWithTenantContext` with
  * `{ tenantId: null, isPlatformAdmin: true }`. The outbox RLS policy
  * permits the platform-admin context to SELECT rows from every tenant,
  * mirroring `claimBatch` (packages/db/src/outbox/repository.ts).
+ *
+ * `queryFn` is an OPTIONAL injection seam for unit tests that replaces the
+ * whole pool-level query. With a real pool, one of the two is required.
  */
 export interface OutboxPendingGaugeDeps {
   readonly pool: Pool | null;
+  readonly pendingRows?: OutboxPendingRowsQuery;
   readonly queryFn?: (pool: Pool) => Promise<OutboxPendingRow[]>;
 }
 
-/**
- * Bounded list of `delivery_state` values that contribute to the pending
- * gauge. `delivered` is terminal (success); `dead_lettered` is terminal
- * and separately tracked by `outbox_dead_letter_total`. Including either
- * would double-count.
- *
- * Mirrors the runtime check pinned by
- * `apps/worker/src/outbox/drainer.processor.ts` and the CHECK constraint
- * in `packages/db/drizzle/0006_outbox_events.sql` (delivery_state must be
- * one of: 'pending','claimed','delivered','failed','dead_lettered').
- */
-const PENDING_DELIVERY_STATES = ["pending", "claimed", "failed"] as const;
+/** The per-client read of pending outbox rows (implemented by the `outbox` module, RT-1551). */
+export type OutboxPendingRowsQuery = (client: {
+  query(sql: string, values?: unknown[]): Promise<{ rows: Array<{ event_type: string; count: string }> }>;
+}) => Promise<OutboxPendingRow[]>;
 
 /**
- * Default scrape-time query. Runs under
+ * Scrape-time query: `pendingRows` (outbox's read) under
  * `runWithTenantContext(pool, { tenantId: null, isPlatformAdmin: true }, ...)`
  * so the outbox_events RLS policy lets the SELECT aggregate across tenants.
  *
@@ -1002,7 +999,7 @@ const PENDING_DELIVERY_STATES = ["pending", "claimed", "failed"] as const;
  * surface for no real benefit — the registrar's query path runs at scrape
  * time, well after Nest init.
  */
-async function defaultPendingQuery(pool: Pool): Promise<OutboxPendingRow[]> {
+async function defaultPendingQuery(pool: Pool, pendingRows: OutboxPendingRowsQuery): Promise<OutboxPendingRow[]> {
   // eslint-disable-next-line @typescript-eslint/no-require-imports
   const { runWithTenantContext } = require("@data-pulse-2/db") as {
     runWithTenantContext: <T>(
@@ -1021,24 +1018,8 @@ async function defaultPendingQuery(pool: Pool): Promise<OutboxPendingRow[]> {
   return await runWithTenantContext(
     pool,
     { tenantId: null, isPlatformAdmin: true },
-    async (client) => {
-      // Parameterized query — even though PENDING_DELIVERY_STATES is a
-      // compile-time const today, the repo's house style for any SQL
-      // taking a list of values is `= ANY($1::text[])` (see drainer,
-      // repository, retention). Future-proofs against the constant ever
-      // becoming non-literal.
-      const result = await client.query(
-        `SELECT event_type, COUNT(*)::text AS count
-           FROM outbox_events
-          WHERE delivery_state = ANY($1::text[])
-          GROUP BY event_type`,
-        [[...PENDING_DELIVERY_STATES]],
-      );
-      return result.rows.map((r) => ({
-        event_type: r.event_type,
-        count: Number(r.count),
-      }));
-    },
+    // RT-1551: the SQL is outbox's (`outbox/pending-by-event-type.ts`); the platform-admin context stays here.
+    (client) => pendingRows(client),
   );
 }
 
@@ -1080,7 +1061,13 @@ export function registerOutboxPendingGauge(
     return { stop: () => undefined };
   }
 
-  const queryFn = deps.queryFn ?? defaultPendingQuery;
+  const pendingRows = deps.pendingRows;
+  const queryFn =
+    deps.queryFn ?? (pendingRows ? (p: Pool) => defaultPendingQuery(p, pendingRows) : undefined);
+  if (queryFn === undefined) {
+    // Fail closed at wiring time: a pool with no read would register a gauge that never observes.
+    throw new Error("registerOutboxPendingGauge: pendingRows (the outbox read) is required when a pool is set (RT-1551)");
+  }
   let inFlight = false;
 
   const callback = async (observableResult: {

@@ -40,16 +40,15 @@ import {
   type TraceCarrier,
 } from "@data-pulse-2/shared/observability/otel";
 
-import { AUDIT_FANOUT_JOB_NAME } from "../../audit/audit-fanout.processor";
-import { AUDIT_RETENTION_JOB_NAME } from "../../audit/audit-retention.processor";
-import { RESERVATION_SWEEP_JOB_NAME } from "../../ai-usage/reservation-sweep.processor";
-import { PROVISIONING_SWEEP_JOB_NAME } from "../../erp-provisioning/provisioning-sweep.processor";
-import { REPLAY_PURGE_JOB_NAME } from "../../cashier-admissions/replay-purge.processor";
-import { EMAIL_JOB_NAMES } from "../../email/email.processor";
-import { STOCK_RUN_SWEEP_JOB_NAME } from "../../erpnext-reconciliation/stock-run-sweep.processor";
-import { OUTBOX_SALE_PROCESSING_JOB_NAME } from "../../outbox/consumers/sale-captured.consumer";
-import { OUTBOX_RETENTION_JOB_NAME } from "../../outbox/retention.processor";
-import { SALE_REDRIVE_JOB_NAME } from "../../sales/sale-redrive.processor";
+// RT-1551: each job name comes from its module's port (index.ts), never from the processor file.
+import { RESERVATION_SWEEP_JOB_NAME } from "../../ai-usage";
+import { AUDIT_FANOUT_JOB_NAME, AUDIT_RETENTION_JOB_NAME } from "../../audit";
+import { REPLAY_PURGE_JOB_NAME } from "../../pos-cashier-admissions";
+import { EMAIL_JOB_NAMES } from "../../email";
+import { PROVISIONING_SWEEP_JOB_NAME } from "../../erp-provisioning";
+import { STOCK_RUN_SWEEP_JOB_NAME } from "../../erpnext-reconciliation";
+import { OUTBOX_RETENTION_JOB_NAME, OUTBOX_SALE_PROCESSING_JOB_NAME } from "../../outbox";
+import { SALE_REDRIVE_JOB_NAME } from "../../sales";
 import { sanitizeErrorClass } from "../metrics/worker.metrics";
 
 /** The parts of a BullMQ `Job` this listener reads. A real `Job` satisfies it. */

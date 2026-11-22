@@ -12,10 +12,10 @@ jest.mock("bullmq", () => ({
 import { Queue } from "bullmq";
 import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
-import { REPLAY_PURGE_INTERVAL_ENV } from "../../src/cashier-admissions/replay-purge.config";
-import { REPLAY_PURGE_JOB_NAME } from "../../src/cashier-admissions/replay-purge.processor";
-import { ReplayPurgeScheduler } from "../../src/cashier-admissions/replay-purge.scheduler";
-import { REPLAY_PURGE_QUEUE_NAME } from "../../src/cashier-admissions/replay-purge.worker";
+import { REPLAY_PURGE_INTERVAL_ENV } from "../../src/pos-cashier-admissions/replay-purge.config";
+import { REPLAY_PURGE_JOB_NAME } from "../../src/pos-cashier-admissions/replay-purge.processor";
+import { ReplayPurgeScheduler } from "../../src/pos-cashier-admissions/replay-purge.scheduler";
+import { REPLAY_PURGE_QUEUE_NAME } from "../../src/pos-cashier-admissions/replay-purge.worker";
 
 const MockQueue = Queue as unknown as jest.Mock;
 const FAKE_REDIS_URL = "redis://localhost:6379";
