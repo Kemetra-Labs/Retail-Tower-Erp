@@ -10,7 +10,9 @@
 
 The owner decision of 2026-10-23 (RT-446 lab verification session, recorded in RT-838):
 
-> By default there is **no limit** on parked sales per terminal. A limit can be configured later from the Console, per terminal or per tenant. This supersedes K2.
+> By default there is **no limit** on parked sales per terminal. A limit can be configured later from the Console. This supersedes K2.
+
+The Arabic quote in RT-838 (given 2026-10-23) says only that the limit can be set later from the Console. "Per terminal or per tenant" is the **RT-838 issue text's gloss** of it, not the owner's words; this plan treats the scope as open (§6).
 
 Every statement below carries one label, so nothing is mistaken for a decision it is not:
 
@@ -20,7 +22,7 @@ Every statement below carries one label, so nothing is mistaken for a decision i
 | **RECOMMENDED** | This plan's proposal. The owner has not chosen. Listed as a question in §10. |
 | **EVIDENCE** | A fact read from `origin/main@510706c4d`, with its path. |
 
-In `spec.md` §11 the same split is written **Decided** (= DECIDED) and **DRAFT, pending owner confirmation** (= RECOMMENDED). The owner's words were "per terminal or per tenant", so the tenant-level choice in §6 is a recommendation, not a decision.
+In `spec.md` §11 the same split is written **Decided** (= DECIDED) and **DRAFT, pending owner confirmation** (= RECOMMENDED). The scope "per terminal or per tenant" is the RT-838 issue text's gloss, not the owner's words, so the tenant-level choice in §6 is a recommendation, not a decision.
 
 Planning pages and this document are not proof of shipped behaviour: GitHub `main` is. RT-446 S2 (the 6th park refused on packaged build `e33fca25`) was **PASS against spec 024 as written** and stays valid history.
 
@@ -56,9 +58,9 @@ Safety: ERPNext untouched; Backend-Core stays the contract boundary; the POS nev
 | `apps/pos/src/main/cart/park/resume-flow.ts:60` | A `current_cart: 'park'` swap calls `hasRoom(open.length, 1)`: the selected sale leaves first, so a full terminal can still swap. |
 | `apps/pos/src/shared/audit/payload-schemas.ts:139` | The audited refusal `reason` union includes `park_limit_reached`. |
 | `apps/pos/src/renderer/v5/park/park-copy.ts:23` | `PARK_COPY.limit` hard-codes «5». `ParkDialog.tsx:54-176` shows it, disables the park button and focuses «عرض المبيعات المعلّقة». |
-| `apps/pos/src/main/shift-cashup/shift-cashup-service.ts:225,648-650` | `requireNoParkedSales` refuses the shift close with `parked_sales_present` and a count, whoever parked. `src/main/operator/forced-close-handler.ts` also reports parked sales as `close_blocked`. |
+| `apps/pos/src/main/shift-cashup/shift-cashup-service.ts:226,648-650` | `requireNoParkedSales` refuses the shift close with `parked_sales_present` and a count, whoever parked. `src/main/operator/forced-close-handler.ts` also reports parked sales as `close_blocked`. |
 | `apps/pos/src/renderer/v5/park/ParkedSalesScreen.tsx`, `park.css:236-243` | The list (`.v5-park-list`) is already a scroll container (`overflow-y: auto`, `min-block-size: 0`) inside the panel. `listParked` returns every row with no paging. The badge in `ParkControls.tsx` prints the raw count. Nothing has been drawn or verified at more than 5 rows. |
-| `apps/pos/src/main/recovery/manager-recovery.ts`, `src/main/ipc/recovery.ts` | The RT-441 manager recovery code is on `main`. `manager-recovery.ts:311,650` lists carts with `parked_at IS NOT NULL AS parked` (seen in review; the cancel path itself was not traced); RT-441 is Done in Jira and its title says "held and parked carts". |
+| `apps/pos/src/main/recovery/manager-recovery.ts`, `src/main/ipc/recovery.ts` | The RT-441 manager recovery code is on `main`. `manager-recovery.ts:311` selects `parked_at IS NOT NULL AS parked` for the held-cart rows and `:650` carries `parked: row.parked === 1` in an audit payload (seen in review; the cancel path itself was not traced); RT-441 is Done in Jira and its title says "held and parked carts". |
 | Tests that pin the limit | `tests/integration/main/cart/cart-park.test.ts:191`, `cart-resume.test.ts:394`, `park-copy.test.ts:44`, `park-dialog.test.tsx:102`. |
 | Backend-Core | No park setting exists. A Jira search (2026-11-22) for park + limit / console / setting found only the Done park issues (RT-158, 439-446, 471, 610, 672) and RT-838 itself. No issue to point to. |
 
@@ -94,7 +96,7 @@ Safety: ERPNext untouched; Backend-Core stays the contract boundary; the POS nev
 
 ## 6. Where a configured limit lives
 
-The owner said "per terminal or per tenant". Options, with the same enforcement point (the terminal counts locally):
+The issue text says "per terminal or per tenant" (a gloss; the owner's own words only say "from the Console"). Options, with the same enforcement point (the terminal counts locally):
 
 | Option | What | For | Against |
 |---|---|---|---|
@@ -150,7 +152,7 @@ What changes is its weight. With no limit, **the shift-close refusal is the only
 
 S1 and S2 can run in parallel. S4 and S5 can run in parallel once S2 is on `main`.
 
-**RT-445 documentation to update (in S4, when the copy changes; frozen owner-approved references change only with the owner's say-so):**
+**RT-445 documentation to update.** RT-838 asks for it; this plan **defers it to S4** on purpose, because the frozen owner-approved PK3 references (including their «5») and the copy only change together with the new refusal copy (Q4), and these docs are not edited by a planning PR. This deferral is Q9 below. The list:
 
 - `apps/pos/docs/design/vnext/captures/RT-445/README.md` (the limit refusal note).
 - `apps/pos/docs/design/vnext/visual-acceptance/PK3-Park-Resume/PK3-Spec.html` (the `park_limit_reached` row and the copy table) and the `PK3-ParkLimit-1024.html` / `PK3-ParkLimit-1280.html` references that draw «5».
@@ -159,7 +161,7 @@ S1 and S2 can run in parallel. S4 and S5 can run in parallel once S2 is on `main
 
 ## 10. Owner questions (recommended answer first)
 
-1. **Where does the limit live?** Tenant value applied per terminal (A) / tenant + store override (B) / per device (C). §6.
+1. **Where does the limit live?** Tenant value applied per terminal (A) / tenant + store override (B) / per device (C). §6. Note: the recommendation A (tenant) departs from the RT-838 summary's "per-terminal" gloss; a per-terminal value is option C.
 2. **Value rules.** Positive integer only, `0` invalid, maximum 50, `null` = no limit?
 3. **Limit lowered below the current count.** A net-zero swap is allowed, new parks refused, nothing discarded?
 4. **Refusal copy.** Drop the number (A) or keep it with a bridge `limit` field (B)? §4.
@@ -167,6 +169,7 @@ S1 and S2 can run in parallel. S4 and S5 can run in parallel once S2 is on `main
 6. **Shift close.** Confirm unchanged. Do you want a bulk manager-cancel for many parked sales, as a later issue?
 7. **List at scale.** Authorise S1b (draw the parked list at 20 and 100 sales) before no-limit reaches a pilot till?
 8. **Propagation.** A change applies at the next online sign-in or shift open (recommended), or also on a periodic refresh?
+9. **RT-445 documentation.** RT-838 asks for it. Update the frozen PK3 references and docs only in S4, together with the new copy (recommended), or in a separate docs-only change now (the references would then show a copy the product does not yet have)?
 
 ## 11. Risks and not verified
 
