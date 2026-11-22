@@ -10,7 +10,7 @@ writes the cache, and that no credential id, token or fingerprint reaches it. ``
 import json
 import sys
 import types
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta, timezone
 from pathlib import Path
 
 import pytest
@@ -33,6 +33,7 @@ _MISSING = object()
 TOKEN = "fake-" + "x" * 24
 OPENED = 1_800_000_000.0
 KEY = "cred-1:abcdef012345"
+SITE_TZ = timezone(timedelta(hours=2))
 
 
 def _state(key=KEY, failures=3, status=401, opened=OPENED, probe=OPENED + 240):
@@ -199,8 +200,10 @@ def test_the_scripted_read_shows_neither_the_token_nor_the_key(frappe_stub):
 
 @pytest.fixture
 def report(frappe_stub):
+	saved_utils = sys.modules.get("frappe.utils", _MISSING)
 	utils = types.ModuleType("frappe.utils")
-	utils.convert_utc_to_system_timezone = lambda moment: moment  # a UTC site: the conversion is identity
+	# A site at UTC+2 (fixed offset, no tzdata needed): the report must show the shifted wall-clock time.
+	utils.convert_utc_to_system_timezone = lambda moment: moment.astimezone(SITE_TZ)
 	frappe_stub.utils = utils
 	sys.modules["frappe.utils"] = utils
 	from retail_tower_erpnext_connector.connector.report.connector_auth_circuit import (
@@ -209,6 +212,8 @@ def report(frappe_stub):
 
 	yield connector_auth_circuit
 	sys.modules.pop("frappe.utils", None)
+	if saved_utils is not _MISSING:
+		sys.modules["frappe.utils"] = saved_utils
 
 
 def test_the_report_has_one_row_with_every_column_filled_for_an_open_circuit(report):
@@ -228,6 +233,13 @@ def test_the_report_has_one_row_with_every_column_filled_for_an_open_circuit(rep
 	assert row["last_status"] == 401
 	assert row["changed_at"].tzinfo is None
 	assert row["next_probe_at"] > row["changed_at"]
+
+
+def test_the_report_shows_times_in_the_site_timezone_as_naive_datetimes(report):
+	row = report.to_row(build_status(_state(), current_key=KEY, now=OPENED))
+	assert row["changed_at"] == _at(OPENED).astimezone(SITE_TZ).replace(tzinfo=None)
+	assert row["changed_at"] == _at(OPENED).replace(tzinfo=None) + timedelta(hours=2)
+	assert row["next_probe_at"] == row["changed_at"] + timedelta(seconds=240)
 
 
 def test_the_report_row_of_a_closed_circuit_is_just_closed(report):
@@ -268,7 +280,10 @@ def test_the_report_definition_is_a_standard_script_report_a_system_manager_can_
 	assert definition["module"] == "Connector"
 	assert definition["modified"]  # sync skips a file without one
 	assert definition["prepared_report"] == 0
-	assert definition["disable_prepared_report"] == 1  # a cached run would show stale live state
+	# Frappe flips prepared_report on after a run over 15 s unless this (real) field is set; a prepared run
+	# would show stale live state. ("disable_prepared_report" is not a Report field and is ignored.)
+	assert definition["disable_prepared_report_automation"] == 1
+	assert "disable_prepared_report" not in definition
 	assert definition["roles"] == [{"role": "System Manager"}]
 
 
