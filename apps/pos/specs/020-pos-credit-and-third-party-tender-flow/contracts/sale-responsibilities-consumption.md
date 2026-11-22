@@ -54,6 +54,7 @@ full-credit sale and is not tender-unknown.
 
 ### Headers and path
 
+- Finalize interplay (spec R-FINALIZE): the automatic finalize path writes a pending outbox row for every settled sale, so it must not pick up a credit checkout. On acceptance the sale is recorded as already captured, with its server sale reference and no pending outbox row.
 - Envelope bearer; `Idempotency-Key` is required and is the deterministic key the capture client already
   derives for the sale. The same key and the same body must be sent on every retry (spec FR-8).
 - The device bearer is never used, and a sale with a responsibility never takes the device path even when
@@ -85,8 +86,10 @@ No outcome finalizes the sale except an accepted capture. Copy is **proposed** a
 | 422 `sale_responsibility_payer_invalid` | Payer not chargeable now (one body for every cause) | Do not finalize. Return to the picker with a fresh read; do not say which attribute failed. |
 | 422 `sale_responsibility_offline_refused` | A responsibility reached the device path | Do not finalize. Till defect (R-PATH); blocked state, logged. |
 | 422 other (`sale_line_pricing_invalid`, `sale_voucher_tender_invalid`) | Existing capture refusals | Existing handling; the sale is not finalized. |
-| 425 `idempotency_in_progress`, 429 | Transient back-pressure | Retry synchronously, same key and body, after `Retry-After`. Not finalized meanwhile. |
+| 425 `idempotency_in_progress` (see the note below), 429 | Transient back-pressure | Retry synchronously, same key and body, after `Retry-After`. Not finalized meanwhile. |
 | 5xx, timeout, no connection | Transient | Leave unfinalized; retry synchronously with the same key and body. If the manager cancels, the attempt is closed with the cart intact. Never queued. |
+
+Note on 425: `sales.yaml` documents no 425 for `captureSale`. The row comes from Backend-Core's idempotency interceptor and from the existing capture client (RT-194, `create-sale-sync-client.ts`), not from the contract. If a later contract edit documents or removes it, follow the contract.
 
 Money already applied as an immediate tender is never dropped by any row above (spec NFR-3; mechanism is
 owner question Q-2).

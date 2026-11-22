@@ -6,7 +6,7 @@
 
 > **Two parts.** Part A is the docs deliverable of RT-420 (done by this change). Part B is the task outline
 > for the **separate implementation issue** (spec D-5). Part B is not authorized work: it starts only after
-> an owner go-ahead and the Q-1 to Q-8 answers. Nothing in Part B is built.
+> an owner go-ahead and the Q-1 to Q-9 answers. Nothing in Part B is built.
 
 ## Part A: RT-420 docs deliverable
 
@@ -16,16 +16,16 @@
 - [x] A4 Specify the offline rule and the coverage pre-check with Given/When/Then scenarios (spec scenarios 3, 4, 5, 6).
 - [x] A5 Record the envelope-path / synchronous-capture mode (R-SYNC, FR-5, FR-7, FR-8) and its departure from the old draft.
 - [x] A6 State the payer-lookup dependency correctly (server side done, POS pin missing, D-1).
-- [x] A7 List the owner questions (Q-1 to Q-8).
+- [x] A7 List the owner questions (Q-1 to Q-9).
 - [x] A8 Remove healthcare-specific framing (no insurance, co-pay, claim or policy fields).
-- [x] A9 Check: a case-insensitive search of this folder for the retired route's operation, schema and path names returns nothing (command recorded in the PR body).
+- [x] A9 Check: a case-insensitive search of this folder for the retired route's names returns nothing. Command: `grep -rniE "settlement[-]intent|Settlement[I]ntent" apps/pos/specs/020-pos-credit-and-third-party-tender-flow` (exit 1 means clean).
 
 ## Part B: implementation issue outline (not started)
 
 Order follows the plan phases. `[T]` means a test is written first (RED, then GREEN).
 
 ### B0. Gate and pin
-- [ ] B0.1 Owner answers Q-1 to Q-8 and approves the implementation issue.
+- [ ] B0.1 Owner answers Q-1 to Q-9 and approves the implementation issue.
 - [ ] B0.2 `[GATED: contract pin]` PR: vendor `pos-payers.openapi.yaml`, regenerate `api-types.ts` and the snapshot; narrow source-scope-guard exemption on that branch; `pos` preflight on CircleCI (RT-981 rules).
 
 ### B1. Payer read (main process)
@@ -35,6 +35,8 @@ Order follows the plan phases. `[T]` means a test is written first (RED, then GR
 ### B2. Credit capture mode (main process)
 - [ ] B2.1 [T] Frozen body and idempotency key stored with the checkout attempt before the first send (FR-8).
 - [ ] B2.2 [T] One synchronous envelope send; finalize only on 200 or 201; never `sale_sync_outbox`; never the device bearer (R-SYNC, R-PATH).
+- [ ] B2.2a [T] Finalize route for a credit checkout (R-FINALIZE, Q-9): the automatic finalize scan skips a credit checkout even when its cash tender has settled; a full-credit sale (no settled tender) reaches finalize; an accepted sale is recorded with its server sale reference and no pending outbox row; a restart between settle and capture does not finalize or enqueue it.
+- [ ] B2.2b [T] Persist the accepted payer fact with the local sale (migration, gated path; FR-5b) and assert a reprint after a restart shows the payer line.
 - [ ] B2.3 [T] Outcome matrix: one test per row of the consumption note, none finalizing except acceptance.
 - [ ] B2.4 [T] Transient retry with the same key and body; honors `Retry-After`; cancel closes the attempt with the cart intact.
 - [ ] B2.5 [T] A cashier session cannot reach this mode (R-ROLE).

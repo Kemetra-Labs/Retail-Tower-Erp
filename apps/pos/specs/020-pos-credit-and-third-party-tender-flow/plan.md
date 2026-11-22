@@ -44,7 +44,7 @@ Safety: Backend-Core owns allocation, ERPNext owns A/R; POS never calls ERPNext;
 | Financial precision | PASS | Exact arithmetic, no floats. |
 | Process boundary | PASS | Main process decides and sends; renderer displays and requests (RT-24 I-1). |
 | No fake success | PASS | Finalize only after acceptance; credit never shown as paid (RT-24 core rule 2). |
-| No silent loss | PASS, one open item | Cart is never lost; the cash-after-refusal mechanism is Q-2. |
+| No silent loss | PASS, two open items | Cart is never lost; the cash-after-refusal mechanism is Q-2 and the finalize route for a credit checkout is Q-9. |
 | Terminal identity is not a user | PASS | Envelope operator, not device token. |
 | Platform integration | PASS | Backend-Core only. |
 | Domain limits (I-17) | PASS | No insurance, prescription or claim wording. |
@@ -56,12 +56,16 @@ Safety: Backend-Core owns allocation, ERPNext owns A/R; POS never calls ERPNext;
    preflight under the RT-981 rules. Nothing else can start before it.
 2. **Payer client (main).** Read-only client on the shared transport; returns pages, never persists; maps
    401, 403, 400, 429, 5xx and transport faults to typed results.
-3. **Credit capture mode (main).** A capture path for a responsibility-bearing sale: frozen body and key
-   stored with the checkout attempt, one synchronous send, finalize on acceptance, transient retry with the
-   same key, never queued, never the device bearer.
+3. **Credit capture mode and finalize (main).** A capture path for a responsibility-bearing sale: frozen body
+   and key stored with the checkout attempt, one synchronous send, transient retry with the same key, never
+   queued, never the device bearer. **This phase also changes finalize, not only the capture client** (spec
+   R-FINALIZE, Q-9): the automatic finalize scan of settled payments must not pick up a credit checkout, a
+   full-credit sale needs its own route to finalize, and an accepted sale is recorded as already captured with
+   no pending outbox row.
 4. **Checkout UI (renderer).** Credit option (role and connectivity gated), payer picker (online, device
    filter, greyed unlinked payers), amount entry, remainder, coverage check with persistent reason, commit.
-5. **Receipt line.** Payer responsibility line without a "paid" claim (Q-5, Q-6).
+5. **Local fact and receipt line.** Persist the accepted payer fact with the local sale (a POS migration, a
+   gated path; spec FR-5b), then the payer responsibility line without a "paid" claim (Q-5, Q-6).
 6. **Guards.** Void and return screens refuse the ordinary route for a credit sale with a reasoned block
    (Q-7); audit events; telemetry allowlist unchanged.
 7. **Evidence.** Behavioral-tier tests (sales and money paths), packaged-app run against the lab for the
@@ -84,7 +88,9 @@ Safety: Backend-Core owns allocation, ERPNext owns A/R; POS never calls ERPNext;
 
 ## Risks and open items
 
-- **Owner questions Q-1 to Q-8** in the spec block the implementation issue, not this docs change.
+- **Finalize path (Q-9).** The existing finalize is poller-driven and always enqueues; the credit mode must
+  not use it as is. This is the largest design item for the implementation issue.
+- **Owner questions Q-1 to Q-9** in the spec block the implementation issue, not this docs change.
 - **Pin missing (D-1).** Until it merges the till cannot read payers.
 - **Posting held (D-3, RT-419).** A captured credit sale is held in the posting feed until the Connector
   supports it, so there is no ERPNext proof yet.

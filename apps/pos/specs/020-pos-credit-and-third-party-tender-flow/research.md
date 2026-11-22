@@ -62,6 +62,7 @@ operation. The pin is the missing piece (spec D-1).
   uses a deterministic `Idempotency-Key` (the payload `externalId`) and classifies 425 and 429 as transient
   and other 4xx as permanent (dead-letter). **A credit sale needs a different mode: none of that
   dead-lettering or queuing may apply to it** (R-SYNC).
+- Finalize is not driven by the checkout screen: a background scan (`sales/finalize-listener.ts`, `finalize-dispatch.ts`) finds settled payments with no sale row, and `finalize-transaction.ts` then inserts the sale and a `pending` `sale_sync_outbox` row in one transaction. A credit checkout must not take that route as is (spec R-FINALIZE, Q-9). Found by independent review of this change.
 - `src/main/bootstrap/sale-void.ts` is the existing precedent for a synchronous envelope-authenticated call
   with the shared backend transport and the approval service.
 - Specs index lists 020 as Deferred. `apps/pos/README.md` line 132 lists credit and third-party tender as not
@@ -96,4 +97,4 @@ only. These are why the spec labels all copy as proposed and adds no shortcut.
 | R-FRESH, R-NOSUBMIT | consumption note section 2; spec scenarios 4, 9, 10 |
 | FR-6, FR-7, FR-8 | consumption note section 4; data-model E4 |
 | FR-9, Q-5, Q-6 | spec scenario 13; data-model E5 |
-| D-1 to D-7, Q-1 to Q-8 | spec Dependencies and Owner questions |
+| D-1 to D-7, Q-1 to Q-9 | spec Dependencies and Owner questions |

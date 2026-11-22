@@ -9,7 +9,7 @@
 ## Prerequisites
 
 - The POS pin of `pos-payers.openapi.yaml` is merged (spec D-1). Without it the till cannot read payers.
-- The owner has answered the spec's owner questions Q-1 to Q-8.
+- The owner has answered the spec's owner questions Q-1 to Q-9.
 - An online session of an `owner`, `tenant_admin` or `store_manager` holding the operator envelope.
 - At least one payer in the store scope that is active and linked to an ERPNext Customer (created and linked
   in the Console, not at the till).
@@ -25,7 +25,8 @@
 4. Pick one payer. Enter the amount the payer owes. The remainder is the immediate tender (cash in pilot).
 5. Coverage pre-check in integer minor units: tenders + amount = posTotal. Mismatch: commit disabled with a
    persistent reason, nothing sent.
-6. Freeze the body and the idempotency key with the checkout attempt.
+6. Freeze the body and the idempotency key with the checkout attempt. The automatic finalize scan must skip
+   this checkout until the capture is accepted (spec R-FINALIZE, Q-9).
 7. One synchronous POST /api/pos/v1/sales on the envelope, with tenders (if any) and responsibilities.
 8. Accepted (201 or 200 replay): finalize the sale once, show completion, print the receipt with the payer
    line. Any other outcome: do not finalize; follow the outcome matrix in the consumption note.

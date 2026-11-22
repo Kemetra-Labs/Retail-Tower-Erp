@@ -54,6 +54,14 @@ sale never enters `sale_sync_outbox`. Whether it lives in the existing local che
 table is an implementation decision; any new table needs a POS migration (a gated path) in the implementation
 issue, not here.
 
+## E4a. Local sale record of an accepted credit sale
+
+FR-5b: after acceptance the till stores, with the local sale, the server sale reference and the accepted
+`payerRef` and `amount` (and the payer name if Q-6 allows). Reason: the receipt line, a reprint after a restart
+and the void/return guard must know the sale carries a responsibility without a server call. Today the local
+sale row carries none of it. The storage change is a POS migration, a gated path, owned by the implementation
+issue. The sale is recorded as already captured: **no** pending `sale_sync_outbox` row (R-FINALIZE).
+
 ## E5. Receipt data
 
 The accepted `Sale.responsibilities` returns `payerRef` and `amount` only. The receipt line needs a payer

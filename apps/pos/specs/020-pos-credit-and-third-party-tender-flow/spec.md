@@ -65,6 +65,7 @@ remainder (if any) in the immediate tender, and the till captures it honestly or
 | **R-PATH** | A responsibility-bearing sale uses the operator envelope (`operatorAuthorization`) path only. The device bearer is never used for it. | sales.yaml `captureSale` |
 | **R-ROLE** | Only an operator whose live role is `owner`, `tenant_admin` or `store_manager` may attach a responsibility. For any other operator the credit option is **not offered** (hidden). The server decides (403 `sale_responsibility_role_refused`); the till never trusts its own role check. | sales.yaml; RT-417 |
 | **R-SYNC** | Capture is synchronous, online, before finalize. The sale is finalized (locally and as a completed sale) only after the server accepts the capture. A transient failure leaves the sale unfinalized. | sales.yaml; comment 12134 |
+| **R-FINALIZE** | A responsibility-bearing checkout is **not** finalized by the existing automatic path. Today a sale is finalized by a background scan of settled payments, and finalizing always writes a pending `sale_sync_outbox` row. A credit checkout must stay out of that scan until the server has accepted the capture, and on acceptance must be recorded as a sale that is already captured, with its server sale reference and **no** pending outbox row. A full-credit sale has no settled tender, so it needs its own way to reach finalize. The mechanism is an implementation choice (Q-9); the rule is not. | Independent review of this change; `finalize-listener.ts`, `finalize-transaction.ts` |
 | **R-ONE** | At most **one** payer per sale in this version (`responsibilities` has `maxItems 1`, `sequence` is 1). No split across payers. | sales.yaml `responsibilities` |
 | **R-COVER** | Coverage pre-check: `sum(tenders) + responsibility amount = posTotal`, exactly, in integer minor units, before submit. A mismatch blocks the commit locally. An absent `tenders` counts as zero; a sale fully covered by the payer is a valid **full-credit sale** (not a tender-unknown sale). The server rule is authoritative. | sales.yaml; RT-417 |
 | **R-FRESH** | The payer list is read online at the moment the manager opens the picker, is never stored for later use and is never shown from a cache. `chargeable` is advisory, not a reservation. | pos-payers contract |
@@ -165,6 +166,7 @@ wire form is an exact-decimal string and the till works in integer minor units.
   pointer that an admin creates payers in the Console. The till does not create a payer.
 - **Payer list fails.** If the read fails (401, 403, 429, 5xx, timeout), no payer is offered and the
   credit option stays blocked with the reason. The till does not fall back to any stored list.
+- **Settled cash before capture.** The immediate tender may settle before the capture call. That must not finalize the sale (R-FINALIZE, FR-5a). If the capture is then refused, Q-2 decides what happens to the cash.
 - **Restart mid-capture.** The key and the frozen body survive a restart (see FR-8) so a retry is a
   replay, not a second sale.
 - **Void or return of a credit sale.** The existing POS void and return screens must not offer the
@@ -193,6 +195,8 @@ wire form is an exact-decimal string and the till works in integer minor units.
 - **FR-5.** The till MUST capture the sale with one synchronous `captureSale` call on the envelope path
   and finalize the sale only on acceptance (R-SYNC). It MUST NOT queue the sale, MUST NOT use the
   device bearer (R-PATH) and MUST NOT strip, move or convert the responsibility on any retry.
+- **FR-5a.** The till MUST keep a responsibility-bearing checkout out of the automatic finalize scan until a capture is accepted (R-FINALIZE). Neither a settled cash tender nor a restart may cause that sale to be finalized and enqueued without its `responsibilities`. A sale recorded without its responsibilities while a credit capture is pending, or sent later under the same key without them, is the failure this requirement prevents.
+- **FR-5b.** The till MUST persist the accepted payer fact (`payerRef`, `amount`, the server sale reference) locally with the sale, so that the receipt line (FR-9), a reprint after a restart and the void/return guard (Q-7) know the sale carries a responsibility without asking the server first. Adding that storage is a POS migration (a gated path) and belongs to the implementation issue.
 - **FR-6.** The till MUST map every outcome deterministically (see the consumption note, section 4):
   accepted, 401, 403 role refusal, 400, 409, each 422, 425, 429, 5xx and transport failure. No outcome
   finalizes a sale except acceptance.
@@ -234,8 +238,8 @@ wire form is an exact-decimal string and the till works in integer minor units.
   scenarios above (scenarios 3, 4, 5, 6).
 - **SC-3.** Every server outcome of the consumed operations maps to one till behavior with no outcome that
   finalizes a sale except acceptance.
-- **SC-4.** The folder contains no reference to the retired intent route, no insurance or co-pay flow and
-  no claim fields.
+- **SC-4.** The folder contains no reference to the retired intent route, no insurance or co-pay flow is
+  specified and no claim fields exist.
 - **SC-5.** The open owner questions are listed (see Owner questions).
 
 ## Key entities
@@ -293,6 +297,7 @@ These are listed, not decided. Each states the default the docs assume.
   happens to the cash already collected: keep it as an applied tender in the same checkout so the manager
   can fix the payer and retry, or reverse it through the existing recovery path? Touches RT-24 core rules 1 and 3.
   *Recommended:* keep the applied tender, stay in Checkout with the reason, and never start a second sale.
+- **Q-9. How does a credit checkout reach finalize?** The existing finalize path is a background scan of settled payments that always enqueues the sale for the background drain. Options: (a) gate that scan so it skips a credit checkout, and add a finalize variant that records an accepted, already-captured sale with no outbox row; (b) build a separate credit finalize that does not use the scan at all, which also covers a full-credit sale (no settled tender). Either changes finalize or the scan, not only the capture client. *Recommended:* (b), because a full-credit sale has no settled payment to key on and a gate on the shared scan puts the cash-sale path at risk.
 - **Q-3. Shift rule for a full-credit sale.** RT-998 refuses cash without an open shift. Does a sale with
   no cash tender need an open shift? *Assumed:* the existing rule is unchanged and applies only when a
   cash tender exists.
@@ -319,6 +324,7 @@ beyond the docs.
 | Gate | Meaning | Status |
 |:--|:--|:--|
 | G-CONSUME | The till sends `responsibilities` on the envelope path exactly as the contract requires and handles each outcome. | Unsatisfied (not built) |
+| G-FINALIZE | A credit checkout is finalized only after server acceptance, as an already-captured sale with no pending outbox row. | Unsatisfied (not built) |
 | G-OFFLINE | A responsibility-bearing sale is never queued, never sent offline and never sent on the device path. | Unsatisfied (not built) |
 | G-COVER | The local coverage pre-check blocks every mismatch before submit. | Unsatisfied (not built) |
 | G-FRESH | The payer list is online only and never cached or persisted. | Unsatisfied (not built) |
