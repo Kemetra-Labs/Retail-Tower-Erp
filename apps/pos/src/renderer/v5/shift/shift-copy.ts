@@ -175,6 +175,8 @@ const STATUS_COPY = {
   strandedShifts: 'ورديات مفتوحة',
   pendingHeading: 'نشاط درج لم يكتمل',
   pendingRefunds: 'صرف مرتجعات',
+  // RT-1403 S2 (PROPOSED copy, pending owner review): a void payout started, not finished.
+  pendingVoidPayouts: 'صرف نقد إلغاء بيع',
   pendingSales: 'مبيعات لم تكتمل',
   probeHeading: 'محاولات مرفوضة في الوردية المفتوحة (منذ آخر تشغيل)',
   probePayOut: 'سحب غير مقبول',

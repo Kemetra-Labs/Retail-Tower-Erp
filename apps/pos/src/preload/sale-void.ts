@@ -4,8 +4,10 @@ import {
   SALE_VOID_IPC_CHANNELS,
   type SaleVoidAcknowledgeResponse,
   type SaleVoidBridgeAPI,
+  type SaleVoidCashExceptionResponse,
   type SaleVoidListResponse,
   type SaleVoidLookupResponse,
+  type SaleVoidPayOutResponse,
   type SaleVoidRequestResponse,
 } from '../shared/sale-void/types.js';
 
@@ -24,4 +26,11 @@ export const saleVoid: SaleVoidBridgeAPI = {
       SALE_VOID_IPC_CHANNELS.ACKNOWLEDGE,
       req,
     ) as Promise<SaleVoidAcknowledgeResponse>,
+  payOut: (req) =>
+    ipcRenderer.invoke(SALE_VOID_IPC_CHANNELS.PAY_OUT, req) as Promise<SaleVoidPayOutResponse>,
+  recordCashException: (req) =>
+    ipcRenderer.invoke(
+      SALE_VOID_IPC_CHANNELS.CASH_EXCEPTION,
+      req,
+    ) as Promise<SaleVoidCashExceptionResponse>,
 };

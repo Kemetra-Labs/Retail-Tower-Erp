@@ -9,6 +9,7 @@
  */
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type { AuditPayloadMap } from '../../shared/audit/payload-schemas.js';
+import { createPayoutAudit, type PayoutAudit } from './sale-void-payout-audit.js';
 import type { VoidEntry } from './sale-void-repository.js';
 
 type VoidAuditCategory = Extract<AuditEvent['action_category'], `sale.void.${string}`>;
@@ -17,7 +18,7 @@ export interface SaleVoidAuditSink {
   emit(event: AuditEvent): void;
 }
 
-export interface SaleVoidAudit {
+export interface SaleVoidAudit extends PayoutAudit {
   /** The void was journaled and its approval consumed (inside that transaction). */
   requested(entry: VoidEntry): void;
   confirmed(entry: VoidEntry, replayed: boolean): void;
@@ -52,6 +53,7 @@ export function createSaleVoidAudit(deps: SaleVoidAuditDeps): SaleVoidAudit {
   }
 
   return {
+    ...createPayoutAudit(deps),
     requested(entry) {
       write(entry, 'sale.void.requested', {
         void_id: entry.voidId,

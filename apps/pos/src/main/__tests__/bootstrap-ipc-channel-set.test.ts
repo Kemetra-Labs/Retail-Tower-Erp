@@ -306,6 +306,8 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'sale-void:request',
   'sale-void:list',
   'sale-void:acknowledge',
+  'sale-void:pay-out',
+  'sale-void:cash-exception',
   'returns:lookup',
   'returns:quote',
   'returns:submit',

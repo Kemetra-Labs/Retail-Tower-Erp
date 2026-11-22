@@ -159,7 +159,7 @@ export interface ShiftStatusView {
   /** Unsettled facts and open shifts outside the current pairing. */
   stranded: { unsyncedFacts: number; openShifts: number };
   /** Drawer cash in flight; while non-zero, an open, a pay-out and the close are held. */
-  pendingDrawerActivity: { refundPayouts: number; unfinalizedSales: number };
+  pendingDrawerActivity: { refundPayouts: number; voidPayouts: number; unfinalizedSales: number };
   /**
    * Refusals of the open shift that answer a probe of the blind count (10941
    * item 3), for a manager to see. Kept in memory: zero again after a restart.

@@ -27,14 +27,17 @@
  * the close stores it): Backend-Core refuses a ref another shift's close
  * claimed (422 `refund_ref_invalid`).
  *
- * Voids (RT-530): `sale_void_journal` rows whose `requested_at` is in the window
- * and whose state is live, joined to the voided sale for its tender summary.
- * A refused void counts nothing.
+ * Void payouts (RT-530, RT-1403 S2): `sale_void_payouts` rows (migration 0069) whose
+ * `paid_at` is in the window: the cash a void handed back out of the drawer, a gated
+ * payout of a confirmed void or a manager-attested exception. A void REQUEST counts
+ * nothing; only the payout record does.
  *
  * `pendingDrawerActivity` (review P2-2) counts the scope's drawer cash still
  * in flight, which the cash-up cannot read yet:
  *   • refundPayouts     RT-15 payouts started (the drawer may already be
  *                       open) but not completed (`paid_at IS NULL`);
+ *   • voidPayouts       RT-1403 S2 void payout claims (migration 0069) with no
+ *                       payout record yet: same shape, same hold;
  *   • unfinalizedSales  `payment.settled` audits of the terminal that the 008
  *                       finalize listener has not turned into a sale yet —
  *                       the listener's own pending-set filter — PLUS (RT-496)
@@ -50,7 +53,7 @@
 import type { DatabaseHandle } from '../db/client.js';
 import { UNFINALIZED_SETTLEMENT_FILTER } from '../sales/finalize-listener.js';
 import { STRANDED_SETTLEMENT_FILTER } from '../payments/settled-audit-reconciler.js';
-import type { CashupRefund, CashupSale } from './shift-cashup-calculator.js';
+import type { CashupRefund, CashupSale, CashupVoidPayout } from './shift-cashup-calculator.js';
 import type { ShiftScope } from './shift-cashup-repo.js';
 
 export interface CashupWindow {
@@ -70,6 +73,11 @@ export interface CashupSourceQuery {
 /** The scope's drawer cash in flight (counts only). */
 export interface PendingDrawerActivity {
   refundPayouts: number;
+  /**
+   * RT-1403 S2 (H1, M1): void payouts CLAIMED (the drawer may be open or the kick unresolved) with no
+   * payout record yet: the shift cannot close over them.
+   */
+  voidPayouts: number;
   unfinalizedSales: number;
 }
 
@@ -77,11 +85,11 @@ export interface ShiftCashupSources {
   salesIn(query: CashupSourceQuery): CashupSale[];
   refundsIn(query: CashupSourceQuery): CashupRefund[];
   /**
-   * RT-530: the tender summaries of the scope's sales whose void was REQUESTED
-   * in the window and is live (pending, unknown or confirmed: the cash went
-   * back to the customer). A refused void is not counted.
+   * RT-1403 S2: the cash the scope's voids paid out in the window, from the payout
+   * records (never from a void request): the gated payout of a confirmed void and
+   * the manager-attested exception both left the drawer.
    */
-  voidsIn(query: CashupSourceQuery): CashupSale[];
+  voidsIn(query: CashupSourceQuery): CashupVoidPayout[];
   /** The `closedAt` of the scope's latest local close; null when none. */
   lastClosedAt(scope: ShiftScope): string | null;
   pendingDrawerActivity(scope: ShiftScope): PendingDrawerActivity;
@@ -131,12 +139,11 @@ const REFUNDS_SQL = `
   ORDER BY p.paid_at, j.return_id`;
 
 const VOIDS_SQL = `
-  SELECT s.tender_lines_summary_json AS tenderLinesSummaryJson
-  FROM sale_void_journal v JOIN sales s ON s.sale_id = v.sale_id
-  WHERE v.tenant_id = ? AND v.branch_id = ? AND v.terminal_id = ?
-    AND v.state IN ('pending', 'unknown', 'confirmed')
-    AND ${inWindow('v.requested_at')}
-  ORDER BY v.requested_at, v.void_id`;
+  SELECT p.amount_minor AS amountMinor, p.currency_code AS currencyCode
+  FROM sale_void_payouts p
+  WHERE p.tenant_id = ? AND p.branch_id = ? AND p.terminal_id = ?
+    AND ${inWindow('p.paid_at')}
+  ORDER BY p.paid_at, p.payout_id`;
 
 const LAST_CLOSED_AT_SQL = `
   SELECT c.closed_at AS closedAt
@@ -149,6 +156,12 @@ const PENDING_PAYOUTS_SQL = `
   SELECT COUNT(*) AS n
   FROM return_payouts p JOIN return_journal j ON j.return_id = p.return_id
   WHERE j.tenant_id = ? AND j.branch_id = ? AND j.terminal_id = ? AND p.paid_at IS NULL`;
+
+const PENDING_VOID_PAYOUTS_SQL = `
+  SELECT COUNT(*) AS n
+  FROM sale_void_payout_claims c
+  WHERE c.tenant_id = ? AND c.branch_id = ? AND c.terminal_id = ?
+    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)`;
 
 const PARKED_SALES_SQL = `
   SELECT COUNT(*) AS n FROM carts
@@ -188,10 +201,11 @@ export function createShiftCashupSources(db: DatabaseHandle): ShiftCashupSources
   return {
     salesIn: (query) => read<CashupSale>(SALES_SQL, query),
     refundsIn: (query) => read<CashupRefund>(REFUNDS_SQL, query),
-    voidsIn: (query) => read<CashupSale>(VOIDS_SQL, query),
+    voidsIn: (query) => read<CashupVoidPayout>(VOIDS_SQL, query),
     lastClosedAt,
     pendingDrawerActivity: (scope) => ({
       refundPayouts: count(PENDING_PAYOUTS_SQL, scopeParams(scope)),
+      voidPayouts: count(PENDING_VOID_PAYOUTS_SQL, scopeParams(scope)),
       unfinalizedSales:
         count(UNFINALIZED_SALES_SQL, [scope.terminalId]) +
         count(STRANDED_SETTLEMENTS_SQL, scopeParams(scope)),

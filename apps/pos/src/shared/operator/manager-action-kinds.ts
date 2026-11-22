@@ -13,6 +13,9 @@ export const MANAGER_ACTION_KINDS = [
   // RT-530 — voiding a finalized sale: a bound approval, four-eyes against the
   // requester AND the sale's selling operator, same business day only.
   'sale.void',
+  // RT-1403 S2 — cash that left the drawer outside the void payout gate: bound to the void and its
+  // cash, single use, approved by a manager other than the requester (the void's four-eyes rule).
+  'sale.void_cash_exception',
   'cart.discount.manual',
   'shift.pay_in',
   'shift.pay_out',

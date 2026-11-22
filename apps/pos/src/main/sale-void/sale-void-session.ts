@@ -8,6 +8,7 @@
  * Backend-Core binds the void's requester to the envelope's operator.
  */
 import type { OperatorSessionRecord } from '../operator/session-manager.js';
+import type { LocalVoidRefusal } from '../../shared/sale-void/types.js';
 import type { VoidScope } from './sale-void-repository.js';
 import type { VoidSession } from './sale-void-service.js';
 import type { VoidSender } from './sale-void-sync.js';
@@ -58,4 +59,24 @@ export function toVoidSender(
   if (record.role === 'cashier') return { via: 'device', scope, operatorUserId };
   if (envelope === null || envelope.length === 0) return null;
   return { scope, operatorUserId, envelope };
+}
+
+/**
+ * The admission gate of every `saleVoid.*` call, for the void service and the payout alike: the
+ * domain is live (RT-198), the feature flag is on, and a live, unlocked operator session exists.
+ */
+export function admitVoidCall<S>(gate: {
+  readonly isStopped: () => boolean;
+  readonly isEnabled: () => boolean;
+  readonly getSession: () => S | null;
+  readonly isSessionLocked: () => boolean;
+}):
+  | { readonly kind: 'ok'; readonly session: S }
+  | { readonly kind: 'refused'; readonly reason: LocalVoidRefusal } {
+  if (gate.isStopped()) return { kind: 'refused', reason: 'void_unavailable' };
+  if (!gate.isEnabled()) return { kind: 'refused', reason: 'feature_disabled' };
+  const session = gate.getSession();
+  if (session === null) return { kind: 'refused', reason: 'no_session' };
+  if (gate.isSessionLocked()) return { kind: 'refused', reason: 'session_locked' };
+  return { kind: 'ok', session };
 }

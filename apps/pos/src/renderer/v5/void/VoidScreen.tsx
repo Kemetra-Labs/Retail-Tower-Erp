@@ -16,6 +16,8 @@ import { useSingleFlight } from '../shift/shift-bridge';
 import { VOID_COPY, voidRefusalMessage, voidStateLabel, voidWaitingMessage } from './void-copy';
 import type { VoidBridges } from './void-bridges';
 import { VoidActionDialog } from './VoidActionDialog';
+import { VoidCash } from './VoidCash';
+import { VoidCashExceptionDialog } from './VoidCashExceptionDialog';
 import { VoidLookup, type Found } from './VoidLookup';
 import { VoidAlert, VoidCode, VoidMoney, VoidPanel, VoidTime } from './void-parts';
 import './void.css';
@@ -75,6 +77,9 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
   const [found, setFound] = useState<Found>({ kind: 'idle' });
   const [voiding, setVoiding] = useState<SaleVoidSaleView | null>(null);
   const [outcome, setOutcome] = useState<SaleVoidJournalView | null>(null);
+  // RT-1403 S2: the void whose cash exception is being recorded, and that one just recorded.
+  const [excepting, setExcepting] = useState<SaleVoidJournalView | null>(null);
+  const [exceptionRecorded, setExceptionRecorded] = useState(false);
   // The void button that opened the dialog is gone once the sale is cleared, so
   // the screen sends focus back to the sale number field after a request.
   const lookupRef = useRef<HTMLInputElement>(null);
@@ -94,6 +99,11 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
     <ScreenSection title={VOID_COPY.title}>
       <div className="v5-void" dir="rtl" lang="ar">
         {outcome !== null && <RequestedNotice entry={outcome} />}
+        {exceptionRecorded && (
+          <Notice tone="success" testId="void-cash-exception-recorded">
+            {VOID_COPY.exceptionRecorded}
+          </Notice>
+        )}
         <div className="v5-void-cols">
           <VoidLookup
             inputRef={lookupRef}
@@ -107,9 +117,32 @@ export function VoidScreen({ bridges, refreshMs = 10_000 }: VoidScreenProps): JS
             }}
             onVoid={setVoiding}
           />
-          <HistoryPanel listed={listed} bridges={bridges} onChanged={reload} />
+          <HistoryPanel
+            listed={listed}
+            bridges={bridges}
+            canPayOut={role === 'manager' || role === 'admin'}
+            onChanged={reload}
+            onException={(entry) => {
+              setExceptionRecorded(false);
+              setExcepting(entry);
+            }}
+          />
         </div>
       </div>
+      {excepting !== null && (
+        <VoidCashExceptionDialog
+          entry={excepting}
+          bridges={bridges}
+          onDismiss={() => {
+            setExcepting(null);
+          }}
+          onRecorded={() => {
+            setExcepting(null);
+            setExceptionRecorded(true);
+            reload();
+          }}
+        />
+      )}
       {voiding !== null && (
         <VoidActionDialog
           sale={voiding}
@@ -141,11 +174,17 @@ function RequestedNotice({ entry }: { entry: SaleVoidJournalView }): JSX.Element
   );
 }
 
-function HistoryPanel(props: {
+interface HistoryProps {
   listed: Listed;
   bridges: VoidBridges;
+  /** RT-1403 S2 (L3): a manager or admin pays out a void's cash. */
+  canPayOut: boolean;
   onChanged: () => void;
-}): JSX.Element {
+  /** RT-1403 S2: open the cash exception dialog for this void. */
+  onException: (entry: SaleVoidJournalView) => void;
+}
+
+function HistoryPanel(props: HistoryProps): JSX.Element {
   return (
     <VoidPanel title={VOID_COPY.historyTitle}>
       <HistoryBody {...props} />
@@ -153,11 +192,7 @@ function HistoryPanel(props: {
   );
 }
 
-function HistoryBody(props: {
-  listed: Listed;
-  bridges: VoidBridges;
-  onChanged: () => void;
-}): JSX.Element {
+function HistoryBody(props: HistoryProps): JSX.Element {
   const { listed } = props;
   if (listed.kind === 'loading')
     return (
@@ -185,7 +220,9 @@ function HistoryBody(props: {
           key={entry.void_id}
           entry={entry}
           bridges={props.bridges}
+          canPayOut={props.canPayOut}
           onChanged={props.onChanged}
+          onException={props.onException}
         />
       ))}
     </ul>
@@ -216,7 +253,9 @@ function StatePill({ state }: { state: SaleVoidState }): JSX.Element {
 function HistoryRow(props: {
   entry: SaleVoidJournalView;
   bridges: VoidBridges;
+  canPayOut: boolean;
   onChanged: () => void;
+  onException: (entry: SaleVoidJournalView) => void;
 }): JSX.Element {
   const { entry } = props;
   const { busy, run } = useSingleFlight();
@@ -255,7 +294,7 @@ function HistoryRow(props: {
           <VoidAlert message={voidRefusalMessage(entry.refusal_reason)} />
         </div>
       )}
-      {entry.needs_attention && (
+      {entry.needs_attention && entry.state === 'refused' && (
         <div className="v5-void-row__full">
           <button
             type="button"
@@ -267,6 +306,13 @@ function HistoryRow(props: {
           </button>
         </div>
       )}
+      <VoidCash
+        entry={entry}
+        bridges={props.bridges}
+        canPayOut={props.canPayOut}
+        onChanged={props.onChanged}
+        onException={props.onException}
+      />
     </li>
   );
 }

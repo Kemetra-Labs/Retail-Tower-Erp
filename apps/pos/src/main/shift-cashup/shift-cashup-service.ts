@@ -629,7 +629,9 @@ function requireClockFrom(input: { now: string; floor: string | null; gapMs: 0 |
 /** Review P2-2: no drawer cash in flight on the terminal, else `drawer_activity_pending`. */
 function requireDrawerSettled(input: { sources: ShiftCashupSources; scope: ShiftScope }): void {
   const pending = input.sources.pendingDrawerActivity(input.scope);
-  if (pending.refundPayouts + pending.unfinalizedSales > 0) refuse('drawer_activity_pending');
+  if (pending.refundPayouts + pending.voidPayouts + pending.unfinalizedSales > 0) {
+    refuse('drawer_activity_pending');
+  }
 }
 
 /**

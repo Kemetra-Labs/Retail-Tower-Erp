@@ -17,7 +17,7 @@ import { createRecoveryModeGuardedIpcMain } from './ipc/recovery-mode-guard.js';
 import { registerPrinterHandlers } from './ipc/printer.js';
 import { bindPrinterSettingRepository } from './printer/printer-setting-repository.js';
 import { createPrinterService } from './printer/printer-service.js';
-import { type ComposedSaleVoid } from './sale-void/compose-sale-void.js';
+import { saleVoidApprovalResolvers, type ComposedSaleVoid } from './sale-void/compose-sale-void.js';
 import { type ManagerRecovery } from './recovery/manager-recovery.js';
 import { createSaleBoundaryIpcMain } from './ipc/sale-boundary-guard.js';
 import { registerSessionLockHandlers } from './ipc/session-lock.js';
@@ -935,8 +935,7 @@ singleInstanceReady
         'cart.cancel_post_handoff': postHandoffCancelApprovalResolver(bindCartStore(db)),
         // RT-608 — a cashier's manual discount: this cart, line and kind, at this line version.
         'cart.discount.manual': manualDiscountApprovalResolver(bindCartStore(db)),
-        // RT-530 — a finalized sale's void: bound to the sale, its total and its requester.
-        'sale.void': (input) => saleVoidRef.current?.service.approvalSubject(input) ?? null,
+        ...saleVoidApprovalResolvers(saleVoidRef), // RT-530 sale.void; RT-1403 S2 sale.void_cash_exception
         // RT-441 — manager recovery (bound below, once the payment path exists).
         'recovery.complete_attempt': (input) =>
           recoveryRef.current?.resolvers.completeAttempt(input) ?? null,
@@ -1529,6 +1528,7 @@ singleInstanceReady
       operatorEnvelopeHolder,
       pairingStore,
       getDeviceToken: readSendableDeviceToken,
+      drawerKickTransport,
       managerApprovals,
       auditEmitter,
       forwardAuditEvent,

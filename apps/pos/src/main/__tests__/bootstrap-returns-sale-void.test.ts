@@ -11,6 +11,10 @@ import { describe, expect, it } from 'vitest';
 const indexSource = readFileSync(resolve(__dirname, '../index.ts'), 'utf-8');
 const returnsSource = readFileSync(resolve(__dirname, '../bootstrap/returns.ts'), 'utf-8');
 const saleVoidSource = readFileSync(resolve(__dirname, '../bootstrap/sale-void.ts'), 'utf-8');
+const composeSaleVoidSource = readFileSync(
+  resolve(__dirname, '../sale-void/compose-sale-void.ts'),
+  'utf-8',
+);
 
 describe('main/index.ts hands the returns wiring to bootstrap/returns.ts', () => {
   it('calls registerReturns exactly once, with the returns code gone from index.ts', () => {
@@ -49,7 +53,12 @@ describe('main/index.ts hands the sale void wiring to bootstrap/sale-void.ts', (
     expect(indexSource).toMatch(
       /const saleVoidRef: \{ current: ComposedSaleVoid \| null \} = \{ current: null \};/,
     );
-    expect(indexSource).toMatch(/saleVoidRef\.current\?\.service\.approvalSubject\(input\)/);
+    // RT-1403 S2: the resolvers (`sale.void`, `sale.void_cash_exception`) live beside the domain.
+    expect(indexSource).toMatch(/\.\.\.saleVoidApprovalResolvers\(saleVoidRef\)/);
+    expect(composeSaleVoidSource).toMatch(/ref\.current\?\.service\.approvalSubject\(input\)/);
+    expect(composeSaleVoidSource).toMatch(
+      /ref\.current\?\.service\.cashExceptionApprovalSubject\(/,
+    );
     expect(saleVoidSource.match(/saleVoidRef\.current = saleVoidDomain;/g)?.length ?? 0).toBe(1);
   });
 

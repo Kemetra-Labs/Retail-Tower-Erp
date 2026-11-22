@@ -21,17 +21,19 @@
  *   • a refund: the server-confirmed `return_total_minor` the RT-15 payout paid
  *     from this drawer, and its server return reference (`return_ref`), which
  *     the close reports in `cashRefundReturnRefs`.
- *   • a void (RT-530): a finalized sale voided with a manager approval. The
- *     sale's net cash goes back to the customer like a cash refund, so it is
- *     counted in `cashRefundsTotalMinor` (the close's refund total) in the
- *     window the void was REQUESTED, whatever shift sold it; it names no
- *     return, so it adds no `cashRefundReturnRefs` entry. The server records
- *     the close totals verbatim and checks only the arithmetic invariant.
+ *   • a void payout (RT-530, RT-1403 S2): the cash a void handed back out of the
+ *     drawer, read from the PAYOUT RECORD (`sale_void_payouts`, migration 0069:
+ *     the gated payout of a confirmed void, or a manager-attested exception),
+ *     never from the void request. It is counted like a cash refund, in
+ *     `cashRefundsTotalMinor` (the close's refund total), in the window the
+ *     payout was PAID, whatever shift sold the sale; it names no return, so it
+ *     adds no `cashRefundReturnRefs` entry. The server records the close totals
+ *     verbatim and checks only the arithmetic invariant: the wire is unchanged.
  *
  * A source that cannot be read faithfully is refused (`ShiftCashupSourceError`)
- * rather than guessed: an unreadable tender summary, a refund amount that is
- * not a safe non-negative integer, or a refund in another currency than the
- * shift's (Backend-Core would refuse it 422 `currency_mismatch`). Totals are
+ * rather than guessed: an unreadable tender summary, a refund or void payout
+ * amount that is not a safe non-negative integer, or one in another currency
+ * than the shift's (Backend-Core would refuse it 422 `currency_mismatch`). Totals are
  * summed in `bigint` and must stay within the currency's maximum shift amount
  * (`maxShiftAmountMinor`: safe integers, held to 15 integer digits).
  *
@@ -46,6 +48,8 @@ export type ShiftCashupSourceReason =
   | 'unreadable_sale_tenders'
   | 'invalid_refund'
   | 'refund_currency_mismatch'
+  | 'invalid_void_payout'
+  | 'void_payout_currency_mismatch'
   | 'total_out_of_range';
 
 /** A cash-up source the POS refuses to compute from. Names the reason only (P7). */
@@ -71,6 +75,12 @@ export interface CashupRefund {
   currencyCode: string;
 }
 
+/** RT-1403 S2: the cash a void paid out of this terminal's drawer inside the window. */
+export interface CashupVoidPayout {
+  amountMinor: number;
+  currencyCode: string;
+}
+
 export interface CashupInput {
   /** The shift's currency. */
   currencyCode: string;
@@ -79,8 +89,8 @@ export interface CashupInput {
   payOutTotalMinor: number;
   sales: readonly CashupSale[];
   refunds: readonly CashupRefund[];
-  /** RT-530: the sales voided in the window (each counted once, as a cash refund). */
-  voids?: readonly CashupSale[];
+  /** RT-1403 S2: the void payouts paid in the window (each counted once, as a cash refund). */
+  voids?: readonly CashupVoidPayout[];
 }
 
 /** The computed cash-up of a window (the close adds the counted cash). */
@@ -182,6 +192,17 @@ function refundAmount(refund: CashupRefund, currencyCode: string): bigint {
   return BigInt(refund.amountMinor);
 }
 
+/** A void payout's cash: a safe non-negative integer in the shift's currency (else its own reasons). */
+function voidPayoutAmount(payout: CashupVoidPayout, currencyCode: string): bigint {
+  if (!isSafeNonNegative(payout.amountMinor)) {
+    throw new ShiftCashupSourceError('invalid_void_payout');
+  }
+  if (payout.currencyCode !== currencyCode) {
+    throw new ShiftCashupSourceError('void_payout_currency_mismatch');
+  }
+  return BigInt(payout.amountMinor);
+}
+
 /**
  * A bigint total as a number; any total beyond ±`max` (the currency's
  * `maxShiftAmountMinor`: the safe-integer range, held to 15 integer digits)
@@ -202,7 +223,10 @@ export function computeCashup(input: CashupInput): Cashup {
     (sum, refund) => sum + refundAmount(refund, input.currencyCode),
     0n,
   );
-  const voidedCash = (input.voids ?? []).reduce<bigint>((sum, sale) => sum + saleCash(sale), 0n);
+  const voidedCash = (input.voids ?? []).reduce<bigint>(
+    (sum, payout) => sum + voidPayoutAmount(payout, input.currencyCode),
+    0n,
+  );
   const cashRefunds = returnedCash + voidedCash;
   const expected =
     BigInt(input.openingFloatMinor) +

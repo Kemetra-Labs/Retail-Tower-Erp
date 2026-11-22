@@ -504,7 +504,7 @@ describe('status: nothing that reveals the expected cash, no users.id', () => {
         managerClosed: false,
         queue: { pending: 2, waiting: 0, blocked: 0, envelopePending: 0 },
         stranded: { unsyncedFacts: 0, openShifts: 0 },
-        pendingDrawerActivity: { refundPayouts: 0, unfinalizedSales: 0 },
+        pendingDrawerActivity: { refundPayouts: 0, voidPayouts: 0, unfinalizedSales: 0 },
         probeRefusals: { payOut: 0, varianceClose: 0, approverFailure: 0 },
       },
     });

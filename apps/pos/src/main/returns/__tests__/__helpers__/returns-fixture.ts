@@ -16,6 +16,7 @@ import type { AuditEvent } from '../../../../shared/audit/event-shape.js';
 import { AuditEmitter } from '../../../audit/audit-emitter.js';
 import { bindAuditEventsStoreDb } from '../../../audit/audit-events-store.js';
 import type { DatabaseHandle } from '../../../db/client.js';
+import type { DrawerSlot } from '../../../drawer/drawer-slot.js';
 import type { ReturnsAuditSink } from '../../returns-audit.js';
 import { amount4ToMinor, parseAmount4, parseWholeQuantity } from '../../returns-money.js';
 import type { AuthSnapshot } from '../../returns-auth.js';
@@ -439,6 +440,8 @@ export interface HarnessOptions {
   readonly role?: Role | null;
   readonly token?: string | null;
   readonly timeoutMs?: number;
+  /** RT-1403 S2 (M1): the one drawer slot the void payout shares. */
+  readonly drawerSlot?: DrawerSlot;
 }
 
 export interface HarnessState {
@@ -581,6 +584,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       },
       now: () => state.now,
       drawer,
+      ...(options.drawerSlot === undefined ? {} : { drawerSlot: options.drawerSlot }),
       printer,
       openShiftRef: () => state.shiftRef,
       isShiftCashupEnabled: () => state.shiftCashup,

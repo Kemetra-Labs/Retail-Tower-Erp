@@ -20,6 +20,16 @@ export const MANAGER = {
 
 export const SALE_NUMBER = 'T1-2026-06-07-000001';
 
+/** A void whose cash has not moved, and is not blocked, claimed or overdue. */
+export const NO_PAYOUT: SaleVoidJournalView['payout'] = {
+  state: 'none',
+  claim_actions: [],
+  overdue: false,
+  paid_at: null,
+  mismatch_reason: null,
+  blocked_reason: null,
+};
+
 export function saleView(overrides: Partial<SaleVoidSaleView> = {}): SaleVoidSaleView {
   return {
     sale_id: 'sale-1',
@@ -45,6 +55,8 @@ export function journalView(overrides: Partial<SaleVoidJournalView> = {}): SaleV
     refusal_reason: null,
     needs_attention: false,
     confirmed_at: null,
+    cash_minor: 15_000,
+    payout: NO_PAYOUT,
     ...overrides,
   };
 }
@@ -66,6 +78,10 @@ export function fakeSaleVoidBridge(
     list: vi.fn<SaleVoidBridgeAPI['list']>(() => Promise.resolve({ kind: 'list', voids })),
     acknowledge: vi.fn<SaleVoidBridgeAPI['acknowledge']>(() =>
       Promise.resolve({ kind: 'acknowledged' }),
+    ),
+    payOut: vi.fn<SaleVoidBridgeAPI['payOut']>(() => Promise.resolve({ kind: 'paid_out' })),
+    recordCashException: vi.fn<SaleVoidBridgeAPI['recordCashException']>(() =>
+      Promise.resolve({ kind: 'exception_recorded', mismatch_reason: null }),
     ),
   };
 }

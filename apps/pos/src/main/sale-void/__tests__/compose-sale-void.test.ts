@@ -26,8 +26,11 @@ import type { OperatorSessionRecord } from '../../operator/session-manager.js';
 import { createSaleSyncStateRepo } from '../../sales-sync/sale-sync-state-repo.js';
 import type { AuditEvent } from '../../../shared/audit/event-shape.js';
 import { businessDayOf } from '../../../shared/time/business-day.js';
+import type { DrawerKickResult } from '../../drawer/drawer-kick-transport.js';
 import {
   composeSaleVoid,
+  kickVoidDrawer,
+  saleVoidApprovalResolvers,
   scheduleSaleVoidSync,
   voidBusinessDay,
   type ComposedSaleVoid,
@@ -78,6 +81,8 @@ let audit: AuditEvent[];
 let posted: Posted[];
 let answer: () => Response;
 let enabled: boolean;
+let drawerAnswer: DrawerKickResult;
+let kicks: number;
 const ref: { domain: ComposedSaleVoid | null } = { domain: null };
 
 /** Records every POST and answers with the current `answer`. */
@@ -101,6 +106,8 @@ beforeEach(async () => {
   posted = [];
   clock = T0;
   enabled = true;
+  drawerAnswer = { ok: true };
+  kicks = 0;
   envelopes = { mona: 'envelope-of-mona', omar: 'envelope-of-omar' };
   answer = () =>
     new Response(JSON.stringify({ kind: 'void', eventRef: EVENT_REF, saleRef: SALE_REF }), {
@@ -129,14 +136,22 @@ beforeEach(async () => {
     isSessionLocked: () => false,
     currentTerminalId: () => TERMINAL,
     managerPins: pins,
-    resolvers: {
-      'sale.void': (input) => ref.domain?.service.approvalSubject(input) ?? null,
-    },
+    resolvers: saleVoidApprovalResolvers({
+      get current() {
+        return ref.domain;
+      },
+    }),
     auditEmitter: emitter,
     now: () => clock,
   });
   deps = {
     db,
+    drawer: {
+      kick: () => {
+        kicks += 1;
+        return Promise.resolve(drawerAnswer);
+      },
+    },
     http: { baseUrl: 'https://api.example.test', fetch: recordingFetch },
     getOperatorEnvelope: () => (current === null ? null : (envelopes[current.id] ?? null)),
     getSession: () => current,
@@ -660,5 +675,114 @@ describe('the domain gates and shutdown', () => {
     } finally {
       vi.useRealTimers();
     }
+  });
+});
+
+describe('RT-1403 S2: the cash of a void leaves only after Backend-Core confirmed it', () => {
+  const SHIFT = '0192f5a2-3b4c-7d8e-9f01-0000000000a1';
+
+  function openShift(openedAt = '2026-06-07T08:00:00.000Z'): void {
+    raw.run(
+      `INSERT INTO shift_cashup_opens (shift_id, tenant_id, branch_id, terminal_id, opening_user_id,
+         currency_code, opening_float_minor, opened_at, created_at)
+       VALUES (?, ?, ?, ?, ?, 'EGP', 0, ?, ?)`,
+      [SHIFT, SCOPE.tenantId, SCOPE.branchId, SCOPE.terminalId, MONA.userId, openedAt, openedAt],
+    );
+  }
+
+  async function requestedVoidId(): Promise<string> {
+    const answered = await monaRequestsVoid();
+    if (answered.kind !== 'requested') throw new Error('not requested');
+    return answered.void.void_id;
+  }
+
+  it('a request alone pays nothing: pending, then confirmed, then paid out in the open shift', async () => {
+    markSaleSynced();
+    openShift();
+    const voidId = await requestedVoidId();
+    // Not confirmed yet: the payout is refused, the drawer is not kicked, nothing is recorded.
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'payout_void_not_confirmed',
+    });
+    expect(kicks).toBe(0);
+    await domain.sync.tick();
+    await expect(listed()).resolves.toMatchObject({
+      voids: [
+        {
+          state: 'confirmed',
+          cash_minor: 1500,
+          payout: { state: 'none', blocked_reason: null },
+        },
+      ],
+    });
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
+      kind: 'paid_out',
+    });
+    expect(kicks).toBe(1);
+    await expect(listed()).resolves.toMatchObject({
+      voids: [{ payout: { state: 'paid_out', paid_at: T0 } }],
+    });
+    expect(audit.map((e) => e.action_category)).toContain('sale.void.paid_out');
+  });
+
+  it('a payout with no open shift is refused, and the view says why', async () => {
+    markSaleSynced();
+    const voidId = await requestedVoidId();
+    await domain.sync.tick();
+    await expect(domain.service.payOut({ void_id: voidId, action: 'start' })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'payout_no_open_shift',
+    });
+    await expect(listed()).resolves.toMatchObject({
+      voids: [{ payout: { state: 'none', blocked_reason: 'payout_no_open_shift' } }],
+    });
+  });
+
+  it('a cash exception is approved by another manager and spends the approval once', async () => {
+    markSaleSynced();
+    openShift();
+    const voidId = await requestedVoidId();
+    const granted = await approvals.request({
+      action_kind: 'sale.void_cash_exception',
+      subject_ref: voidId,
+      reason_code: 'cash_exception',
+      approver_ref: managerRef('Omar'),
+      pin: OMAR.pin,
+    });
+    if (granted.kind !== 'approved') throw new Error(`not approved: ${granted.reason}`);
+    await expect(
+      domain.service.recordCashException({ void_id: voidId, approval_id: granted.approvalId }),
+    ).resolves.toEqual({ kind: 'exception_recorded', mismatch_reason: 'void_unconfirmed' });
+    expect(audit.map((e) => e.action_category)).toEqual(
+      expect.arrayContaining([
+        'sale.void.cash_exception_recorded',
+        'sale.void.cash_mismatch_flagged',
+      ]),
+    );
+    await expect(
+      domain.service.recordCashException({ void_id: voidId, approval_id: granted.approvalId }),
+    ).resolves.toEqual({ kind: 'refused', reason: 'payout_already_recorded' });
+  });
+
+  it('the approval resolver is null for a void that does not exist', () => {
+    expect(domain.service.cashExceptionApprovalSubject({ subjectRef: 'ghost' })).toBeNull();
+  });
+});
+
+describe('kickVoidDrawer', () => {
+  it.each([
+    [{ ok: true }, 'opened'],
+    [{ ok: false, failure_reason: 'no_drawer_configured' }, 'no_drawer'],
+    [{ ok: false, failure_reason: 'printer_dk_failure' }, 'failed'],
+    [{ ok: false, failure_reason: 'os_error' }, 'failed'],
+  ] as const)('maps %j to %s', async (answered, expected) => {
+    await expect(kickVoidDrawer({ kick: () => Promise.resolve(answered) })).resolves.toBe(expected);
+  });
+
+  it('a transport that throws is a failure, never an opened drawer', async () => {
+    await expect(kickVoidDrawer({ kick: () => Promise.reject(new Error('usb')) })).resolves.toBe(
+      'failed',
+    );
   });
 });

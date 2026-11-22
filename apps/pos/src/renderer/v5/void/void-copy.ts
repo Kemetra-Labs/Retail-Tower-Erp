@@ -1,10 +1,19 @@
-import type { SaleVoidRefusalReason, SaleVoidState } from '../../../shared/sale-void/types';
+import type {
+  SaleVoidMismatchReason,
+  SaleVoidRefusalReason,
+  SaleVoidState,
+} from '../../../shared/sale-void/types';
 import type { ManagerApprovalRefusalReason } from '../../../shared/operator/manager-approval';
 
 /**
  * RT-530 — sale void copy. Arabic, one message per outcome. Never an approver
  * identity, never a credential; the only person named is the operator who
  * requested a void (the one whose sign-in sends it).
+ *
+ * RT-1403 S2 — PROPOSED copy, pending the owner's copy review: every string about the cash of a
+ * void (the revised `dialogBody`, `cashDue` … `exceptionApprovalUnavailable`, the `payout_*`
+ * refusals and the mismatch flags). A request moves no cash; the cash is paid out only after
+ * the server confirmed the void (RT-530 c12022, RT-1403 c18143).
  */
 export const VOID_COPY = Object.freeze({
   title: 'إلغاء بيع',
@@ -23,7 +32,7 @@ export const VOID_COPY = Object.freeze({
   sameDayHint: 'يمكن إلغاء البيع في يوم بيعه فقط، وبتأكيد مدير آخر غيرك وغير بائع الفاتورة.',
   dialogTitle: 'تأكيد إلغاء البيع',
   dialogBody:
-    'يلزم مدير آخر، ليس أنت وليس بائع الفاتورة، ليؤكد الإلغاء برقمه السري. يخرج نقد هذا البيع من الدرج.',
+    'يلزم مدير آخر، ليس أنت وليس بائع الفاتورة، ليؤكد الإلغاء برقمه السري. لا يخرج نقد من الدرج الآن: يُصرف النقد بعد أن يؤكد الخادم الإلغاء.',
   managerLegend: 'المدير المؤكِّد',
   pinLabel: 'الرقم السري للمدير',
   approve: 'تأكيد الإلغاء',
@@ -34,10 +43,44 @@ export const VOID_COPY = Object.freeze({
   noHistory: 'لا توجد طلبات إلغاء.',
   requestedAt: 'وقت الطلب',
   acknowledge: 'تم الاطلاع',
-  attentionBanner: 'رفض الخادم طلب إلغاء بيع. افتح «إلغاء بيع» لمعرفة السبب.',
+  // RT-1403 S2 (PROPOSED): also a payout left unfinished, or cash never paid out in its window.
+  attentionBanner:
+    'يحتاج طلب إلغاء بيع إلى مراجعتك: رفض الخادم، أو صرف نقد لم يكتمل. افتح «إلغاء بيع».',
   attentionAction: 'عرض',
   unavailable: 'تعذّر تنفيذ الإجراء. حاول مرة أخرى.',
+  // RT-1403 S2 (PROPOSED): the cash of a confirmed void.
+  cashDue: 'النقد المستحق للعميل',
+  payOut: 'صرف النقد',
+  paidOut: 'تم صرف النقد',
+  paidAt: 'وقت الصرف',
+  claimed: 'بدأ صرف النقد ولم يكتمل',
+  retryDrawer: 'إعادة فتح الدرج',
+  manualComplete: 'تأكيد صرف النقد يدويًا',
+  managerPays: 'يصرف النقد مدير.',
+  drawerMayBeOpen: 'قد يكون الدرج مفتوحًا. لا تُسلِّم النقد للعميل قبل أن يؤكد المدير الصرف.',
+  voidStateIs: 'حالة الإلغاء',
+  // RT-1403 S2 (PROPOSED): cash that left the drawer outside the payout gate.
+  exceptionAction: 'تسجيل نقد صُرف خارج الإجراء',
+  exceptionTitle: 'تسجيل نقد صُرف خارج الإجراء',
+  exceptionBody:
+    'استخدمه فقط إذا خرج النقد من الدرج فعلًا دون أن يسمح به النظام. يلزم مدير آخر غيرك ليقرّ بذلك برقمه السري. يُسجَّل مرة واحدة، ويُنقص النقد المتوقع في الوردية المفتوحة، ويُعلَّم للمراجعة إن خالف حالة الإلغاء.',
+  exceptionApprove: 'تأكيد التسجيل',
+  exceptionRecorded: 'سُجّل النقد المصروف بإقرار المدير.',
+  exceptionRecordedLabel: 'نقد مصروف بإقرار مدير',
+  exceptionApprovalUnavailable:
+    'تعذّر التأكيد: الرقم السري غير صحيح أو غير مفعّل، أو أن المؤكِّد هو أنت. يجب أن يؤكد مدير آخر.',
 });
+
+const MISMATCHES: Readonly<Record<SaleVoidMismatchReason, string>> = {
+  void_refused: 'للمراجعة: خرج النقد رغم أن الخادم رفض الإلغاء.',
+  void_unconfirmed: 'للمراجعة: خرج النقد قبل أن يؤكد الخادم الإلغاء.',
+  payout_window_closed: 'للمراجعة: خرج النقد بعد انتهاء يوم الإلغاء أو وردية طلبه.',
+};
+
+/** Why a recorded cash exception is flagged for a manager to reconcile (PROPOSED copy). */
+export function voidMismatchMessage(reason: SaleVoidMismatchReason): string {
+  return MISMATCHES[reason];
+}
 
 const REFUSALS: Readonly<Record<SaleVoidRefusalReason | ManagerApprovalRefusalReason, string>> = {
   // Local refusals (nothing journaled).
@@ -55,6 +98,25 @@ const REFUSALS: Readonly<Record<SaleVoidRefusalReason | ManagerApprovalRefusalRe
   approval_invalid: 'انتهى التأكيد أو لا يخص هذا البيع. أكّد مرة أخرى.',
   approval_stale: 'تغيّر البيع منذ التأكيد. أعد البحث وأكّد مرة أخرى.',
   void_unavailable: 'تعذّر تنفيذ الإجراء. حاول مرة أخرى.',
+  // RT-1403 S2 (PROPOSED): why no cash is paid out.
+  payout_void_not_confirmed: 'لم يؤكد الخادم الإلغاء بعد، فلا يُصرف النقد الآن.',
+  payout_void_refused: 'رفض الخادم الإلغاء، فلا يُصرف نقد.',
+  payout_no_cash: 'لا نقد يُصرف لهذا البيع.',
+  payout_no_open_shift: 'لا توجد وردية مفتوحة. افتح وردية ليُصرف النقد فيها.',
+  // Owner decision (RT-1403, delegated 2026-11-22): after the window a late payout is only the
+  // manager-attested cash exception (current open shift, another manager's PIN, once, flagged).
+  payout_wrong_day: 'انتهت مهلة صرف النقد (يوم الإلغاء). يلزم إقرار مدير آخر لصرف النقد المتأخر.',
+  payout_other_shift:
+    'انتهت مهلة صرف النقد (وردية الإلغاء). يلزم إقرار مدير آخر لصرف النقد المتأخر.',
+  payout_already_recorded: 'سُجّل صرف النقد لهذا البيع من قبل.',
+  payout_drawer_failed: 'تعذّر التأكد من فتح الدرج، ولم يُسجَّل صرف.',
+  payout_started: 'بدأ صرف النقد لهذا الإلغاء من قبل. يكمله المدير.',
+  payout_not_started: 'لم يبدأ صرف النقد لهذا الإلغاء.',
+  payout_drawer_retry_unsafe:
+    'قد يكون الدرج قد فُتح، فلا تُعاد المحاولة. يؤكد المدير الصرف يدويًا.',
+  payout_drawer_in_progress: 'فتح الدرج قيد التنفيذ. انتظر ثوانٍ ثم حاول.',
+  another_payout_in_progress: 'عملية صرف أخرى جارية على هذه الطرفية. انتظر حتى تنتهي.',
+  payout_in_progress: 'صرف النقد قيد التنفيذ.',
   // The approval itself: never says which part failed (RT-114 C3), but names
   // the four-eyes rule so the cashier knows another manager is needed.
   approval_unavailable:
