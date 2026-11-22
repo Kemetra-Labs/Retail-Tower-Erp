@@ -13,6 +13,8 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.status.component.server": "Server",
   "shell.status.component.saleSync": "Sale sync",
   "shell.status.component.erpConnector": "ERP connector",
+  // RT-1552: the optional shipment-Transfer component (RT-1516).
+  "shell.status.component.shipmentTransfers": "Stock transfers",
   "shell.status.state.ok": "OK",
   "shell.status.state.degraded": "Degraded",
   "shell.status.state.down": "Down",
@@ -30,6 +32,15 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.status.reason.not_configured": "Not configured",
   "shell.status.reason.all_disabled": "All instances disabled",
   "shell.status.reason.never_seen": "No heartbeat yet",
+  // RT-1552: `keeping_up` and `check_timed_out` above are shared with the sale-sync reasons.
+  "shell.status.reason.transfers_delayed": "Transfers are delayed",
+  "shell.status.reason.postings_stuck": "Transfer postings are stuck",
+  "shell.status.reason.postings_need_attention": "Transfer postings need attention",
+  // RT-1552: the one count line of a degraded transfers row. The threshold is the tenant's, in days.
+  "shell.status.fact.days": { one: "{count} day", other: "{count} days" },
+  "shell.status.fact.transfers_delayed": "In transit longer than {threshold}: {count}",
+  "shell.status.fact.postings_stuck": "Postings waiting too long: {count}",
+  "shell.status.fact.postings_need_attention": "To review: {count}",
   "shell.nav.overview": "Overview",
   // RT-1291: the labels of the first two nav groups (they replace the one unheaded group of
   // RT-995 D-V9), shown in the sidebar and in the list band of each page.

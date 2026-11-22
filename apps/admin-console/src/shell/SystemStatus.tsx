@@ -7,6 +7,10 @@
  * no refetch on focus or interval (NG-7, D-4). A failed read shows every
  * component unknown, never healthy. A 404 (a role outside the allowed set)
  * renders nothing. State is always named in words, never by colour alone.
+ *
+ * RT-1552: the optional `shipmentTransfers` row (RT-1516) appears after the
+ * three when the server sends it, with one count line while degraded; nothing
+ * changes when it is absent.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { formatDateTime, formatDuration, useT } from "@/i18n";
@@ -119,6 +123,16 @@ export function SystemStatus(): React.JSX.Element | null {
               <span className="sidebar__status-state">{t(STATE_LABEL[c.state])}</span>
               {c.reasonKey ? (
                 <span className="sidebar__status-reason">{t(c.reasonKey)}</span>
+              ) : null}
+              {c.fact ? (
+                <span className="sidebar__status-reason">
+                  {t(c.fact.key, {
+                    count: c.fact.count,
+                    ...(c.fact.days === null
+                      ? {}
+                      : { threshold: t("shell.status.fact.days", { count: c.fact.days }) }),
+                  })}
+                </span>
               ) : null}
             </li>
           ))}

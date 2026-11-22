@@ -86,6 +86,84 @@ test.describe("RT-1071 system-status block", () => {
     }
   });
 
+  // RT-1552: the optional shipmentTransfers component (RT-1516). Mocked Backend-Core; the link is none.
+  const transfers = (state: string, reason: string, facts: object | null) => ({
+    ...statusBody,
+    overall: state === "ok" ? "degraded" : state,
+    components: {
+      ...statusBody.components,
+      shipmentTransfers: { state, reason, observedAt: AT, link: "none", facts },
+    },
+  });
+  const FACTS = {
+    openTransferCount: 4,
+    delayedTransferCount: 2,
+    oldestOpenTransferAgeSeconds: 400_000,
+    delayedThresholdDays: 3,
+    stuckPostingCount: 0,
+    postingsNeedingAttentionCount: 0,
+    unreleasedReceiptCount: 0,
+  };
+
+  test("a degraded shipmentTransfers row names the component, its reason and one count, with no link", async ({
+    page,
+    t,
+  }) => {
+    await mock(page, "owner", {
+      code: 200,
+      body: transfers("degraded", "transfers_delayed", FACTS),
+    });
+    await page.goto("/");
+    const block = page.getByRole("group", { name: t("shell.status.title") });
+    const row = block.getByRole("listitem").filter({
+      hasText: t("shell.status.component.shipmentTransfers"),
+    });
+    await expect(row).toBeVisible();
+    await expect(row.getByText(t("shell.status.state.degraded"))).toBeVisible();
+    await expect(row.getByText(t("shell.status.reason.transfers_delayed"))).toBeVisible();
+    await expect(
+      row.getByText(
+        t("shell.status.fact.transfers_delayed", {
+          threshold: t("shell.status.fact.days", { count: 3 }),
+          count: 2,
+        }),
+      ),
+    ).toBeVisible();
+    await expect(row.getByRole("link")).toHaveCount(0);
+    for (const theme of ["light", "dark"] as const) {
+      if (theme === "dark") {
+        await page.evaluate(() => {
+          localStorage.setItem("rt.theme.v1:user:u1", "dark");
+          localStorage.setItem("rt.theme.v1:last", "dark");
+        });
+        await page.reload();
+        await expect(page.locator("html")).toHaveAttribute("data-theme", "dark");
+        await expect(row).toBeVisible();
+      }
+      await expectNoAxeViolations(page, `status block shipmentTransfers ${theme}`);
+    }
+  });
+
+  test("a timed-out shipmentTransfers check is unknown, and an older server shows no such row", async ({
+    page,
+    t,
+  }) => {
+    await mock(page, "owner", { code: 200, body: transfers("unknown", "check_timed_out", null) });
+    await page.goto("/");
+    const block = page.getByRole("group", { name: t("shell.status.title") });
+    const row = block.getByRole("listitem").filter({
+      hasText: t("shell.status.component.shipmentTransfers"),
+    });
+    await expect(row.getByText(t("shell.status.state.unknown"))).toBeVisible();
+    await expect(row.getByText(t("shell.status.state.ok"), { exact: true })).toHaveCount(0);
+
+    await mock(page, "owner", { code: 200, body: statusBody });
+    await page.reload();
+    await expect(block.getByText(t("shell.status.reason.queue_behind"))).toBeVisible();
+    await expect(block.getByText(t("shell.status.component.shipmentTransfers"))).toHaveCount(0);
+    await expect(block.getByRole("listitem")).toHaveCount(3);
+  });
+
   test("a failed read is shown as unknown, not healthy", async ({ page, t }) => {
     await mock(page, "owner", { code: 500, body: { error: { code: "x", message: "x" } } });
     await page.goto("/");
