@@ -16,7 +16,13 @@
 import { z } from "zod";
 
 /** Posting work-item kinds a Connector can report (contract `PostingWorkItem.kind`). */
-const WORK_ITEM_KINDS = ["sale_post", "reversal", "inventory_count"] as const;
+const WORK_ITEM_KINDS = [
+  "sale_post",
+  "reversal",
+  "inventory_count",
+  "transfer_dispatch",
+  "transfer_receive",
+] as const;
 /** Back-dated stock role readiness a Connector can report (RT-1427). */
 const BACK_DATED_ROLE_STATUSES = ["verified", "missing", "unknown"] as const;
 

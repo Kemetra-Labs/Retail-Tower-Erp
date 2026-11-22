@@ -227,6 +227,26 @@ describe("connector-health.yaml — heartbeat body is strict + identity-free (§
     }
   });
 
+  it("lists the shipment-transfer kinds on the heartbeat and the read, in step with the feed (RT-1519)", () => {
+    const kinds = (schema: string): string[] => {
+      const items = (
+        doc.components?.schemas?.[schema]?.properties?.["acceptedWorkItemKinds"] as {
+          items: { enum: string[] };
+        }
+      ).items;
+      return items.enum;
+    };
+    const expected = [
+      "sale_post",
+      "reversal",
+      "inventory_count",
+      "transfer_dispatch",
+      "transfer_receive",
+    ];
+    expect(kinds("HeartbeatReport")).toEqual(expected);
+    expect(kinds("ConnectorHealthView")).toEqual(expected);
+  });
+
   it("carries the RT-1427 count evidence additively and optionally (heartbeat and read)", () => {
     const report = doc.components?.schemas?.["HeartbeatReport"];
     expect(report?.properties).toHaveProperty("acceptedWorkItemKinds");

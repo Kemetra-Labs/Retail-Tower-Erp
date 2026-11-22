@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 — Connector Health and Connection-Status API
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     Spec 020 connector health / connection-status contract. Two principals, two
     schemes, one shared read-model (`connector_health`, keyed to the 018
@@ -70,6 +70,13 @@ info:
     optional and null until reported; a beat that omits them clears them, so no
     stale evidence survives. A failed role check is reported as `unknown`, never
     `verified`. No new endpoint, no existing field or status changes.
+
+    **1.3.0-draft (RT-1519, additive; [GATED: contract]).** `acceptedWorkItemKinds`
+    (the heartbeat body and the operator read) gains the two shipment-transfer kinds
+    `transfer_dispatch` and `transfer_receive`, adopted by `posting-feed.yaml`
+    1.17.0-draft (RT-1514). Until a Connector reports both, Backend-Core must not emit
+    them. An unknown kind is still a validation failure. No new field, endpoint or
+    status.
 
 servers:
   - url: https://api.example.com
@@ -270,7 +277,7 @@ components:
           uniqueItems: true
           items:
             type: string
-            enum: [sale_post, reversal, inventory_count]
+            enum: [sale_post, reversal, inventory_count, transfer_dispatch, transfer_receive]
           description: >
             RT-1427. The posting work-item kinds the deployed Connector accepts
             (its own `WORK_ITEM_KINDS`). Self-report; stored verbatim.
@@ -407,7 +414,7 @@ components:
           type: [array, "null"]
           items:
             type: string
-            enum: [sale_post, reversal, inventory_count]
+            enum: [sale_post, reversal, inventory_count, transfer_dispatch, transfer_receive]
           description: >
             RT-1427. The posting work-item kinds the Connector last reported
             accepting; null until reported (no evidence).
