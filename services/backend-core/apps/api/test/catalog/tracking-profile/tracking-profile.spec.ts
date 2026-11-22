@@ -42,6 +42,7 @@ import { ROLES_METADATA_KEY, type RolesMetadata } from "../../../src/auth/roles.
 import { RolesGuard } from "../../../src/auth/roles.guard";
 import { TrackingProfileController } from "../../../src/catalog/tracking-profile/tracking-profile.controller";
 import { TrackingProfileService } from "../../../src/catalog/tracking-profile/tracking-profile.service";
+import { ProductSaleLinesPortModule } from "../../../src/catalog/sales/product-sale-lines-port.module";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { TenantContextGuard } from "../../../src/context/tenant-context.guard";
 import type { ResolvedContext } from "../../../src/context/types";
@@ -187,6 +188,8 @@ beforeAll(async () => {
   auditSpy = new SpyAuditEnqueuer();
   const auditInterceptor = new AuditEmitterInterceptor(new Reflector(), auditSpy);
   const moduleRef = await Test.createTestingModule({
+    // RT-1463: TrackingProfileService asks sales through PRODUCT_SALE_LINES_PORT (app.module imports this globally).
+    imports: [ProductSaleLinesPortModule],
     controllers: [TrackingProfileController, TrackingIdentitiesController],
     providers: [
       { provide: PG_POOL, useFactory: (): Pool => localEnv.app },

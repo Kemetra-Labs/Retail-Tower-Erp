@@ -34,7 +34,7 @@ import { applyPostingSignalToEffects } from "../../inventory/effect-integration/
 import { isTrackedSellingEnabled, releaseTransferReceiptLegs } from "../../inventory";
 import { transferErpAdapter } from "./transfer-erp.adapter";
 import { recordErpnextPostingReconciliation } from "../../observability/metrics/api.metrics";
-import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
+import { SaleResponsibilitiesNotVisibleError } from "../sales";
 import {
   PostingResolutionIncompleteError,
   ReturnTendersNotVisibleError,

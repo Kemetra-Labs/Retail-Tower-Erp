@@ -28,7 +28,7 @@ import type { PoolClient } from "pg";
 
 import type { CaptureSaleLineDto, CaptureSaleRequestDto } from "../dto/capture-sale-request.dto";
 import { readTrackedSellingOn, writeSaleLineFindings } from "../../../inventory";
-import { lockProductProfiles } from "../..";
+import { lockProductProfiles, productTrackingProfiles } from "../..";
 import {
   classifyCapturedLine,
   saleTrackingStatus,
@@ -77,11 +77,7 @@ async function classifyCaptureLines(
   const identityIds = uniq(sale.lines.map((l) => lower(l.tracking?.identityId)));
   const validationIds = uniq(sale.lines.map((l) => lower(l.tracking?.validationId)));
 
-  const products = await byId<ProductRow>(
-    client,
-    `SELECT id::text AS id, tracking_mode, expiry_required FROM tenant_products WHERE id = ANY($1::uuid[])`,
-    [productIds],
-  );
+  const products: Map<string, ProductRow> = await productTrackingProfiles(client, productIds);
   // Batch identities only, as the TLV and the lot lookup: a serial identity
   // is never a lot (Q11), so it reads as unknown.
   const identities = await byId<IdentityRow>(

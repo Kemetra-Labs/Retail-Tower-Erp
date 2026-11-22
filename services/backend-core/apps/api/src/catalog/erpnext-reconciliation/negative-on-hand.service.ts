@@ -22,6 +22,7 @@ import type { Pool, PoolClient } from "pg";
 
 import { runWithTenantContext } from "@data-pulse-2/db";
 
+import { productNamesByIds } from "..";
 import { PG_POOL } from "../../database";
 import { MembershipRepository } from "../../context/membership.repository";
 import type { StoreScope } from "../../context/store-scope";
@@ -286,14 +287,7 @@ export class NegativeOnHandService {
     const ids = Array.from(
       new Set(page.map((e) => e.tenantProductRef).filter((id): id is string => id !== null)),
     );
-    const names = new Map<string, string>();
-    if (ids.length === 0) return names;
-    const rows = await client.query<{ id: string; name: string }>(
-      `SELECT id, name FROM tenant_products WHERE id = ANY($1::uuid[])`,
-      [ids],
-    );
-    for (const r of rows.rows) names.set(r.id, r.name);
-    return names;
+    return productNamesByIds(client, ids);
   }
 }
 

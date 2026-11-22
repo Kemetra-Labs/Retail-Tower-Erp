@@ -54,6 +54,7 @@ import {
   recordSafetyChange,
 } from "../../inventory/safety/safety-revision";
 import { readTrackedSellingOn } from "../../inventory";
+import { PRODUCT_SALE_LINES_PORT, type ProductSaleLinesPort } from "./product-sale-lines.port";
 import { lockProductProfiles } from "./tracking-profile-lock";
 import type { TrackingProfileRow } from "./tracking-profile.dto";
 
@@ -96,6 +97,7 @@ interface ProfileDbRow {
 export class TrackingProfileService {
   constructor(
     @Inject(PG_POOL) private readonly pool: Pool,
+    @Inject(PRODUCT_SALE_LINES_PORT) private readonly saleLines: ProductSaleLinesPort,
     @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Logger,
   ) {}
 
@@ -213,11 +215,12 @@ export class TrackingProfileService {
   /** 387: an inventory effect or a captured sale line locks the profile. */
   private async hasHistory(client: PoolClient, productId: string): Promise<boolean> {
     const r = await client.query<{ locked: boolean }>(
-      `SELECT EXISTS (SELECT 1 FROM stock_movements WHERE tenant_product_ref = $1)
-           OR EXISTS (SELECT 1 FROM sale_lines WHERE tenant_product_ref = $1) AS locked`,
+      `SELECT EXISTS (SELECT 1 FROM stock_movements WHERE tenant_product_ref = $1) AS locked`,
       [productId],
     );
-    return r.rows[0]?.locked === true;
+    if (r.rows[0]?.locked === true) return true;
+    // The sale-line half is sales' table, read through the inverted port (RT-1463), same transaction.
+    return this.saleLines.hasSaleLines(client, productId);
   }
 
   private async toRow(client: PoolClient, row: ProfileDbRow): Promise<TrackingProfileRow> {

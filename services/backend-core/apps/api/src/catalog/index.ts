@@ -12,3 +12,6 @@ export {
   trackingModesOfProducts,
 } from "./product-lookups";
 export { lockProductProfiles } from "./tracking-profile/tracking-profile-lock";
+export { readStoreProductTracking, type StoreProductTracking } from "./store-resolution/store-product-tracking";
+export { productNamesByIds, productTrackingProfiles, tenantProductVisible } from "./product-lookups";
+export { PRODUCT_SALE_LINES_PORT, type ProductSaleLinesPort } from "./tracking-profile/product-sale-lines.port";
