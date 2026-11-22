@@ -34,7 +34,7 @@ import { runWithTenantContext } from "@data-pulse-2/db";
 import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../../../database";
-import { pinOverrideStore, storeOverrideJoinSql } from "../../store-resolution/store-product-resolution";
+import { readStoreProductTracking, type StoreProductTracking } from "../..";
 import {
   effectiveFefoPolicy,
   MAX_TRACKED_LOTS,
@@ -53,12 +53,7 @@ export interface TrackedLotList {
   readonly lots: TrackedLotRow[];
 }
 
-export interface ProductRow {
-  readonly tracking_mode: string;
-  readonly expiry_required: boolean;
-  /** Not retired and active at the store: the Store Override's `is_active`, else the product's. */
-  readonly sellable_at_store: boolean;
-}
+export type ProductRow = StoreProductTracking;
 
 export interface ContextRow {
   readonly business_date: string;
@@ -70,19 +65,6 @@ export interface ContextRow {
 const TENANT_SWITCH_SQL = `
   SELECT COALESCE((SELECT tracked_selling_enabled FROM tenant_inventory_settings WHERE tenant_id = $1), false)
            AS enabled`;
-
-/**
- * `$1` product, `$2` tenant, `$3` store: the product as the store resolves it
- * (`store-product-resolution.ts`). RT-451 (comment 16246): the lot lookup and
- * the TLV share it, so a product inactive at the store by its Store Override
- * lists no lots, as the TLV refuses them (`not_sellable`).
- */
-const PRODUCT_SQL = `
-  SELECT tp.tracking_mode, tp.expiry_required,
-         (tp.retired_at IS NULL AND COALESCE(spo.is_active, tp.is_active)) AS sellable_at_store
-    FROM tenant_products tp
-    ${storeOverrideJoinSql("$3::uuid")}
-   WHERE tp.id = $1 AND tp.tenant_id = $2`;
 
 const CONTEXT_SQL = `
   SELECT (SELECT (now() AT TIME ZONE s.timezone)::date::text
@@ -128,9 +110,7 @@ async function readStoreProduct(
   client: PoolClient,
   input: { readonly tenantId: string; readonly storeId: string; readonly productId: string },
 ): Promise<ProductRow | null> {
-  await pinOverrideStore(client, input.storeId);
-  const rows = await client.query<ProductRow>(PRODUCT_SQL, [input.productId, input.tenantId, input.storeId]);
-  return rows.rows[0] ?? null;
+  return readStoreProductTracking(client, input);
 }
 
 /** RT-451 S2: whether the tenant has switched tracked selling on (no settings row reads OFF). */

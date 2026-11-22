@@ -34,7 +34,7 @@ import {
   type AllocationLine,
 } from "../../offers/evaluator/offer-return-allocation";
 import { minorUnitExponent } from "../../common/money/iso4217-minor-units";
-import { replaySaleReturns } from "../sales/sale-return-history";
+import { replaySaleReturns } from "../sales";
 
 /** The `NonNegativeDecimalAmount` scale of the feed (4 fractional digits). */
 const FEED_SCALE = 4;

@@ -40,6 +40,7 @@ import {
   AUDIT_JOB_ENQUEUER,
   type AuditJobEnqueuer,
 } from "../../audit/audit-job.enqueuer";
+import { tenantProductVisible } from "..";
 import { PG_POOL } from "../../database";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
 import type { ErpnextItemMapRow } from "./dto/erpnext-item-mapping.dto";
@@ -162,11 +163,7 @@ export class ErpnextItemMapService {
     },
   ): Promise<SuggestResult> {
     // Scope-check the product (RLS-filtered → cross-tenant returns 0 rows).
-    const product = await client.query<{ id: string }>(
-      `SELECT id FROM tenant_products WHERE id = $1 LIMIT 1`,
-      [input.tenantProductId],
-    );
-    if (!product.rows[0]) {
+    if (!(await tenantProductVisible(client, input.tenantProductId))) {
       return { kind: "not_found" };
     }
 

@@ -53,6 +53,7 @@ import { TRACKED_SELLING_GATE } from "../../../../src/inventory/tracked-selling/
 import { lockProductProfiles } from "../../../../src/catalog/tracking-profile/tracking-profile-lock";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { TrackingProfileService } from "../../../../src/catalog/tracking-profile/tracking-profile.service";
+import { productSaleLinesAdapter } from "../../../../src/catalog/sales/product-sale-lines.adapter";
 
 const h: HarnessHandle = { harness: null, dockerSkipped: false };
 const skip = (): boolean => h.dockerSkipped || !h.harness;
@@ -477,7 +478,7 @@ describe("RT-451 S3 — the per-product capture/profile lock", () => {
 });
 
 describe("RT-451 S3 — the Tracking Profile setter", () => {
-  const setter = () => new TrackingProfileService(h.harness!.env.app);
+  const setter = () => new TrackingProfileService(h.harness!.env.app, productSaleLinesAdapter);
   const setBatch = (productId: string) =>
     setter().set({ tenantId: TENANT_A, productId, trackingMode: "batch", expiryRequired: false, actorUserId: ACTOR });
 

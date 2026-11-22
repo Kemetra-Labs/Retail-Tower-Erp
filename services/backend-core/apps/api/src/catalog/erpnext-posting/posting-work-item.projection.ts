@@ -26,12 +26,12 @@
 import type { PoolClient } from "pg";
 
 import { loadTransferLeg, transferDispatchBody, transferReceiveBody } from "../../inventory";
-import { SaleTendersNotVisibleError } from "../sales/sale-errors";
+import { SaleTendersNotVisibleError } from "../sales";
 import { loadReturnPromotionShares } from "./return-promotion-shares";
-import { SaleResponsibilitiesNotVisibleError } from "../sales/sale-responsibilities";
+import { SaleResponsibilitiesNotVisibleError } from "../sales";
 
 // RT-77: shared with the sale read path; re-exported for existing importers.
-export { SaleTendersNotVisibleError } from "../sales/sale-errors";
+export { SaleTendersNotVisibleError } from "../sales";
 
 /**
  * RT-330: a row names a frozen resolution version that does not cover every

@@ -49,6 +49,7 @@ import {
   TENANT_B,
 } from '../../catalog/__support__/isolation-harness';
 import { TrackingProfileService } from '../../../src/catalog/tracking-profile/tracking-profile.service';
+import { productSaleLinesAdapter } from "../../../src/catalog/sales/product-sale-lines.adapter";
 import { IdentityExpiryService } from '../../../src/inventory/safety/identity-expiry.service';
 import { InventoryRecallsService } from '../../../src/inventory/safety/inventory-recalls.service';
 import { TrackingHoldsService } from '../../../src/inventory/safety/tracking-holds.service';
@@ -236,7 +237,7 @@ beforeAll(async () => {
   holds = new TrackingHoldsService(pool);
   recalls = new InventoryRecallsService(pool);
   expiry = new IdentityExpiryService(pool);
-  profiles = new TrackingProfileService(pool);
+  profiles = new TrackingProfileService(pool, productSaleLinesAdapter);
 }, 240_000);
 
 afterAll(async () => {

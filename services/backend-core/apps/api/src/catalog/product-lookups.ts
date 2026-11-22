@@ -63,3 +63,31 @@ export async function trackingModesOfProducts(client: PoolClient, productIds: re
   );
   return new Map(r.rows.map((x) => [x.id, x.tracking_mode] as const));
 }
+
+/** Whether `productId` is visible to the caller's tenant (RLS-filtered: another tenant's product reads false). */
+export async function tenantProductVisible(client: Pick<PoolClient, "query">, productId: string): Promise<boolean> {
+  const r = await client.query<{ id: string }>(`SELECT id FROM tenant_products WHERE id = $1 LIMIT 1`, [productId]);
+  return r.rows[0] !== undefined;
+}
+
+/** productId -> name, for the visible products among `ids` (tenant RLS). */
+export async function productNamesByIds(client: Pick<PoolClient, "query">, ids: readonly string[]): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (ids.length === 0) return names;
+  const rows = await client.query<{ id: string; name: string }>(`SELECT id, name FROM tenant_products WHERE id = ANY($1::uuid[])`, [ids]);
+  for (const r of rows.rows) names.set(r.id, r.name);
+  return names;
+}
+
+/** The Tracking Profile facts of the visible products among `ids` (ids as lower-case text), keyed by id. */
+export async function productTrackingProfiles(
+  client: Pick<PoolClient, "query">,
+  ids: readonly string[],
+): Promise<Map<string, { readonly id: string; readonly tracking_mode: string; readonly expiry_required: boolean }>> {
+  if (ids.length === 0) return new Map();
+  const r = await client.query<{ id: string; tracking_mode: string; expiry_required: boolean }>(
+    `SELECT id::text AS id, tracking_mode, expiry_required FROM tenant_products WHERE id = ANY($1::uuid[])`,
+    [ids],
+  );
+  return new Map(r.rows.map((row) => [row.id, row]));
+}

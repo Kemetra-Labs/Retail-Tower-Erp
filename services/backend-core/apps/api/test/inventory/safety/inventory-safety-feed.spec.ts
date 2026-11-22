@@ -35,6 +35,7 @@ import { AUTH_LOOKUP_POOL, PG_POOL } from '../../../src/database';
 import { PosDeviceAuthGuard } from '../../../src/auth/pos-device-auth.guard';
 import { TRACKED_SELLING_GATE } from '../../../src/inventory/tracked-selling/tracked-selling-gate';
 import { TrackingProfileService } from '../../../src/catalog/tracking-profile/tracking-profile.service';
+import { productSaleLinesAdapter } from "../../../src/catalog/sales/product-sale-lines.adapter";
 import { encodePageToken } from '../../../src/inventory/safety/inventory-safety-feed.cursor';
 import { InventorySafetyFeedController } from '../../../src/inventory/safety/inventory-safety-feed.controller';
 import {
@@ -214,7 +215,7 @@ beforeAll(async () => {
   holds = new TrackingHoldsService(pool);
   recalls = new InventoryRecallsService(pool);
   expiry = new IdentityExpiryService(pool);
-  profiles = new TrackingProfileService(pool);
+  profiles = new TrackingProfileService(pool, productSaleLinesAdapter);
   ajv.addSchema(contractDocument(allContracts(), 'inventory-safety-feed') as object, 'inventory-safety-feed');
   app = await bootDeviceModuleApp(FeedTestModule, { domain: env.app, lookup: admin });
 }, 240_000);
