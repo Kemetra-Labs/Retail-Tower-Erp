@@ -1,11 +1,16 @@
 import { beforeEach, describe, expect, test, vi } from "vitest";
 
 const GET = vi.fn();
+const POST = vi.fn();
 vi.mock("@/generated/client", () => ({
-  apiClient: { GET: (...a: unknown[]) => GET(...a) },
+  apiClient: { GET: (...a: unknown[]) => GET(...a), POST: (...a: unknown[]) => POST(...a) },
 }));
 
 import {
+  approveShipmentTransfer,
+  cancelShipmentTransfer,
+  createShipmentTransfer,
+  dispatchShipmentTransfer,
   getOnHand,
   getShipmentTransfer,
   listShipmentTransferReceipts,
@@ -116,5 +121,67 @@ describe("inventory read wrappers", () => {
       "/api/inventory/v1/shipment-transfers/{transferId}/receipts",
       { params: { path: { transferId: TRANSFER }, query: {} } },
     );
+  });
+});
+
+/**
+ * RT-1515 (PR 2) shipment-Transfer writes: each POSTs exactly its generated path
+ * with the command as the body and the required Idempotency-Key header, and
+ * returns `{ status, data, error, retryAfter }`.
+ */
+describe("shipment-Transfer write wrappers", () => {
+  const TRANSFER = "0190f000-0000-7000-8000-00000000a001";
+  const KEY = "0190f000-0000-4000-8000-00000000cafe";
+
+  beforeEach(() => POST.mockReset());
+
+  test("createShipmentTransfer POSTs the command with its key and the abort signal", async () => {
+    POST.mockResolvedValue({ data: { id: TRANSFER }, response: response(201) });
+    const command = {
+      sourceStoreId: STORE,
+      destinationStoreId: "0190f000-0000-7000-8000-0000000007a2",
+      lines: [
+        { tenantProductRef: PRODUCT, quantity: "2", stockingUnit: "kg", trackingIdentityId: null },
+      ],
+      reason: null,
+    };
+    const signal = new AbortController().signal;
+    const res = await createShipmentTransfer(command, KEY, signal);
+    expect(POST).toHaveBeenCalledWith("/api/inventory/v1/shipment-transfers", {
+      params: { header: { "Idempotency-Key": KEY } },
+      body: command,
+      signal,
+    });
+    expect(res).toEqual({
+      status: 201,
+      data: { id: TRANSFER },
+      error: undefined,
+      retryAfter: undefined,
+    });
+  });
+
+  test.each([
+    ["approve", approveShipmentTransfer, { reservationExpiresAt: "2026-12-01T10:00:00.000Z" }],
+    ["cancel", cancelShipmentTransfer, { reason: "Wrong store" }],
+    ["dispatch", dispatchShipmentTransfer, { note: null }],
+  ] as const)("%s POSTs its path with the transfer id, body and key", async (op, send, body) => {
+    POST.mockResolvedValue({ data: { id: TRANSFER }, response: response(200) });
+    await (send as (id: string, b: unknown, k: string) => Promise<unknown>)(TRANSFER, body, KEY);
+    expect(POST).toHaveBeenCalledWith(`/api/inventory/v1/shipment-transfers/{transferId}/${op}`, {
+      params: { path: { transferId: TRANSFER }, header: { "Idempotency-Key": KEY } },
+      body,
+      signal: undefined,
+    });
+  });
+
+  test("a refusal keeps its status and error body, and a 429 its Retry-After", async () => {
+    POST.mockResolvedValue({
+      error: { error: { code: "rate_limited", message: "x" } },
+      response: response(429, { "Retry-After": "7" }),
+    });
+    const res = await cancelShipmentTransfer(TRANSFER, { reason: "r" }, KEY);
+    expect(res.status).toBe(429);
+    expect(res.retryAfter).toBe(7);
+    expect(res.error).toEqual({ error: { code: "rate_limited", message: "x" } });
   });
 });

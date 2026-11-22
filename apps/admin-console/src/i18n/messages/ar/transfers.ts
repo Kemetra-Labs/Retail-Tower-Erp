@@ -4,7 +4,10 @@
  *
  * Glossary: shipment Transfer → «تحويل» (list: «تحويلات المخزون»); In Transit →
  * «قيد النقل» (a quantity of the line, never a location or a status); Store →
- * «المتجر», never «الفرع»; Retail Item → «الصنف». Traps: no plain «المخزون» as a
+ * «المتجر», never «الفرع»; product on a Transfer line → «المنتج», never «الصنف» (owner
+ * decision, RT-1515 PR 2). PR 2 adds the writes (draft, approve, cancel,
+ * dispatch): «مسودة» / «اعتماد» / «إلغاء» / «شحن»; every refusal is worded by
+ * `error.code`, never by the server's message. Traps: no plain «المخزون» as a
  * figure, and no Available-to-Sell figure (none exists yet). The 404 while the
  * workflow is off is non-disclosing: say "not available", never claim why.
  */
@@ -87,7 +90,7 @@ export const transfers = {
   "transfers.lines.title": "الأسطر",
   "transfers.lines.caption": "أسطر التحويل وكمياتها",
   "transfers.lines.col.seq": "السطر",
-  "transfers.lines.col.product": "الصنف",
+  "transfers.lines.col.product": "المنتج",
   "transfers.lines.col.tracking": "هوية التتبع",
   "transfers.lines.col.unit": "الوحدة",
   "transfers.lines.col.ordered": "المطلوب",
@@ -108,4 +111,118 @@ export const transfers = {
   "transfers.receipts.loadFailed": "تعذّر تحميل الاستلامات.",
   "transfers.receipts.empty": "لم يُسجَّل أي استلام لهذا التحويل بعد.",
   "transfers.receipts.loadMore": "تحميل استلامات أحدث",
+
+  "transfers.note.writes":
+    "تُنشأ هنا مسودات التحويل وتُعتمد وتُلغى وتُشحن. الاستلام والإغلاق ليسا متاحين هنا بعد.",
+
+  "transfers.create.open": "تحويل جديد",
+  "transfers.create.title": "تحويل جديد",
+  "transfers.create.scope": "مسودة تحويل بين متجرين",
+  "transfers.create.intro":
+    "اختر المتجر المصدر والمتجر الوجهة ثم أضف المنتجات وكمياتها. يُحفظ التحويل مسودة: لا تتحرك بضاعة ولا يُحجز مخزون قبل الاعتماد.",
+  "transfers.create.chooseStore": "اختر المتجر",
+  "transfers.create.source": "المتجر المصدر",
+  "transfers.create.destination": "المتجر الوجهة",
+  "transfers.create.noLines": "لم تُضف أي منتجات بعد.",
+  "transfers.create.quantity": "الكمية",
+  "transfers.create.remove": "إزالة",
+  "transfers.create.removeLine": "إزالة السطر: {name}",
+  "transfers.create.addProduct": "إضافة منتج",
+  "transfers.create.addProductHelp":
+    "ابحث عن منتج نشط ثم اختره ليُضاف سطرًا. سطر واحد لكل منتج، ولكل دفعة في المنتجات المتتبَّعة بالدفعات.",
+  "transfers.create.add.serial":
+    "لا يمكن تحويل المنتجات ذات الأرقام التسلسلية بعد. اختر منتجًا آخر.",
+  "transfers.create.add.duplicate": "هذا المنتج مضاف بالفعل. يُسمح بسطر واحد لكل منتج.",
+  "transfers.create.add.tooMany": "بلغ التحويل الحد الأقصى: 100 سطر.",
+  "transfers.create.add.unknownMode": "نمط تتبع هذا المنتج غير معروف، فلا يمكن إضافته.",
+  "transfers.create.identity": "الدفعة",
+  "transfers.create.identitiesNoun": "الدفعات",
+  "transfers.create.identitiesFailed": "تعذّر تحميل دفعات المنتج.",
+  "transfers.create.identitiesUnavailable": "لا يمكن قراءة دفعات هذا المنتج بدورك الحالي.",
+  "transfers.create.identitiesEmpty": "لا توجد دفعات مسجّلة لهذا المنتج.",
+  "transfers.create.identitiesMore": "تحميل المزيد من الدفعات",
+  "transfers.create.stock.noSource": "اختر المتجر المصدر لقراءة رصيده من هذا المنتج.",
+  "transfers.create.stock.loading": "جارٍ قراءة رصيد المتجر المصدر…",
+  "transfers.create.stock.failed":
+    "تعذّرت قراءة رصيد المتجر المصدر، فوحدة المخزون غير معروفة ولا يمكن إرسال التحويل.",
+  "transfers.create.stock.physical": "الرصيد الفعلي في المصدر",
+  "transfers.create.stock.sellable": "القابل للبيع في المصدر",
+  "transfers.create.stock.noUnit": "غير معروفة: لا وحدة مسجّلة لهذا المنتج في المتجر المصدر",
+  "transfers.create.reason": "سبب التحويل",
+  "transfers.create.reasonHelp": "حتى {max} حرف.",
+  "transfers.create.effect": "الحفظ لا يشحن شيئًا: يبقى التحويل مسودة إلى أن يُعتمد ثم يُشحن.",
+  "transfers.create.submit": "حفظ مسودة التحويل",
+  "transfers.create.error.source": "اختر المتجر المصدر.",
+  "transfers.create.error.destination": "اختر المتجر الوجهة.",
+  "transfers.create.error.sameStore": "يجب أن يختلف المتجر الوجهة عن المتجر المصدر.",
+  "transfers.create.error.noLines": "أضف منتجًا واحدًا على الأقل.",
+  "transfers.create.error.tooManyLines": "الحد الأقصى 100 سطر في التحويل.",
+  "transfers.create.error.reason": "سبب التحويل أطول من 500 حرف.",
+  "transfers.create.error.identity": "اختر دفعة لهذا المنتج.",
+  "transfers.create.error.quantity": "أدخل كمية أكبر من صفر، حتى 4 منازل عشرية.",
+  "transfers.create.error.unit": "وحدة المخزون غير معروفة لهذا المنتج في المتجر المصدر.",
+  "transfers.create.error.duplicate": "هذا المنتج (وهذه الدفعة) مكرر في سطر آخر. أبقِ سطرًا واحدًا.",
+
+  "transfers.write.optional": "(اختياري)",
+  "transfers.write.retry": "إعادة إرسال الطلب نفسه",
+  "transfers.write.failed":
+    "لم يصل أي رد، فلا نعرف إن كان الطلب قد سُجّل. أعد إرسال الطلب نفسه: لن يُسجَّل مرتين.",
+  "transfers.write.error.validation": "رفض الخادم بيانات الطلب. راجع الحقول ثم أعد المحاولة.",
+  "transfers.write.error.session": "انتهت جلستك. سجّل الدخول مرة أخرى.",
+  "transfers.write.error.forbidden": "دورك لا يسمح بهذا الإجراء على هذا التحويل.",
+  "transfers.write.error.notFound": "المتجر أو التحويل المطلوب غير متاح لك.",
+  "transfers.write.error.rateLimited": "طلبات كثيرة في وقت قصير. انتظر قليلًا ثم أعد المحاولة.",
+  "transfers.write.error.rateLimitedFor": {
+    zero: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد {count} ثانية.",
+    one: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد ثانية واحدة.",
+    two: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد ثانيتين.",
+    few: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد {count} ثوانٍ.",
+    many: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد {count} ثانية.",
+    other: "طلبات كثيرة في وقت قصير. أعد المحاولة بعد {count} ثانية.",
+  },
+  "transfers.write.error.notInState":
+    "تغيّرت حالة التحويل ولم يعد هذا الإجراء متاحًا له. أعد فتح التحويل لرؤية حالته الحالية.",
+  "transfers.write.error.crossLegalEntity":
+    "المتجران يتبعان كيانين قانونيين مختلفين، ولا يمكن التحويل بينهما.",
+  "transfers.write.error.identityRequired":
+    "المنتج المتتبَّع يحتاج إلى دفعة واحدة في كل سطر. اختر الدفعة.",
+  "transfers.write.error.identityHeldOrExpired":
+    "الدفعة المختارة محجوزة أو منتهية الصلاحية. اختر دفعة أخرى.",
+  "transfers.write.error.serialNotSupported": "تحويل المنتجات ذات الأرقام التسلسلية غير مدعوم بعد.",
+  "transfers.write.error.warehouseUnmapped":
+    "أحد المتجرين، أو مستودع البضاعة قيد النقل، غير مربوط بمستودع في ERPNext. اطلب من المسؤول إكمال الربط.",
+  "transfers.write.error.itemUnmapped":
+    "أحد المنتجات غير مربوط بمقابله في ERPNext. اطلب من المسؤول إكمال الربط.",
+  "transfers.write.error.keyConflict":
+    "تعذّر تأكيد هذا الطلب ولم يُسجَّل. اضغط الإرسال مرة أخرى لإرسال طلب جديد.",
+  "transfers.write.error.overReceipt": "الكمية المستلمة تتجاوز المطلوب وتحتاج إلى موافقة.",
+  "transfers.write.error.shortCloseReason": "إغلاق الكمية الناقصة يحتاج إلى سبب.",
+  "transfers.write.error.generic": "تعذّر على الخادم إكمال الطلب. أعد المحاولة بعد قليل.",
+  "transfers.write.error.code": "رمز الخطأ: {code}",
+
+  "transfers.actions.title": "الإجراءات",
+  "transfers.approve.open": "اعتماد التحويل",
+  "transfers.approve.intro":
+    "الاعتماد يحجز كمية التحويل من المتجر المصدر حتى انتهاء المدة المختارة.",
+  "transfers.approve.window": "مدة الحجز",
+  "transfers.approve.days.1": "يوم واحد",
+  "transfers.approve.days.3": "3 أيام",
+  "transfers.approve.days.7": "7 أيام",
+  "transfers.approve.until": "ينتهي الحجز حوالي {at}.",
+  "transfers.approve.submit": "اعتماد",
+  "transfers.cancel.open": "إلغاء التحويل",
+  "transfers.cancel.intro":
+    "الإلغاء يُنهي هذا التحويل ويُحفظ السبب عليه. لا يتوفر تراجع عن الإلغاء هنا.",
+  "transfers.cancel.reason": "سبب الإلغاء",
+  "transfers.cancel.submit": "تأكيد الإلغاء",
+  "transfers.cancel.error.reason": "اكتب سبب الإلغاء، من حرف إلى 500 حرف.",
+  "transfers.dispatch.open": "شحن التحويل",
+  "transfers.dispatch.confirm":
+    "تخرج كامل الكمية المعتمدة من المتجر المصدر وتصبح «قيد النقل». لا يوجد شحن جزئي.",
+  "transfers.dispatch.note": "ملاحظة الشحن",
+  "transfers.dispatch.submit": "تأكيد الشحن",
+  "transfers.dispatch.error.note": "ملاحظة الشحن أطول من 500 حرف.",
+  "transfers.recorded.approve": "سُجّل اعتماد التحويل.",
+  "transfers.recorded.cancel": "سُجّل إلغاء التحويل.",
+  "transfers.recorded.dispatch": "سُجّل شحن التحويل.",
 };

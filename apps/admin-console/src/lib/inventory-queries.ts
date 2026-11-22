@@ -20,8 +20,10 @@
  *
  * RT-1515 (PR 1) adds the three shipment-Transfer READS of 1.21.0-draft:
  * `listShipmentTransfers`, `getShipmentTransfer` and
- * `listShipmentTransferReceipts`. Read only: every shipment-Transfer write
- * (create, approve, cancel, dispatch, receive, close) is a later PR. Until the
+ * `listShipmentTransferReceipts`. PR 2 adds the four writes of a Transfer's
+ * first half: `createShipmentTransfer`, `approveShipmentTransfer`,
+ * `cancelShipmentTransfer` and `dispatchShipmentTransfer`, each with the
+ * required Idempotency-Key. Receive and close are a later PR. Until the
  * tenant's shipment workflow is switched on, each answers the non-disclosing 404.
  * Same `{ status, data?, error?, retryAfter? }`
  * shape as `src/lib/sale-sync-ops-queries.ts`. Cookie transport is on the
@@ -53,6 +55,11 @@ export type ShipmentTransferState = Schemas["ShipmentTransferState"];
 export type ShipmentLegIntegrationState = Schemas["ShipmentLegIntegrationState"];
 export type ShipmentTransferReceipt = Schemas["ShipmentTransferReceipt"];
 export type ShipmentTransferReceiptList = Schemas["ShipmentTransferReceiptList"];
+export type CreateShipmentTransferCommand = Schemas["CreateShipmentTransferCommand"];
+export type CreateShipmentTransferLine = Schemas["CreateShipmentTransferLine"];
+export type ApproveShipmentTransferCommand = Schemas["ApproveShipmentTransferCommand"];
+export type CancelShipmentTransferCommand = Schemas["CancelShipmentTransferCommand"];
+export type DispatchShipmentTransferCommand = Schemas["DispatchShipmentTransferCommand"];
 
 export interface PageQuery {
   cursor?: string;
@@ -176,6 +183,71 @@ export async function listShipmentTransferReceipts(transferId: string, query: Pa
   return resultOf(
     await apiClient.GET("/api/inventory/v1/shipment-transfers/{transferId}/receipts", {
       params: { path: { transferId }, query },
+    }),
+  );
+}
+
+// --- Shipment-Transfer writes (RT-1515 PR 2): Idempotency-Key required on each ---
+
+/** POST /api/inventory/v1/shipment-transfers: a new Transfer in `draft` (201). */
+export async function createShipmentTransfer(
+  command: CreateShipmentTransferCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers", {
+      params: { header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+/** POST .../{transferId}/approve: draft to approved; reserves the source stock until the expiry. */
+export async function approveShipmentTransfer(
+  transferId: string,
+  command: ApproveShipmentTransferCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/approve", {
+      params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+/** POST .../{transferId}/cancel: draft or approved to cancelled; the reason is required. */
+export async function cancelShipmentTransfer(
+  transferId: string,
+  command: CancelShipmentTransferCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/cancel", {
+      params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
+    }),
+  );
+}
+
+/** POST .../{transferId}/dispatch: approved to in_transit; the whole approved quantity leaves. */
+export async function dispatchShipmentTransfer(
+  transferId: string,
+  command: DispatchShipmentTransferCommand,
+  idempotencyKey: string,
+  signal?: AbortSignal,
+) {
+  return resultOf(
+    await apiClient.POST("/api/inventory/v1/shipment-transfers/{transferId}/dispatch", {
+      params: { path: { transferId }, header: { "Idempotency-Key": idempotencyKey } },
+      body: command,
+      signal,
     }),
   );
 }
