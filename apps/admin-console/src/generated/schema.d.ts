@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 79090b5096dbab801bfce19bb73a449b135fe884
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 9d9380bf4ab29ad2be2614a759126e254c399044
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -6002,7 +6002,7 @@ export namespace ConnectorHealthSchema {
                  */
                 sourceClockAt?: string;
                 /** @description RT-1427. The posting work-item kinds the deployed Connector accepts (its own `WORK_ITEM_KINDS`). Self-report; stored verbatim. */
-                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count")[];
+                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count" | "transfer_dispatch" | "transfer_receive")[];
                 backDatedRole?: components["schemas"]["HeartbeatBackDatedRole"];
             };
             /** @description RT-1427. Whether the Connector's ERP user may create and edit back-dated stock documents (read-only permission check; the Connector never changes ERP data to find out). `unknown` when the check itself could not run; a failed check is never reported as `verified`. */
@@ -6077,7 +6077,7 @@ export namespace ConnectorHealthSchema {
                  */
                 reportedFieldsAt?: string | null;
                 /** @description RT-1427. The posting work-item kinds the Connector last reported accepting; null until reported (no evidence). */
-                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count")[] | null;
+                acceptedWorkItemKinds?: ("sale_post" | "reversal" | "inventory_count" | "transfer_dispatch" | "transfer_receive")[] | null;
                 /** @description RT-1427. The last reported back-dated stock role readiness; null until reported (no evidence). */
                 backDatedRole?: components["schemas"]["ConnectorHealthBackDatedRole"] | null;
             };
