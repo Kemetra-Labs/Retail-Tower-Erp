@@ -27,6 +27,8 @@ interface PayoutCash {
 export interface PayoutAudit {
   /** RT-1403 S2 (H1): the payout was CLAIMED, before the drawer is kicked (same transaction). */
   payoutStarted(actor: PayoutActor, claim: PayoutClaim, cash: PayoutCash): void;
+  /** RT-1403 S2 (L5): a drawer retry of the claimed payout is about to kick again (same transaction). */
+  payoutRetried(actor: PayoutActor, claim: PayoutClaim): void;
   /** RT-1403 S2 (H1): what a drawer kick of the claimed payout proved. */
   payoutDrawer(actor: PayoutActor, claim: PayoutClaim, outcome: KickResult): void;
   /**
@@ -94,6 +96,13 @@ export function createPayoutAudit(deps: SaleVoidAuditDeps): PayoutAudit {
         amount_minor: cash.amountMinor,
         currency_code: cash.currencyCode,
         business_date: claim.businessDate,
+      });
+    },
+    payoutRetried(actor, claim) {
+      writeClaim(actor, claim, 'sale.void.payout_retry_started', {
+        void_id: claim.voidId,
+        sale_id: claim.saleId,
+        kick_count: claim.kickCount,
       });
     },
     payoutDrawer(actor, claim, outcome) {

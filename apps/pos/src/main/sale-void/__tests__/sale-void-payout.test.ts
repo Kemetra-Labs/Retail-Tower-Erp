@@ -131,6 +131,24 @@ describe('payOut: start', () => {
     expect(h.record()).toBeNull();
   });
 
+  it('only a manager or admin may pay out: any other role is refused (an allowlist)', async () => {
+    given('confirmed');
+    for (const role of ['cashier', 'auditor', 'owner', ''] as const) {
+      h.state.session = { sessionId: 'sess-2', userId: null, role: role as never };
+      expect(await h.service.payOut(start)).toEqual({ kind: 'refused', reason: 'role_denied' });
+    }
+    expect(h.kicks).toBe(0);
+    expect(h.payouts.readClaim('v1')).toBeNull();
+  });
+
+  it('writes the claim with the day of the claim, from the one clock read of its gate', async () => {
+    given('confirmed');
+    await h.service.payOut(start);
+    const claim = h.payouts.readClaim('v1');
+    expect(claim?.businessDate).toBe(claim?.claimedAt.slice(0, 10));
+    expect(claim?.businessDate).toBe('2026-06-07');
+  });
+
   it.each([
     ['pending', 'payout_void_not_confirmed'],
     ['unknown', 'payout_void_not_confirmed'],
@@ -259,6 +277,18 @@ describe('payOut: the claim survives anything after the kick (H1)', () => {
     expect(h.payouts.readClaim('v1')?.kickOutcome).toBe('opened');
     expect(h.trail).not.toContain('sale.void.paid_out');
     expect(h.payouts.countOpenClaims(SCOPE)).toBe(1);
+  });
+
+  it('after the window passes a claimed payout offers no step the server would refuse', async () => {
+    given('confirmed');
+    h.state.kick = () => {
+      h.state.now = NEXT_DAY;
+      return Promise.resolve('opened');
+    };
+    await h.service.payOut(start);
+    expect(viewOfV1(db, h.service)).toMatchObject({ state: 'claimed', claim_actions: [] });
+    h.state.now = '2026-06-07T13:00:00.000Z';
+    expect(viewOfV1(db, h.service).claim_actions).toEqual(['manual']);
   });
 
   it('midnight passing during the kick records nothing and keeps the claim', async () => {
@@ -401,6 +431,46 @@ describe('payOut: retry_drawer and manual', () => {
       kickOutcome: 'failed_before_send',
     });
     expect(h.record()).toMatchObject({ kind: 'payout', method: 'no_drawer' });
+  });
+
+  it('a retry audits its start before the kick, on ONE clock read for the gate and the mark', async () => {
+    given('confirmed');
+    let nowReads = 0;
+    const state = freshState();
+    h = createHarness(db, state, undefined, (deps) => ({
+      ...deps,
+      now: () => {
+        nowReads += 1;
+        return state.now;
+      },
+    }));
+    let first = true;
+    state.kick = () => {
+      if (first) {
+        first = false;
+        state.locked = true; // refuses the first commit; the kick never left
+      }
+      return Promise.resolve('no_drawer');
+    };
+    await h.service.payOut(start);
+    state.locked = false;
+    h.trail.length = 0;
+    nowReads = 0;
+    let readsBeforeKick = -1;
+    state.kick = () => {
+      readsBeforeKick = nowReads;
+      return Promise.resolve('no_drawer');
+    };
+    expect(await h.service.payOut(retry)).toEqual({ kind: 'paid_out' });
+    // The pre-check and the transaction (gate and mark together) each read the clock once.
+    expect(readsBeforeKick).toBe(2);
+    expect(h.trail.slice(0, 2)).toEqual(['sale.void.payout_retry_started', 'kick']);
+    expect(
+      h.events.find((e) => e.action_category === 'sale.void.payout_retry_started'),
+    ).toMatchObject({
+      action_category: 'sale.void.payout_retry_started',
+      payload: { void_id: 'v1', sale_id: 'sale-1', kick_count: 2 },
+    });
   });
 
   it('refuses a retry or a manual completion with no claim', async () => {

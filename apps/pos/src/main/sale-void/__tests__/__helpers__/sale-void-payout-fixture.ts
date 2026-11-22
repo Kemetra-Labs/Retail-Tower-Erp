@@ -58,6 +58,8 @@ export function seedApproval(
     requester?: string;
     kind?: string;
     consumed?: boolean;
+    amount?: number;
+    policy?: string;
   } = {},
 ): void {
   db.run(
@@ -65,7 +67,7 @@ export function seedApproval(
        (approval_id, tenant_id, branch_id, terminal_id, action_kind, subject_ref, subject_version,
         amount_minor, reason_code, requester_operator_id, requester_user_id, approver_user_id,
         policy_version, issued_at, expires_at, consumed_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1500, 'cash_exception', 'op-cashier', ?, ?, 'rt114-2026-10-07',
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'cash_exception', 'op-cashier', ?, ?, ?,
        '2026-06-07T12:55:00.000Z', '2026-06-07T13:55:00.000Z', ?)`,
     [
       (over.approvalId ?? APPROVAL_B).toLowerCase(),
@@ -75,8 +77,10 @@ export function seedApproval(
       over.kind ?? 'sale.void_cash_exception',
       over.voidId ?? 'v1',
       `sale-void-cash-exception:${over.voidId ?? 'v1'}`,
+      over.amount ?? 1500,
       over.requester ?? REQUESTER_USER,
       over.approver ?? APPROVER_USER,
+      over.policy ?? 'rt114-2026-10-07',
       over.consumed === false ? null : '2026-06-07T12:59:00.000Z',
     ],
   );

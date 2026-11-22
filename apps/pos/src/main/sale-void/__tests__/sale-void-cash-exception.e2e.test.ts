@@ -131,6 +131,7 @@ beforeEach(async () => {
       cashExceptionRecorded: () => undefined,
       cashMismatchFlagged: () => undefined,
       payoutStarted: () => undefined,
+      payoutRetried: () => undefined,
       payoutDrawer: () => undefined,
       payoutNotMade: () => undefined,
     },

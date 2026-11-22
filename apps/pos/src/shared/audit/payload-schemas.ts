@@ -711,6 +711,14 @@ interface SaleVoidPayoutStartedPayload {
   business_date: string;
 }
 
+/** `sale.void.payout_retry_started` — a drawer retry of the claimed payout, before the kick. */
+interface SaleVoidPayoutRetryStartedPayload {
+  void_id: string;
+  sale_id: string;
+  /** The kick this retry makes (the claim's count after the mark). */
+  kick_count: number;
+}
+
 /** `sale.void.payout_drawer` — what a drawer kick of a claimed payout proved. */
 interface SaleVoidPayoutDrawerPayload {
   void_id: string;
@@ -949,6 +957,7 @@ export type AuditPayloadMap = {
   'sale.void.refused': SaleVoidRefusedPayload;
   // RT-1403 S2
   'sale.void.payout_started': SaleVoidPayoutStartedPayload;
+  'sale.void.payout_retry_started': SaleVoidPayoutRetryStartedPayload;
   'sale.void.payout_drawer': SaleVoidPayoutDrawerPayload;
   'sale.void.paid_out': SaleVoidPaidOutPayload;
   'sale.void.cash_exception_recorded': SaleVoidCashExceptionRecordedPayload;

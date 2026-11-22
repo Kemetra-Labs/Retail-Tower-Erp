@@ -150,6 +150,7 @@ export const AUDIT_ACTION_CATEGORIES = [
   // set (no Backend-Core category, endpoint or contract change). Payload ids, minor units and
   // closed codes only. Open-set at the SQL layer (0004); recorded in migration 0069's header.
   'sale.void.payout_started',
+  'sale.void.payout_retry_started',
   'sale.void.payout_drawer',
   'sale.void.paid_out',
   'sale.void.cash_exception_recorded',

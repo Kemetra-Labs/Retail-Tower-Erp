@@ -550,6 +550,42 @@ describe('flagUnpaid (H2)', () => {
     expect(flags()).toHaveLength(0);
   });
 
+  it('asks the audit once per void: later reads use the in-process set', () => {
+    given('confirmed');
+    h.state.now = NEXT_DAY;
+    let asked = 0;
+    h = createHarness(db, h.state, undefined, (deps) => ({
+      ...deps,
+      payouts: new Proxy(deps.payouts, {
+        get(target, prop) {
+          if (prop === 'hasUnpaidFlag') {
+            return (voidId: string) => {
+              asked += 1;
+              return target.hasUnpaidFlag(voidId);
+            };
+          }
+          const value: unknown = Reflect.get(target, prop);
+          return typeof value === 'function' ? (value as () => unknown).bind(target) : value;
+        },
+      }),
+    }));
+    h.service.flagUnpaid(entry(), actor);
+    h.service.flagUnpaid(entry(), actor);
+    h.service.flagUnpaid(entry(), actor);
+    expect(asked).toBe(1);
+    expect(flags()).toHaveLength(1);
+  });
+
+  it('knows a void flagged by an earlier process from the audit, and never flags it again', () => {
+    given('confirmed');
+    h.state.now = NEXT_DAY;
+    h.service.flagUnpaid(entry(), actor);
+    const restarted = createHarness(db, { ...freshState(), now: NEXT_DAY });
+    restarted.service.flagUnpaid(entry(), actor);
+    restarted.service.flagUnpaid(entry(), actor);
+    expect(restarted.events).toEqual([]);
+  });
+
   it('never throws when the audit fails, and tries again on the next read', () => {
     given('confirmed');
     h.state.now = NEXT_DAY;

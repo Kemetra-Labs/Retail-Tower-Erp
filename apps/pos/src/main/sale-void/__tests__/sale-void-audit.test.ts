@@ -232,6 +232,23 @@ describe('sale void payout audit events (RT-1403 S2)', () => {
     });
   });
 
+  it('payout_retry_started: the retrying session, the claim shift and the kick this retry makes', () => {
+    audit.payoutRetried(
+      { operatorId: 'op-c', sessionId: 'sess-c' },
+      { ...newClaim(), kickOutcome: 'sending', kickCount: 2, kickedAt: '2026-06-07T12:59:00.000Z' },
+    );
+    expect(events).toEqual([
+      expect.objectContaining({
+        action_category: 'sale.void.payout_retry_started',
+        acting_operator_id: 'op-c',
+        session_id: 'sess-c',
+        shift_id: SHIFT_A,
+        approving_supervisor_id: null,
+        payload: { void_id: 'v1', sale_id: 'sale-1', kick_count: 2 },
+      }),
+    ]);
+  });
+
   it('payout_not_made: a confirmed void never paid out, flagged for the manager, no payout id', () => {
     repo.markConfirmed({ voidId: 'v1', voidRef: 'ref-1', now: NOW });
     audit.payoutNotMade({ operatorId: 'op-a', sessionId: 'sess-a' }, row(), SHIFT_A);

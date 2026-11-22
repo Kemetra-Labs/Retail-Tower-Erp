@@ -77,6 +77,8 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
   const steps = createPayoutSteps(deps, ctx);
   const { refusalOf, claimAndMark, markRetry, persistKick, commit } = steps;
   const inFlight = new Set<string>();
+  // Voids already known to be flagged in the audit (the audit stays the durable source: asked once per void).
+  const flagged = new Set<string>();
   /** Steps 3 and 4: claim (or mark the retry), kick, persist what it proved; then the record. */
   async function kickAndComplete(
     session: PayoutSession,
@@ -132,10 +134,12 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
     const now = deps.now();
     const claim = deps.payouts.readClaim(entry.voidId);
     if (claim !== null) {
+      // A step the server would refuse (the window passed) is never offered: only the exception is.
+      const open = ctx.blockAt(entry, now, claim) === null;
       return {
         ...none,
         state: 'claimed',
-        claim_actions: claimActionsOf(claim, now),
+        claim_actions: open ? claimActionsOf(claim, now) : [],
         overdue: false,
       };
     }
@@ -154,8 +158,10 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
     async payOut(req) {
       const admitted = ctx.admit();
       if (admitted.kind !== 'ok') return admitted;
-      // L3: the same as the returns payout: a manager or admin pays out, a cashier never does.
-      if (admitted.session.role === 'cashier') return refuse('role_denied');
+      // L3: the same as the returns payout: ONLY a manager or admin pays out (an allowlist: any
+      // other role, now or later, is refused).
+      const { role } = admitted.session;
+      if (role !== 'manager' && role !== 'admin') return refuse('role_denied');
       if (inFlight.has(req.void_id)) return refuse('payout_in_progress');
       const release = slot.tryAcquire();
       if (release === null) return refuse('another_payout_in_progress');
@@ -172,8 +178,11 @@ export function createSaleVoidPayout(deps: SaleVoidPayoutDeps): SaleVoidPayoutSe
     cashExceptionSubject: (input) => exception.subject(input),
     flagUnpaid(entry, actor) {
       try {
-        if (!viewOf(entry).overdue || deps.payouts.hasUnpaidFlag(entry.voidId)) return;
-        deps.audit.payoutNotMade(actor, entry, ctx.shiftNow(entry.scope)?.shiftId ?? null);
+        if (flagged.has(entry.voidId) || !viewOf(entry).overdue) return;
+        if (!deps.payouts.hasUnpaidFlag(entry.voidId)) {
+          deps.audit.payoutNotMade(actor, entry, ctx.shiftNow(entry.scope)?.shiftId ?? null);
+        }
+        flagged.add(entry.voidId);
       } catch {
         // Best effort: the list must not fail for a flag; the next read tries again.
       }

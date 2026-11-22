@@ -76,6 +76,7 @@ export interface SaleVoidPayoutDeps {
     | 'cashExceptionRecorded'
     | 'cashMismatchFlagged'
     | 'payoutStarted'
+    | 'payoutRetried'
     | 'payoutDrawer'
     | 'payoutNotMade'
   >;

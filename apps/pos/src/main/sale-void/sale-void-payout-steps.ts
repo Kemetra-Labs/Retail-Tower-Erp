@@ -100,7 +100,9 @@ export function createPayoutSteps(deps: SaleVoidPayoutDeps, ctx: PayoutContext):
         saleId: entry.saleId,
         scope: entry.scope,
         shiftId: shift.shiftId,
-        businessDate: entry.businessDate,
+        // The day of the claim, from the same single clock read as the gate; the schema trigger
+        // refuses a claim whose day is not the void's own.
+        businessDate: deps.localDayOf(now),
         claimedBy: {
           operatorId: session.operatorId,
           displayName: session.displayName,
@@ -126,17 +128,24 @@ export function createPayoutSteps(deps: SaleVoidPayoutDeps, ctx: PayoutContext):
     }
   }
 
-  /** A retry: the kick about to be sent, only after one that provably never left. */
+  /**
+   * A retry: the gate, the kick about to be sent and the `payout_retry_started` audit, ONE
+   * transaction on ONE clock read, only after a kick that provably never left.
+   */
   function markRetry(session: PayoutSession, voidId: string): LocalVoidRefusal | null {
     try {
-      gate(session, voidId, 'retry_drawer', deps.now());
+      return deps.payouts.transaction(() => {
+        const now = deps.now();
+        gate(session, voidId, 'retry_drawer', now);
+        if (!deps.payouts.markSending({ voidId, now })) return 'payout_drawer_retry_unsafe';
+        const claim = deps.payouts.readClaim(voidId);
+        if (claim !== null) deps.audit.payoutRetried(actorOf(session), claim);
+        return null;
+      });
     } catch (err) {
       if (err instanceof GateRefused) return err.reason;
       throw err;
     }
-    return deps.payouts.markSending({ voidId, now: deps.now() })
-      ? null
-      : 'payout_drawer_retry_unsafe';
   }
 
   /** The kick's outcome and its audit, in one transaction (a drawer that opened is remembered). */

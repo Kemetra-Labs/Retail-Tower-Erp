@@ -115,6 +115,7 @@ function payOut(input: { n: number; saleId: string; cash: number; paidAt?: strin
       voidId: `v${String(input.n)}`,
       approver: APPROVER,
       requester: REQUESTER,
+      amount: input.cash,
     });
   }
   createSaleVoidPayoutRepository(handleFor(db)).insertFrom(() => ({

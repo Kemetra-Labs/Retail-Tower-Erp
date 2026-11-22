@@ -411,6 +411,17 @@ describe('0069 — sale void payouts (RT-1403 S2)', () => {
       }).toThrow(/confirmed void|UNIQUE/);
     });
 
+    it('refuses a claim whose day is the day of the claim when that is not the void day', () => {
+      journalVoid('confirmed');
+      openShift();
+      const claimedAt = '2026-06-08T09:00:00.000Z';
+      // The day the code writes: the day OF the claim, derived from its own instant.
+      expect(() => {
+        insertClaim({ claimed_at: claimedAt, business_date: claimedAt.slice(0, 10) });
+      }).toThrow(/confirmed void/);
+      expect(count(CLAIMS)).toBe(0);
+    });
+
     it('starts never kicked', () => {
       journalVoid('confirmed');
       openShift();
@@ -896,6 +907,36 @@ describe('0069 — sale void payouts (RT-1403 S2)', () => {
         expect(() => {
           insert(row);
         }).toThrow(/approval/);
+      });
+
+      it('refuses an approval granted to another requester', () => {
+        seedApproval(db, { requester: '0190f5a2-7b3c-7d4e-8f90-0000000000b8' });
+        expect(() => {
+          insert(row);
+        }).toThrow(/approval/);
+      });
+
+      it('refuses an approval bound to another cash amount', () => {
+        seedApproval(db, { amount: 1400 });
+        expect(() => {
+          insert(row);
+        }).toThrow(/approval/);
+      });
+
+      it('refuses an approval of another policy version', () => {
+        seedApproval(db, { policy: 'rt114-2025-01-01' });
+        expect(() => {
+          insert(row);
+        }).toThrow(/approval/);
+      });
+
+      it('compares the approval id as stored (lower case): an upper-case id finds no approval', () => {
+        seedApproval(db);
+        expect(() => {
+          insert({ ...row, exception_approval_id: APPROVAL_B.toUpperCase() });
+        }).toThrow(/approval/);
+        insert(row);
+        expect(count()).toBe(1);
       });
 
       it('refuses an approval that was never spent', () => {

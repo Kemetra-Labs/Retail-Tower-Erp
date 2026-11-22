@@ -40,7 +40,8 @@
 --   void_id           the confirmed void (0054); PRIMARY KEY: one claim per void
 --   sale_id           the voided sale; UNIQUE: one claim per sale
 --   shift_id          the open shift that claimed it (the record that completes it is in the same shift)
---   business_date     the void's business day
+--   business_date     the business day of the claim (the day of `claimed_at`); the trigger requires it to
+--                     be the void's own day
 --   claimed_by_*, claimed_at   who started it, in which session, when (immutable)
 --   kick_outcome, kick_count, kicked_at   the drawer kick, as in 0040: `sending` is written before the
 --                     transport is called (after a crash it reads as unknown); `opened`;
@@ -81,7 +82,7 @@
 --             claim (a `payout` needs its claim, in the same shift; a `drawer` record needs a kick that
 --             opened, a `no_drawer` record a kick that never left, and no kick may be in flight),
 --             exception_approval (the approval exists, is of kind `sale.void_cash_exception`, is spent,
---             and covers this void, this terminal and this approver), no_update, no_delete
+--             and covers this void, terminal, cash amount and policy, for this requester and approver), no_update, no_delete
 --
 -- ## §A2 migration safety
 --
@@ -367,16 +368,21 @@ BEGIN
 END;
 
 -- An exception cites a real, spent RT-114 approval of kind `sale.void_cash_exception` that covers THIS
--- void on this terminal and names THIS approver.
+-- void on this terminal, bound to THIS cash amount and policy, granted to THIS requester by THIS
+-- approver. 0048 stores `approval_id` in lower case (a CHECK), so it is compared directly and the
+-- primary-key index is used; an upper-case id in the evidence simply finds no approval.
 CREATE TRIGGER IF NOT EXISTS trg_sale_void_payouts_exception_approval
 BEFORE INSERT ON sale_void_payouts
 WHEN NEW.kind = 'exception' AND NOT EXISTS (
   SELECT 1 FROM manager_approvals a
-   WHERE lower(a.approval_id) = lower(NEW.exception_approval_id)
+   WHERE a.approval_id = NEW.exception_approval_id
      AND a.action_kind = 'sale.void_cash_exception'
      AND a.subject_ref = NEW.void_id
      AND a.tenant_id = NEW.tenant_id AND a.branch_id = NEW.branch_id
      AND a.terminal_id = NEW.terminal_id
+     AND a.amount_minor = NEW.amount_minor
+     AND a.policy_version = NEW.exception_policy_version
+     AND lower(a.requester_user_id) = lower(NEW.exception_requester_user_id)
      AND lower(a.approver_user_id) = lower(NEW.exception_approver_user_id)
      AND a.consumed_at IS NOT NULL
 )
