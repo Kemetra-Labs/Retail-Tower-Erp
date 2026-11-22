@@ -405,12 +405,19 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
         sessionId: admitted.session.sessionId,
       };
       for (const row of recent) deps.payout.flagUnpaid(row, actor);
-      // A refusal stays visible until acknowledged, however many newer voids exist.
+      // A refusal stays visible until acknowledged, and a payout claim with no record until it is
+      // settled (drawer cash in flight, or a stale claim only a manager exception settles),
+      // however many newer voids exist (RT-1403 c18188 M1).
       const listed = new Set(recent.map((row) => row.voidId));
-      const olderRefused = deps.repo
-        .listUnacknowledgedRefused(scope)
-        .filter((row) => !listed.has(row.voidId));
-      return { kind: 'list', voids: [...recent, ...olderRefused].map(journalView) };
+      const older = [
+        ...deps.repo.listUnacknowledgedRefused(scope),
+        ...deps.repo.listWithUnsettledClaim(scope),
+      ].filter((row) => {
+        if (listed.has(row.voidId)) return false;
+        listed.add(row.voidId);
+        return true;
+      });
+      return { kind: 'list', voids: [...recent, ...older].map(journalView) };
     },
 
     payOut: (req: SaleVoidPayOutRequest): Promise<SaleVoidPayOutResponse> =>

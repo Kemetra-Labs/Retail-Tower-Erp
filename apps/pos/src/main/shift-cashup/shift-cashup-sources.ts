@@ -37,7 +37,12 @@
  *   • refundPayouts     RT-15 payouts started (the drawer may already be
  *                       open) but not completed (`paid_at IS NULL`);
  *   • voidPayouts       RT-1403 S2 void payout claims (migration 0069) with no
- *                       payout record yet: same shape, same hold;
+ *                       payout record yet, while the claim's own shift is open: same
+ *                       shape, same hold. A claim whose shift is closed (locally or by a
+ *                       manager closure) is stale: it holds nothing, and only the
+ *                       manager-attested cash exception settles it. Exception: a stale
+ *                       claim whose kick is still `sending` within its 10 s lease keeps
+ *                       holding (the drawer may yet open);
  *   • unfinalizedSales  `payment.settled` audits of the terminal that the 008
  *                       finalize listener has not turned into a sale yet —
  *                       the listener's own pending-set filter — PLUS (RT-496)
@@ -53,6 +58,7 @@
 import type { DatabaseHandle } from '../db/client.js';
 import { UNFINALIZED_SETTLEMENT_FILTER } from '../sales/finalize-listener.js';
 import { STRANDED_SETTLEMENT_FILTER } from '../payments/settled-audit-reconciler.js';
+import { withinKickLease } from '../returns/returns-drawer.js';
 import type { CashupRefund, CashupSale, CashupVoidPayout } from './shift-cashup-calculator.js';
 import type { ShiftScope } from './shift-cashup-repo.js';
 
@@ -75,7 +81,8 @@ export interface PendingDrawerActivity {
   refundPayouts: number;
   /**
    * RT-1403 S2 (H1, M1): void payouts CLAIMED (the drawer may be open or the kick unresolved) with no
-   * payout record yet: the shift cannot close over them.
+   * payout record yet, in a shift that is still open: that shift cannot close over them. A claim of a
+   * closed shift is not counted (c18183): it never blocks the next shift from opening.
    */
   voidPayouts: number;
   unfinalizedSales: number;
@@ -92,7 +99,11 @@ export interface ShiftCashupSources {
   voidsIn(query: CashupSourceQuery): CashupVoidPayout[];
   /** The `closedAt` of the scope's latest local close; null when none. */
   lastClosedAt(scope: ShiftScope): string | null;
-  pendingDrawerActivity(scope: ShiftScope): PendingDrawerActivity;
+  /**
+   * `now` (ISO) judges the lease of a kick still `sending` on a stale void claim; without it such a
+   * kick counts (conservative, as `kickStateOf` without a clock).
+   */
+  pendingDrawerActivity(scope: ShiftScope, now?: string): PendingDrawerActivity;
   /**
    * RT-440 (spec 024 K4, OP-2) — parked sales on the scope's terminal, whoever
    * parked them. A count only: no owner, label or amount.
@@ -157,11 +168,34 @@ const PENDING_PAYOUTS_SQL = `
   FROM return_payouts p JOIN return_journal j ON j.return_id = p.return_id
   WHERE j.tenant_id = ? AND j.branch_id = ? AND j.terminal_id = ? AND p.paid_at IS NULL`;
 
+/**
+ * Void payout claims that hold the till: no record yet AND the claim's own shift still open (no
+ * close, no manager closure: the repo's definition of an open shift). A claim whose shift is gone can
+ * never be completed by `retry_drawer` or `manual` (they need that shift), so it must not block the
+ * next shift from opening; only the manager-attested cash exception settles it (RT-1403 c18183).
+ */
 const PENDING_VOID_PAYOUTS_SQL = `
   SELECT COUNT(*) AS n
   FROM sale_void_payout_claims c
   WHERE c.tenant_id = ? AND c.branch_id = ? AND c.terminal_id = ?
-    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)`;
+    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_cashup_closes cl WHERE cl.shift_id = c.shift_id)
+    AND NOT EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = c.shift_id)`;
+
+/**
+ * The kicks of stale claims (no record, shift gone) still `sending`: such a drawer may yet open, so
+ * while its lease runs (the same 10 s as `kickStateOf` and the 0069 trigger) the claim keeps holding
+ * the till even though its shift is closed (c18188 L1). The lease is judged in TS, on the caller's
+ * clock, exactly as the kick rule does.
+ */
+const STALE_SENDING_VOID_KICKS_SQL = `
+  SELECT c.kicked_at AS kickedAt
+  FROM sale_void_payout_claims c
+  WHERE c.tenant_id = ? AND c.branch_id = ? AND c.terminal_id = ?
+    AND c.kick_outcome = 'sending'
+    AND NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id)
+    AND (EXISTS (SELECT 1 FROM shift_cashup_closes cl WHERE cl.shift_id = c.shift_id)
+      OR EXISTS (SELECT 1 FROM shift_manager_closures m WHERE m.shift_id = c.shift_id))`;
 
 const PARKED_SALES_SQL = `
   SELECT COUNT(*) AS n FROM carts
@@ -188,6 +222,17 @@ export function createShiftCashupSources(db: DatabaseHandle): ShiftCashupSources
     return stmt.get(...scopeParams(scope))?.closedAt ?? null;
   }
 
+  /** Void claims of an open shift, plus stale ones whose kick is still within its lease. */
+  function pendingVoidPayouts(scope: ShiftScope, now: string | undefined): number {
+    const kicks = (
+      db.prepare(STALE_SENDING_VOID_KICKS_SQL) as PrepareAll<{ kickedAt: string }>
+    ).all(...scopeParams(scope));
+    const inLease = kicks.filter(
+      ({ kickedAt }) => now === undefined || withinKickLease(kickedAt, now),
+    ).length;
+    return count(PENDING_VOID_PAYOUTS_SQL, scopeParams(scope)) + inLease;
+  }
+
   function read<Row>(sql: string, query: CashupSourceQuery): Row[] {
     const { window } = query;
     return (db.prepare(sql) as PrepareAll<Row>).all(
@@ -203,9 +248,9 @@ export function createShiftCashupSources(db: DatabaseHandle): ShiftCashupSources
     refundsIn: (query) => read<CashupRefund>(REFUNDS_SQL, query),
     voidsIn: (query) => read<CashupVoidPayout>(VOIDS_SQL, query),
     lastClosedAt,
-    pendingDrawerActivity: (scope) => ({
+    pendingDrawerActivity: (scope, now) => ({
       refundPayouts: count(PENDING_PAYOUTS_SQL, scopeParams(scope)),
-      voidPayouts: count(PENDING_VOID_PAYOUTS_SQL, scopeParams(scope)),
+      voidPayouts: pendingVoidPayouts(scope, now),
       unfinalizedSales:
         count(UNFINALIZED_SALES_SQL, [scope.terminalId]) +
         count(STRANDED_SETTLEMENTS_SQL, scopeParams(scope)),

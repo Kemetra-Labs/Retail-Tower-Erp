@@ -594,6 +594,94 @@ describe('lookup, list and acknowledge', () => {
   });
 });
 
+describe('an unsettled payout claim never drops out of the list (RT-1403 c18188 M1)', () => {
+  const SHIFT = '0192f5a2-3b4c-7d8e-9f01-0000000000a1';
+
+  /** The oldest void is confirmed and its payout claimed (no record), in a shift open before it. */
+  async function claimedOldest(): Promise<string> {
+    const answer = await request('sale-1', await approvedId());
+    if (answer.kind !== 'requested') throw new Error('not requested');
+    const voidId = answer.void.void_id;
+    raw.run(
+      `INSERT INTO shift_cashup_opens (shift_id, tenant_id, branch_id, terminal_id, opening_user_id,
+         currency_code, opening_float_minor, opened_at, created_at)
+       VALUES (?, ?, ?, ?, ?, 'EGP', 0, '2026-06-07T08:00:00.000Z', '2026-06-07T08:00:00.000Z')`,
+      [SHIFT, SCOPE.tenantId, SCOPE.branchId, SCOPE.terminalId, MONA.userId],
+    );
+    journal.markConfirmed({
+      voidId,
+      voidRef: '0190f5a2-7b3c-7d4e-8f90-0000000000d1',
+      now: clock,
+    });
+    createSaleVoidPayoutRepository(handleFor(raw)).startClaim({
+      voidId,
+      saleId: 'sale-1',
+      scope: SCOPE,
+      shiftId: SHIFT,
+      businessDate: '2026-06-07',
+      claimedBy: { operatorId: 'op-mona', displayName: 'Mona', sessionId: 'sess-1' },
+      claimedAt: clock,
+    });
+    return voidId;
+  }
+
+  function bulkVoids(count: number): void {
+    for (let n = 1; n <= count; n += 1) {
+      seedSale(raw, { sale_id: `bulk-${String(n)}` });
+      journal.insert(
+        newVoidEntry(n, {
+          voidId: `bulk-v${String(n)}`,
+          saleId: `bulk-${String(n)}`,
+          externalId: `pos-pulse-void:0190f5a2-7b3c-7d4e-8f91-${String(n).padStart(12, '0')}`,
+          approvalId: `0190f5a2-7b3c-7d4e-8f90-${String(n + 500).padStart(12, '0')}`,
+          now: `2026-06-07T11:${String(n % 60).padStart(2, '0')}:00.000Z`,
+        }),
+      );
+    }
+  }
+
+  it('lists an older claim with no record beyond the recent limit, once', async () => {
+    const claimedId = await claimedOldest();
+    bulkVoids(SALE_VOID_LIST_LIMIT + 1);
+    expect(journal.listRecent(SCOPE, SALE_VOID_LIST_LIMIT).map((v) => v.voidId)).not.toContain(
+      claimedId,
+    );
+    const listed = await voids.list();
+    if (listed.kind !== 'list') throw new Error(`expected a list, got ${listed.kind}`);
+    const ids = listed.voids.map((v) => v.void_id);
+    expect(ids).toHaveLength(SALE_VOID_LIST_LIMIT + 1);
+    expect(new Set(ids).size).toBe(ids.length);
+    expect(listed.voids.find((v) => v.void_id === claimedId)).toMatchObject({
+      needs_attention: true,
+      payout: { state: 'claimed' },
+    });
+  });
+
+  it('does not list it twice when it is among the newest', async () => {
+    const claimedId = await claimedOldest();
+    const listed = await voids.list();
+    if (listed.kind !== 'list') throw new Error(`expected a list, got ${listed.kind}`);
+    expect(listed.voids.map((v) => v.void_id)).toEqual([claimedId]);
+  });
+
+  it('stops forcing it once a record settles it', async () => {
+    const claimedId = await claimedOldest();
+    bulkVoids(SALE_VOID_LIST_LIMIT + 1);
+    raw.run(
+      `INSERT INTO sale_void_payouts (payout_id, void_id, sale_id, tenant_id, branch_id, terminal_id,
+         shift_id, business_date, kind, method, amount_minor, currency_code, void_state, paid_at,
+         paid_by_operator_id, paid_by_display_name, paid_by_session_id)
+       VALUES ('0192f5a2-3b4c-7d8e-9f01-0000000000b1', ?, 'sale-1', ?, ?, ?, ?, '2026-06-07',
+         'payout', 'manual', 1500, 'EGP', 'confirmed', ?, 'op-mona', 'Mona', 'sess-1')`,
+      [claimedId, SCOPE.tenantId, SCOPE.branchId, SCOPE.terminalId, SHIFT, clock],
+    );
+    const listed = await voids.list();
+    if (listed.kind !== 'list') throw new Error(`expected a list, got ${listed.kind}`);
+    expect(listed.voids).toHaveLength(SALE_VOID_LIST_LIMIT);
+    expect(listed.voids.map((v) => v.void_id)).not.toContain(claimedId);
+  });
+});
+
 describe('RT-1403 S2: the cash of a void through the bridge', () => {
   it('a journal row carries its cash and no payout; a request moves no cash', async () => {
     await request('sale-1', await approvedId());

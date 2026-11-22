@@ -14,7 +14,14 @@ import '@testing-library/jest-dom/vitest';
 import type { SaleVoidJournalView } from '../../../../shared/sale-void/types';
 import type { Role } from '../../../../shared/operator/role';
 import { useOperatorSessionStore } from '../../../stores/operator-session-store';
-import { VOID_COPY, voidMismatchMessage, voidRefusalMessage, voidStateLabel } from '../void-copy';
+import { formatShiftTime } from '../../shift/shift-format';
+import {
+  VOID_COPY,
+  voidClaimOpenedWarning,
+  voidMismatchMessage,
+  voidRefusalMessage,
+  voidStateLabel,
+} from '../void-copy';
 import { VoidScreen } from '../VoidScreen';
 import {
   MANAGER,
@@ -250,6 +257,68 @@ describe('a claimed payout (the drawer may be open)', () => {
     expect(button(r, VOID_COPY.retryDrawer)).not.toBeInTheDocument();
     expect(button(r, VOID_COPY.manualComplete)).not.toBeInTheDocument();
     expect(exceptionButton(r)).toBeInTheDocument();
+  });
+
+  const stale = (
+    kick: 'unknown' | 'opened' | 'failed_before_send' | 'in_flight',
+  ): SaleVoidJournalView =>
+    confirmed({
+      needs_attention: true,
+      payout: {
+        ...NO_PAYOUT,
+        state: 'claimed',
+        claim_actions: [],
+        claim_window_closed: true,
+        claim_kick_state: kick,
+        claimed_at: '2026-06-07T10:45:00.000Z',
+      },
+    });
+
+  it('a claim whose window closed says it needs another manager, offers only the exception, and never a retry or manual step', async () => {
+    show([stale('unknown')]);
+    const r = await row();
+    expect(r).toHaveTextContent(VOID_COPY.claimed);
+    expect(r).toHaveTextContent(VOID_COPY.claimWindowClosed);
+    expect(button(r, VOID_COPY.retryDrawer)).not.toBeInTheDocument();
+    expect(button(r, VOID_COPY.manualComplete)).not.toBeInTheDocument();
+    expect(exceptionButton(r)).toBeInTheDocument();
+  });
+
+  it('a stale claim tells the manager an earlier shift’s drawer shows as an overage in this shift’s count', async () => {
+    show([stale('unknown')]);
+    expect(await row()).toHaveTextContent(VOID_COPY.claimStaleOverage);
+  });
+
+  it('a stale claim never shows the drawer-may-be-open instruction beside the exception path', async () => {
+    show([stale('unknown')]);
+    expect(await row()).not.toHaveTextContent(VOID_COPY.drawerMayBeOpen);
+  });
+
+  it('a stale claim whose drawer opened warns, with the date, to confirm the customer was not already paid', async () => {
+    show([stale('opened')]);
+    const r = await row();
+    expect(r).toHaveTextContent(voidClaimOpenedWarning('2026-06-07T10:45:00.000Z'));
+    expect(r).toHaveTextContent(formatShiftTime('2026-06-07T10:45:00.000Z'));
+    expect(r).not.toHaveTextContent(VOID_COPY.drawerMayBeOpen);
+    expect(exceptionButton(r)).toBeInTheDocument();
+  });
+
+  it.each(['unknown', 'failed_before_send', 'in_flight'] as const)(
+    'a stale claim with kick %s shows no drawer-opened warning',
+    async (kick) => {
+      show([stale(kick)]);
+      const r = await row();
+      expect(r).not.toHaveTextContent(voidClaimOpenedWarning('2026-06-07T10:45:00.000Z'));
+      expect(r).toHaveTextContent(VOID_COPY.claimWindowClosed);
+    },
+  );
+
+  it('a claim still inside its window keeps the drawer-may-be-open warning and shows none of the stale copy', async () => {
+    show([claimed(['manual'])]);
+    const r = await row();
+    expect(r).toHaveTextContent(VOID_COPY.drawerMayBeOpen);
+    expect(r).not.toHaveTextContent(VOID_COPY.claimWindowClosed);
+    expect(r).not.toHaveTextContent(VOID_COPY.claimStaleOverage);
   });
 
   it('shows a cashier the warning and no payout step (a manager completes it)', async () => {

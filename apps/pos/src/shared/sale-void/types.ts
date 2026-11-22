@@ -197,6 +197,20 @@ export interface SaleVoidPayoutView {
   /** Set only on a `claimed` payout: the steps a manager may still take. */
   claim_actions: readonly SaleVoidClaimAction[];
   /**
+   * Set (true) only on a `claimed` payout whose window has closed: its shift is no longer the open
+   * one (closed, or force-closed by a manager on the server), or its business day has passed. No step
+   * can complete it; only another manager's cash exception, in an open shift, settles it
+   * (RT-1403 c18183).
+   */
+  claim_window_closed?: true;
+  /**
+   * Set only with `claim_window_closed`: what the claim's drawer kick proved (`opened`: the drawer
+   * opened and cash may have been handed over; `in_flight`: still sending within its lease), so the
+   * manager can check before paying again, and `claimed_at` (ISO) the instant it was claimed.
+   */
+  claim_kick_state?: 'none' | 'in_flight' | 'opened' | 'failed_before_send' | 'unknown';
+  claimed_at?: string;
+  /**
    * A confirmed void with cash that was never paid out and whose payout window (day or shift) has
    * passed: flagged for the manager (audit only; no stored flag).
    */

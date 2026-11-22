@@ -96,6 +96,11 @@ export interface SaleVoidRepository {
   listUnresolved(scope: VoidScope): VoidEntry[];
   /** This terminal's refused voids staff have not acknowledged. */
   listUnacknowledgedRefused(scope: VoidScope): VoidEntry[];
+  /**
+   * This terminal's voids whose payout was claimed and has no payout record yet (drawer cash in
+   * flight, or a stale claim only a manager exception settles), oldest first, whatever their age.
+   */
+  listWithUnsettledClaim(scope: VoidScope): VoidEntry[];
   recordAttempt(stamp: VoidStamp): void;
   /** pending/unknown -> unknown. False when the row was already final. */
   markUnknown(input: UnknownInput): boolean;
@@ -291,6 +296,17 @@ class SqlSaleVoidRepository implements SaleVoidRepository {
     return this.many(
       `SELECT * FROM sale_void_journal WHERE ${SCOPE_WHERE}
         AND state = 'refused' AND acknowledged_at IS NULL
+        ORDER BY requested_at ASC, void_id ASC`,
+      ...scopeParams(scope),
+    );
+  }
+
+  listWithUnsettledClaim(scope: VoidScope): VoidEntry[] {
+    return this.many(
+      `SELECT * FROM sale_void_journal WHERE ${SCOPE_WHERE}
+        AND void_id IN (
+          SELECT c.void_id FROM sale_void_payout_claims c
+           WHERE NOT EXISTS (SELECT 1 FROM sale_void_payouts p WHERE p.void_id = c.void_id))
         ORDER BY requested_at ASC, void_id ASC`,
       ...scopeParams(scope),
     );

@@ -2,7 +2,13 @@ import { useState, type JSX } from 'react';
 
 import type { SaleVoidJournalView, SaleVoidPayoutAction } from '../../../shared/sale-void/types';
 import { useSingleFlight } from '../shift/shift-bridge';
-import { VOID_COPY, voidMismatchMessage, voidRefusalMessage, voidStateLabel } from './void-copy';
+import {
+  VOID_COPY,
+  voidClaimOpenedWarning,
+  voidMismatchMessage,
+  voidRefusalMessage,
+  voidStateLabel,
+} from './void-copy';
 import type { VoidBridges } from './void-bridges';
 import { VoidAlert, VoidMoney, VoidTime } from './void-parts';
 import './void.css';
@@ -130,9 +136,31 @@ function RecordedCash({ entry }: { entry: SaleVoidJournalView }): JSX.Element {
 }
 
 /**
+ * What a claimed payout warns about. Inside its window the drawer may be open and nothing is handed
+ * over until a manager confirms. A STALE claim (its shift is gone or its day passed) cannot be
+ * completed that way: it says only another manager's exception settles it, that an earlier shift's
+ * drawer shows as an overage here, and, when the drawer opened, the date, so the manager checks the
+ * customer was not already paid (RT-1403 c18188 M2, M3, L3). One coherent set, never both.
+ */
+function ClaimWarnings({ entry }: { entry: SaleVoidJournalView }): JSX.Element {
+  const { payout } = entry;
+  if (payout.claim_window_closed !== true) return <VoidAlert message={VOID_COPY.drawerMayBeOpen} />;
+  return (
+    <>
+      <VoidAlert message={VOID_COPY.claimWindowClosed} />
+      {payout.claim_kick_state === 'opened' && payout.claimed_at !== undefined && (
+        <VoidAlert message={voidClaimOpenedWarning(payout.claimed_at)} />
+      )}
+      <p className="v5-void-row__meta">{VOID_COPY.claimStaleOverage}</p>
+    </>
+  );
+}
+
+/**
  * A payout that was claimed and has no record: the drawer may be open (RT-15's rule). A manager may
  * retry the drawer (only after a kick that never left) or complete it by hand; anyone may ask for the
- * manager-attested exception.
+ * manager-attested exception. A claim whose window closed (its shift is gone, or the day passed) says
+ * so and offers only that exception (RT-1403 c18183).
  */
 function ClaimedCash(props: CashProps): JSX.Element {
   const { entry } = props;
@@ -142,7 +170,7 @@ function ClaimedCash(props: CashProps): JSX.Element {
       <span>
         {VOID_COPY.claimed}: <VoidMoney minor={entry.cash_minor} />
       </span>
-      <VoidAlert message={VOID_COPY.drawerMayBeOpen} />
+      <ClaimWarnings entry={entry} />
       {error !== null && <VoidAlert message={error} />}
       <div className="v5-void-row__actions">
         {props.canPayOut &&
