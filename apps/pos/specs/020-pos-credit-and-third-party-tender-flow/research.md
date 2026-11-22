@@ -97,4 +97,4 @@ only. These are why the spec labels all copy as proposed and adds no shortcut.
 | R-FRESH, R-NOSUBMIT | consumption note section 2; spec scenarios 4, 9, 10 |
 | FR-6, FR-7, FR-8 | consumption note section 4; data-model E4 |
 | FR-9, Q-5, Q-6 | spec scenario 13; data-model E5 |
-| D-1 to D-7, Q-1 to Q-9 | spec Dependencies and Owner questions |
+| D-1 to D-8, Q-1 to Q-10 | spec Dependencies and Owner questions |

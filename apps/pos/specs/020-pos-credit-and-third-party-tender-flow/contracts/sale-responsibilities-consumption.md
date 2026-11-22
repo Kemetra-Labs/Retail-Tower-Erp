@@ -46,6 +46,7 @@ operation (Q-7), ERPNext or the Connector.
 |:--|:--|:--|
 | `responsibilities` | The picked payer and the entered amount | Exactly one entry: `payerRef` (uuid from the live read), `amount` (positive exact-decimal string, at most 15 integer and 4 fraction digits), `sequence` 1. Part of the sale `payload_hash`. |
 | `tenders` | The immediate tender, net of change | Present only when a tender exists. Absent means zero for the coverage rule. A responsibility is never turned into a tender. |
+| line `promotion` | Never sent on a credit sale | The contract refuses `promotion` together with `responsibilities` (400). The till applies no offer to a credit sale (spec R-NOPROMO, FR-12, Q-10). |
 | everything else | Unchanged from today's capture | The till adds no other field for credit. No tenant, store or actor field is sent. |
 
 Coverage rule (server, exact decimal, no rounding): `sum(tenders) + sum(responsibilities) = posTotal`.
@@ -80,7 +81,7 @@ No outcome finalizes the sale except an accepted capture. Copy is **proposed** a
 | 201 created, or 200 replay | Capture accepted | Finalize the sale once; clear the attempt; show completion. |
 | 401 | Envelope missing, expired or revoked | Do not finalize. Ask the manager to sign in again. The attempt and cart are kept. |
 | 403 `sale_responsibility_role_refused` | Operator may not charge a payer | Do not finalize. Close the credit option with a generic reason ("this account cannot record credit"). Cart intact. |
-| 400 `validation_error` | Body defect (for example duplicate `sequence`) | Do not finalize, do not retry. Treat as a till defect: blocked state, logged with the request id. |
+| 400 `validation_error` | Body defect (for example duplicate `sequence`, or a `promotion` sent with `responsibilities`) | Do not finalize, do not retry. Treat as a till defect: blocked state, logged with the request id. |
 | 409 | Same key, different payload | Do not finalize, do not retry. Surface a blocked state; the attempt is not auto-repaired. |
 | 422 `sale_responsibility_mismatch` | Coverage rule failed | Do not finalize. Show the coverage reason. Also log as a defect, because the local pre-check should have blocked it. |
 | 422 `sale_responsibility_payer_invalid` | Payer not chargeable now (one body for every cause) | Do not finalize. Return to the picker with a fresh read; do not say which attribute failed. |
