@@ -10,8 +10,14 @@
  * What it enqueues (one row per allocation of the STORED request body, frozen bytes):
  *   • nothing for a return whose body carries no usable allocation refs (every return journaled
  *     before RT-1543, a zero-total return, a partial or repeated ref) — all or none;
- *   • nothing, with a warning, when the terminal has no open shift: the contract requires
- *     `evidence.shiftRef` and none is invented (owed decision on RT-1543);
+ *   • the shift that paid is the shift open now or, when none is, the shift that was open when the
+ *     payout was CLAIMED (a manager may have closed it on the server since: a claim blocks opening
+ *     a shift, so the payout completes with no shift open). Backend-Core records
+ *     `evidence.shiftRef` as reported: it checks neither that the shift is open, nor that `paidAt`
+ *     falls inside it, nor the device (`refund-executions.service.ts`: one shiftRef per return and
+ *     `paidAt` at most 120 s ahead of its clock), so the claim-time shift is accepted;
+ *   • nothing, with a warning, when neither exists (a claim made while shift cash-up was off): the
+ *     contract requires `evidence.shiftRef` and none is invented;
  *   • nothing, with a warning, when the journal row has no server `returnRef` (cannot happen for a
  *     confirmed return).
  */
@@ -30,16 +36,22 @@ export interface ExecutionEnqueueDeps {
   readonly repo: Pick<ReturnExecutionsRepository, 'enqueue'>;
   /** The terminal's open shift id (the shift whose drawer paid), or null when none is open. */
   readonly openShiftRef: (scope: ReturnScope) => string | null;
+  /** The shift that was open on the terminal at an instant (the payout's claim), or null. */
+  readonly shiftRefAt: (scope: ReturnScope, at: string) => string | null;
   /** A fresh `executionRef` (UUIDv7). */
   readonly newExecutionRef: () => string;
   readonly logger: { warn(obj: Record<string, unknown>, msg: string): void };
 }
 
-/** Enqueue the executions of `entry`, paid out by `method` at `paidAt` (the commit's own stamp). */
+/**
+ * Enqueue the executions of `entry`, paid out by `method` at `paidAt` (the commit's own stamp), for
+ * a payout claimed at `claimedAt`.
+ */
 export type EnqueueExecutions = (
   entry: JournalEntry,
   method: ReturnPayoutMethod,
   paidAt: string,
+  claimedAt: string,
 ) => void;
 
 /**
@@ -50,6 +62,16 @@ export function openShiftRefOf(
   shifts: Pick<ShiftCashupRepo, 'findOpenShift'>,
 ): (scope: ReturnScope) => string | null {
   return (scope) => shifts.findOpenShift(scope)?.shiftId ?? null;
+}
+
+/**
+ * The id of the shift that was open at an instant, from the shift cash-up records, or null (none
+ * then). Kept here, apart from the composition root, so it is tested.
+ */
+export function shiftRefAtOf(
+  shifts: Pick<ShiftCashupRepo, 'findShiftAt'>,
+): (scope: ReturnScope, at: string) => string | null {
+  return (scope, at) => shifts.findShiftAt(scope, at);
 }
 
 /**
@@ -65,15 +87,33 @@ function readShiftRef(deps: ExecutionEnqueueDeps, scope: ReturnScope): string | 
   }
 }
 
+/**
+ * The shift that was open when the payout was claimed, or null. Read only when no shift is open
+ * now; a failed read counts as no shift (logged), like `readShiftRef`.
+ */
+function readClaimShiftRef(
+  deps: ExecutionEnqueueDeps,
+  scope: ReturnScope,
+  claimedAt: string,
+): string | null {
+  try {
+    return deps.shiftRefAt(scope, claimedAt);
+  } catch {
+    deps.logger.warn({}, 'returns:execution_claim_shift_read_failed');
+    return null;
+  }
+}
+
 export function createExecutionEnqueuer(deps: ExecutionEnqueueDeps): EnqueueExecutions {
-  return (entry, method, paidAt) => {
+  return (entry, method, paidAt, claimedAt) => {
     const allocations = readAllocations(entry.requestBodyJson);
     if (allocations.length === 0) return;
     if (entry.returnRef === null) {
       deps.logger.warn({ return_id: entry.returnId }, 'returns:execution_no_return_ref');
       return;
     }
-    const shiftRef = readShiftRef(deps, entry.scope);
+    const shiftRef =
+      readShiftRef(deps, entry.scope) ?? readClaimShiftRef(deps, entry.scope, claimedAt);
     if (shiftRef === null) {
       deps.logger.warn({ return_id: entry.returnId }, 'returns:execution_no_open_shift');
       return;

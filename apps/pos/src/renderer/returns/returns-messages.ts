@@ -79,7 +79,8 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
     'يجري صرف مرتجع آخر على هذا الجهاز الآن، فلم يُنفَّذ شيء. انتظر حتى ينتهي ثم حدّث الحالة.',
   slip_total_mismatch:
     'لا تطابق مبالغ الأصناف إجمالي الاسترداد، فلم يُطبع الإيصال. الصرف نفسه سليم.',
-  // RT-1543 follow-up — PROPOSED copy (owner copy review pending): no open shift, nothing was paid.
+  // RT-1543 follow-up — PROPOSED copy (owner copy review pending): a NEW payout with no open shift;
+  // main answers it only before any claim, kick or write, so no cash was paid.
   payout_no_open_shift:
     'لا توجد وردية مفتوحة على هذا الجهاز، فلم يُصرف أي نقد. افتح وردية أولًا ثم حدّث الحالة وأعد الصرف.',
 });

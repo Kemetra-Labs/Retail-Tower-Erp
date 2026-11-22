@@ -28,7 +28,7 @@ import {
 } from '../returns/returns-resolve-approval.js';
 import { operatorUserIdOf } from '../sale-void/sale-void-session.js';
 import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
-import { openShiftRefOf } from '../returns/returns-execution-enqueue.js';
+import { openShiftRefOf, shiftRefAtOf } from '../returns/returns-execution-enqueue.js';
 import { resolveApiBaseUrl } from './env.js';
 
 /** What `registerReturns` closes over from the composition root (RT-893 extraction 5). */
@@ -112,6 +112,7 @@ export function registerReturns(deps: ReturnsDeps): void {
   // (startup + interval) re-sends `pending` / `unknown` returns with the
   // identical request; it is scheduled with the flag on and resolves pairing +
   // operator live on every tick.
+  const shiftRecords = createShiftCashupRepo(db);
   const returnsDomain = composeReturns({
     db,
     http: {
@@ -135,9 +136,12 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-1403 S2 (M1): the void payout holds the same drawer: one at a time.
     drawerSlot: terminalDrawerSlot,
     printer: printPipeline,
-    // RT-1543: the shift whose drawer paid, for the refund execution's evidence. None open (or
-    // shift cash-up off, so none can be): no execution is reported for that payout.
-    openShiftRef: openShiftRefOf(createShiftCashupRepo(db)),
+    // RT-1543: the shift whose drawer paid, for the refund execution's evidence. None open now and
+    // none at the claim (shift cash-up was off, so none could be): no execution is reported.
+    openShiftRef: openShiftRefOf(shiftRecords),
+    // RT-1543 follow-up: a payout claimed while a shift was open and completed after a manager
+    // closed it (a claim blocks opening a shift) reports its execution with that claim-time shift.
+    shiftRefAt: shiftRefAtOf(shiftRecords),
     // RT-1543: the same signal the shift-cashup bootstrap uses, read per call. Without it no till
     // has a shift, so a new return carries no allocationRef and reports no execution.
     isShiftCashupEnabled: () => resolveFeatureFlags().shiftCashup,

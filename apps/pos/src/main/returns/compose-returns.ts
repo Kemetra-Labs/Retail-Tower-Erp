@@ -93,6 +93,12 @@ export interface ComposeReturnsDeps {
    */
   readonly openShiftRef: (scope: ReturnScope) => string | null;
   /**
+   * RT-1543 follow-up: the shift that was open on the terminal at an instant (the payout's claim),
+   * or null. Read only when no shift is open now, so a payout claimed while a shift was open and
+   * completed after a manager closed it still reports its execution with that shift.
+   */
+  readonly shiftRefAt: (scope: ReturnScope, at: string) => string | null;
+  /**
    * RT-1543: true when shift cash-up is enabled for this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`,
    * read per call). Only such a till can report a refund execution (the contract requires the
    * shift), so only a NEW return of such a till carries an `allocationRef`. A till without it sends
@@ -239,6 +245,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     enqueueExecutions: createExecutionEnqueuer({
       repo: executions,
       openShiftRef: deps.openShiftRef,
+      shiftRefAt: deps.shiftRefAt,
       newExecutionRef: () => uuidv7(),
       logger: deps.logger,
     }),

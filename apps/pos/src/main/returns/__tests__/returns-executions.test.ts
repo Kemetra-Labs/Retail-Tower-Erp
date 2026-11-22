@@ -282,9 +282,10 @@ describe('a failed, refused or unknown payout records nothing', () => {
     expect(h.drawer.kicks).toBe(0);
   });
 
-  it('a shift lost between the payout check and its commit still completes the payout: no execution is invented, a warning is logged', async () => {
+  it('no shift open at the commit and none recorded at the claim: the payout still completes, no execution is invented, a warning is logged (the claim-time shift is covered in returns-payout-claim-shift.test.ts)', async () => {
     const returnId = await confirmedReturn(h.service);
-    // The drawer kick is the only await between the check and the commit.
+    // The fake shift records name no shift at the claim either; the kick is the only await between
+    // the check and the commit.
     h.drawer.onKick = () => {
       h.state.shiftRef = null;
     };

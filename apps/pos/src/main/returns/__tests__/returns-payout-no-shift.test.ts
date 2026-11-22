@@ -2,13 +2,14 @@
  * RT-1543 follow-up (owner decision c18146) — a cash return payout needs an open shift when shift
  * cash-up is on for the till.
  *
- *   • shift cash-up on + no open shift: every payout action (`start`, `retry_drawer`, `manual`) is
- *     refused `payout_no_open_shift` BEFORE the drawer slot is taken, so nothing is claimed, kicked,
- *     marked `paid_out` or outboxed, and the refusal is audited like every other payout refusal;
+ *   • shift cash-up on + no open shift: a NEW payout (`start`, no claim yet) is refused
+ *     `payout_no_open_shift` BEFORE the drawer slot is taken, so nothing is claimed, kicked, marked
+ *     `paid_out` or outboxed, and the refusal is audited like every other payout refusal;
+ *   • a payout that is already claimed is never gated: `start` on it, `retry_drawer` and `manual`
+ *     answer exactly as without the rule (a claim blocks opening a shift, so gating its completion
+ *     would deadlock the till: see `returns-payout-claim-shift.test.ts`);
  *   • shift cash-up on + an open shift, and shift cash-up off: today's behaviour, unchanged;
  *   • both reads are per call, and a read that throws refuses (fail closed);
- *   • a claim made while a shift was open and then lost (a manager force-close on the server) is not
- *     stranded: the payout completes once a shift is open again.
  *
  * Over the real composed domain on sql.js, with a fake drawer, printer and Backend-Core.
  */
@@ -107,18 +108,20 @@ describe('shift cash-up on and no open shift', () => {
     });
   });
 
-  it('refuses retry_drawer and manual too (every action that takes cash out)', async () => {
+  it('gates only a NEW payout: retry_drawer and manual on a return with no claim keep their own refusal', async () => {
     const returnId = await confirmedReturn(h.service);
     h.state.shiftRef = null;
     expect(await h.service.payout({ returnId, action: 'retry_drawer' })).toMatchObject({
       kind: 'refused',
-      reason: 'payout_no_open_shift',
+      reason: 'payout_not_started',
     });
     expect(await h.service.payout({ returnId, action: 'manual' })).toMatchObject({
       kind: 'refused',
-      reason: 'payout_no_open_shift',
+      reason: 'payout_not_started',
     });
-    expectNothingHappened();
+    expect(count('return_payouts')).toBe(0);
+    expect(h.drawer.kicks).toBe(0);
+    expect(stateOf()).toBe('confirmed');
   });
 
   it('can be paid as soon as a shift is open: the refusal wrote nothing to undo', async () => {
@@ -153,32 +156,25 @@ describe('shift cash-up on and no open shift', () => {
     expect(res).toEqual({ kind: 'refused', reason: 'payout_no_open_shift', ret: null });
   });
 
-  it('a claim made while a shift was open is completed once a shift is open again, never stranded', async () => {
+  it('an existing claim is never gated: start on it is payout_started, as without the rule', async () => {
     const returnId = await confirmedReturn(h.service);
     h.drawer.answer = () => Promise.resolve({ ok: false, failure_reason: 'os_error' });
     expect(await h.service.payout({ returnId, action: 'start' })).toMatchObject({
       kind: 'drawer_failed',
     });
-    expect(count('return_payouts')).toBe(1);
-    // The shift is gone (a manager force-closed it on the server): refused, the claim stays.
     h.state.shiftRef = null;
-    for (const action of ['manual', 'retry_drawer'] as const) {
-      expect(await h.service.payout({ returnId, action })).toMatchObject({
-        kind: 'refused',
-        reason: 'payout_no_open_shift',
-      });
-    }
-    expect(count('return_payouts')).toBe(1);
-    expect(stateOf()).toBe('confirmed');
-    expect(h.drawer.kicks).toBe(1);
-    expect(slot.busy()).toBe(false);
-    // The till opens its next shift: the same claim completes, once.
-    h.state.shiftRef = SHIFT_REF;
+    expect(await h.service.payout({ returnId, action: 'start' })).toMatchObject({
+      kind: 'refused',
+      reason: 'payout_started',
+    });
+    expect(await h.service.payout({ returnId, action: 'retry_drawer' })).toMatchObject({
+      kind: 'refused',
+      reason: 'drawer_retry_unsafe',
+    });
     expect(await h.service.payout({ returnId, action: 'manual' })).toMatchObject({
       kind: 'paid_out',
       method: 'manual',
     });
-    expect(stateOf()).toBe('paid_out');
     expect(h.drawer.kicks).toBe(1);
   });
 });

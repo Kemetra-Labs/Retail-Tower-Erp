@@ -57,11 +57,14 @@
  *
  * ## Shift (RT-1543 follow-up)
  *
- * With shift cash-up on for the till, a payout needs an open shift: `start`, `retry_drawer` and
- * `manual` are refused `payout_no_open_shift` first, before the drawer slot, the claim, the kick or
- * any write (`returns-payout-shift.ts`). A payout claimed while a shift was open keeps its claim if
- * the shift is then lost (a manager force-close on the server) and completes once a shift is open
- * again; a local shift close refuses while a payout is unpaid (`requireDrawerSettled`).
+ * With shift cash-up on for the till, a NEW payout (a `start` with no claim yet) needs an open
+ * shift: it is refused `payout_no_open_shift` first, before the drawer slot, the claim, the kick or
+ * any write (`returns-payout-shift.ts`), so no cash has left. A payout that is already claimed is
+ * never gated: `retry_drawer` and `manual` complete it as before. A claim blocks opening a shift
+ * (`openShift` refuses while a refund payout is unpaid, `requireDrawerSettled`), so gating its
+ * completion on an open shift would deadlock the till when the shift is gone (a manager closed it
+ * on the server). The execution of such a payout is reported with the shift open when it was
+ * claimed (`returns-execution-enqueue.ts`).
  *
  * ## Shutdown
  *
@@ -317,11 +320,13 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
     if (this.deps.isStopped()) return { ...SHUTTING_DOWN, ret: null };
     const admitted = this.admit('payout');
     if (admitted.kind !== 'ok') return { ...admitted, ret: null };
-    // RT-1543 follow-up: before the drawer slot, the claim, the kick and any write.
-    const noShift = payoutShiftRefusal(this.deps.shiftRule, admitted.actor.scope);
+    const noShift = this.noShiftRefusal(admitted.actor, req);
     if (noShift !== null) {
-      const own = this.ownReturn(admitted.actor, req.returnId);
-      return this.refusePayout(admitted.actor, noShift, own);
+      return this.refusePayout(
+        admitted.actor,
+        noShift,
+        this.ownReturn(admitted.actor, req.returnId),
+      );
     }
     const outcome = await this.exclusive(admitted.actor, req);
     const lost = this.lostAfterAwait(admitted.actor);
@@ -336,6 +341,20 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
       this.runReprint(admitted.actor, req.returnId),
     );
     return this.lostAfterAwait(admitted.actor) ?? outcome;
+  }
+
+  /**
+   * RT-1543 follow-up: `payout_no_open_shift` for a NEW payout (a `start` of a return with no claim)
+   * while shift cash-up is on and no shift is open, else null. Runs before the drawer slot, the
+   * claim, the kick and any write. A return that already has a claim is never gated, whatever the
+   * action: its completion must stay possible without a shift (see the Shift section above).
+   */
+  private noShiftRefusal(
+    actor: AuthSnapshot,
+    req: ReturnsPayoutRequest,
+  ): 'payout_no_open_shift' | null {
+    if (req.action !== 'start' || this.deps.payouts.read(req.returnId) !== null) return null;
+    return payoutShiftRefusal(this.deps.shiftRule, actor.scope);
   }
 
   /**
@@ -612,8 +631,9 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
       if (done === 'completed') {
         this.deps.audit.paidOut(actor, entry, method);
         // RT-1543: the refund executions are outboxed with the payout, in this transaction, at
-        // the payout's own `paid_at` (never a second clock read).
-        this.deps.enqueueExecutions?.(entry, method, now);
+        // the payout's own `paid_at` (never a second clock read), for the shift open at its claim.
+        const claimedAt = this.deps.payouts.read(entry.returnId)?.startedAt ?? now;
+        this.deps.enqueueExecutions?.(entry, method, now, claimedAt);
       }
       return done;
     });
