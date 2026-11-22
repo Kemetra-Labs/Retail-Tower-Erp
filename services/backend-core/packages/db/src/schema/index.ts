@@ -81,3 +81,4 @@ export * from "./offers/offer-pack";
 export * from "./offers/sale-promotions";
 export * from "./pricing/pricing";
 export * from "./pricing/change-set-content";
+export * from "./pricing/authority";

@@ -237,8 +237,11 @@
         "price_events",
         "price_zone_memberships",
         "price_zones",
+        "pricing_cutover_runs",
+        "pricing_import_runs",
         "pricing_revision_stores",
-        "pricing_revisions"
+        "pricing_revisions",
+        "tenant_pricing_authority"
       ]
     },
     "settlement": {
