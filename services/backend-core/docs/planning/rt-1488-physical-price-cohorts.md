@@ -1,8 +1,11 @@
-# RT-1488 — Physical Price Cohorts: cohort price key and the W1 side of W3 conservation (decision record, DRAFT)
+# RT-1488 — Physical Price Cohorts: cohort price key and the W1 side of W3 conservation (decision record, RATIFIED)
 
-> **Status: DRAFT, awaiting owner ratification.** Work Mode: **Planning**. Jira holds the live status.
-> This file proposes options and a recommendation. It is not a ratified decision and authorizes no code,
-> OpenAPI, migration or Jira status change. Horizon: **Post-Pilot**. Conditional, opt-in capability.
+> **Status: RATIFIED by the owner on 2026-11-23** (stated in chat; recorded on RT-1488). Work Mode: **Planning**.
+> Jira holds the live status. The ratification covers the decisions CP-1 to CP-4 as recommended below. The four
+> open questions in section 7 were **not** answered with it: question 1 has a recommended answer (fail closed),
+> and questions 2 to 4 are settled in the Definition of Ready of the follow-up slices in section 8.
+> This record authorizes no code, OpenAPI, migration or Jira status change: each follow-up slice still needs its own
+> Jira issue and Definition of Ready. Horizon: **Post-Pilot**. Conditional, opt-in capability.
 >
 > **Baseline:** `main` at `924482fb0` (2026-11-21). Decision numbers 461–718, CR05/CR06, F02/F03 and G2 come from
 > Confluence, not the repo; 470 and 602–636 do not appear in specs 041–043 and were taken from Confluence 23855106. Read-only inspection of
