@@ -5,12 +5,37 @@
  * (inline) error and the gated Load more. Every user-initiated read control is
  * a GatedButton, so a running Retry-After cannot be hammered (RT-621).
  */
+import { NoAccess } from "@/auth/NoAccess";
 import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, type T, useT } from "@/i18n";
+import { useSignOut } from "@/shell/useSignOut";
 import { Link } from "react-router";
-import type { InventoryError } from "./useInventory";
+import { canReadInventory } from "./inventoryLogic";
+import { type InventoryError, type InventoryScope, useInventoryScope } from "./useInventory";
+
+/**
+ * RT-1515: the gate the tenant-wide inventory pages share. A role outside the
+ * read roles gets NoAccess and nothing is requested; without a tenant the page
+ * asks for one. Only then does it render (and read).
+ */
+export function InventoryReadGate({
+  children,
+}: Readonly<{ children: (scope: InventoryScope) => React.ReactNode }>): React.JSX.Element {
+  const t = useT();
+  const scope = useInventoryScope();
+  const signOut = useSignOut();
+  if (!canReadInventory(scope.role)) return <NoAccess onSignOut={signOut} />;
+  if (!scope.tenantId) {
+    return (
+      <div className="surface">
+        <p className="content__sub">{t("inventory.scopePrompt")}</p>
+      </div>
+    );
+  }
+  return <>{children(scope)}</>;
+}
 
 /** Machine data (references, codes, ids): monospace and LTR-isolated. */
 export function Machine({ value }: Readonly<{ value: string }>): React.JSX.Element {

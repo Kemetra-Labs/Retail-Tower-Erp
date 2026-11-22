@@ -26,9 +26,21 @@ import {
 } from "@/lib/inventory-queries";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { type UseQueryResult, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { type ReadErrorKind, nextCursorOf, readErrorKind, requestIdOf } from "./inventoryLogic";
+import {
+  type ReadErrorKind,
+  errorCodeOf,
+  nextCursorOf,
+  readErrorKind,
+  requestIdOf,
+} from "./inventoryLogic";
 
-export type InventoryError = { kind: ReadErrorKind; requestId?: string; retryAfter?: number };
+export type InventoryError = {
+  kind: ReadErrorKind;
+  requestId?: string;
+  retryAfter?: number;
+  /** RT-1515: the envelope's `error.code`, for views that key their copy by it. */
+  code?: string;
+};
 
 export interface InventoryScope {
   tenantId: string | null;
@@ -99,6 +111,7 @@ function dataOrThrow<P>(res: ApiResult<P>): P {
       kind: readErrorKind(res.status),
       requestId: requestIdOf(res.error),
       retryAfter: res.retryAfter,
+      code: errorCodeOf(res.error),
     });
   }
   return res.data;

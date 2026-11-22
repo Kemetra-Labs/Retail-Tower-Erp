@@ -7,6 +7,9 @@ vi.mock("@/generated/client", () => ({
 
 import {
   getOnHand,
+  getShipmentTransfer,
+  listShipmentTransferReceipts,
+  listShipmentTransfers,
   listStockLocations,
   listStoreMovements,
   listTrackingIdentities,
@@ -72,5 +75,46 @@ describe("inventory read wrappers", () => {
     expect(GET).toHaveBeenCalledWith("/api/inventory/v1/products/{productId}/tracking-identities", {
       params: { path: { productId: PRODUCT }, query: { cursor: "n2" } },
     });
+  });
+
+  // RT-1515 (PR 1): the three shipment-Transfer reads.
+  test("listShipmentTransfers sends only the filters it was given; direction only with a store", async () => {
+    const TRANSFER_LIST = "/api/inventory/v1/shipment-transfers";
+    GET.mockResolvedValue({ data: { items: [], nextCursor: null }, response: response(200) });
+    await listShipmentTransfers();
+    expect(GET).toHaveBeenLastCalledWith(TRANSFER_LIST, { params: { query: {} } });
+    await listShipmentTransfers(
+      { storeId: STORE, direction: "inbound", state: "in_transit" },
+      { cursor: "c2" },
+    );
+    expect(GET).toHaveBeenLastCalledWith(TRANSFER_LIST, {
+      params: {
+        query: { cursor: "c2", storeId: STORE, direction: "inbound", state: "in_transit" },
+      },
+    });
+    await listShipmentTransfers({ direction: "outbound" });
+    expect(GET).toHaveBeenLastCalledWith(TRANSFER_LIST, { params: { query: {} } });
+    await listShipmentTransfers({ storeId: STORE });
+    expect(GET).toHaveBeenLastCalledWith(TRANSFER_LIST, { params: { query: { storeId: STORE } } });
+  });
+
+  test("getShipmentTransfer reads one Transfer; its receipts page by cursor", async () => {
+    const TRANSFER = "0190f000-0000-7000-8000-00000000a001";
+    GET.mockResolvedValue({ data: {}, response: response(200) });
+    await getShipmentTransfer(TRANSFER);
+    expect(GET).toHaveBeenLastCalledWith("/api/inventory/v1/shipment-transfers/{transferId}", {
+      params: { path: { transferId: TRANSFER } },
+    });
+    GET.mockResolvedValue({ data: { items: [], nextCursor: null }, response: response(200) });
+    await listShipmentTransferReceipts(TRANSFER, { cursor: "r2" });
+    expect(GET).toHaveBeenLastCalledWith(
+      "/api/inventory/v1/shipment-transfers/{transferId}/receipts",
+      { params: { path: { transferId: TRANSFER }, query: { cursor: "r2" } } },
+    );
+    await listShipmentTransferReceipts(TRANSFER);
+    expect(GET).toHaveBeenLastCalledWith(
+      "/api/inventory/v1/shipment-transfers/{transferId}/receipts",
+      { params: { path: { transferId: TRANSFER }, query: {} } },
+    );
   });
 });

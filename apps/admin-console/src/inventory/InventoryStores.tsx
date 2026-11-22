@@ -1,4 +1,3 @@
-import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
@@ -17,12 +16,10 @@ import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
-import { useSignOut } from "@/shell/useSignOut";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { Link } from "react-router";
-import { canReadInventory } from "./inventoryLogic";
-import { Machine } from "./parts";
-import { type InventoryScope, useInventoryScope } from "./useInventory";
+import { InventoryReadGate, Machine } from "./parts";
+import type { InventoryScope } from "./useInventory";
 import "../shell/surface.css";
 import "./inventory.css";
 
@@ -47,8 +44,11 @@ function activeStoreChoice(active: ActiveStore, rows: readonly PickerStore[]): P
   return [{ id: active.id, name: listed?.name ?? active.name }];
 }
 
-/** The stores this caller may open, from the store list and the active context. */
-function usePickerStores(scope: InventoryScope): PickerState {
+/**
+ * The stores this caller may open, from the store list and the active context.
+ * RT-1515: also the shipment-Transfer list's store filter options.
+ */
+export function usePickerStores(scope: InventoryScope): PickerState {
   const { context } = useActiveContextValue();
   const { result, isLoading, refetch } = useStoreList(scope.tenantId);
   const rows = result?.kind === "rows" ? result.rows : [];
@@ -136,7 +136,14 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
           tenant: <bdi dir="auto">{context?.active_tenant?.name}</bdi>,
         })}
       />
-      <p className="inventory__note">{t("inventory.note.readOnly")}</p>
+      <div className="inventory__strip">
+        <p className="inventory__note">{t("inventory.note.readOnly")}</p>
+        {/* RT-1515: the shipment Transfers live inside the Inventory section
+            (owner placement decision); this nav entry stays selected there. */}
+        <Link className="inventory__note" to="/inventory/transfers">
+          {t("transfers.entry")}
+        </Link>
+      </div>
       <div className="section-panel">
         <div className="inventory__panel-body inventory__panel-body--solo">
           <StoresBody picker={picker} />
@@ -147,16 +154,5 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
 }
 
 export function InventoryStores(): React.JSX.Element {
-  const t = useT();
-  const scope = useInventoryScope();
-  const signOut = useSignOut();
-  if (!canReadInventory(scope.role)) return <NoAccess onSignOut={signOut} />;
-  if (!scope.tenantId) {
-    return (
-      <div className="surface">
-        <p className="content__sub">{t("inventory.scopePrompt")}</p>
-      </div>
-    );
-  }
-  return <Content scope={scope} />;
+  return <InventoryReadGate>{(scope) => <Content scope={scope} />}</InventoryReadGate>;
 }

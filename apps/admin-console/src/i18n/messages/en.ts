@@ -41,6 +41,7 @@ import { storeDeletion } from "./en/storeDeletion";
 import { tenants } from "./en/tenants";
 import { trackedSelling } from "./en/trackedSelling";
 import { tracking } from "./en/tracking";
+import { transfers } from "./en/transfers";
 import { vouchers } from "./en/vouchers";
 import type { MessagesOf } from "./types";
 
@@ -70,6 +71,7 @@ export const EN_MODULES = {
   cashPolicy,
   inventory,
   counts,
+  transfers,
   aiPlan,
   aiManagerSales,
   branding,
@@ -111,6 +113,7 @@ export const en: MessagesOf<typeof ar> = {
   ...cashPolicy,
   ...inventory,
   ...counts,
+  ...transfers,
   ...aiPlan,
   ...aiManagerSales,
   ...branding,

@@ -1,0 +1,63 @@
+/* RT-1515 shipment-Transfer read views. Existing tokens only; no new colour,
+ * font or dependency. Logical properties throughout (RTL by structure). */
+
+/* The list's filters sit beside the panel title and wrap under it when narrow. */
+.transfers__filters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  min-inline-size: 0;
+  margin: 0;
+  margin-inline-start: auto;
+  padding: 0;
+  border: 0;
+}
+.transfers__filters .field {
+  min-inline-size: 11rem;
+  margin: 0;
+}
+
+/* The row's Open control: the created time, a 36px target, text-aligned to the start. */
+.transfers__open {
+  min-block-size: var(--control-h);
+  padding-inline: var(--space-2);
+  text-align: start;
+}
+
+/* The drawer: a label/value ledger, then the lines and receipts sections. */
+.transfers__drawer {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-5);
+}
+.transfers__ledger {
+  display: grid;
+  gap: var(--space-2);
+  margin: 0;
+}
+.transfers__ledger > div {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: var(--space-1) var(--space-4);
+  padding-block-end: var(--space-2);
+  border-block-end: 1px solid var(--color-border);
+}
+.transfers__ledger dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.transfers__ledger dd {
+  margin: 0;
+}
+.transfers__section {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-3);
+}
+.transfers__heading {
+  margin: 0;
+  font-size: var(--text-section-title);
+  font-weight: var(--weight-strong);
+}

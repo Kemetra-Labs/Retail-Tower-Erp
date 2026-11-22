@@ -17,6 +17,12 @@
  * `createStockTransfer`, `recordStockCount`, `createRelocation` and the
  * sale-linked backfill are NOT wrapped and NOT called here; the tracking holds,
  * recalls and identity reads and commands live in `tracking-queries.ts` (RT-455).
+ *
+ * RT-1515 (PR 1) adds the three shipment-Transfer READS of 1.21.0-draft:
+ * `listShipmentTransfers`, `getShipmentTransfer` and
+ * `listShipmentTransferReceipts`. Read only: every shipment-Transfer write
+ * (create, approve, cancel, dispatch, receive, close) is a later PR. Until the
+ * tenant's shipment workflow is switched on, each answers the non-disclosing 404.
  * Same `{ status, data?, error?, retryAfter? }`
  * shape as `src/lib/sale-sync-ops-queries.ts`. Cookie transport is on the
  * generated client.
@@ -40,10 +46,24 @@ export type TrackingIdentityList = Schemas["TrackingIdentityList"];
 export type InventoryReasonCode = Schemas["InventoryReasonCode"];
 export type CreateStatusMoveCommand = Schemas["CreateStatusMoveCommand"];
 export type InventoryPositionEvent = Schemas["InventoryPositionEvent"];
+export type ShipmentTransfer = Schemas["ShipmentTransfer"];
+export type ShipmentTransferList = Schemas["ShipmentTransferList"];
+export type ShipmentTransferLine = Schemas["ShipmentTransferLine"];
+export type ShipmentTransferState = Schemas["ShipmentTransferState"];
+export type ShipmentLegIntegrationState = Schemas["ShipmentLegIntegrationState"];
+export type ShipmentTransferReceipt = Schemas["ShipmentTransferReceipt"];
+export type ShipmentTransferReceiptList = Schemas["ShipmentTransferReceiptList"];
 
 export interface PageQuery {
   cursor?: string;
   limit?: number;
+}
+
+/** The list filters `listShipmentTransfers` offers; `direction` only means something with `storeId`. */
+export interface ShipmentTransferFilter {
+  storeId?: string;
+  direction?: "outbound" | "inbound" | "any";
+  state?: ShipmentTransferState;
 }
 
 /** A 429's wait in seconds via the shared RT-621 classifier (30 s fallback, [1, 3600]). */
@@ -115,6 +135,47 @@ export async function createStatusMove(
     await apiClient.POST("/api/inventory/v1/stores/{storeId}/status-moves", {
       params: { path: { storeId }, header: { "Idempotency-Key": idempotencyKey } },
       body: command,
+    }),
+  );
+}
+
+/**
+ * GET /api/inventory/v1/shipment-transfers (RT-1512): the tenant's Transfers,
+ * newest first, keyset paged. `direction` is sent only with `storeId` (the API
+ * ignores it otherwise); the cursor is bound to these filters.
+ */
+export async function listShipmentTransfers(
+  filter: ShipmentTransferFilter = {},
+  query: PageQuery = {},
+) {
+  const { storeId, direction, state } = filter;
+  return resultOf(
+    await apiClient.GET("/api/inventory/v1/shipment-transfers", {
+      params: {
+        query: {
+          ...query,
+          ...(storeId ? { storeId, ...(direction ? { direction } : {}) } : {}),
+          ...(state ? { state } : {}),
+        },
+      },
+    }),
+  );
+}
+
+/** GET /api/inventory/v1/shipment-transfers/{transferId} */
+export async function getShipmentTransfer(transferId: string) {
+  return resultOf(
+    await apiClient.GET("/api/inventory/v1/shipment-transfers/{transferId}", {
+      params: { path: { transferId } },
+    }),
+  );
+}
+
+/** GET /api/inventory/v1/shipment-transfers/{transferId}/receipts: oldest first, keyset paged. */
+export async function listShipmentTransferReceipts(transferId: string, query: PageQuery = {}) {
+  return resultOf(
+    await apiClient.GET("/api/inventory/v1/shipment-transfers/{transferId}/receipts", {
+      params: { path: { transferId }, query },
     }),
   );
 }
