@@ -24,7 +24,6 @@ import {
   openShift,
 } from './__helpers__/sale-void-payout-fixture.js';
 import { createSaleVoidPayoutRepository } from '../sale-void-payout-repository.js';
-import { handleFor } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import type { SaleVoidPayoutDeps } from '../sale-void-payout.js';
 
 let db: SqlJsDatabase;
