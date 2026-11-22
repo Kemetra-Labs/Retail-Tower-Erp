@@ -58,7 +58,8 @@
 --             least once (`attempt_count > 0`), and never after a close
 --   approval  the approval rule above
 --   no_update / no_delete  the record is immutable
---   trg_return_journal_closed_frozen  (on the 0039 table; it adds a trigger, it changes no column)
+--   trg_return_journal_closed_frozen  (on the EXISTING 0039 `return_journal` table: it adds a trigger,
+--             changes no column, and is inert until a close exists; precedent 0040 and 0053)
 --             once a return is closed its `state`, `attempt_count` and `last_attempt_at` cannot change:
 --             it can no longer be confirmed, refused or re-attempted, whoever writes. This is the DB
 --             backstop of "a closed row is never sent again".
@@ -152,8 +153,10 @@ END;
 
 -- A disposition that cites an approval cites a spent `return.resolve_unknown` approval bound to THIS
 -- return and THIS disposition (`_close` for a close, `_escalate` for needs_support), on the return's
--- terminal and for its quoted amount. 0048 stores `approval_id` in lower case (a CHECK), so it is
--- compared directly and the primary-key index is used.
+-- terminal and for its quoted amount. It must also have been requested by THIS disposition's actor
+-- (`requester_operator_id = actor_operator_id`) and approved by a manager other than the requester
+-- (four-eyes, as 0069 does for its exception); a NULL requester `users.id` fails closed. 0048 stores
+-- `approval_id` in lower case (a CHECK), so it is compared directly and the primary-key index is used.
 CREATE TRIGGER IF NOT EXISTS trg_return_journal_dispositions_approval
 BEFORE INSERT ON return_journal_dispositions
 WHEN NEW.approval_id IS NOT NULL AND NOT EXISTS (
@@ -166,10 +169,12 @@ WHEN NEW.approval_id IS NOT NULL AND NOT EXISTS (
        CASE NEW.kind WHEN 'not_recorded_closed' THEN 'close' ELSE 'escalate' END
      AND a.tenant_id = j.tenant_id AND a.branch_id = j.branch_id AND a.terminal_id = j.terminal_id
      AND a.amount_minor = j.quoted_total_minor
+     AND a.requester_operator_id = NEW.actor_operator_id
+     AND lower(a.approver_user_id) <> lower(a.requester_user_id)
      AND a.consumed_at IS NOT NULL
 )
 BEGIN
-  SELECT RAISE(ABORT, 'return_journal_dispositions: needs a spent approval of this kind, for this return and this disposition (approval, RT-1498)');
+  SELECT RAISE(ABORT, 'return_journal_dispositions: needs a spent approval of this kind, for this return, disposition and actor, approved by another manager (approval, RT-1498)');
 END;
 
 CREATE TRIGGER IF NOT EXISTS trg_return_journal_dispositions_no_update

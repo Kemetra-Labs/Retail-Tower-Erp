@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { voidRefusalMessage } from '../../v5/void/void-copy';
+
 import {
   LOCAL_RETURN_REFUSALS,
   RETURN_DRAWER_FAILURES,
@@ -127,6 +129,8 @@ describe('escalation and disposition copy (RT-1498 S4/S5, PROPOSED pending owner
     ESCALATE_COPY.approve,
     ESCALATE_COPY.raised,
     ESCALATE_COPY.approvalUnavailable,
+    ESCALATE_COPY.attemptsExhausted,
+    ESCALATE_COPY.approvalFailed,
     DISPOSITION_COPY.label.needs_support,
     DISPOSITION_COPY.label.closed,
     DISPOSITION_COPY.supportDetail,
@@ -158,17 +162,25 @@ describe('escalation and disposition copy (RT-1498 S4/S5, PROPOSED pending owner
     }
   });
 
-  it('maps a refused approval to the four-eyes line, the return lines, or the fallback', () => {
-    const fallback = (reason: string): string => `fallback:${reason}`;
-    expect(escalateApprovalMessage('approval_unavailable', fallback)).toBe(
+  it('maps every refused approval to a RETURNS line, never the sale void copy (LOW-5)', () => {
+    expect(escalateApprovalMessage('approval_unavailable')).toBe(ESCALATE_COPY.approvalUnavailable);
+    expect(escalateApprovalMessage('approval_attempts_exhausted')).toBe(
+      ESCALATE_COPY.attemptsExhausted,
+    );
+    expect(escalateApprovalMessage('approval_invalid')).toBe(refusalMessage('approval_invalid'));
+    expect(escalateApprovalMessage('approval_stale')).toBe(refusalMessage('approval_stale'));
+    for (const reason of ['session_locked', 'no_session', 'not_applicable', 'invalid_input', 'x']) {
+      const line = escalateApprovalMessage(reason);
+      expect(line).toBe(ESCALATE_COPY.approvalFailed);
+      expect(voidRefusalMessage(reason)).not.toBe(line);
+    }
+    // None of the approval lines talks about cancelling a sale.
+    for (const line of [
+      ESCALATE_COPY.attemptsExhausted,
+      ESCALATE_COPY.approvalFailed,
       ESCALATE_COPY.approvalUnavailable,
-    );
-    expect(escalateApprovalMessage('approval_invalid', fallback)).toBe(
-      refusalMessage('approval_invalid'),
-    );
-    expect(escalateApprovalMessage('approval_stale', fallback)).toBe(
-      refusalMessage('approval_stale'),
-    );
-    expect(escalateApprovalMessage('session_locked', fallback)).toBe('fallback:session_locked');
+    ]) {
+      expect(line).not.toContain('إلغاء');
+    }
   });
 });

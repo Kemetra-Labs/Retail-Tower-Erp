@@ -3,7 +3,6 @@ import { useMemo, type JSX } from 'react';
 import type { ManagerApprovalBridgeAPI } from '../../shared/operator/manager-approval.js';
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import { ManagerPinDialog, useApprovalSubmit } from '../v5/void/ManagerPinDialog';
-import { voidRefusalMessage } from '../v5/void/void-copy';
 import { attempt } from './returns-bridge.js';
 import {
   ESCALATE_COPY,
@@ -45,7 +44,7 @@ export function EscalateDialog({
     kind: 'return.resolve_unknown',
     subjectRef: `${row.returnId}_escalate`,
     reasonCode: 'escalate_unknown',
-    approvalRefusal: (reason) => escalateApprovalMessage(reason, voidRefusalMessage),
+    approvalRefusal: escalateApprovalMessage,
     spend: async (approvalId) => {
       const answer = await attempt(() => bridge.escalate({ returnId: row.returnId, approvalId }));
       // The journal is the truth after any answer, including a lost one.

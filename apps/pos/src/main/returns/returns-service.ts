@@ -575,7 +575,11 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     return null;
   }
 
-  /** Why this return cannot take a disposition now, or null. */
+  /**
+   * Why this return cannot take a disposition now, or null. This is the ESCALATE rule: any earlier
+   * disposition ends it. NOTE for the close slice (RT-1498 review LOW-1): a close must stay allowed
+   * from `needs_support` (needs_support -> close, spec 3.4); refuse only an already-closed return.
+   */
   private escalateStateRefusal(entry: JournalEntry): ReturnsRefusalReason | null {
     if (!isDisposable(entry)) {
       return entry.state === 'pending' && entry.attemptCount === 0

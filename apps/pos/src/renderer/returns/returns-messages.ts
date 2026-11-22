@@ -245,6 +245,11 @@ export const ESCALATE_COPY = Object.freeze({
   raised: 'حُوّل المرتجع إلى الدعم. يبقى هذا البيع موقوفًا عن المرتجعات حتى يُحسم.',
   approvalUnavailable:
     'تعذّر التأكيد: الرقم السري غير صحيح أو غير مفعّل، أو أن المؤكِّد هو من طلب التحويل. يجب أن يؤكد مدير آخر غيرك.',
+  /** RT-1326: three wrong approver PINs on this request. PROPOSED. */
+  attemptsExhausted:
+    'أُدخل رقم سري خاطئ ثلاث مرات لهذا التحويل. انتظر خمس دقائق ثم اطلب التأكيد من جديد.',
+  /** Any other refused approval (no session, locked, not applicable…): a returns line, never the void's. PROPOSED. */
+  approvalFailed: 'تعذّر تأكيد التحويل الآن. أعد المحاولة، وإن تكرر فراجع المدير.',
 });
 
 /** RT-1498 S4: how a return with a recorded disposition reads in the journal. */
@@ -260,14 +265,20 @@ export const DISPOSITION_COPY = Object.freeze({
   closedDetail: 'أُغلق المرتجع كغير مسجَّل. يمكن الآن إرجاع هذا البيع من جديد.',
 });
 
-/** The message of a refused manager approval of an escalation (never says which part failed, C3). */
-export function escalateApprovalMessage(
-  reason: string,
-  fallback: (reason: string) => string,
-): string {
-  if (reason === 'approval_unavailable') return ESCALATE_COPY.approvalUnavailable;
-  if (reason === 'approval_invalid' || reason === 'approval_stale') {
-    return refusalMessage(reason);
+/**
+ * The message of a refused manager approval of an escalation (never says which part failed, C3).
+ * Every reason has a RETURNS line: it never falls back to the sale void's copy (RT-1498 review LOW-5).
+ */
+export function escalateApprovalMessage(reason: string): string {
+  switch (reason) {
+    case 'approval_unavailable':
+      return ESCALATE_COPY.approvalUnavailable;
+    case 'approval_attempts_exhausted':
+      return ESCALATE_COPY.attemptsExhausted;
+    case 'approval_invalid':
+    case 'approval_stale':
+      return refusalMessage(reason);
+    default:
+      return ESCALATE_COPY.approvalFailed;
   }
-  return fallback(reason);
 }

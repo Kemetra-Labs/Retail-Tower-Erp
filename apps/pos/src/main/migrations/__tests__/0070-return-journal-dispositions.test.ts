@@ -130,6 +130,9 @@ function seedApproval(
     amount?: number;
     terminal?: string;
     subjectRef?: string;
+    requesterOperator?: string;
+    requesterUser?: string | null;
+    approverUser?: string;
   } = {},
 ): void {
   const returnId = over.returnId ?? 'r1';
@@ -138,7 +141,7 @@ function seedApproval(
        (approval_id, tenant_id, branch_id, terminal_id, action_kind, subject_ref, subject_version,
         amount_minor, reason_code, requester_operator_id, requester_user_id, approver_user_id,
         policy_version, issued_at, expires_at, consumed_at)
-     VALUES (?, 'tenant-1', 'branch-1', ?, ?, ?, ?, ?, 'escalate_unknown', 'op', ?, ?,
+     VALUES (?, 'tenant-1', 'branch-1', ?, ?, ?, ?, ?, 'escalate_unknown', ?, ?, ?,
        'rt114-2026-10-07', '2026-11-22T09:55:00.000Z', '2026-11-22T09:57:00.000Z', ?)`,
     [
       over.approvalId ?? APPROVAL_1,
@@ -147,8 +150,9 @@ function seedApproval(
       over.subjectRef ?? `${returnId}_${over.disposition ?? 'escalate'}`,
       `${over.disposition ?? 'escalate'}|unknown|1`,
       over.amount ?? 1500,
-      'requester-user',
-      'approver-user',
+      over.requesterOperator ?? 'op-manager',
+      over.requesterUser === undefined ? 'requester-user' : over.requesterUser,
+      over.approverUser ?? 'approver-user',
       over.consumed === false ? null : '2026-11-22T09:56:00.000Z',
     ],
   );
@@ -279,6 +283,9 @@ describe('0070 — return journal dispositions (RT-1498 S4)', () => {
     expect(SQL_TEXT).toContain('## Rollback');
     expect(SQL_TEXT).toContain(`DROP TABLE IF EXISTS ${TABLE};`);
     expect(SQL_TEXT).toContain('DROP TRIGGER IF EXISTS trg_return_journal_closed_frozen;');
+    // The one trigger added on the existing 0039 table is named in the header (GATED review MEDIUM-1).
+    expect(SQL_TEXT).toContain('EXISTING 0039 `return_journal` table');
+    expect(SQL_TEXT).toContain('changes no column, and is inert until a close exists');
   });
 
   it('ships empty', () => {
@@ -348,7 +355,7 @@ describe('0070 — return journal dispositions (RT-1498 S4)', () => {
     ] as const)('refuses a close with %s', (_name, over) => {
       expect(() => {
         close(over);
-      }).toThrow(/CHECK/);
+      }).toThrow(/CHECK|approval/);
     });
 
     it('accepts an automatic send_response mismatch with no approval and no actor', () => {
@@ -417,7 +424,7 @@ describe('0070 — return journal dispositions (RT-1498 S4)', () => {
     ] as const)('refuses needs_support with %s', (_name, over) => {
       expect(() => {
         escalate(over);
-      }).toThrow(/CHECK/);
+      }).toThrow(/CHECK|approval/);
     });
 
     it('accepts a retry_hold from a provenance read with a read time and no approval', () => {
@@ -507,6 +514,39 @@ describe('0070 — return journal dispositions (RT-1498 S4)', () => {
           },
         );
       }).toThrow(/approval/);
+    });
+
+    it('refuses an approval requested by another operator than the disposition actor (MEDIUM-2)', () => {
+      expect(() => {
+        escalate({}, { requesterOperator: 'op-other' });
+      }).toThrow(/approval/);
+      expect(count()).toBe(0);
+    });
+
+    it('refuses a self-approved approval: the approver is the requester (four-eyes, MEDIUM-2)', () => {
+      expect(() => {
+        escalate({}, { requesterUser: 'same-user', approverUser: 'same-user' });
+      }).toThrow(/approval/);
+      // The comparison ignores case: users.id is stored lower-case, but the rule must not depend on it.
+      expect(() => {
+        escalate(
+          { disposition_id: D2, approval_id: APPROVAL_2 },
+          { approvalId: APPROVAL_2, requesterUser: 'Same-User', approverUser: 'same-user' },
+        );
+      }).toThrow(/approval/);
+      expect(count()).toBe(0);
+    });
+
+    it('refuses an approval with no requester users.id (fail closed)', () => {
+      expect(() => {
+        escalate({}, { requesterUser: null });
+      }).toThrow(/approval/);
+      expect(count()).toBe(0);
+    });
+
+    it('accepts the same approval once actor and four-eyes hold', () => {
+      escalate({}, { requesterOperator: 'op-manager', approverUser: 'another-manager' });
+      expect(count()).toBe(1);
     });
 
     it('lets one approval back one disposition only (single use)', () => {

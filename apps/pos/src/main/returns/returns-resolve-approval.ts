@@ -107,6 +107,9 @@ export function createReturnResolveApprovalResolver(
     if (named === null) return null;
     const entry = deps.repo.read(named.returnId);
     if (entry === null || !isOwnScope(entry, session, deps.terminalId())) return null;
+    // Escalate: any earlier disposition ends it. NOTE for the close slice (RT-1498 review LOW-1):
+    // a close must stay allowed from `needs_support` (needs_support -> close, spec 3.4); refuse
+    // only a return that is already `closed`.
     if (!isDisposable(entry) || deps.dispositions.stateOf(entry.returnId) !== null) return null;
     if (named.disposition === 'close' && !closeAvailable(entry)) return null;
     return resolveSubjectOf(entry, named.disposition);
