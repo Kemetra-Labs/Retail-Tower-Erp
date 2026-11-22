@@ -68,7 +68,7 @@ Spec 007 adopts that boundary on the connector side. The credential model is now
   retail_tower_erpnext_connector.connector.auth_circuit_store.read_auth_circuit_status` prints the same values. Both READ the RT-1429 cache record
   and never write it (no field on Connector Settings, no job, no commit inside a tick), so a rolled-back tick, a stale form save or a cache flush
   cannot make the view disagree with the breaker. The record's `key` (credential id plus token fingerprint) is compared and never shown. A closed circuit
-  has no last status or change time to show, because a recovery clears the record. A DocType field or virtual field was rejected: a controller change
+  has no last status or opened-at time to show, because a recovery clears the record. The opened-at time is the first refusal of the run: a later 403 after a 401 updates the last status, not it. A DocType field or virtual field was rejected: a controller change
   is `restore` class (RT-927), measured on the candidate diffs. *(RT-1431.)*
 - **Local link-invariant is advisory (warn-only), OQ-2.** When a token is configured but no
   registration ref is recorded (a legacy unlinked credential), the connector emits a

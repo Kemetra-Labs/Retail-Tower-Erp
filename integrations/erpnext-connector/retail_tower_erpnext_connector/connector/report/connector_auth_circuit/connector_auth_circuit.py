@@ -20,7 +20,7 @@ COLUMNS = [
 	{"label": "State", "fieldname": "state", "fieldtype": "Data", "width": 90},
 	{"label": "Last Status", "fieldname": "last_status", "fieldtype": "Int", "width": 100},
 	{"label": "Refusals In A Row", "fieldname": "failures", "fieldtype": "Int", "width": 140},
-	{"label": "Opened At", "fieldname": "changed_at", "fieldtype": "Datetime", "width": 170},
+	{"label": "Opened At", "fieldname": "opened_at", "fieldtype": "Datetime", "width": 170},
 	{"label": "Next Probe At", "fieldname": "next_probe_at", "fieldtype": "Datetime", "width": 170},
 	{"label": "Note", "fieldname": "note", "fieldtype": "Data", "width": 420},
 ]
@@ -38,7 +38,7 @@ def to_row(status: AuthCircuitStatus) -> dict:
 		"state": status.state,
 		"last_status": status.last_status,
 		"failures": status.failures,
-		"changed_at": _site_time(status.changed_at),
+		"opened_at": _site_time(status.opened_at),
 		"next_probe_at": _site_time(status.next_probe_at),
 		"note": status.note,
 	}

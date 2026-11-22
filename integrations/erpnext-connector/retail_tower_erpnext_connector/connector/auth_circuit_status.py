@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Retail Tower OS and contributors
 # For license information, please see license.txt
 
-"""RT-1431 — what an operator may see of the auth circuit: state, last status, last change, next probe.
+"""RT-1431 — what an operator may see of the auth circuit: state, last status, opened at, next probe.
 
 Pure: no frappe, no network, no clock of its own. It turns the RT-1429 cache record into a read-only view and
 NEVER writes: it does not go through :class:`~.auth_circuit.AuthCircuit`, whose ``_state()`` clears a record
@@ -33,7 +33,7 @@ class AuthCircuitStatus:
 	state: str
 	last_status: int | None = None
 	failures: int | None = None
-	changed_at: datetime | None = None
+	opened_at: datetime | None = None
 	next_probe_at: datetime | None = None
 	note: str = ""
 
@@ -43,7 +43,7 @@ class AuthCircuitStatus:
 			"state": self.state,
 			"last_status": self.last_status,
 			"failures": self.failures,
-			"changed_at": _iso(self.changed_at),
+			"opened_at": _iso(self.opened_at),
 			"next_probe_at": _iso(self.next_probe_at),
 			"note": self.note,
 		}
@@ -64,7 +64,8 @@ def build_status(state: CircuitState | None, *, current_key: str, now: float) ->
 	"""The view of ``state`` for the credential named by ``current_key`` at epoch second ``now``.
 
 	Nothing recorded reads as closed (a recovery and a cache flush both clear the record, so a closed
-	circuit has no last status or change time to show). A record for another credential also reads as
+	circuit has no last status or opened-at time to show). ``opened_at`` is the first refusal of the run: a
+	later 403 after a 401 updates ``last_status`` but not ``opened_at``. A record for another credential also reads as
 	closed, with a note: the tick that next runs clears it.
 	"""
 	if state is None:
@@ -75,7 +76,7 @@ def build_status(state: CircuitState | None, *, current_key: str, now: float) ->
 		state=STATE_OPEN,
 		last_status=state.status,
 		failures=state.failures,
-		changed_at=_utc(state.opened_at),
+		opened_at=_utc(state.opened_at),
 		next_probe_at=_utc(state.next_probe_at),
 		note=NOTE_PROBE_DUE if now >= state.next_probe_at else "",
 	)

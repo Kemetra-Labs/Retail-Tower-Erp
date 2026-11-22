@@ -1,7 +1,7 @@
 # Copyright (c) 2026, Retail Tower OS and contributors
 # For license information, please see license.txt
 
-"""RT-1431 — the auth circuit as an operator sees it: state, last status, last change, next probe (no bench).
+"""RT-1431 — the auth circuit as an operator sees it: state, last status, opened at, next probe (no bench).
 
 The view is a pure function of the RT-1429 cache record. The tests pin what it shows, that reading it never
 writes the cache, and that no credential id, token or fingerprint reaches it. ``frappe`` is a stand-in.
@@ -50,7 +50,7 @@ def _at(epoch):
 def test_nothing_recorded_reads_as_closed_with_nothing_to_show():
 	status = build_status(None, current_key=KEY, now=OPENED)
 	assert status.state == STATE_CLOSED
-	assert (status.last_status, status.failures, status.changed_at, status.next_probe_at) == (
+	assert (status.last_status, status.failures, status.opened_at, status.next_probe_at) == (
 		None,
 		None,
 		None,
@@ -64,7 +64,7 @@ def test_an_open_circuit_shows_state_last_status_last_change_and_next_probe():
 	assert status.state == STATE_OPEN
 	assert status.last_status == 401
 	assert status.failures == 3
-	assert status.changed_at == _at(OPENED)
+	assert status.opened_at == _at(OPENED)
 	assert status.next_probe_at == _at(OPENED + 240)
 	assert status.note == ""
 
@@ -83,14 +83,14 @@ def test_a_record_for_a_previous_credential_reads_as_closed_with_a_note():
 	status = build_status(_state(key="cred-1:other0000000"), current_key=KEY, now=OPENED)
 	assert status.state == STATE_CLOSED
 	assert status.note == NOTE_OTHER_CREDENTIAL
-	assert status.changed_at is None
+	assert status.opened_at is None
 	assert status.next_probe_at is None
 
 
 def test_a_time_that_cannot_be_a_date_shows_no_time_not_an_error():
 	status = build_status(_state(opened=1e30, probe=1e30), current_key=KEY, now=OPENED)
 	assert status.state == STATE_OPEN
-	assert status.changed_at is None
+	assert status.opened_at is None
 	assert status.next_probe_at is None
 
 
@@ -100,7 +100,7 @@ def test_the_scripted_form_is_json_safe_and_carries_no_key():
 		"state": "open",
 		"last_status": 401,
 		"failures": 3,
-		"changed_at": _at(OPENED).isoformat(),
+		"opened_at": _at(OPENED).isoformat(),
 		"next_probe_at": _at(OPENED + 240).isoformat(),
 		"note": "",
 	}
@@ -166,7 +166,7 @@ def test_the_live_read_shows_a_circuit_another_job_opened(frappe_stub):
 	_open_the_circuit(_Settings(), status=403)
 	status = auth_circuit_store.read_auth_circuit()
 	assert (status.state, status.last_status, status.failures) == (STATE_OPEN, 403, 1)
-	assert status.changed_at is not None
+	assert status.opened_at is not None
 	assert status.next_probe_at is not None
 
 
@@ -223,7 +223,7 @@ def test_the_report_has_one_row_with_every_column_filled_for_an_open_circuit(rep
 		"state",
 		"last_status",
 		"failures",
-		"changed_at",
+		"opened_at",
 		"next_probe_at",
 		"note",
 	]
@@ -231,15 +231,15 @@ def test_the_report_has_one_row_with_every_column_filled_for_an_open_circuit(rep
 	row = rows[0]
 	assert row["state"] == STATE_OPEN
 	assert row["last_status"] == 401
-	assert row["changed_at"].tzinfo is None
-	assert row["next_probe_at"] > row["changed_at"]
+	assert row["opened_at"].tzinfo is None
+	assert row["next_probe_at"] > row["opened_at"]
 
 
 def test_the_report_shows_times_in_the_site_timezone_as_naive_datetimes(report):
 	row = report.to_row(build_status(_state(), current_key=KEY, now=OPENED))
-	assert row["changed_at"] == _at(OPENED).astimezone(SITE_TZ).replace(tzinfo=None)
-	assert row["changed_at"] == _at(OPENED).replace(tzinfo=None) + timedelta(hours=2)
-	assert row["next_probe_at"] == row["changed_at"] + timedelta(seconds=240)
+	assert row["opened_at"] == _at(OPENED).astimezone(SITE_TZ).replace(tzinfo=None)
+	assert row["opened_at"] == _at(OPENED).replace(tzinfo=None) + timedelta(hours=2)
+	assert row["next_probe_at"] == row["opened_at"] + timedelta(seconds=240)
 
 
 def test_the_report_row_of_a_closed_circuit_is_just_closed(report):
@@ -249,7 +249,7 @@ def test_the_report_row_of_a_closed_circuit_is_just_closed(report):
 			"state": STATE_CLOSED,
 			"last_status": None,
 			"failures": None,
-			"changed_at": None,
+			"opened_at": None,
 			"next_probe_at": None,
 			"note": "",
 		}
@@ -262,6 +262,8 @@ def test_the_report_rows_carry_no_token_or_key(report):
 	text = repr(rows)
 	assert TOKEN not in text
 	assert "cred-1" not in text
+	key = auth_circuit_store.credential_key(_Settings())
+	assert key.split(":", 1)[1] not in text  # the token-derived fingerprint
 
 
 # --- the standard report definition Frappe syncs on migrate ---------------------------------------------
