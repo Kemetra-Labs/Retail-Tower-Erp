@@ -4823,7 +4823,7 @@ export namespace PosSalesSales {
              *        quantity cap. An `originalTenderRef` on such a sale is 400 (rule
              *        1).
              *
-             *     The 422s are checked in the order `return_tender_mismatch`, `refund_instrument_not_allowed`, `refund_allocation_exceeds_tender` (see `ReturnUnprocessable`), after every 400 and 409. Until the F-2 runtime the server records `method` and `amount` only, and its strict DTO rejects the three new fields (400). No return pricing rule changes: the frozen-economics pricing above and the per-line quantity cap are unchanged.
+             *     The 422s are checked in the order `return_tender_mismatch`, `refund_instrument_not_allowed`, `refund_allocation_exceeds_tender` (see `ReturnUnprocessable`), after every 400 and 409; the three Return Policy 422s below are the exception and come first. Until the F-2 runtime the server records `method` and `amount` only, and its strict DTO rejects the three new fields (400). No return pricing rule changes: the frozen-economics pricing above and the per-line quantity cap are unchanged.
              *
              *     Refund obligation (R-1, R-4; from the F-2 runtime): an accepted return owes its `returnTotal`. Its obligation is `open` until settled cash executions are recorded against its allocations, `partially_settled` while they sum to less than `returnTotal`, and `settled` once they sum to it. The state is derived from the append-only acceptance, allocation and execution facts and is never stored (RT-277). A return whose `returnTotal` is 0 owes nothing and is settled at acceptance, with or without `allocationRef`. Any other return whose allocations carry no `allocationRef` cannot be settled through executions; its settlement is not tracked (`settlement: null` on the reads), exactly as for a return recorded before F-2. Disposition stays implicit in V1 (R-1): the ERPNext credit note restocks.
              *
@@ -4831,9 +4831,13 @@ export namespace PosSalesSales {
              *
              *     Credit sales (RT-577, from the RT-577 runtime): a return of a sale with payer responsibilities is refused with 403 `credit_sale_reversal_restricted` for every operator (see `CreditSaleReversalRestricted`), because its refund tenders must equal the whole `returnTotal` and part of that was never collected; it is returned only through `recordCreditSaleReversal`. The refusal is decided after the returns gate and the sale resolve (404) and a provenance replay (200, or its 409 `conflict`), and before reversal exclusivity (409), the line checks (400, 409 `over_return`) and the tender check (422). Nothing is recorded.
              *
+             *     Return policy (RT-1544, `return-policy.openapi.yaml`, specs/045-return-policy; from the RP-3 runtime, and only while enforcement is on: it stays OFF until the owner sets the legal minimum window, OD-272-5 and OD-272-6). Backend-Core judges the return under the policy revision frozen on the SALE (stamped at sale capture, never re-derived by an as-of lookup), under the `sales` row lock. The checks run after the returns gate, the sale resolve, a provenance replay, the credit-sale 403, reversal exclusivity and the `lineRef` membership check (400: each `lineRef` is a line of THIS sale, at most once), and before the quantity checks (400, 409 `over_return`), the pricing and every other 422, in this order: `return_window_expired` (the return's store-day is after `windowEndsOn`, the sale's business date plus the larger of the revision's `windowDays` and the legal floor; the floor applies to every revision, and a sale whose `windowEndsOn` is `null`, the System default while the floor is not set, has no window to expire), `return_line_not_returnable` (a returned line's product category is excluded by the revision, or the line has no category while the excluded set is not empty; the body carries `lineRef` and `reason`, `category_excluded` or `category_unknown`), then `return_reason_invalid` (a line's `reasonCode` is `other` with no `reasonNote`, or a line sends a `reasonNote` with no `reasonCode`). The policy judges only lines that resolve on the sale: a `lineRef` that does not is the 400 above, never a policy refusal. A refusal records nothing. A body without line reasons is judged on the window and the categories only: the line reasons are OPTIONAL in V1 and become required by a later contract bump, once the POS sends them. The return records the revision it was judged under, and the response echoes it as `returnPolicy`; it is absent on a return recorded without a policy evaluation (every return recorded before RP-3, or while enforcement is off). `reasonCode` and `reasonNote` are part of the return's payload, like the allocation fields: re-sending a recorded return with them added, removed or changed is 409 `conflict`. A return recorded without them hashes exactly as before and still replays 200, and a replay is never re-judged: a later publish never changes a recorded return's verdict or its `returnPolicy`.
+             *
              *     Idempotency: the `Idempotency-Key` header is REQUIRED and the return is deduped on its own `(tenant, sourceSystem, externalId)` provenance. The same provenance with the same payload replays (200); with a different payload or against a different sale it is 409 `conflict`. The allocation fields are part of that payload (R-3): re-sending a recorded return with an `allocationRef`, `originalTenderRef` or `instrument` added, removed or changed is 409 `conflict`. A return recorded without them still replays (200) when it is re-sent without them; a replay is never re-checked against the allocation rules. An absent `instrument` means `cash` but hashes differently, so the POS re-sends exactly the bytes it first sent (as it already does).
              *
              *     Posting: each return becomes ONE `reversal` work-item with `reversalKind: return` on the ERPNext posting feed (`erpnext-connector/posting-feed.yaml`). Backend-Core MUST NOT emit it before the Connector supports it (RT-16) and supports settlement (RT-78). Settle before post (R-7, from the F-2 runtime, behind a deploy flag). Each return is emitted exactly once, at one of two moments: (a) at acceptance, as before RT-490, when the flag is off at acceptance, or when the return cannot be settled through executions (its allocations carry no `allocationRef`), or when its `returnTotal` is 0; (b) otherwise at settlement, in the transaction of the execution that settles the obligation, with `refundTenders` projected from the return's settled cash executions. A return that took path (b) is emitted at its settlement whatever the flag says by then, so turning the flag off again never strands it, and a return emitted at acceptance is never emitted again. A return recorded through `recordCreditSaleReversal` keeps its RT-577 posting unchanged.
+             *
+             *     Late-commit bound (RT-1548 (BR-7), RT-196 design spec section 4; binds from the RT-1548 slice 2 runtime, not before). The runtime issues no COMMIT for a `recordReturn` request later than 60 seconds after receiving the request, and a request that was abandoned, refused or timed out under this bound never commits afterwards: its transaction is rolled back and nothing is recorded under its provenance. The bound runs from receipt and covers the whole request, including the wait for the sale row lock, not only the database statements. It bounds when the COMMIT is issued, not when the database finishes it. Completion is bounded only under a deployment assumption that is a normative rollout precondition: no unbounded synchronous-replication commit wait. Slice 2 verifies and documents the `synchronous_commit` and replica setting before `readReturnStatusByProvenance` answers verdicts, and the margin inside the quiet period covers the commit itself. It is what gives `readReturnStatusByProvenance` its affirmative `not_recorded`: once a client has sent nothing for its quiet period (the POS: 15 minutes), no `recordReturn` request it sent has a COMMIT still to be issued. This is an issuance guarantee only; a return closed on `not_recorded` that is later seen as recorded is a mismatch the client raises to support and never pays cash on (see `readReturnStatusByProvenance`). The bound is shorter than that quiet period by design, and the quiet period must also cover the transport delay before receipt, which the bound does not.
              */
             post: operations["recordReturn"];
             delete?: never;
@@ -4915,6 +4919,36 @@ export namespace PosSalesSales {
              *     404 `not_found` (non-disclosing, one body) when the sale does not resolve in the caller's (tenant, store) scope, or when no return of THIS sale recorded through `recordReturn` has that provenance. A return with that provenance against another sale, and a credit-sale reversal, are the same 404. A 404 is a point-in-time answer: a request still in flight can be recorded after it, so it is not by itself proof that the return was never recorded (RT-196 owns the reconcile rule). Not behind `POS_RETURNS_ENABLED`, for the reason given on `listSaleReturns`. It records nothing.
              */
             get: operations["readReturnByProvenance"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/pos/v1/sales/{saleRef}/returns/by-provenance/status": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read an affirmative recorded or not-recorded verdict for a return provenance.
+             * @description RT-1548 (slice 1, the contract, then slice 2, the runtime; owner approval on RT-1548 comment 18204), for RT-196 (design spec section 4, BR-1 to BR-7). The AFFIRMATIVE `not_recorded` that `readReturnByProvenance` cannot give: that read answers 200 or one 404, and its 404 is not proof of anything. This read answers for ONE return provenance `(sourceSystem, externalId)` of THIS sale, the provenance the POS journaled before it sent `recordReturn`, with one of two verdicts, told apart by `status`. `recorded`: a return of this sale has that provenance; the body is the same `SaleReturn` that `recordReturn` answers with (BR-3) and a `creditLinked` flag. `not_recorded`: no return of this sale has that provenance at the moment of the read. It changes and records nothing.
+             *
+             *     Decision order (BR-2): 1. the returns gate; 2. the sale resolves in the caller's (tenant, store) scope; 3. only then the provenance is looked up. The verdict is decided after the returns gate and the sale resolve. A refusal at 1 or 2 is 404 `not_found`, one body, and is NEVER `not_recorded`, so `not_recorded` is only ever said about a sale the caller can read. Behind `POS_RETURNS_ENABLED` (unlike `readReturnByProvenance`): with returns switched off the read answers 404, which a client treats as inconclusive, so an affirmative verdict is never served while returns are off.
+             *
+             *     Scope and disclosure. The lookup is limited to returns of THIS sale. A key recorded against another sale of the tenant, in any store, answers `not_recorded` exactly as a key recorded nowhere does, so the answer carries no existence leak across sales or stores; and a `recordReturn` of that key under this sale is refused 409 `conflict` by the provenance rule, so it can never be recorded here. A key of another tenant is not visible at all and is the same as a key recorded nowhere.
+             *
+             *     Credit-sale reversal (BR-4). A return recorded by `recordCreditSaleReversal`, a credit-sale reversal, for THIS sale under the key answers `recorded` with `creditLinked: true`: it is neither a 404 nor `not_recorded`, unlike on `readReturnByProvenance` and `listSaleReturns`. The client treats `creditLinked: true` as a mismatch: a till never pays out a credit reversal, and it must not close the row as not recorded. `creditLinked` is `false` for a return that `recordReturn` recorded.
+             *
+             *     Audit and storage (BR-5, BR-6). Each authorized 200 audits one ref-only `pos_sales.return_read` event: the sale ref, and the return ref when `recorded`. No migration: the lookup uses the existing `(tenant, source_system, external_id)` uniqueness of `sale_returns`, filtered to this sale.
+             *
+             *     Late-commit bound (RT-1548 (BR-7); binds from the slice 2 runtime). The `recordReturn` runtime issues no COMMIT later than 60 seconds after receiving the request, and a request that was abandoned, refused or timed out under this bound never commits afterwards (see `recordReturn`). So a `not_recorded` verdict guarantees that no `recordReturn` request received more than 60 seconds before the read has a COMMIT still to be issued. The bound is on issuing the COMMIT, not on its completion: completion is bounded only under a deployment assumption that is a normative rollout precondition of this read, no unbounded synchronous-replication commit wait, and slice 2 verifies and documents the `synchronous_commit` and replica setting before the read answers verdicts. It does not by itself cover a `recordReturn` request received less than 60 seconds before the read, which may still commit after it. A client therefore closes a return only after its own quiet period since its last send of it (the POS: 15 minutes, RT-196 OD-196-5), which must exceed the bound plus its request timeout plus the transport delay before receipt, and only on a fresh `not_recorded` read after that period. The quiet period is elapsed time: a client that cannot show that it has elapsed (its clock stepped forward, or it restarted) treats it as not elapsed. `not_recorded` makes no claim about an in-flight `recordCreditSaleReversal`, which is outside the bound (the POS never returns a credit sale, RT-196 D-c). Late commit: if a return the client closed as not recorded is later seen as recorded (a later `recorded` verdict for its key, `readSale` showing it, or any server answer for the closed key), the client treats it as a mismatch: it raises the row to support (`needs_support`, mismatch) and never pays cash on it (RT-1498 owns that code; this contract states the obligation). Rollout: the read must not answer a verdict until every instance that serves `recordReturn` enforces the bound; ship the bound first, or keep the read off (404) until the rollout has completed. Inconclusive outcomes (offline, 401, 404, 5xx, an unreadable body) are not verdicts.
+             */
+            get: operations["readReturnStatusByProvenance"];
             put?: never;
             post?: never;
             delete?: never;
@@ -5260,7 +5294,7 @@ export namespace PosSalesSales {
             CurrencyCode: string;
             /** @description Exact-decimal monetary amount as a string (gate A.6 — never a float). Up to 4 fractional digits, stored as `numeric(19,4)`. Always paired with a `currency_code`. */
             DecimalAmount: string;
-            /** @description Canonical error envelope, identical to the shared shape in `auth.openapi.yaml` / `outbox.openapi.yaml` (used verbatim — no extra fields, no `details`). The `error.code` values encode the FR-101 eight-category failure set (see the per-response descriptions). Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) — they never enumerate the underlying cause. */
+            /** @description Canonical error envelope, identical to the shared shape in `auth.openapi.yaml` / `outbox.openapi.yaml` (used verbatim — no extra fields, no `details`), with one exception: the 422 `return_line_not_returnable` of `recordReturn` (RT-1544) also carries `error.lineRef` and `error.reason` (`ReturnLineNotReturnableError`). The global exception filter passes only `code`, `message` and `details` through, plus a few named keys, so carrying those two fields is an RP-3 item (a passthrough for that one code). The `error.code` values encode the FR-101 eight-category failure set (see the per-response descriptions). Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) — they never enumerate the underlying cause. */
             Error: {
                 error: {
                     /** @description Stable machine-readable error code (FR-101 taxonomy). */
@@ -5387,12 +5421,29 @@ export namespace PosSalesSales {
                 posRefundAmount: components["schemas"]["NonNegativeDecimalAmount"];
                 sourceSystem: string;
             };
+            /** @description One line of a `recordReturn` request (RT-1544): `ReturnLineRequest` (`lineRef`, `quantity`, unchanged) plus the OPTIONAL line-level reason of the Return Policy (OD-272-8). A separate schema, so that `recordCreditSaleReversal`, which shares `ReturnLineRequest`, does not gain the reason fields. Both reason fields are accepted from the RP-3 runtime; until then the strict DTO rejects them (400). */
+            RecordReturnLineRequest: {
+                /**
+                 * Format: uuid
+                 * @description The sale line returned (`SaleLine.lineRef`). Must belong to this sale.
+                 */
+                lineRef: string;
+                /** @description Quantity returned, exact-decimal string (no float), same bound as the sale line's `quantity`. MUST be > 0 and ≤ the line's `returnableQuantity` (else 400 / 409 `over_return`). MUST be a whole number when the line was sold in a whole quantity (RT-105; else 400 `validation_error`). */
+                quantity: string;
+                /**
+                 * @description OPTIONAL (OD-272-8) — why this line is returned, from the closed System catalogue. A value outside the catalogue is refused by the strict body (400 `validation_error`). Optional in V1; a later contract bump makes it required once the POS sends it. The header `reason` of the return is unchanged. A `reasonNote` sent without it is refused (422 `return_reason_invalid`).
+                 * @enum {string}
+                 */
+                reasonCode?: "defective" | "wrong_item" | "not_as_described" | "changed_mind" | "other";
+                /** @description OPTIONAL — a free-text note for the line, valid only together with a `reasonCode`: a note with no code is refused (422 `return_reason_invalid`). Required when `reasonCode` is `other` (422 `return_reason_invalid` when it is absent or blank). No PII. */
+                reasonNote?: string;
+            };
             /** @description A line-aware return (RT-14 D1). Names lines by `lineRef` and quantity only — no amounts: the server prices each line from the frozen sale line (see `recordReturn`). `returnedAt` / business date / tenant / store / actor resolve server-side and are rejected if body-supplied (FR-061). Auth: the operator-authorization envelope in `Authorization: Bearer <envelope>` (`operatorAuthorization`), re-verified live per request (G-4). */
             RecordReturnRequest: {
                 /** @description POS-side return identifier; with `sourceSystem`, the return's dedup key. */
                 externalId: string;
-                /** @description The lines returned. Each `lineRef` at most once per request. */
-                lines: components["schemas"]["ReturnLineRequest"][];
+                /** @description The lines returned. Each `lineRef` at most once per request. From the RP-3 runtime a line may carry a `reasonCode` and `reasonNote` (RT-1544). */
+                lines: components["schemas"]["RecordReturnLineRequest"][];
                 /** @description Optional free-text return reason. No PII. */
                 reason?: string;
                 /** @description The refund allocations: how the refund is to be paid (D3, RT-271 R-2), not a payout record. The amounts MUST sum to the server-computed `returnTotal`, else 422 `return_tender_mismatch`. From the F-2 runtime the allocation rules of `recordReturn` apply: `allocationRef` on every entry or on none, the instrument rule (422 `refund_instrument_not_allowed`) and the refundable-balance rule (422 `refund_allocation_exceeds_tender`). */
@@ -5514,6 +5565,30 @@ export namespace PosSalesSales {
                 /** @description The tax share of `lineAmount`, split the same way; null when the sale line has no tax. */
                 taxAmount: components["schemas"]["DecimalAmount"] | null;
             };
+            /** @description RT-1544. The 422 body of `return_line_not_returnable`: the canonical `Error` envelope plus the line and the cause (specs/045 section 3). It is the one `recordReturn` refusal whose `error` object carries more than `code`, `message` and `request_id`. Every body of this shape is also a valid `Error`; the 422 response keeps `Error` as its schema, so its body type does not change for an existing client. */
+            ReturnLineNotReturnableError: {
+                error: {
+                    /** @constant */
+                    code: "return_line_not_returnable";
+                    /**
+                     * Format: uuid
+                     * @description The returned sale line the policy refuses.
+                     */
+                    lineRef: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /**
+                     * @description `category_excluded`: the product's current category is excluded by the policy revision (OD-272-7). `category_unknown`: the line has no product, or its product has no category, while the revision's excluded set is not empty.
+                     * @enum {string}
+                     */
+                    reason: "category_excluded" | "category_unknown";
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                };
+            };
             ReturnLineRequest: {
                 /**
                  * Format: uuid
@@ -5523,11 +5598,67 @@ export namespace PosSalesSales {
                 /** @description Quantity returned, exact-decimal string (no float), same bound as the sale line's `quantity`. MUST be > 0 and ≤ the line's `returnableQuantity` (else 400 / 409 `over_return`). MUST be a whole number when the line was sold in a whole quantity (RT-105; else 400 `validation_error`). */
                 quantity: string;
             };
+            /** @description RT-1548 (BR-2, BR-7). No return of this sale had this provenance when the read ran: the affirmative answer `readReturnByProvenance` never gives. Together with the late-commit bound of 60 seconds stated on `readReturnStatusByProvenance` and `recordReturn`, it means that no `recordReturn` request received more than 60 seconds earlier has a COMMIT still to be issued. It is not by itself proof about a request received within the last 60 seconds, so a client closes only after its quiet period; and a client that later sees the return as recorded treats it as a mismatch, raises it to support and never pays cash on it. It carries no other field: no timestamp, no reason. */
+            ReturnNotRecordedStatus: {
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                status: "not_recorded";
+            };
+            /** @description RT-1548 (BR-2). The verdict of `readReturnStatusByProvenance`: exactly two outcomes, told apart by `status`. There is no third, non-final verdict: an inconclusive read is an HTTP failure, never a body. */
+            ReturnProvenanceStatus: components["schemas"]["ReturnRecordedStatus"] | components["schemas"]["ReturnNotRecordedStatus"];
             /** @description RT-490 (R-8). One recorded return with its refund settlement, on `readReturnByProvenance` and `listSaleReturns`. */
             ReturnRead: {
                 saleReturn: components["schemas"]["SaleReturn"];
                 /** @description The return's refund obligation; null when it is not tracked (a return with a non-zero `returnTotal` whose allocations carry no `allocationRef`). A zero-total return is `settled`. */
                 settlement: components["schemas"]["RefundSettlement"] | null;
+            };
+            /** @description RT-1548 (BR-2, BR-3, BR-4). A return of this sale is recorded under the provenance. `saleReturn` is the same `SaleReturn` that `recordReturn` answers with, so the POS reuses its own matcher; it carries no `settlement` (`readReturnByProvenance` and `listSaleReturns` do). `creditLinked` is `true` when the return was recorded by `recordCreditSaleReversal`, a credit-sale reversal: the POS treats it as a mismatch and never pays it out. It is `false` for a return `recordReturn` recorded, and it is always present, so a client never reads an absent flag. One exception to "the same `SaleReturn`": a credit-sale reversal whose cash refund is 0 has no refund row, so its `saleReturn.refundTenders` is empty, which `SaleReturn` does not allow (`minItems: 1`). For `creditLinked: true` only, `saleReturn` may therefore be `ReturnStatusZeroRefundReturn` (identical but for the empty `refundTenders`); for `creditLinked: false` it is always a full `SaleReturn` with at least one refund allocation. */
+            ReturnRecordedStatus: {
+                /** @description `true` when the return belongs to a credit-sale reversal (RT-577); the client treats it as a mismatch. */
+                creditLinked: boolean;
+                saleReturn: components["schemas"]["SaleReturn"] | components["schemas"]["ReturnStatusZeroRefundReturn"];
+                /**
+                 * @description discriminator enum property added by openapi-typescript
+                 * @enum {string}
+                 */
+                status: "recorded";
+            };
+            /** @description RT-1548. `SaleReturn` as a credit-sale reversal with nothing refunded in cash projects it: every property, type and required field of `SaleReturn`, except that `refundTenders` is EMPTY. A credit-sale reversal whose cash refund is 0 records no refund row (the empty list `recordCreditSaleReversal` accepts for a zero refund), so its return cannot meet `SaleReturn.refundTenders.minItems: 1`. Used only by `ReturnRecordedStatus` when `creditLinked` is `true`; `SaleReturn` itself is unchanged. A test pins that the two stay identical but for this field. */
+            ReturnStatusZeroRefundReturn: {
+                /**
+                 * Format: date
+                 * @description The return's own business day: `recordedAt` in the store timezone, persisted at insert so a later timezone change never rewrites it (RT-63 P2). The sale's `businessDate` is unaffected.
+                 */
+                businessDate: string;
+                currencyCode: components["schemas"]["CurrencyCode"];
+                externalId: string;
+                lines: components["schemas"]["ReturnLine"][];
+                /** @description RT-1335 (spec 048 §9, OD-3): per automatic offer of the sale, the discount the customer no longer earns on the units they keep, deducted from `returnTotal`. Absent when no offer is clawed back and from a Backend-Core that predates RT-1337. Since RT-1367 PR 2 an accepted return carries one entry for each offer whose clawback is above 0 (from RT-1337 until then such a return was refused, so the field was never present; see `recordReturn`, Automatic offers). The posting feed carries the per-line clawback (`posting-feed.yaml` 1.13.0-draft, OD-11 option A plus Hybrid). */
+                promotionClawbacks?: components["schemas"]["PromotionClawback"][];
+                reason: string | null;
+                /**
+                 * Format: date-time
+                 * @description Server-clock stamp of the return (never a client time).
+                 */
+                recordedAt: string;
+                /** @description Always empty here: the credit-sale reversal refunded no cash, so there is no allocation (see `SaleReturn.refundTenders`). */
+                refundTenders: components["schemas"]["RefundTender"][];
+                returnPolicy?: components["schemas"]["SaleReturnPolicy"];
+                /**
+                 * Format: uuid
+                 * @description Stable reference to the return row.
+                 */
+                returnRef: string;
+                /** @description Σ returned `lineAmount` — the server-computed refund total — less Σ `promotionClawbacks.amount` when an automatic offer is clawed back, plus the give-back of an earlier clawback (RT-1335, OD-11 Hybrid, see `recordReturn`). */
+                returnTotal: components["schemas"]["DecimalAmount"];
+                /**
+                 * Format: uuid
+                 * @description The sale this return is against.
+                 */
+                saleRef: string;
+                sourceSystem: string;
             };
             /** @description Wire projection of a captured sale. Decoupled from the `sales` / `sale_lines` DB schema (§IV). Carries no `tenant_id` (implicit in the authenticated scope), no `payload_hash`, no `created_by`, and no device. Tender facts ride `tenders` (RT-10 D1) only. */
             Sale: {
@@ -5662,6 +5793,7 @@ export namespace PosSalesSales {
                 recordedAt: string;
                 /** @description The return's refund allocations as recorded (RT-490), not payouts. From the F-2 runtime each entry carries the `allocationRef`, `originalTenderRef` and `instrument` it was recorded with; an allocation recorded without them carries none (never backfilled). */
                 refundTenders: components["schemas"]["RefundTender"][];
+                returnPolicy?: components["schemas"]["SaleReturnPolicy"];
                 /**
                  * Format: uuid
                  * @description Stable reference to the return row.
@@ -5683,6 +5815,26 @@ export namespace PosSalesSales {
                 /** Format: uuid */
                 saleRef: string;
             };
+            /** @description RT-1544 (specs/045, OD-272-3): the Return Policy the return was judged under, recorded on the return and echoed here. OPTIONAL on `SaleReturn`: absent on a return recorded without a policy evaluation (every return recorded before the RP-3 runtime, or while enforcement is off), never `null`. `revisionId` is the revision stamped on the sale and is `null` exactly when `source` is `system` (the System default applied: no tenant revision was in force when the sale was captured, or the sale predates the policy). No tenant, store or device id. The two return reads, `listSaleReturns` and `readReturnByProvenance`, share `SaleReturn` and therefore carry the same optional field. */
+            SaleReturnPolicy: {
+                /** @description The System-locked legal minimum window in days (OD-272-5) that applied when the return was judged. `null` means the floor was not set yet. The contract states no value, and no maximum: the owner or legal supplies it. */
+                legalFloorDays: number | null;
+                /**
+                 * Format: uuid
+                 * @description The tenant policy revision the sale was stamped with; `null` for the System default.
+                 */
+                revisionId: string | null;
+                /**
+                 * @description Where the applied policy comes from. V1 has no store override.
+                 * @enum {string}
+                 */
+                source: "system" | "tenant";
+                /**
+                 * Format: date
+                 * @description The last store calendar day on which the sale could be returned: the sale's `businessDate` plus the larger of the revision's `windowDays` and the legal floor (OD-272-4, OD-272-5). `null` exactly when `source` is `system` and `legalFloorDays` is `null`: the System default has no window until the floor is set.
+                 */
+                windowEndsOn: string | null;
+            } & (unknown & unknown);
             /** @description One way a sale was paid (RT-10 D1), in the sale's currency. Recorded as part of the immutable sale fact; not a payment ledger (ADR-0005). */
             SaleTender: {
                 amount: components["schemas"]["NonNegativeDecimalAmount"];
@@ -5868,7 +6020,16 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490). `error.code` is one of, in this order: `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from the RT-1337 runtime) — an automatic offer's `refund_O` would be negative (see `recordReturn`, Automatic offers); the return cannot be recorded as it is (adding the reward units to the return is the remedy); `promotion_return_requires_clawback` (RT-1335; returned by the RT-1337 runtime only until RT-1367 PR 2, and no longer returned) — the return had a clawback above 0, would give back a discount an earlier return clawed back, or included a reward line, which the Connector could not post yet; such a return is now recorded (see `recordReturn`, Automatic offers). Clients may keep mapping the code; `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`; `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) — the sale carries a tender whose `method` is not `cash` (pilot returns are cash-only, for all-cash sales only); `refund_allocation_exceeds_tender` (RT-490, R-5; from the F-2 runtime) — the allocations would exceed a tender's refundable balance, counted over every accepted return and legacy refund of the sale (see `recordReturn`, Allocation rules). Deterministic; nothing is recorded. */
+            /** @description FR-101 `not-found` for `readReturnStatusByProvenance` (RT-1548, BR-2): the returns gate is off, or the status read's own rollout gate (`POS_RETURN_STATUS_READ_ENABLED`) is off, or the sale ref does not resolve in the caller's (tenant, store) scope. Non-disclosing: one body for all three and for a malformed sale ref, identical for cross-tenant, out-of-scope and absent ids. It is NEVER `not_recorded`: a 404 is not a verdict, and a client treats it as inconclusive. */
+            ReturnStatusNotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422 on `recordReturn` (renamed from `ReturnTenderMismatch` in RT-490). `error.code` is one of, in this order: `return_window_expired` (RT-1544, specs/045; from the RP-3 runtime, and only while enforcement is on, which stays off until the owner sets the legal minimum window) — the return's store-day is after the `windowEndsOn` of the revision frozen on the sale (the sale's business date plus the larger of `windowDays` and the legal floor; a sale with a `null` `windowEndsOn` has no window to expire); `return_line_not_returnable` (RT-1544; same posture) — a returned line's product category is excluded by that revision, or the line has no category while the excluded set is not empty; the `error` object is the `Error` envelope plus the offending `lineRef` and a `reason`, `category_excluded` or `category_unknown` (the shape is named `ReturnLineNotReturnableError`; the response schema stays `Error`, which does not close its `error` object); `return_reason_invalid` (RT-1544; same posture) — a line's `reasonCode` is `other` and its `reasonNote` is absent or blank, or a line sends a `reasonNote` with no `reasonCode`. A `reasonCode` outside the closed catalogue never gets here: the strict body refuses it first (400 `validation_error`); these three are checked first, after the `lineRef` membership check (400) and before the quantity checks and the codes below (see `recordReturn`, Return policy); `promotion_clawback_exceeds_refund` (RT-1335, spec 048 OD-10; from the RT-1337 runtime) — an automatic offer's `refund_O` would be negative (see `recordReturn`, Automatic offers); the return cannot be recorded as it is (adding the reward units to the return is the remedy); `promotion_return_requires_clawback` (RT-1335; returned by the RT-1337 runtime only until RT-1367 PR 2, and no longer returned) — the return had a clawback above 0, would give back a discount an earlier return clawed back, or included a reward line, which the Connector could not post yet; such a return is now recorded (see `recordReturn`, Automatic offers). Clients may keep mapping the code; `return_tender_mismatch` (RT-14 D3) — the `refundTenders` amounts do not sum to the server-computed `returnTotal`; `refund_instrument_not_allowed` (RT-490, R-12; from the F-2 runtime) — the sale carries a tender whose `method` is not `cash` (pilot returns are cash-only, for all-cash sales only); `refund_allocation_exceeds_tender` (RT-490, R-5; from the F-2 runtime) — the allocations would exceed a tender's refundable balance, counted over every accepted return and legacy refund of the sale (see `recordReturn`, Allocation rules). Deterministic; nothing is recorded. */
             ReturnUnprocessable: {
                 headers: {
                     [name: string]: unknown;
@@ -6352,6 +6513,38 @@ export namespace PosSalesSales {
                 400: components["responses"]["ValidationFailure"];
                 401: components["responses"]["Unauthorized"];
                 404: components["responses"]["NotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+        readReturnStatusByProvenance: {
+            parameters: {
+                query: {
+                    /** @description RT-490. The `externalId` the return was sent with (`RecordReturnRequest.externalId`), compared exactly. A POS-side return identifier, never PII. */
+                    externalId: components["parameters"]["ReturnExternalId"];
+                    /** @description RT-490. The `sourceSystem` the return was sent with (`RecordReturnRequest.sourceSystem`), compared exactly. */
+                    sourceSystem: components["parameters"]["ReturnSourceSystem"];
+                };
+                header?: never;
+                path: {
+                    /** @description Stable server-issued sale reference returned by `captureSale`. Resolves only within the caller's (tenant, store) scope — out-of-scope refs are non-disclosing 404s (FR-063/102). */
+                    saleRef: components["parameters"]["SaleRef"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The verdict: `recorded` with the return and its `creditLinked` flag, or `not_recorded`. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ReturnProvenanceStatus"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["ReturnStatusNotFound"];
                 500: components["responses"]["SystemFailure"];
             };
         };

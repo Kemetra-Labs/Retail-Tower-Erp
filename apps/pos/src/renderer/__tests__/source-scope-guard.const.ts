@@ -841,3 +841,29 @@ export function isRt1403RepinExemptFile(branch: string, file: string): boolean {
     (RT_1403_REPIN_AFTER_MERGE_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-1498-close-unknown-return` carries the POS repin the RT-1498 close slice needs: after RT-1548 merged
+ * to `main` (contract PR #802, runtime PR #807, ef40cdd83), the POS PIN, which still named 1.26.0-draft of
+ * `pos-sales/sales.yaml`, is repinned to the merge commit (`npm run contracts:repin`), which regenerates
+ * `src/shared/api-types.ts` (the new `readReturnStatusByProvenance` operation,
+ * `GET /api/pos/v1/sales/{saleRef}/returns/by-provenance/status`, and the already-merged additive RT-1544
+ * return-policy types catch up). It is the first commit of the branch; the close writer follows.
+ *
+ * Authority: the RT-1498 slice plan (c18283: "POS repin to ef40cdd83 ... Needs a narrow source-scope-guard
+ * exemption, the same pattern as #795 and #787"), under the owner's delegation to the orchestrator
+ * (chat 2026-11-22). Exactly ONE file on exactly ONE branch (exact name, no `startsWith`). Narrowness is
+ * asserted by `source-scope-guard-rt1498-repin.test.ts`.
+ */
+export const RT_1498_CLOSE_REPIN_BRANCH = 'rt-1498-close-unknown-return' as const;
+export const RT_1498_CLOSE_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1498 close-slice repin exemption allows on `branch`. */
+export function isRt1498CloseRepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1498_CLOSE_REPIN_BRANCH &&
+    (RT_1498_CLOSE_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
