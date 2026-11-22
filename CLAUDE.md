@@ -523,6 +523,8 @@ This is a working practice, not an enforced branch rule. It never authorizes a p
 
 ## 12. Testing
 
+When an implementation issue changes a behavioral-tier path (money, sales, stock, auth, tenant isolation, posting, migrations, Electron security, or the offer engine), add or extend a test that the product's existing runner already discovers: POS or Admin Vitest, Backend-Core Jest, Connector pytest, Playwright, or `tests/e2e/*.test.mjs`. A changed test file shows that a suite changed. It does not prove the new behavior is covered. If the evidence can only come from a real lab or a physical till, name the owning issue in the PR body as `coverage-evidence: RT-1234`. That line does not mean the lab or the till ran. Do not lower coverage floors, and do not add a graph job or a cron for a scenario. `boundary-check` prints a report-mode warning when a behavioral-tier diff has neither a discovered test nor that line. The warning does not fail the job.
+
 Run the narrowest relevant validation first.
 
 Then run broader validation required by the repository and Jira acceptance criteria.
