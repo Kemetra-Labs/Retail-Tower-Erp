@@ -56,6 +56,7 @@ import {
   insertAuditEvent,
   isStoreWritable,
 } from "./posting-resolution.writer";
+import { allSaleLinesMapped } from "./sale-lines-mapped";
 
 /** Hard ceiling on a single backlog page — the 012/009 500/req convention. */
 export const BACKLOG_MAX_PAGE = 500;
@@ -420,18 +421,7 @@ export class ErpnextReconciliationService {
     // absent — no defensive `?? "0"` needed (it would be a dead branch).
     if (Number(wh.rows[0]!.count) === 0) return false;
 
-    const unmapped = await client.query<{ count: string }>(
-      `SELECT count(*)::text AS count
-         FROM sale_lines sl
-         LEFT JOIN erpnext_item_map m
-           ON m.tenant_product_id = sl.tenant_product_ref
-          AND m.state = 'confirmed'
-          AND m.retired_at IS NULL
-        WHERE sl.sale_id = $1
-          AND (sl.tenant_product_ref IS NULL OR m.id IS NULL)`,
-      [input.saleId],
-    );
-    return Number(unmapped.rows[0]!.count) === 0;
+    return allSaleLinesMapped(client, input.saleId);
   }
 
   /**

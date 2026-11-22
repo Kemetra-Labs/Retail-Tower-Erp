@@ -30,7 +30,8 @@ import {
   POSTING_STATUS_FIXTURE_IDS,
   POST_A_PENDING,
   seedPostingStatusFixture,
-} from "../__support__/seed-posting-status";
+} from "../__support__/seed-posting-status";
+import { describePostingGuardCompared } from "../../../_helpers/posting-equivalence.assert";
 
 let env: PgTestEnv | null = null;
 let skip = false;
@@ -169,3 +170,6 @@ describe("ErpnextPostingService.pullPostings — 015-US1-FEED", () => {
     expect(page.items.length).toBeLessThanOrEqual(1);
   });
 });
+
+// RT-1463: declared last, so it runs after the tests above (posting equivalence guard).
+describePostingGuardCompared();
