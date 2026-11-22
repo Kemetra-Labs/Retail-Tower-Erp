@@ -29,8 +29,8 @@ import {
 const ALL_REASONS = [...SERVER_RETURN_REFUSALS, ...LOCAL_RETURN_REFUSALS];
 
 describe('returns refusal copy (O1)', () => {
-  it('covers all 43 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers, 3 from RT-1498 S4/S5) with a non-empty Arabic message', () => {
-    expect(ALL_REASONS).toHaveLength(43);
+  it('covers all 44 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers, 3 from RT-1498 S4/S5, 1 from RT-1543) with a non-empty Arabic message', () => {
+    expect(ALL_REASONS).toHaveLength(44);
     for (const reason of ALL_REASONS) {
       const message = refusalMessage(reason);
       expect(message.trim().length, reason).toBeGreaterThan(0);
@@ -50,6 +50,13 @@ describe('returns refusal copy (O1)', () => {
     expect(message).toContain('يُغلق');
     expect(message).toContain('سجل المرتجعات');
     expect(message).not.toContain('لم يُنفَّذ');
+  });
+
+  it('RT-1543: payout_no_open_shift tells the cashier to open a shift first and that nothing was paid', () => {
+    const message = refusalMessage('payout_no_open_shift');
+    expect(message).toContain('افتح وردية');
+    expect(message).toContain('لم يُصرف');
+    expect(message).not.toContain('لم يُنفَّذ شيء');
   });
 
   it('falls back to a generic message for a reason main has not taught the renderer', () => {

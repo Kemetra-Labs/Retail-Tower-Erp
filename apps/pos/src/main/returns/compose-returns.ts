@@ -230,6 +230,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     audit,
     drawer: deps.drawer,
     ...(deps.drawerSlot === undefined ? {} : { drawerSlot: deps.drawerSlot }),
+    shiftRule: { enabled: deps.isShiftCashupEnabled, openShiftRef: deps.openShiftRef },
     printer: deps.printer,
     transaction,
     isStopped,

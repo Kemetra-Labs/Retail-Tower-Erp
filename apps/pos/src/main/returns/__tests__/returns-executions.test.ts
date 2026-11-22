@@ -271,9 +271,23 @@ describe('a failed, refused or unknown payout records nothing', () => {
     expect(h.backend.executionCalls()).toEqual([]);
   });
 
-  it('no open shift: the payout completes, no execution is invented, a warning is logged', async () => {
+  it('no open shift while shift cash-up is on: the payout is refused, nothing is outboxed (RT-1543 follow-up)', async () => {
     h.state.shiftRef = null;
     const returnId = await confirmedReturn(h.service);
+    const res = await h.service.payout({ returnId, action: 'start' });
+    expect(res).toMatchObject({ kind: 'refused', reason: 'payout_no_open_shift' });
+    await settle();
+    expect(executionRows()).toEqual([]);
+    expect(h.backend.executionCalls()).toEqual([]);
+    expect(h.drawer.kicks).toBe(0);
+  });
+
+  it('a shift lost between the payout check and its commit still completes the payout: no execution is invented, a warning is logged', async () => {
+    const returnId = await confirmedReturn(h.service);
+    // The drawer kick is the only await between the check and the commit.
+    h.drawer.onKick = () => {
+      h.state.shiftRef = null;
+    };
     const res = await h.service.payout({ returnId, action: 'start' });
     expect(res.kind).toBe('paid_out');
     await settle();
@@ -588,12 +602,13 @@ describe('a till that cannot report (shift cash-up off)', () => {
     expect(h.backend.executionCalls()).toHaveLength(1);
   });
 
-  it('with the flag on and no open shift keeps the warning and reports nothing', async () => {
-    h.state.shiftCashup = true;
-    h.state.shiftRef = null;
+  it('turned off after journaling and no shift open: the payout is unchanged, nothing is reported, the warning stays', async () => {
     const returnId = await confirmedReturn(h.service);
     expect(body().refundTenders[0]?.allocationRef).toMatch(UUID_V7);
-    await h.service.payout({ returnId, action: 'start' });
+    h.state.shiftCashup = false;
+    h.state.shiftRef = null;
+    const paid = await h.service.payout({ returnId, action: 'start' });
+    expect(paid.kind).toBe('paid_out');
     await settle();
     expect(executionRows()).toEqual([]);
     expect(h.warnings).toContain('returns:execution_no_open_shift');

@@ -55,6 +55,14 @@
  * payout's completion.
  * The amount is the journal's server-confirmed total; the request has none.
  *
+ * ## Shift (RT-1543 follow-up)
+ *
+ * With shift cash-up on for the till, a payout needs an open shift: `start`, `retry_drawer` and
+ * `manual` are refused `payout_no_open_shift` first, before the drawer slot, the claim, the kick or
+ * any write (`returns-payout-shift.ts`). A payout claimed while a shift was open keeps its claim if
+ * the shift is then lost (a manager force-close on the server) and completes once a shift is open
+ * again; a local shift close refuses while a payout is unpaid (`requireDrawerSettled`).
+ *
  * ## Shutdown
  *
  * After stop, nothing is read or written (`shutting_down`); a kick or print
@@ -100,6 +108,7 @@ import type {
   ReturnPayoutsRepository,
 } from './returns-payout-repository.js';
 import type { EnqueueExecutions } from './returns-execution-enqueue.js';
+import { payoutShiftRefusal, type PayoutShiftRule } from './returns-payout-shift.js';
 import type { JournalEntry, ReturnScope, ReturnsRepository } from './returns-repository.js';
 import { renderReturnSlip, slipTotalsAgree, type ReturnSlipVariant } from './returns-slip.js';
 
@@ -145,6 +154,11 @@ export interface ReturnsPayoutDeps {
    * either, the other is refused `another_payout_in_progress`. Absent: a slot of its own.
    */
   readonly drawerSlot?: DrawerSlot;
+  /**
+   * RT-1543 follow-up: with shift cash-up on for the till, a payout needs an open shift
+   * (`payout_no_open_shift`). Absent: no such rule.
+   */
+  readonly shiftRule?: PayoutShiftRule;
 }
 
 export interface ReturnsPayoutAPI {
@@ -303,6 +317,12 @@ class ReturnsPayoutService implements ReturnsPayoutAPI {
     if (this.deps.isStopped()) return { ...SHUTTING_DOWN, ret: null };
     const admitted = this.admit('payout');
     if (admitted.kind !== 'ok') return { ...admitted, ret: null };
+    // RT-1543 follow-up: before the drawer slot, the claim, the kick and any write.
+    const noShift = payoutShiftRefusal(this.deps.shiftRule, admitted.actor.scope);
+    if (noShift !== null) {
+      const own = this.ownReturn(admitted.actor, req.returnId);
+      return this.refusePayout(admitted.actor, noShift, own);
+    }
     const outcome = await this.exclusive(admitted.actor, req);
     const lost = this.lostAfterAwait(admitted.actor);
     return lost === null ? outcome : { ...lost, ret: null };

@@ -474,6 +474,10 @@ export interface HarnessState {
   shiftRef: string | null;
   /** RT-1543: shift cash-up is enabled on this till (`POS_PULSE_FEATURE_SHIFT_CASHUP`). */
   shiftCashup: boolean;
+  /** RT-1543 follow-up: the shift read throws (fault injection). */
+  failShiftRead: boolean;
+  /** RT-1543 follow-up: the shift cash-up flag read throws (fault injection). */
+  failFlagRead: boolean;
   /** The domain clock (ISO-8601), read per call; starts at `NOW`. */
   now: string;
   /** Runs on every audit emit, before it is written (to change state mid-flow). */
@@ -558,6 +562,8 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     terminalId: SCOPE.terminalId,
     shiftRef: SHIFT_REF,
     shiftCashup: true,
+    failShiftRead: false,
+    failFlagRead: false,
     now: NOW,
     onAudit: null,
     failAudit: null,
@@ -607,8 +613,14 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       drawer,
       ...(options.drawerSlot === undefined ? {} : { drawerSlot: options.drawerSlot }),
       printer,
-      openShiftRef: () => state.shiftRef,
-      isShiftCashupEnabled: () => state.shiftCashup,
+      openShiftRef: () => {
+        if (state.failShiftRead) throw new Error('shift read failed');
+        return state.shiftRef;
+      },
+      isShiftCashupEnabled: () => {
+        if (state.failFlagRead) throw new Error('flag read failed');
+        return state.shiftCashup;
+      },
       ...escalationOf(),
     });
     return {

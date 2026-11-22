@@ -269,6 +269,7 @@ describe('transient refusals wait for a refresh (Codex P2 on 49e0277)', () => {
   it.each([
     'drawer_kick_in_progress',
     'another_payout_in_progress',
+    'payout_no_open_shift',
     'session_changed',
     'no_session',
     'offline',
