@@ -13,7 +13,10 @@
  *     `not_recorded` at close time, and a return that was sent and is not in flight; the approval, the
  *     disposition and the audit commit in ONE transaction;
  *   • a close is allowed from `needs_support`; a `recorded` answer never closes;
- *   • a return seen as recorded AFTER a close is a late commit: audited, surfaced, never paid.
+ *   • a return seen as recorded AFTER a close is a late commit: audited, surfaced, never paid, and
+ *     (RT-1553, migration 0071) handed to support once, which blocks the sale again;
+ *   • RT-1553: the late commit is detected automatically: one background read a quiet period after the
+ *     close, and a read when a new return or a void of the same sale is quoted.
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
@@ -31,6 +34,7 @@ import {
   type ResolveDisposition,
 } from '../returns-resolve-approval.js';
 import { RETURN_QUIET_PERIOD_MS } from '../returns-quiet-period.js';
+import { LIVE_RETURN_SQL } from '../../sale-void/compose-sale-void.js';
 import { createReturnsRepository } from '../returns-repository.js';
 import {
   createStatusReadAvailability,
@@ -191,6 +195,11 @@ function kinds(returnId: string): string[] {
 /** The server answers the status read with `status`/`body` instead of the fake's own verdict. */
 function statusAnswers(status: number, body: unknown = { error: { code: 'x' } }): void {
   h.backend.onStatus = () => jsonResponse(status, body);
+}
+
+/** RT-1553: does the void guard (`has_return`) see a live return of `saleId`? */
+function voidBlocked(saleId: string): boolean {
+  return (h.db.exec(LIVE_RETURN_SQL, [saleId])[0]?.values.length ?? 0) > 0;
 }
 
 /** An unknown return, then 16 minutes of real time, then the server's `not_recorded` read. */
@@ -1163,7 +1172,7 @@ describe('returns.close: only an affirmative fresh not_recorded, after the quiet
   });
 });
 
-describe('a late commit after a close (RT-1548): audited, surfaced, never paid', () => {
+describe('a late commit after a close (RT-1548, RT-1553): audited, support, sale blocked, never paid', () => {
   /** A closed return, whose key the server then records after all. */
   async function closedThenRecorded(): Promise<string> {
     setup();
@@ -1189,7 +1198,8 @@ describe('a late commit after a close (RT-1548): audited, surfaced, never paid',
     expect(res).toMatchObject({
       kind: 'recorded',
       outcome: 'late_commit',
-      ret: { returnId, state: 'unknown', disposition: 'closed' },
+      // RT-1553: a support state on screen; the return stays closed for the flow.
+      ret: { returnId, state: 'unknown', disposition: 'needs_support' },
     });
     const late = h.audits.find((e) => e.action_category === 'sale.return.late_commit_after_close');
     expect(late?.payload).toEqual({
@@ -1198,9 +1208,63 @@ describe('a late commit after a close (RT-1548): audited, surfaced, never paid',
       credit_linked: false,
     });
     expect(late?.acting_operator_id).toBe('op-manager');
-    // 0070 allows no disposition after a close, so none is written; the row stays frozen.
-    expect(h.dispositions.listFor(returnId)).toHaveLength(dispositionsBefore);
+    // RT-1553 (0071): exactly one needs_support from the read follows the close; the row stays frozen.
+    expect(h.dispositions.listFor(returnId)).toHaveLength(dispositionsBefore + 1);
+    expect(h.dispositions.listFor(returnId).at(-1)).toMatchObject({
+      kind: 'needs_support',
+      verdictSource: 'provenance_read',
+      reason: 'mismatch',
+      approvalId: null,
+      actorOperatorId: 'op-manager',
+      readVerdictAt: h.state.now,
+    });
+    expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+    expect(categories(h.audits)).toContain('sale.return.needs_support');
     expect(h.audits.at(-1)?.payload).toMatchObject({ verdict: 'recorded_match', purpose: 'read' });
+  });
+
+  it('close, recorded, needs_support, the sale blocked again, and no cash (RT-1553)', async () => {
+    const returnId = await closedThenRecorded();
+    const saleId = h.repo.read(returnId)?.saleId ?? '';
+    // The close freed the sale (a new return and a void were allowed).
+    expect(h.repo.hasUnresolvedForSale(saleId)).toBe(false);
+    expect(voidBlocked(saleId)).toBe(false);
+
+    await h.service.readStatus({ returnId });
+
+    expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+    expect(h.repo.hasUnresolvedForSale(saleId)).toBe(true);
+    expect(voidBlocked(saleId)).toBe(true);
+    const posts = h.backend.returnCalls().length;
+    const second = await h.service.submit(ONE_A);
+    expect(refusedReason(second)).toBe('unresolved_return_exists');
+    expect(h.backend.returnCalls()).toHaveLength(posts);
+    // No cash: the row is frozen (never confirmed), so it is never payable.
+    expect(h.repo.read(returnId)).toMatchObject({ state: 'unknown', returnRef: null });
+    const payout = await h.service.payout({ returnId, action: 'start' });
+    expect(payout).toMatchObject({ kind: 'refused', reason: 'not_payable' });
+    expect(h.drawer.kicks).toBe(0);
+  });
+
+  it('raises support only once, and the closed return still cannot be closed, escalated or resent', async () => {
+    const returnId = await closedThenRecorded();
+    await h.service.readStatus({ returnId });
+    const after = h.dispositions.listFor(returnId).length;
+
+    expect(await h.service.readStatus({ returnId })).toMatchObject({ outcome: 'late_commit' });
+    expect(h.dispositions.listFor(returnId)).toHaveLength(after);
+    expect(refusedReason(await h.service.resend({ returnId }))).toBe('already_resolved');
+    expect(
+      refusedReason(
+        await h.service.close({ returnId, approvalId: '0190f5a2-7b3c-7d4e-8f90-0000000000c1' }),
+      ),
+    ).toBe('already_resolved');
+    expect(
+      refusedReason(
+        await h.service.escalate({ returnId, approvalId: '0190f5a2-7b3c-7d4e-8f90-0000000000c2' }),
+      ),
+    ).toBe('already_resolved');
+    expect(h.dispositions.listFor(returnId)).toHaveLength(after);
   });
 
   it('never pays cash: the row is not confirmable, not payable, and not resendable', async () => {
@@ -1247,5 +1311,167 @@ describe('a late commit after a close (RT-1548): audited, surfaced, never paid',
 
     expect(res).toMatchObject({ kind: 'not_recorded', close: { ready: false, reason: 'closed' } });
     expect(h.dispositions.listFor(returnId)).toHaveLength(before);
+  });
+});
+
+describe('automatic late-commit detection (RT-1553)', () => {
+  /** A closed return; the server then records its key (the late POST committed) unless `recorded` is false. */
+  async function closed(recorded = true): Promise<string> {
+    setup();
+    const { returnId, approvalId } = await readyToClose();
+    await h.service.close({ returnId, approvalId });
+    if (recorded) {
+      const entry = h.repo.read(returnId);
+      h.backend.recordIdempotently({
+        url: `https://backend.example.invalid/api/pos/v1/sales/${entry?.serverSaleRef ?? ''}/returns`,
+        method: 'POST',
+        headers: { 'Idempotency-Key': entry?.externalId ?? '' },
+        body: entry?.requestBodyJson,
+      });
+    }
+    return returnId;
+  }
+
+  describe('the background sweep (resolver pass)', () => {
+    it('reads nothing before the quiet period since the close has passed', async () => {
+      const returnId = await closed();
+      const reads = h.backend.statusCalls().length;
+
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads);
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+    });
+
+    it('reads each closed return once a quiet period after its close and raises the late commit', async () => {
+      const returnId = await closed();
+      const saleId = h.repo.read(returnId)?.saleId ?? '';
+      elapse(h, QUIET + 1_000);
+      const reads = h.backend.statusCalls().length;
+
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads + 1);
+      expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+      expect(h.repo.hasUnresolvedForSale(saleId)).toBe(true);
+      expect(
+        h.audits.find((e) => e.action_category === 'sale.return.late_commit_after_close')
+          ?.acting_operator_id,
+      ).toBe('op-manager');
+      expect(h.drawer.kicks).toBe(0);
+    });
+
+    it('reads a closed return that is still not recorded once, and the sale stays free', async () => {
+      const returnId = await closed(false);
+      const saleId = h.repo.read(returnId)?.saleId ?? '';
+      elapse(h, QUIET + 1_000);
+      const reads = h.backend.statusCalls().length;
+
+      await h.resolver.tick();
+      elapse(h, QUIET + 1_000);
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads + 1);
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+      expect(h.repo.hasUnresolvedForSale(saleId)).toBe(false);
+    });
+
+    it('reads again on a later pass while the read gives no verdict', async () => {
+      const returnId = await closed();
+      elapse(h, QUIET + 1_000);
+      statusAnswers(503);
+      const reads = h.backend.statusCalls().length;
+
+      await h.resolver.tick();
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+
+      h.backend.onStatus = (call, backend) => backend.answerStatus(call);
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads + 2);
+      expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+    });
+
+    it('does nothing without an eligible manager signed in', async () => {
+      const returnId = await closed();
+      elapse(h, QUIET + 1_000);
+      h.state.role = 'cashier';
+      const reads = h.backend.statusCalls().length;
+
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads);
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+    });
+  });
+
+  describe('a new return of the same sale is quoted', () => {
+    it('reads the closed return at once: a late commit refuses the quote and blocks the sale', async () => {
+      const returnId = await closed();
+      const saleId = h.repo.read(returnId)?.saleId ?? '';
+      const posts = h.backend.returnCalls().length;
+
+      const quote = await h.service.quote(ONE_A);
+
+      expect(refusedReason(quote)).toBe('unresolved_return_exists');
+      expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+      expect(h.repo.hasUnresolvedForSale(saleId)).toBe(true);
+      expect(refusedReason(await h.service.submit(ONE_A))).toBe('unresolved_return_exists');
+      expect(h.backend.returnCalls()).toHaveLength(posts);
+      expect(h.drawer.kicks).toBe(0);
+    });
+
+    it('quotes as before when the closed return is still not recorded', async () => {
+      const returnId = await closed(false);
+
+      const quote = await h.service.quote(ONE_A);
+
+      expect(quote.kind).toBe('ok');
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+    });
+
+    it('quotes as before when the read gives no verdict (the server still bounds a new return)', async () => {
+      const returnId = await closed();
+      statusAnswers(503);
+
+      const quote = await h.service.quote(ONE_A);
+
+      expect(quote.kind).toBe('ok');
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+    });
+  });
+
+  describe('a void of the same sale is quoted (checkSaleLive)', () => {
+    it('raises the late commit, so the void guard sees a live return again', async () => {
+      const returnId = await closed();
+      const saleId = h.repo.read(returnId)?.saleId ?? '';
+      expect(voidBlocked(saleId)).toBe(false);
+
+      await h.checkSaleLive(saleId);
+
+      expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
+      expect(voidBlocked(saleId)).toBe(true);
+    });
+
+    it('reads nothing for a cashier (best effort: the sweep covers it)', async () => {
+      const returnId = await closed();
+      const saleId = h.repo.read(returnId)?.saleId ?? '';
+      h.state.role = 'cashier';
+      const reads = h.backend.statusCalls().length;
+
+      await h.checkSaleLive(saleId);
+
+      expect(h.backend.statusCalls()).toHaveLength(reads);
+      expect(voidBlocked(saleId)).toBe(false);
+    });
+
+    it('reads nothing for a sale with no closed return', async () => {
+      setup();
+      const reads = h.backend.statusCalls().length;
+
+      await h.checkSaleLive('sale-without-returns');
+
+      expect(h.backend.statusCalls()).toHaveLength(reads);
+    });
   });
 });

@@ -68,10 +68,14 @@ import {
 } from './returns-auth.js';
 import type { ReadSaleOutcome, ReturnsClient } from './returns-client.js';
 import type { DispatchOutcome, ReturnsDispatcher } from './returns-dispatch.js';
-import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
+import {
+  isClosedState,
+  type ReturnDispositionsRepository,
+} from './returns-dispositions-repository.js';
 import { isDisposable, spendResolveApproval } from './returns-resolve-approval.js';
 import { assessSale, buildRecordReturnBody, quoteReturn, viewLines } from './returns-quote.js';
 import type { LineDetail } from './returns-payout-repository.js';
+import type { LateCommitDetector } from './returns-late-commit.js';
 import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
 import type { ResolveSummary } from './returns-resolver.js';
 import { isExpectedSale } from './returns-verify.js';
@@ -140,6 +144,12 @@ export interface ReturnsServiceDeps {
   readonly isStopped: () => boolean;
   /** RT-1498 S4: the dispositions of the journal's returns (migration 0070). */
   readonly dispositions: Pick<ReturnDispositionsRepository, 'stateOf' | 'insert'>;
+  /**
+   * RT-1553: before a new return of a sale is quoted or submitted, a status read of each return of
+   * that sale the till closed as not recorded; a late commit refuses `unresolved_return_exists`.
+   * Absent: no check (the background sweep still runs).
+   */
+  readonly lateCommits?: Pick<LateCommitDetector, 'checkSale'>;
   /** RT-1498 S4: run `fn` in one local DB transaction (approval, disposition, audit). */
   readonly transaction: <T>(fn: () => T) => T;
   /** RT-1498 S4: the id of a new disposition (a UUID). */
@@ -367,6 +377,8 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     const loaded = await this.loadSale(actor, op, req);
     if (loaded.kind !== 'ok') return loaded;
     const ids: Ids = { saleId: loaded.sale.row.sale_id, saleRef: loaded.sale.saleRef };
+    const late = await this.lateCommitRefusal(actor, op, ids);
+    if (late !== null) return late;
     const quoted = quoteReturn(loaded.sale.wire, req.lines);
     if (quoted.kind !== 'ok') return this.refuse(actor, op, quoted.reason, ids);
     return { kind: 'ok', sale: loaded.sale, quote: quoted.quote } as const;
@@ -418,6 +430,19 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     const lost = latchedRecheck(this.deps, actor);
     if (lost === null) return toSubmitResponse(outcome);
     return { kind: 'refused', reason: lost, ret: null } as const;
+  }
+
+  /**
+   * RT-1553: read each return of this sale the till closed as not recorded. The stop latch and the
+   * actor's re-check run first after the await; a late commit (the server has it after all) blocks
+   * the sale again. No verdict blocks nothing (the server still bounds a new return, BR-7).
+   */
+  private async lateCommitRefusal(actor: AuthSnapshot, op: Operation, ids: Ids) {
+    if (this.deps.lateCommits === undefined || ids.saleId === undefined) return null;
+    const late = await this.deps.lateCommits.checkSale(actor, ids.saleId);
+    const lost = latchedRecheck(this.deps, actor);
+    if (lost !== null) return this.refuse(actor, op, lost, ids);
+    return late ? this.refuse(actor, op, 'unresolved_return_exists', ids) : null;
   }
 
   /** Why the sale cannot take a new return right now (RT-530 void, AC8 unresolved return). */
@@ -497,7 +522,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     }
     const known: Ids = { ...ids, saleId: entry.saleId, saleRef: entry.serverSaleRef };
     // RT-1498 S4: a closed return is out of the flow for good, and is never sent again.
-    if (!isResendable(entry) || this.deps.dispositions.stateOf(entry.returnId) === 'closed') {
+    if (!isResendable(entry) || isClosedState(this.deps.dispositions.stateOf(entry.returnId))) {
       const refused = this.refuse(actor, 'resend', 'already_resolved', known);
       return { ...refused, ret: this.deps.views([entry])[0] ?? null };
     }

@@ -1,7 +1,8 @@
 /**
  * RT-1498 S4 — the void guard's "live return" query (`has_return`) and a return disposition: a
  * terminally CLOSED return (the server never recorded it) no longer blocks a void of its sale;
- * a needs_support return still does (OD-196-4), and so does any other live return.
+ * a needs_support return still does (OD-196-4), and so does any other live return. RT-1553: a closed
+ * return later seen recorded (the late-commit needs_support of migration 0071) blocks a void again.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Database as SqlJsDatabase } from 'sql.js';
@@ -80,6 +81,23 @@ describe('the void guard and a return disposition', () => {
     seedResolveApproval(db, { disposition: 'close' });
     createReturnDispositionsRepository(handleFor(db)).insert(closing());
     expect(blocksVoid()).toBe(false);
+  });
+
+  it('a closed return later seen recorded blocks a void again (RT-1553)', () => {
+    journalUnknown('r1');
+    seedResolveApproval(db, { disposition: 'close' });
+    const dispositions = createReturnDispositionsRepository(handleFor(db));
+    dispositions.insert(closing());
+    expect(blocksVoid()).toBe(false);
+    dispositions.insert(
+      automaticMismatch({
+        dispositionId: '0192f5a2-3b4c-7d8e-9f01-0000000000d3',
+        verdictSource: 'provenance_read',
+        actorOperatorId: 'op-manager',
+        readVerdictAt: '2026-10-04T10:30:00.000Z',
+      }),
+    );
+    expect(blocksVoid()).toBe(true);
   });
 
   it('closing one return leaves another live return blocking', () => {

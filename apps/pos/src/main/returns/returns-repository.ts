@@ -11,6 +11,7 @@
  */
 import type { DatabaseHandle } from '../db/client.js';
 import type { ReturnState, ReturnsRefusalReason } from '../../shared/returns/types.js';
+import { releasedByCloseSql } from './returns-dispositions-repository.js';
 
 export interface ReturnScope {
   readonly tenantId: string;
@@ -86,8 +87,14 @@ export interface ReturnsRepository {
    */
   listUnresolved(scope: ReturnScope): JournalEntry[];
   /**
+   * RT-1553: the scope's returns that a close still frees (closed, with no late-commit raise after
+   * it), oldest first; only those of `saleId` when it is given. The late-commit detection reads them.
+   */
+  listClosed(scope: ReturnScope, saleId?: string): JournalEntry[];
+  /**
    * True when the sale already has a `pending` / `unknown` return that is not closed. A
-   * needs_support return still blocks (OD-196-4); only a close frees the sale (RT-1498 S4).
+   * needs_support return still blocks (OD-196-4); only a close frees the sale (RT-1498 S4), and a
+   * late commit after the close (RT-1553, migration 0071) blocks it again.
    */
   hasUnresolvedForSale(saleId: string): boolean;
   recordAttempt(stamp: ReturnStamp): void;
@@ -148,6 +155,12 @@ const HELD = `EXISTS (SELECT 1 ${DISPOSITION_OF_ROW} AND d.kind = 'retry_hold'
   AND (return_journal.last_attempt_at IS NULL OR d.created_at > return_journal.last_attempt_at))`;
 /** Still in the flow: unresolved and not closed (every guarded transition requires it). */
 const OPEN = `${UNRESOLVED} AND NOT ${CLOSED}`;
+/**
+ * RT-1553: still blocks its sale: unresolved, and either never closed or closed and then seen recorded
+ * (the late commit of migration 0071 re-blocks the sale). Not `OPEN`: a late-commit row stays closed
+ * for every transition (frozen), it only blocks a new return again.
+ */
+const BLOCKS_SALE = `${UNRESOLVED} AND NOT ${releasedByCloseSql('return_journal')}`;
 const SCOPE_WHERE = 'tenant_id = ? AND branch_id = ? AND terminal_id = ?';
 
 function scopeParams(scope: ReturnScope): string[] {
@@ -263,8 +276,17 @@ class SqlReturnsRepository implements ReturnsRepository {
     return this.hydrate(this.prepare(sql).all(...scopeParams(scope)));
   }
 
+  listClosed(scope: ReturnScope, saleId?: string): JournalEntry[] {
+    const forSale = saleId === undefined ? '' : 'AND sale_id = ?';
+    const sql = `SELECT * FROM return_journal WHERE ${SCOPE_WHERE} AND ${UNRESOLVED}
+                 AND ${releasedByCloseSql('return_journal')} ${forSale}
+                 ORDER BY created_at ASC, return_id ASC`;
+    const params = saleId === undefined ? scopeParams(scope) : [...scopeParams(scope), saleId];
+    return this.hydrate(this.prepare(sql).all(...params));
+  }
+
   hasUnresolvedForSale(saleId: string): boolean {
-    const sql = `SELECT 1 FROM return_journal WHERE sale_id = ? AND ${OPEN} LIMIT 1`;
+    const sql = `SELECT 1 FROM return_journal WHERE sale_id = ? AND ${BLOCKS_SALE} LIMIT 1`;
     return this.prepare(sql).get(saleId) !== undefined;
   }
 

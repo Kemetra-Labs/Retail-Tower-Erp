@@ -8,8 +8,8 @@
  *   • `recorded` that is this return writes nothing (the explicit resend confirms it through the
  *     dispatcher's own matcher); one that is NOT this return, or is a credit reversal, hands the return
  *     to support (`needs_support` from the read: no approval, Gap 2); a return that was already CLOSED
- *     and is now recorded is a late commit: audited, surfaced, never paid (0070 allows no disposition
- *     after a close, so the audit is its record);
+ *     and is now recorded is a late commit: audited, surfaced, never paid, and (RT-1553, migration 0071)
+ *     handed to support by the one `needs_support` 0071 allows after a close, which blocks the sale again;
  *   • a 404 is "unavailable" (never a verdict), anything else that is not a verdict is "no verdict".
  *
  * `close` writes the terminal `not_recorded_closed` disposition, which frees the sale. It needs, in order:
@@ -23,6 +23,10 @@
  *     granted by another manager (four-eyes): spent in the SAME transaction as the disposition and its
  *     audit, so any refusal rolls the spend back.
  * A close is allowed from `needs_support` (spec §3.4). It sends nothing and never confirms or refuses.
+ *
+ * RT-1553: `checkClosed` is the same status read of ONE closed return without an operator request (the
+ * automatic late-commit detection of `returns-late-commit.ts`): no admission refusal, no audit when the
+ * read gives no verdict, and the same single-flight per return as a manual read.
  */
 import type {
   ReturnJournalView,
@@ -48,7 +52,10 @@ import {
 } from './returns-auth.js';
 import type { SendActivity } from './returns-dispatch.js';
 import { matchingTotalMinor } from './returns-dispatch.js';
-import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
+import {
+  isClosedState,
+  type ReturnDispositionsRepository,
+} from './returns-dispositions-repository.js';
 import { RETURN_SOURCE_SYSTEM } from './returns-quote.js';
 import type { QuietPeriodCheck, ReturnQuietPeriod } from './returns-quiet-period.js';
 import {
@@ -65,6 +72,18 @@ import { isUuid } from './returns-wire.js';
 export interface ReturnsCloseAPI {
   readStatus(req: ReturnsReadStatusRequest): Promise<ReturnsReadStatusResponse>;
   close(req: ReturnsCloseRequest): Promise<ReturnsCloseResponse>;
+}
+
+/**
+ * RT-1553: what one automatic status read of a closed return found. `late_commit`: the server has it
+ * (the sale is blocked again); `clear`: a verdict that it does not; `no_verdict`: offline, unavailable
+ * or unreadable (try again later); `skipped`: not read (the return is no longer closed-and-free, a read
+ * or send of it is running, or the actor or domain stopped).
+ */
+export type ClosedCheck = 'late_commit' | 'clear' | 'no_verdict' | 'skipped';
+
+export interface ClosedReturnChecker {
+  checkClosed(actor: AuthSnapshot, entry: JournalEntry): Promise<ClosedCheck>;
 }
 
 export interface ReturnsCloseServiceDeps {
@@ -281,7 +300,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
   private holdAndAudit(fresh: Fresh, purpose: Purpose): void {
     const { actor, entry, at } = fresh;
     this.deps.transaction(() => {
-      const closed = this.deps.dispositions.stateOf(entry.returnId) === 'closed';
+      const closed = isClosedState(this.deps.dispositions.stateOf(entry.returnId));
       if (
         !closed &&
         !this.deps.dispositions.hasEffectiveHold(entry.returnId, entry.lastAttemptAt)
@@ -307,9 +326,11 @@ class ReturnsCloseService implements ReturnsCloseAPI {
   }
 
   /**
-   * `recorded`, in one transaction. A return already CLOSED is a late commit (audited; 0070 allows no
-   * disposition after a close). This return, matched, writes nothing. Anything else (another return,
-   * a credit reversal) hands it to support from the read (no approval, Gap 2), once.
+   * `recorded`, in one transaction. A return already CLOSED is a late commit: audited, and (RT-1553,
+   * migration 0071) handed to support once, whatever the answer matched, which blocks the sale again;
+   * the closed row stays frozen, so it is never confirmed and never paid. This return, matched, writes
+   * nothing. Anything else (another return, a credit reversal) hands it to support from the read (no
+   * approval, Gap 2), once.
    */
   private recordedEffect(
     fresh: Fresh,
@@ -320,13 +341,15 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     return this.deps.transaction(() => {
       const earlier = this.deps.dispositions.stateOf(entry.returnId);
       let effect: 'resend' | 'support' | 'late_commit' = 'resend';
-      if (earlier === 'closed') {
+      if (isClosedState(earlier)) {
         effect = 'late_commit';
         this.deps.audit.lateCommit(actor, {
           return_id: entry.returnId,
           return_ref: verdict.returnRef,
           credit_linked: verdict.creditLinked,
         });
+        // RT-1553: the one support raise 0071 allows after a close (not again once it is raised).
+        if (earlier === 'closed') this.raiseSupport(fresh);
       } else if (!verdict.match) {
         effect = 'support';
         if (earlier === null) this.raiseSupport(fresh);
@@ -386,11 +409,51 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       return { kind: 'recorded', ret: this.view(fresh.entry.returnId), outcome };
     }
     this.holdAndAudit(fresh, 'read');
-    const closed = this.deps.dispositions.stateOf(fresh.entry.returnId) === 'closed';
+    const closed = isClosedState(this.deps.dispositions.stateOf(fresh.entry.returnId));
     const close: ReturnCloseReadiness = closed
       ? { ready: false, reason: 'closed' }
       : readinessOf(this.deps.quiet.check(fresh.entry));
     return { kind: 'not_recorded', ret: this.view(fresh.entry.returnId), close };
+  }
+
+  // ── checkClosed (RT-1553: the automatic late-commit read) ───────────────────────────────────────
+
+  async checkClosed(actor: AuthSnapshot, entry: JournalEntry): Promise<ClosedCheck> {
+    if (!this.checkable(entry.returnId)) return 'skipped';
+    this.busy.add(entry.returnId);
+    let outcome: StatusReadOutcome;
+    try {
+      outcome = await this.deps.status.readStatus(
+        {
+          saleRef: entry.serverSaleRef,
+          sourceSystem: RETURN_SOURCE_SYSTEM,
+          externalId: entry.externalId,
+        },
+        actor.envelope,
+      );
+    } finally {
+      this.busy.delete(entry.returnId);
+    }
+    // The stop latch and the actor's re-check first (the DB may be closed once stopped).
+    if (latchedRecheck(this.deps, actor) !== null) return 'skipped';
+    this.deps.availability.note(outcome);
+    const now = this.deps.repo.read(entry.returnId);
+    if (now === null || !isDisposable(now)) return 'skipped';
+    const verdict = verdictOf(now, outcome);
+    if (verdict.kind === 'inconclusive') return 'no_verdict';
+    const fresh: Fresh = { kind: 'read', actor, entry: now, outcome, at: this.deps.now() };
+    if (verdict.kind === 'not_recorded') {
+      this.holdAndAudit(fresh, 'read');
+      return 'clear';
+    }
+    return this.recordedEffect(fresh, verdict, 'read') === 'late_commit' ? 'late_commit' : 'clear';
+  }
+
+  /** A closed return that no read or send is running for (the stop latch first). */
+  private checkable(returnId: string): boolean {
+    if (this.deps.isStopped()) return false;
+    if (this.busy.has(returnId) || this.deps.sends.isSending(returnId)) return false;
+    return this.deps.dispositions.stateOf(returnId) === 'closed';
   }
 
   // ── close ──────────────────────────────────────────────────────────────────────────────────────
@@ -414,7 +477,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
 
   /** Why this return cannot be closed now (closed already; the quiet period), or null. */
   private closeRefusal(actor: AuthSnapshot, entry: JournalEntry): Refused | null {
-    if (this.deps.dispositions.stateOf(entry.returnId) === 'closed') {
+    if (isClosedState(this.deps.dispositions.stateOf(entry.returnId))) {
       return this.refuse(actor, 'close', 'already_resolved', idsOf(entry), entry);
     }
     const quiet = this.deps.quiet.check(entry);
@@ -456,7 +519,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     const { actor, at } = fresh;
     const current = this.deps.repo.read(fresh.entry.returnId);
     if (current === null) throw new CloseRefusal('return_not_found');
-    if (!isDisposable(current) || this.deps.dispositions.stateOf(current.returnId) === 'closed') {
+    if (!isDisposable(current) || isClosedState(this.deps.dispositions.stateOf(current.returnId))) {
       throw new CloseRefusal('already_resolved');
     }
     // The read covered the return's last send as `fresh.entry` shows it: a send since makes the verdict
@@ -505,6 +568,8 @@ class ReturnsCloseService implements ReturnsCloseAPI {
   }
 }
 
-export function createReturnsCloseService(deps: ReturnsCloseServiceDeps): ReturnsCloseAPI {
+export function createReturnsCloseService(
+  deps: ReturnsCloseServiceDeps,
+): ReturnsCloseAPI & ClosedReturnChecker {
   return new ReturnsCloseService(deps);
 }

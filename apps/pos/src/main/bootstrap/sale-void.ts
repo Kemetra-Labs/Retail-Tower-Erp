@@ -19,6 +19,7 @@ import {
 } from '../sale-void/compose-sale-void.js';
 import { createSaleAuditEmitter, type SaleAuditEvent } from '../sales/audit-emitter.js';
 import { resolveApiBaseUrl } from './env.js';
+import { processLateReturnCheck } from './returns.js';
 
 /** What `registerSaleVoid` closes over from the composition root (RT-893 extraction 5). */
 export interface SaleVoidDeps {
@@ -113,6 +114,8 @@ export function registerSaleVoid(deps: SaleVoidDeps): void {
     accessAudit: createSaleAuditEmitter({ sink: { write: forwardAuditEvent } }),
     logger: mainLogger,
     now: () => new Date().toISOString(),
+    // RT-1553: a late commit of a closed return makes it live again before a void is quoted.
+    checkLateReturns: (saleId) => processLateReturnCheck.current?.(saleId) ?? Promise.resolve(),
   });
   saleVoidRef.current = saleVoidDomain;
   registerSaleVoidHandlers(guardedIpcMain, {

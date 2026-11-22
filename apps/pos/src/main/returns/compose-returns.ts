@@ -27,6 +27,7 @@ import {
 } from './returns-client.js';
 import { createReturnsCloseService } from './returns-close-service.js';
 import { createReturnsDispatcher } from './returns-dispatch.js';
+import { createLateCommitDetector, type LateCommitDetector } from './returns-late-commit.js';
 import {
   createReturnDispositionsRepository,
   type ReturnDispositionsRepository,
@@ -46,7 +47,11 @@ import {
 } from './returns-repository.js';
 import { createReturnQuietPeriod, type QuietPeriodClocks } from './returns-quiet-period.js';
 import { createReturnsResolver, type ReturnsResolver } from './returns-resolver.js';
-import { createReturnsAuthorizer, type ReturnsSession } from './returns-auth.js';
+import {
+  createReturnsAuthorizer,
+  type ReturnsAuthorizer,
+  type ReturnsSession,
+} from './returns-auth.js';
 import { createReturnsService } from './returns-service.js';
 import {
   createStatusReadAvailability,
@@ -138,6 +143,12 @@ export interface ComposedReturns {
   readonly service: ReturnsBridgeAPI;
   readonly resolver: ReturnsResolver;
   /**
+   * RT-1553: a status read of each return of `saleId` the till closed as not recorded, on behalf of
+   * the live returns actor (a signed-in, unlocked manager or admin with an envelope); a no-op without
+   * one. A late commit blocks the sale again. Never rejects. The void lookup runs it (best effort).
+   */
+  readonly checkSaleLive: (saleId: string) => Promise<void>;
+  /**
    * Latch the domain stopped (RT-198): every `returns.*` call answers
    * `shutting_down` before any DB access, no send starts, and work in flight
    * writes nothing when it settles (the DB closes right after). Idempotent;
@@ -167,6 +178,7 @@ function viewsWithPayouts(
         rows.get(e.returnId) ?? null,
         at,
         lastCauses.get(e.returnId) ?? null,
+        // RT-1553: a late commit is a support state on screen (the return stays closed for the flow).
         state === undefined ? null : state === 'closed' ? 'closed' : 'needs_support',
       );
     });
@@ -208,6 +220,32 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     isStopped,
     transaction,
   });
+  // RT-1553: the status read and the close (built before the service and the resolver, which use its
+  // late-commit check).
+  const closer = createReturnsCloseService({
+    authorizer,
+    isStopped,
+    repo,
+    dispositions,
+    status: createReturnsStatusClient(deps.http),
+    availability: statusAvailability,
+    quiet,
+    sends: dispatcher,
+    audit,
+    views,
+    transaction,
+    now,
+    newDispositionId: uuidv7,
+    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
+  });
+  const lateCommits = createLateCommitDetector({
+    repo,
+    dispositions,
+    checker: closer,
+    now,
+    isStopped,
+    logger: deps.logger,
+  });
   // RT-1543: the refund-execution outbox, sent by the same snapshot rules as the returns.
   const executions = createReturnExecutionsRepository(deps.db);
   const executionDispatcher = createReturnExecutionsDispatcher({
@@ -224,6 +262,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     authorizer,
     now,
     executions: { repo: executions, dispatcher: executionDispatcher, isStopped },
+    lateCommits,
   });
   const core = createReturnsService({
     authorizer,
@@ -242,6 +281,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     newAllocationRef: () => (deps.isShiftCashupEnabled() ? uuidv7() : undefined),
     views,
     dispositions,
+    lateCommits,
     transaction,
     newDispositionId: uuidv7,
     ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
@@ -249,22 +289,6 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
       payouts.recordLineDetails(returnId, details);
     },
     isStopped,
-  });
-  const closer = createReturnsCloseService({
-    authorizer,
-    isStopped,
-    repo,
-    dispositions,
-    status: createReturnsStatusClient(deps.http),
-    availability: statusAvailability,
-    quiet,
-    sends: dispatcher,
-    audit,
-    views,
-    transaction,
-    now,
-    newDispositionId: uuidv7,
-    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
   });
   const payout = createReturnsPayoutService({
     authorizer,
@@ -312,7 +336,30 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
   const stop = (): void => {
     stopped = true;
   };
-  return { service, resolver, stop };
+  const checkSaleLive = liveSaleCheck(lateCommits, authorizer, isStopped, deps.logger);
+  return { service, resolver, checkSaleLive, stop };
+}
+
+/**
+ * RT-1553: the late-commit check of a sale on behalf of the LIVE returns actor (a signed-in, unlocked
+ * manager or admin with an envelope); a no-op without one or once stopped. Never rejects.
+ */
+function liveSaleCheck(
+  lateCommits: Pick<LateCommitDetector, 'checkSale'>,
+  authorizer: Pick<ReturnsAuthorizer, 'current'>,
+  isStopped: () => boolean,
+  logger: Pick<ReturnsLogger, 'error'>,
+): (saleId: string) => Promise<void> {
+  return async (saleId) => {
+    if (isStopped()) return;
+    const live = authorizer.current();
+    if (live.kind !== 'ok') return;
+    try {
+      await lateCommits.checkSale(live.actor, saleId);
+    } catch (err: unknown) {
+      logger.error({ err }, 'returns:late_commit_check_failed');
+    }
+  };
 }
 
 /**

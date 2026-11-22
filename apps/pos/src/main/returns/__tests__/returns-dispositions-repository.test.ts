@@ -4,7 +4,9 @@
  *   • `unresolved_return_exists` (hasUnresolvedForSale) clears ONLY on a close, never on needs_support;
  *   • the resolver's scan (listUnresolved) skips a closed and a needs_support row;
  *   • a closed row is never confirmed or refused by a late answer;
- *   • a needs_support row still confirms (a later matching answer resolves it).
+ *   • a needs_support row still confirms (a later matching answer resolves it);
+ *   • RT-1553 (migration 0071): a needs_support written AFTER a close is a late commit: closed for
+ *     the flow, but it blocks the sale again; one written before the close does not.
  */
 import { afterEach, beforeAll, beforeEach, describe, expect, it } from 'vitest';
 import type { Database as SqlJsDatabase } from 'sql.js';
@@ -17,6 +19,8 @@ import {
 } from '../../sales-sync/__tests__/__helpers__/sales-sync-fixture.js';
 import {
   createReturnDispositionsRepository,
+  isClosedState,
+  type NewDisposition,
   type ReturnDispositionsRepository,
 } from '../returns-dispositions-repository.js';
 import {
@@ -126,6 +130,72 @@ describe('the dispositions repository', () => {
     expect(() => {
       dispositions.insert(automaticMismatch());
     }).toThrow(/unknown or sent/);
+  });
+});
+
+/** RT-1553: the one needs_support 0071 allows after a close (a status read saw it recorded). */
+function lateCommitRaise(): NewDisposition {
+  return escalation({
+    dispositionId: '0192f5a2-3b4c-7d8e-9f01-0000000000d3',
+    verdictSource: 'provenance_read',
+    reason: 'mismatch',
+    approvalId: null,
+    readVerdictAt: READ_AT,
+  });
+}
+
+describe('a late commit after a close (RT-1553, migration 0071)', () => {
+  beforeEach(() => {
+    unknownReturn();
+    seedResolveApproval(db, { disposition: 'close' });
+  });
+
+  it('a needs_support after the close is the late_commit state, closed for the flow', () => {
+    dispositions.insert(closing());
+    expect(dispositions.stateOf('r1')).toBe('closed');
+    dispositions.insert(lateCommitRaise());
+    expect(dispositions.stateOf('r1')).toBe('late_commit');
+    expect([...dispositions.statesOf(['r1'])]).toEqual([['r1', 'late_commit']]);
+    expect(isClosedState(dispositions.stateOf('r1'))).toBe(true);
+  });
+
+  it('a needs_support BEFORE the close leaves it closed (rowid order)', () => {
+    dispositions.insert(automaticMismatch());
+    dispositions.insert(closing({ dispositionId: DISPOSITION_B }));
+    expect(dispositions.stateOf('r1')).toBe('closed');
+    expect(repo.hasUnresolvedForSale('sale-1')).toBe(false);
+  });
+
+  it('blocks the sale again and leaves the closed list; the resolver still never resends it', () => {
+    dispositions.insert(closing());
+    expect(repo.hasUnresolvedForSale('sale-1')).toBe(false);
+    expect(repo.listClosed(SCOPE).map((e) => e.returnId)).toEqual(['r1']);
+    dispositions.insert(lateCommitRaise());
+    expect(repo.hasUnresolvedForSale('sale-1')).toBe(true);
+    expect(repo.listClosed(SCOPE)).toEqual([]);
+    expect(repo.listUnresolved(SCOPE)).toEqual([]);
+    // Still frozen: a late answer can never confirm it, so it can never be paid out.
+    expect(
+      repo.markConfirmed({
+        returnId: 'r1',
+        returnRef: RETURN_REF,
+        returnTotalMinor: 3500,
+        now: 't9',
+      }),
+    ).toBe(false);
+    expect(repo.read('r1')?.state).toBe('unknown');
+  });
+
+  it('lists the closed returns of one sale only when asked', () => {
+    unknownReturn(2, { saleId: 'sale-2' });
+    dispositions.insert(closing());
+    seedResolveApproval(db, { disposition: 'close', returnId: 'r2', approvalId: APPROVAL_B });
+    dispositions.insert(
+      closing({ dispositionId: DISPOSITION_B, returnId: 'r2', approvalId: APPROVAL_B }),
+    );
+    expect(repo.listClosed(SCOPE).map((e) => e.returnId)).toEqual(['r1', 'r2']);
+    expect(repo.listClosed(SCOPE, 'sale-2').map((e) => e.returnId)).toEqual(['r2']);
+    expect(repo.listClosed({ ...SCOPE, terminalId: 'term-other' })).toEqual([]);
   });
 });
 

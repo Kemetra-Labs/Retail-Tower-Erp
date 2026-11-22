@@ -80,6 +80,15 @@ export interface ReturnsDeps {
 export const processStatusAvailability: StatusReadAvailability = createStatusReadAvailability();
 
 /**
+ * RT-1553: the return domain's live late-commit check of a sale, for the void lookup. The void domain is
+ * composed before `registerReturns` runs, so the two meet here: `registerReturns` binds it, and until
+ * then (or with no returns domain) it is null and the void lookup checks nothing.
+ */
+export const processLateReturnCheck: { current: ((saleId: string) => Promise<void>) | null } = {
+  current: null,
+};
+
+/**
  * RT-1498 S4/S5: the manager-approval subject resolver of `return.resolve_unknown` (the approval of
  * handing an unknown return to support, or of closing it, with the disposition bound into its subject).
  * Built over the same database and the live paired terminal; `index.ts` spreads it into the approval
@@ -178,6 +187,8 @@ export function registerReturns(deps: ReturnsDeps): void {
       },
     },
   });
+  // RT-1553: the void lookup's late-commit check of a sale (see `processLateReturnCheck`).
+  processLateReturnCheck.current = returnsDomain.checkSaleLive;
   registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
   if (resolveFeatureFlags().returns) {
     // Scheduled regardless of pairing: each tick resolves the paired terminal

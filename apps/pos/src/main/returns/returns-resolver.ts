@@ -36,6 +36,7 @@ import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
 import type { ReturnsDispatcher } from './returns-dispatch.js';
 import type { ReturnExecutionsDispatcher } from './returns-execution-dispatch.js';
 import type { ReturnExecutionsRepository } from './returns-execution-repository.js';
+import type { LateCommitDetector } from './returns-late-commit.js';
 import type { ReturnsRepository } from './returns-repository.js';
 
 interface ReturnsTally {
@@ -93,6 +94,11 @@ export interface ReturnsResolverDeps {
      */
     readonly isStopped: () => boolean;
   };
+  /**
+   * RT-1553: the late-commit sweep, run by the same pass after the returns and the executions (same
+   * snapshot): one status read of each closed return a quiet period after its close. Absent: none.
+   */
+  readonly lateCommits?: Pick<LateCommitDetector, 'sweep'>;
 }
 
 const EMPTY: ReturnsTally = { confirmed: 0, refused: 0, unresolved: 0 };
@@ -228,6 +234,7 @@ function createPass(deps: ReturnsResolverDeps) {
   ): Promise<ResolveSummary> {
     const { tally, stopped } = await returnsPass(snapshot, backgroundTick);
     if (!stopped) await executionsPass(snapshot, backgroundTick);
+    if (!stopped) await deps.lateCommits?.sweep(snapshot);
     return { ...tally, ...openExecutions(snapshot) };
   };
 }
