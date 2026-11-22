@@ -166,7 +166,13 @@ export function readErrorKind(status: number): ReadErrorKind {
 }
 
 interface ErrorEnvelope {
-  error?: { request_id?: string };
+  error?: { request_id?: string; code?: unknown };
+}
+
+/** The envelope's machine `error.code`, or undefined when the body carried none. */
+export function errorCodeOf(error: unknown): string | undefined {
+  const code = (error as ErrorEnvelope | undefined)?.error?.code;
+  return typeof code === "string" ? code : undefined;
 }
 
 export function requestIdOf(error: unknown): string | undefined {

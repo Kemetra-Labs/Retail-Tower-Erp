@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 9d9380bf4ab29ad2be2614a759126e254c399044
+// Source: Kemetra-Labs/Retail-Tower-Erp @ d520277950668911f1994e222981618afd44285e
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -12980,6 +12980,30 @@ export namespace InventorySchema {
             patch?: never;
             trace?: never;
         };
+        "/api/inventory/v1/settings/shipment-transfers": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's shipment-Transfer activation switch and its readiness.
+             * @description RT-1517 (RT-291 Gate 5). Whether shipment Transfers are active for the tenant. `enabled` is false for every tenant until switched on; `changedAt` and `changedBy` are null while it was never changed. `delayedTransferThresholdDays` is the tenant's delayed-Transfer threshold (default 3). `unmetReadiness` lists every readiness boundary that does not hold now, evaluated on each read and failing closed; `readinessMet` is true exactly when that list is empty. The boundaries (`ShipmentTransfersReadinessBoundary.code`) are `connector_not_seen`, `connector_version_unlisted` (the Connector has not reported that it accepts both `transfer_dispatch` and `transfer_receive`), `erp_back_dated_role_unverified` and `transit_warehouse_unmapped`. Owner or tenant_admin; any other role is a 403.
+             */
+            get: operations["getShipmentTransfersSetting"];
+            /**
+             * Switch shipment Transfers on or off for the tenant.
+             * @description RT-1517 (RT-291 Gate 5). Switching on (`{"enabled": true}` while the switch is off) evaluates the readiness in the same transaction as the write: while any boundary is unmet it is refused with 409 `shipment_transfers_readiness_unmet`, which names the first boundary, and nothing is written. There is no override. Switching off (`{"enabled": false}` while the switch is on) is refused with 409 `shipment_transfers_in_flight` while any Transfer of the tenant is in flight (draft, approved, in transit or partially received). Setting the current value again is a 200 that writes nothing, records no audit event and reports the current readiness. Every change is audited (`inventory.shipment_transfers.update`). While ON, the legacy `createStockTransfer` is refused with 409 `transfer_workflow_required`. Owner or tenant_admin; any other role is a 403. A whole-value PUT, naturally idempotent, so it carries no `Idempotency-Key`.
+             */
+            put: operations["setShipmentTransfersSetting"];
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
     }
     export type webhooks = Record<string, never>;
     export interface components {
@@ -14341,6 +14365,29 @@ export namespace InventorySchema {
             SetCountSessionsSettingCommand: {
                 enabled: boolean;
             };
+            /** @description RT-1517 — one shipment-Transfer readiness boundary that does not hold. Every boundary is tenant-wide. */
+            ShipmentTransfersReadinessBoundary: {
+                /** @enum {string} */
+                code: "connector_not_seen" | "connector_version_unlisted" | "erp_back_dated_role_unverified" | "transit_warehouse_unmapped";
+                message: string;
+            };
+            /** @description RT-1517 — the tenant's shipment-Transfer activation switch and its readiness. */
+            ShipmentTransfersSetting: {
+                enabled: boolean;
+                /** Format: date-time */
+                changedAt: string | null;
+                /** Format: uuid */
+                changedBy: string | null;
+                /** @description The tenant's delayed-Transfer threshold in days (default 3, O4). */
+                delayedTransferThresholdDays: number;
+                /** @description True exactly when `unmetReadiness` is empty. */
+                readinessMet: boolean;
+                /** @description Every unmet boundary, evaluated now and failing closed. */
+                unmetReadiness: components["schemas"]["ShipmentTransfersReadinessBoundary"][];
+            };
+            SetShipmentTransfersSettingCommand: {
+                enabled: boolean;
+            };
             CountCutBarrierDevice: {
                 /** Format: uuid */
                 deviceId: string;
@@ -14400,6 +14447,28 @@ export namespace InventorySchema {
                          */
                         storeId?: string | null;
                         unmet: components["schemas"]["CountSessionsReadinessBoundary"][];
+                    };
+                };
+            };
+            /** @description The canonical error envelope (`Error`) of the shipment-Transfer setting 409, with the optional `details`. `details` is present for `shipment_transfers_readiness_unmet` and absent for `shipment_transfers_in_flight`. */
+            ShipmentTransfersSettingConflictError: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                    details?: {
+                        /**
+                         * @description The code of the first readiness boundary that does not hold.
+                         * @enum {string}
+                         */
+                        boundary: "connector_not_seen" | "connector_version_unlisted" | "erp_back_dated_role_unverified" | "transit_warehouse_unmapped";
+                        unmet: components["schemas"]["ShipmentTransfersReadinessBoundary"][];
                     };
                 };
             };
@@ -14519,6 +14588,23 @@ export namespace InventorySchema {
                      *     }
                      */
                     "application/json": components["schemas"]["CountSessionsSettingConflictError"];
+                };
+            };
+            /** @description 409 — RT-1517. `shipment_transfers_readiness_unmet`: switching shipment Transfers on was refused because a readiness boundary does not hold; `error.details` names the first (`boundary`) and lists all (`unmet`). `shipment_transfers_in_flight`: switching off was refused because a Transfer is in flight. Nothing is written. */
+            ShipmentTransfersSettingConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    /**
+                     * @example {
+                     *       "error": {
+                     *         "code": "shipment_transfers_readiness_unmet",
+                     *         "message": "Shipment transfers cannot be switched on: The tenant has no active transit warehouse mapping."
+                     *       }
+                     *     }
+                     */
+                    "application/json": components["schemas"]["ShipmentTransfersSettingConflictError"];
                 };
             };
             /** @description 409 — RT-1419 (RT-292 Gate 6). `count_session_not_in_state`: the command is not allowed in the session's state. `count_tracked_product_refused`: a product is tracked (batch or serial); tracked counting is not available in V1 (G6-3). `count_scope_in_use`: a product is already in the scope of another live session of the store. `count_cut_barrier_not_met`: the Count Cut barrier does not hold yet (devices not drained, or the ERP import has not read past the cut). `count_approver_conflict`: the approver is a counter or the submitter and the tenant's audited small-merchant exception does not apply (G6-10). `count_flagged_line_not_acknowledged`: a flagged line needs an acknowledgement (G6-2). `count_line_version_stale`: an acknowledgement's `lineVersion` no longer matches the line, which changed after review (a recount or a late pre-cut event). `idempotency_key_conflict`: the `Idempotency-Key` was already used for a different command. Nothing is written. `compensation_link_invalid`, `compensation_erp_evidence_missing`, `compensation_erp_order_unproven`, `compensation_not_explainable`, `compensation_quantity_mismatch`, `compensation_book_inconsistent`, `compensation_already_exists` and `compensation_invariant_failed` (RT-1424, `resolveCountLateEvent`, conditions A to I) leave no compensation. A count-up line without valuation history is not an error of the request: it is refused on its line (`CountVarianceLine.refusal`). */
@@ -16644,6 +16730,80 @@ export namespace InventorySchema {
                 401: components["responses"]["Unauthorized"];
                 403: components["responses"]["ForbiddenOrOriginRejected"];
                 409: components["responses"]["CountSessionsSettingConflict"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getShipmentTransfersSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's activation switch and its readiness. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        /**
+                         * @example {
+                         *       "enabled": false,
+                         *       "changedAt": null,
+                         *       "changedBy": null,
+                         *       "delayedTransferThresholdDays": 3,
+                         *       "readinessMet": false,
+                         *       "unmetReadiness": [
+                         *         {
+                         *           "code": "transit_warehouse_unmapped",
+                         *           "message": "The tenant has no active transit warehouse mapping."
+                         *         }
+                         *       ]
+                         *     }
+                         */
+                        "application/json": components["schemas"]["ShipmentTransfersSetting"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        setShipmentTransfersSetting: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    /**
+                     * @example {
+                     *       "enabled": true
+                     *     }
+                     */
+                    "application/json": components["schemas"]["SetShipmentTransfersSettingCommand"];
+                };
+            };
+            responses: {
+                /** @description The tenant's activation switch after the command. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ShipmentTransfersSetting"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["ForbiddenOrOriginRejected"];
+                409: components["responses"]["ShipmentTransfersSettingConflict"];
                 429: components["responses"]["TooManyRequests"];
                 "5XX": components["responses"]["SystemFailure"];
             };
@@ -19894,6 +20054,30 @@ export namespace ConsoleSystemStatusSchema {
                 link: "erp_connection";
                 facts: components["schemas"]["ErpConnectorFacts"];
             };
+            /** @description RT-1516. The tenant's shipment-Transfer health facts; null when the check did not answer in time. */
+            ShipmentTransfersFacts: {
+                openTransferCount: components["schemas"]["Count"];
+                delayedTransferCount: components["schemas"]["Count"];
+                /** @description Whole seconds since the oldest open Transfer was dispatched (server clock); null when none is open. */
+                oldestOpenTransferAgeSeconds: number | null;
+                /** @description The tenant's delayed-Transfer threshold in days (default 3). */
+                delayedThresholdDays: number;
+                stuckPostingCount: components["schemas"]["Count"];
+                postingsNeedingAttentionCount: components["schemas"]["Count"];
+                unreleasedReceiptCount: components["schemas"]["Count"];
+            } | null;
+            ShipmentTransfersComponent: {
+                state: components["schemas"]["ComponentState"];
+                /**
+                 * @description `keeping_up` → `ok`; `transfers_delayed`, `postings_stuck` and `postings_need_attention` → `degraded`; `check_timed_out` → `unknown`.
+                 * @enum {string}
+                 */
+                reason: "keeping_up" | "transfers_delayed" | "postings_stuck" | "postings_need_attention" | "check_timed_out";
+                observedAt: components["schemas"]["ObservedAt"];
+                /** @constant */
+                link: "none";
+                facts: components["schemas"]["ShipmentTransfersFacts"];
+            };
             ConsoleSystemStatus: {
                 /**
                  * Format: date-time
@@ -19905,6 +20089,7 @@ export namespace ConsoleSystemStatusSchema {
                     server: components["schemas"]["ServerComponent"];
                     saleSync: components["schemas"]["SaleSyncComponent"];
                     erpConnector: components["schemas"]["ErpConnectorComponent"];
+                    shipmentTransfers?: components["schemas"]["ShipmentTransfersComponent"];
                 };
             };
             /** @description Canonical error envelope. Out-of-scope and cross-tenant refusals are non-disclosing (§II, §XII): they never name the cause. */

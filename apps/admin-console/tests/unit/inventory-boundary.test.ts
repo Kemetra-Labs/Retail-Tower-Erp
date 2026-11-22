@@ -3,9 +3,11 @@ import { describe, expect, test } from "vitest";
 import { readSource, sourcesUnder } from "./source-scan";
 
 /**
- * RT-728 / RT-436 boundary. The inventory views use the four READ operations of
- * the generated inventory client plus ONE write, `createStatusMove` (RT-435),
- * through their wrappers. No other write (createStockMovement /
+ * RT-728 / RT-436 / RT-1515 boundary. The inventory views use the four READ
+ * operations of the generated inventory client, the three shipment-Transfer
+ * READS (RT-1515 PR 1: list, one Transfer, its receipts) and ONE write,
+ * `createStatusMove` (RT-435), through their wrappers. Every shipment-Transfer
+ * write is a later PR and the legacy instant transfer stays forbidden. No other write (createStockMovement /
  * createStockTransfer / recordStockCount / relocation / holds / recalls /
  * backfill), no ERPNext call, no hand-rolled fetch, no Authorization header,
  * no free-text product entry. Static scan, comments stripped.
@@ -18,8 +20,8 @@ const all = [wrapperSrc, ...feature.map((f) => f.src)];
 const WRITE_FILES = ["useStatusMove.ts", "StatusMoveSection.tsx"];
 const isWriteFile = (file: string) => WRITE_FILES.some((name) => file.endsWith(`/${name}`));
 
-describe("inventory boundary (RT-728, RT-436)", () => {
-  test("exactly the four read wrappers and the one status-move write are exported", () => {
+describe("inventory boundary (RT-728, RT-436, RT-1515)", () => {
+  test("exactly the seven read wrappers and the one status-move write are exported", () => {
     const functions = Object.entries(queries)
       .filter(([, value]) => typeof value === "function")
       .map(([name]) => name)
@@ -27,6 +29,9 @@ describe("inventory boundary (RT-728, RT-436)", () => {
     expect(functions).toEqual([
       "createStatusMove",
       "getOnHand",
+      "getShipmentTransfer",
+      "listShipmentTransferReceipts",
+      "listShipmentTransfers",
       "listStockLocations",
       "listStoreMovements",
       "listTrackingIdentities",
@@ -40,10 +45,29 @@ describe("inventory boundary (RT-728, RT-436)", () => {
     expect(paths.sort()).toEqual([
       "GET /api/inventory/v1/on-hand/{storeId}/{productId}",
       "GET /api/inventory/v1/products/{productId}/tracking-identities",
+      "GET /api/inventory/v1/shipment-transfers",
+      "GET /api/inventory/v1/shipment-transfers/{transferId}",
+      "GET /api/inventory/v1/shipment-transfers/{transferId}/receipts",
       "GET /api/inventory/v1/stores/{storeId}/locations",
       "GET /api/inventory/v1/stores/{storeId}/movements",
       "POST /api/inventory/v1/stores/{storeId}/status-moves",
     ]);
+  });
+
+  test("no shipment-Transfer write and no legacy instant transfer (RT-1515 PR 1 is read only)", () => {
+    for (const src of all) {
+      expect(src).not.toMatch(
+        /createShipmentTransfer|approveShipmentTransfer|cancelShipmentTransfer|dispatchShipmentTransfer|recordShipmentTransferReceipt|closeShipmentTransfer|ShipmentTransfersSetting/,
+      );
+      expect(src).not.toMatch(/createStockTransfer/);
+      expect(src).not.toMatch(/apiClient\.\w+\("\/api\/inventory\/v1\/transfers"/);
+      expect(src).not.toMatch(
+        /\/shipment-transfers\/\{transferId\}\/(approve|cancel|dispatch|close)/,
+      );
+    }
+    expect(wrapperSrc).not.toMatch(
+      /apiClient\.(POST|PUT|PATCH|DELETE)\("\/api\/inventory\/v1\/(shipment-transfers|transfers|settings)/,
+    );
   });
 
   test("the store ledger is the whole store (scope=all), never by product", () => {

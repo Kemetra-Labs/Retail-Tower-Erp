@@ -42,6 +42,7 @@ import { storeDeletion } from "./ar/storeDeletion";
 import { tenants } from "./ar/tenants";
 import { trackedSelling } from "./ar/trackedSelling";
 import { tracking } from "./ar/tracking";
+import { transfers } from "./ar/transfers";
 import { vouchers } from "./ar/vouchers";
 
 export const AR_MODULES = {
@@ -70,6 +71,7 @@ export const AR_MODULES = {
   cashPolicy,
   inventory,
   counts,
+  transfers,
   aiPlan,
   aiManagerSales,
   branding,
@@ -111,6 +113,7 @@ export const ar = {
   ...cashPolicy,
   ...inventory,
   ...counts,
+  ...transfers,
   ...aiPlan,
   ...aiManagerSales,
   ...branding,

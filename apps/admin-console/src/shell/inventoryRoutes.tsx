@@ -12,10 +12,17 @@ import { Route } from "react-router";
 const InventoryProduct = lazyPage(() => import("@/inventory/InventoryProduct"), "InventoryProduct");
 const InventoryStore = lazyPage(() => import("@/inventory/InventoryStore"), "InventoryStore");
 const InventoryStores = lazyPage(() => import("@/inventory/InventoryStores"), "InventoryStores");
+// RT-1515: the shipment Transfers, read only, inside the Inventory section (the
+// Inventory nav entry stays selected by its prefix match).
+const InventoryTransfers = lazyPage(
+  () => import("@/inventory/transfers/InventoryTransfers"),
+  "InventoryTransfers",
+);
 
 export const inventoryRoutes = (
   <>
     <Route path="inventory" element={<InventoryStores />} />
+    <Route path="inventory/transfers" element={<InventoryTransfers />} />
     <Route path="inventory/stores/:storeId" element={<InventoryStore />} />
     <Route path="inventory/stores/:storeId/products/:productId" element={<InventoryProduct />} />
   </>

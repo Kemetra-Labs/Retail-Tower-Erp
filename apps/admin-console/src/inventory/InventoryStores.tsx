@@ -1,4 +1,3 @@
-import { NoAccess } from "@/auth/NoAccess";
 import { Banner } from "@/components/Banner";
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { GatedButton } from "@/components/GatedButton";
@@ -16,54 +15,12 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
-import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
-import { useSignOut } from "@/shell/useSignOut";
-import { useStoreList } from "@/stores/useStoreQueries";
 import { Link } from "react-router";
-import { canReadInventory } from "./inventoryLogic";
-import { Machine } from "./parts";
-import { type InventoryScope, useInventoryScope } from "./useInventory";
+import { InventoryReadGate, Machine } from "./parts";
+import type { InventoryScope } from "./useInventory";
+import { type PickerState, type PickerStore, usePickerStores } from "./usePickerStores";
 import "../shell/surface.css";
 import "./inventory.css";
-
-interface PickerStore {
-  id: string;
-  name?: string;
-}
-
-interface PickerState {
-  stores: PickerStore[];
-  isLoading: boolean;
-  failed: boolean;
-  retry: () => void;
-}
-
-type ActiveStore = { id?: string; name?: string } | null | undefined;
-
-/** With an active store the API reads only that store: it is the one choice. */
-function activeStoreChoice(active: ActiveStore, rows: readonly PickerStore[]): PickerStore[] {
-  if (!active?.id) return [];
-  const listed = rows.find((s) => s.id === active.id);
-  return [{ id: active.id, name: listed?.name ?? active.name }];
-}
-
-/** The stores this caller may open, from the store list and the active context. */
-function usePickerStores(scope: InventoryScope): PickerState {
-  const { context } = useActiveContextValue();
-  const { result, isLoading, refetch } = useStoreList(scope.tenantId);
-  const rows = result?.kind === "rows" ? result.rows : [];
-  const pinned = activeStoreChoice(context?.active_store, rows);
-  if (pinned.length > 0) return { stores: pinned, isLoading: false, failed: false, retry: refetch };
-  const membership = context?.memberships?.find((m) => m.tenant_id === scope.tenantId) as
-    | ScopeMembership
-    | undefined;
-  return {
-    stores: scopeMenuStores(rows, membership, null).map((s) => ({ id: s.id, name: s.name })),
-    isLoading,
-    failed: result?.kind === "error",
-    retry: refetch,
-  };
-}
 
 function StoresTable({ stores }: Readonly<{ stores: PickerStore[] }>): React.JSX.Element {
   const t = useT();
@@ -136,7 +93,14 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
           tenant: <bdi dir="auto">{context?.active_tenant?.name}</bdi>,
         })}
       />
-      <p className="inventory__note">{t("inventory.note.readOnly")}</p>
+      <div className="inventory__strip">
+        <p className="inventory__note">{t("inventory.note.readOnly")}</p>
+        {/* RT-1515: the shipment Transfers live inside the Inventory section
+            (owner placement decision); this nav entry stays selected there. */}
+        <Link className="inventory__note" to="/inventory/transfers">
+          {t("transfers.entry")}
+        </Link>
+      </div>
       <div className="section-panel">
         <div className="inventory__panel-body inventory__panel-body--solo">
           <StoresBody picker={picker} />
@@ -147,16 +111,5 @@ function Content({ scope }: Readonly<{ scope: InventoryScope }>): React.JSX.Elem
 }
 
 export function InventoryStores(): React.JSX.Element {
-  const t = useT();
-  const scope = useInventoryScope();
-  const signOut = useSignOut();
-  if (!canReadInventory(scope.role)) return <NoAccess onSignOut={signOut} />;
-  if (!scope.tenantId) {
-    return (
-      <div className="surface">
-        <p className="content__sub">{t("inventory.scopePrompt")}</p>
-      </div>
-    );
-  }
-  return <Content scope={scope} />;
+  return <InventoryReadGate>{(scope) => <Content scope={scope} />}</InventoryReadGate>;
 }
