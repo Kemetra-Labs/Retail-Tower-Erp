@@ -30,6 +30,7 @@ import { createReadDownClient } from '../../../src/main/catalogue/read-down/read
 import { createSaleSyncClient } from '../../../src/main/sales-sync/create-sale-sync-client.js';
 import type { CaptureSalePayload } from '../../../src/main/sales-sync/capture-payload.js';
 import { createReturnsClient } from '../../../src/main/returns/returns-client.js';
+import { createReturnsStatusClient } from '../../../src/main/returns/returns-status-client.js';
 import { createSaleVoidClient } from '../../../src/main/sale-void/sale-void-client.js';
 import {
   createSaleHistoryClient,
@@ -184,6 +185,9 @@ const backendClient = (fetch: FetchLike): ReturnType<typeof createBackendClient>
   createBackendClient({ baseUrl: BASE_URL, fetch });
 const returnsClient = (fetch: FetchLike): ReturnType<typeof createReturnsClient> =>
   createReturnsClient({ baseUrl: BASE_URL, fetch });
+/** RT-1498 close slice: the affirmative return status read (RT-1548), on the shared transport. */
+const returnsStatusClient = (fetch: FetchLike): ReturnType<typeof createReturnsStatusClient> =>
+  createReturnsStatusClient({ baseUrl: BASE_URL, fetch });
 const saleVoidClient = (fetch: FetchLike): ReturnType<typeof createSaleVoidClient> =>
   createSaleVoidClient({ baseUrl: BASE_URL, fetch });
 const saleHistoryClient = (fetch: FetchLike): ReturnType<typeof createSaleHistoryClient> =>
@@ -334,6 +338,12 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
     surface: saleSyncClient,
   },
   { module: 'src/main/returns/returns-client.ts', fetchCallSites: 1, surface: returnsClient },
+  // RT-1498 close slice: the return status read (operator envelope, on the shared transport).
+  {
+    module: 'src/main/returns/returns-status-client.ts',
+    fetchCallSites: 0,
+    surface: returnsStatusClient,
+  },
   // RT-530: the sale void, under the requester's own operator envelope only.
   { module: 'src/main/sale-void/sale-void-client.ts', fetchCallSites: 1, surface: saleVoidClient },
   // RT-542: the store-wide sales history (envelope or device + cashier admission).
@@ -592,6 +602,23 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     pathTemplate: '/api/pos/v1/sales/{saleRef}',
     wiring: 'compose-returns.ts: the authorization snapshot envelope (operatorEnvelopeHolder)',
     invoke: (fetch) => returnsClient(fetch).readSale(SALE_REF, SENTINEL['operator-envelope']),
+  },
+  {
+    // RT-1498 close slice (RT-1548, `sales.yaml` 1.28.0-draft): the affirmative recorded / not-recorded read.
+    id: 'returnsStatusClient.readStatus',
+    module: 'src/main/returns/returns-status-client.ts',
+    method: 'get',
+    pathTemplate: '/api/pos/v1/sales/{saleRef}/returns/by-provenance/status',
+    wiring: 'compose-returns.ts: the authorization snapshot envelope (operatorEnvelopeHolder)',
+    invoke: (fetch) =>
+      returnsStatusClient(fetch).readStatus(
+        {
+          saleRef: SALE_REF,
+          sourceSystem: 'pos-pulse',
+          externalId: 'pos-pulse-return:contract-conformance',
+        },
+        SENTINEL['operator-envelope'],
+      ),
   },
   {
     id: 'returnsClient.recordReturn',

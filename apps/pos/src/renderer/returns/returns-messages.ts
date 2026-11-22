@@ -1,7 +1,10 @@
 import type {
+  ReturnCloseReadiness,
   ReturnDrawerFailure,
   ReturnState,
+  ReturnStatusCause,
   ReturnUnknownCause,
+  ReturnsReadStatusResponse,
   ReturnsRefusalReason,
 } from '../../shared/returns/types.js';
 import type { ReprintResult } from './payout-state.js';
@@ -59,6 +62,17 @@ const REFUSAL_COPY: Readonly<Record<ReturnsRefusalReason, string>> = Object.free
   approval_invalid:
     'انتهى تأكيد المدير أو لا يخص هذا المرتجع. اطلب التأكيد من جديد من مدير آخر غيرك.',
   approval_stale: 'تغيّرت حالة هذا المرتجع منذ التأكيد. حدّث السجل ثم اطلب التأكيد من جديد.',
+  // RT-1498 close slice. `send_in_flight`, `close_needs_not_recorded` and `read_unauthorized` are the
+  // RT-196 design §3.9 lines verbatim; the other two are PROPOSED copy (owner copy review pending).
+  reconcile_too_soon:
+    'أُرسل هذا المرتجع قبل قليل. لا يُغلق قبل مرور 15 دقيقة على آخر إرسال. انتظر ثم حدّث الحالة.',
+  quiet_period_unproven:
+    'تعذّر إثبات مرور 15 دقيقة على آخر إرسال على هذا الجهاز، لأن التطبيق أُعيد تشغيله أو تغيّر وقت الجهاز. أعد إرسال المرتجع، وانتظر 15 دقيقة ثم حدّث الحالة.',
+  send_in_flight: 'يجري إرسال هذا المرتجع الآن. انتظر حتى ينتهي ثم حدّث الحالة.',
+  close_needs_not_recorded:
+    'لا يُغلق المرتجع إلا بعد أن يؤكد الخادم أنه لم يُسجَّل. حدّث الحالة أولًا.',
+  read_unauthorized:
+    'لا يملك هذا الجهاز أو هذه الجلسة صلاحية التحقق الآن. سجّل الدخول من جديد، وإن تكرر فتواصل مع الدعم.',
   // RT-15 S4 — payout and slip.
   return_not_found: 'لا يوجد هذا المرتجع على هذا الجهاز.',
   not_payable: 'لم يتأكد هذا المرتجع على الخادم، فلا يُصرف نقده.',
@@ -284,5 +298,119 @@ export function escalateApprovalMessage(reason: string): string {
       return refusalMessage(reason);
     default:
       return ESCALATE_COPY.approvalFailed;
+  }
+}
+
+/**
+ * RT-1498 close slice — reading the server's verdict on an unresolved return («تحديث الحالة») and closing
+ * it as "not recorded". PROPOSED copy, pending owner review, except the lines the RT-196 design §3.9 fixes
+ * verbatim (`STATUS_COPY.action`, `STATUS_COPY.readNotRecordedReady`, `CLOSE_COPY.action`). One locale,
+ * no English. The verbs stay within what the server proved: «يؤكد الخادم» only for an affirmative verdict;
+ * an unanswered read says nothing changed. A return is never called paid.
+ */
+export const STATUS_COPY = Object.freeze({
+  /** RT-196 §3.9 `action.read`: a server read; it never sends the return. */
+  action: 'تحديث الحالة',
+  /** RT-196 §3.9 `readNotRecorded`: the server affirms, the quiet period is over. */
+  readNotRecordedReady:
+    'يؤكد الخادم أن هذا المرتجع لم يُسجَّل، ولم يُصرف له أي نقد. أعد إرساله، أو أغلقه بموافقة مدير ثم أنشئ مرتجعًا جديدًا.',
+  /** The server affirms, but 15 minutes have not passed since the last send. */
+  readNotRecordedWait: (time: string): string =>
+    `يؤكد الخادم أن هذا المرتجع لم يُسجَّل حتى الآن. لا يُغلق قبل ${time}، ولا تصرف أي نقد.`,
+  readNotRecordedClosed: 'لم يُسجَّل هذا المرتجع على الخادم حتى الآن، وهو مغلق ولن يُرسل.',
+  /**
+   * Appended to every affirmative `not_recorded` of an open return: main wrote a hold, so the
+   * background and bar resends stopped (RT-1498 review MEDIUM-1). Only the manager's own resend voids it.
+   */
+  readHeldNote: 'لن يُعاد إرسال هذا المرتجع تلقائيًا بعد الآن، إلا بإعادة إرسال منك.',
+  readRecordedResend:
+    'سجّل الخادم هذا المرتجع. أعد إرساله ليتأكد على هذا الجهاز، ولا تصرف أي نقد قبل ذلك.',
+  readRecordedSupport:
+    'سجّل الخادم مرتجعًا بهذا الرقم لكنه لا يطابق ما على هذا الجهاز. لا تصرف أي نقد. حُوّل المرتجع إلى الدعم.',
+  readLateCommit:
+    'سجّل الخادم هذا المرتجع بعد إغلاقه. لا تصرف أي نقد، وأبلغ الدعم فورًا بهذا البيع.',
+  /** No verdict from the server (a fault, not a refusal): nothing changed. */
+  readNoVerdict: 'لم يردّ الخادم بجواب مفهوم الآن، ولم يتغيّر شيء. حاول مرة أخرى بعد قليل.',
+});
+
+export const CLOSE_COPY = Object.freeze({
+  /** RT-196 §3.9 `action.close`. */
+  action: 'إغلاق كمرتجع غير مسجَّل',
+  title: 'إغلاق المرتجع كغير مسجَّل',
+  body: 'أكّد الخادم أن هذا المرتجع لم يُسجَّل، وانقضت 15 دقيقة على آخر إرسال. يلزم مدير آخر، ليس أنت، ليؤكد الإغلاق برقمه السري. بعد الإغلاق يمكن إرجاع هذا البيع من جديد، ولا يُرسل هذا المرتجع بعدها أبدًا. لم يُصرف أي نقد.',
+  approve: 'تأكيد الإغلاق',
+  approvalUnavailable:
+    'تعذّر التأكيد: الرقم السري غير صحيح أو غير مفعّل، أو أن المؤكِّد هو من طلب الإغلاق. يجب أن يؤكد مدير آخر غيرك.',
+  attemptsExhausted:
+    'أُدخل رقم سري خاطئ ثلاث مرات لهذا الإغلاق. انتظر خمس دقائق ثم اطلب التأكيد من جديد.',
+  approvalFailed: 'تعذّر تأكيد الإغلاق الآن. أعد المحاولة، وإن تكرر فراجع المدير.',
+});
+
+/** The message of a refused manager approval of a close (never says which part failed, C3). */
+export function closeApprovalMessage(reason: string): string {
+  switch (reason) {
+    case 'approval_unavailable':
+      return CLOSE_COPY.approvalUnavailable;
+    case 'approval_attempts_exhausted':
+      return CLOSE_COPY.attemptsExhausted;
+    case 'approval_invalid':
+    case 'approval_stale':
+      return refusalMessage(reason);
+    default:
+      return CLOSE_COPY.approvalFailed;
+  }
+}
+
+/** Why a status read gave no verdict: the refusal line that says so, or null for the generic one. */
+const NO_VERDICT_REASON: Readonly<Record<ReturnStatusCause, ReturnsRefusalReason | null>> = {
+  offline: 'offline',
+  unauthorized: 'read_unauthorized',
+  unavailable: 'returns_unavailable',
+  server: null,
+  unreadable: null,
+};
+
+function notRecordedBase(close: ReturnCloseReadiness, formatTime: (iso: string) => string): string {
+  if (close.ready) return STATUS_COPY.readNotRecordedReady;
+  switch (close.reason) {
+    case 'too_soon':
+      return STATUS_COPY.readNotRecordedWait(formatTime(close.notBefore));
+    case 'unproven':
+      return refusalMessage('quiet_period_unproven');
+    case 'closed':
+      return STATUS_COPY.readNotRecordedClosed;
+  }
+}
+
+/** An open return's `not_recorded` also says automatic resends stopped; a closed one is never sent. */
+function notRecordedMessage(
+  close: ReturnCloseReadiness,
+  formatTime: (iso: string) => string,
+): string {
+  const base = notRecordedBase(close, formatTime);
+  const closed = !close.ready && close.reason === 'closed';
+  return closed ? base : `${base} ${STATUS_COPY.readHeldNote}`;
+}
+
+/** The line for one answer of `returns.readStatus` (`formatTime` shows when a running period ends). */
+export function statusReadMessage(
+  res: ReturnsReadStatusResponse,
+  formatTime: (iso: string) => string,
+): string {
+  switch (res.kind) {
+    case 'refused':
+      return refusalMessage(res.reason);
+    case 'inconclusive': {
+      const reason = NO_VERDICT_REASON[res.cause];
+      return reason === null ? STATUS_COPY.readNoVerdict : refusalMessage(reason);
+    }
+    case 'recorded':
+      return {
+        resend: STATUS_COPY.readRecordedResend,
+        support: STATUS_COPY.readRecordedSupport,
+        late_commit: STATUS_COPY.readLateCommit,
+      }[res.outcome];
+    case 'not_recorded':
+      return notRecordedMessage(res.close, formatTime);
   }
 }

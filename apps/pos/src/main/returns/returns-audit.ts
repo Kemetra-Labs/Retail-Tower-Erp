@@ -10,8 +10,11 @@
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type {
   AuditPayloadMap,
+  SaleReturnClosedNotRecordedPayload,
+  SaleReturnLateCommitPayload,
   SaleReturnNeedsSupportPayload,
   SaleReturnRefusedPayload,
+  SaleReturnStatusReadPayload,
 } from '../../shared/audit/payload-schemas.js';
 import type {
   ReturnDrawerFailure,
@@ -71,12 +74,49 @@ export interface ReturnsAudit {
     payload: SaleReturnNeedsSupportPayload,
     approvingSupervisorId?: string,
   ): void;
+  /**
+   * RT-1498 close slice: a manager's status read (or a close's re-read) of the server's verdict,
+   * attributed to the REQUESTING `actor`. Ids and closed codes only.
+   */
+  statusRead(actor: ReturnActor, payload: SaleReturnStatusReadPayload): void;
+  /** RT-1498 close slice: the return was closed as "not recorded", with the approving manager. */
+  closedNotRecorded(
+    actor: ReturnActor,
+    payload: SaleReturnClosedNotRecordedPayload,
+    approvingSupervisorId: string,
+  ): void;
+  /** RT-1498 close slice: a return the till CLOSED was later seen as recorded (a mismatch). */
+  lateCommit(actor: ReturnActor, payload: SaleReturnLateCommitPayload): void;
   payoutReady(entry: JournalEntry): void;
   // RT-15 S4: attributed to the paying operator (`actor`), for a confirmed return.
   payoutStarted(actor: ReturnActor, entry: JournalEntry): void;
   drawer(actor: ReturnActor, entry: JournalEntry, outcome: DrawerAuditOutcome): void;
   paidOut(actor: ReturnActor, entry: JournalEntry, method: ReturnPayoutMethod): void;
   slip(actor: ReturnActor, entry: JournalEntry, outcome: SlipAuditOutcome): void;
+}
+
+/** The ids a refusal may name (each null in the audit when unknown). */
+export interface RefusalIds {
+  readonly returnId?: string;
+  readonly saleId?: string;
+  readonly saleRef?: string;
+}
+
+/** Audit one refusal of `operation` (AC11): ids and the closed reason only. */
+export function auditRefusal(
+  audit: Pick<ReturnsAudit, 'refused'>,
+  actor: ReturnActor,
+  operation: SaleReturnRefusedPayload['operation'],
+  reason: string,
+  ids: RefusalIds = {},
+): void {
+  audit.refused(actor, {
+    return_id: ids.returnId ?? null,
+    sale_id: ids.saleId ?? null,
+    sale_ref: ids.saleRef ?? null,
+    operation,
+    reason,
+  });
 }
 
 export interface ReturnsAuditDeps {
@@ -199,6 +239,15 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
     },
     needsSupport(actor, payload, approvingSupervisorId) {
       write(actor, 'sale.return.needs_support', payload, approvingSupervisorId ?? null);
+    },
+    statusRead(actor, payload) {
+      write(actor, 'sale.return.status_read', payload);
+    },
+    closedNotRecorded(actor, payload, approvingSupervisorId) {
+      write(actor, 'sale.return.closed_not_recorded', payload, approvingSupervisorId);
+    },
+    lateCommit(actor, payload) {
+      write(actor, 'sale.return.late_commit_after_close', payload);
     },
     payoutReady(entry) {
       writeConfirmedEvent(entry, 'sale.return.payout_ready', (facts) => ({

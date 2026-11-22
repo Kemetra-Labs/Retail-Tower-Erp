@@ -114,6 +114,11 @@ export const AUDIT_ACTION_CATEGORIES = [
   // RT-1498 S4 — a return handed to support (a manager's raise, or the automatic one a send
   // answer the till cannot match writes). Ids and closed codes only; no DDL.
   'sale.return.needs_support',
+  // RT-1498 close slice — a status read of the server's verdict, a close as "not recorded", and a
+  // closed return later seen as recorded (a mismatch nothing can pay). Ids and closed codes only; no DDL.
+  'sale.return.status_read',
+  'sale.return.closed_not_recorded',
+  'sale.return.late_commit_after_close',
   // RT-215 (RT-138 P-1) — the device credential was confirmed revoked, and a
   // later re-pair (or, RT-215 10897-A, a "Check again" answered 2xx) cleared it. System-attributed (no operator acts): the
   // actor is SYSTEM_DEVICE_ACTOR_ID below. Payload `{ source }` only — never a

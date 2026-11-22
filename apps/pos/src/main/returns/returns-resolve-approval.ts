@@ -13,16 +13,20 @@
  *
  * `escalate` hands the return to support (a `needs_support` disposition). `close` is the terminal
  * "not recorded" disposition; it needs a server status read that answered an affirmative
- * "not recorded" (RT-196 §3.2), which is owed (RT-1498 C0): until `closeAvailable` says otherwise
- * no close subject exists, so no close approval can be granted.
+ * "not recorded" (RT-196 §3.2): no close subject exists unless `closeAvailable` says the server's
+ * status read is available (the last probe was not a 404; unknown is unavailable), so no close approval
+ * can be granted while the read is off. A close is allowed from `needs_support` (RT-1498 review LOW-1);
+ * an escalation is not (any earlier disposition ends it).
  */
 import type {
   ApprovalSubject,
   ApprovalSubjectResolver,
+  ManagerApprovalService,
 } from '../operator/manager-approval-service.js';
+import type { ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { isReturnsRole } from './returns-auth.js';
 import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
-import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
+import type { JournalEntry, ReturnScope, ReturnsRepository } from './returns-repository.js';
 import { isUuid } from './returns-wire.js';
 
 export const RETURN_RESOLVE_ACTION_KIND = 'return.resolve_unknown' as const;
@@ -73,8 +77,8 @@ export interface ResolveApprovalDeps {
   /** The live paired terminal (null while unpaired): an approval is for this terminal's returns only. */
   readonly terminalId: () => string | null;
   /**
-   * Whether a close can be offered for this return now. The close needs a server status read that
-   * answered an affirmative "not recorded"; that read is owed (RT-1498 C0), so the default is false.
+   * Whether a close can be offered for this return now: the server's status read is available (the
+   * last probe was answered with a verdict, not a 404). Fail closed: the default is false.
    */
   readonly closeAvailable?: (entry: JournalEntry) => boolean;
 }
@@ -107,11 +111,62 @@ export function createReturnResolveApprovalResolver(
     if (named === null) return null;
     const entry = deps.repo.read(named.returnId);
     if (entry === null || !isOwnScope(entry, session, deps.terminalId())) return null;
-    // Escalate: any earlier disposition ends it. NOTE for the close slice (RT-1498 review LOW-1):
-    // a close must stay allowed from `needs_support` (needs_support -> close, spec 3.4); refuse
-    // only a return that is already `closed`.
-    if (!isDisposable(entry) || deps.dispositions.stateOf(entry.returnId) !== null) return null;
+    if (!isDisposable(entry)) return null;
+    // Escalate: any earlier disposition ends it. Close: allowed from `needs_support`
+    // (needs_support -> close, spec 3.4); only an already-`closed` return is refused.
+    const earlier = deps.dispositions.stateOf(entry.returnId);
+    if (named.disposition === 'escalate' ? earlier !== null : earlier === 'closed') return null;
     if (named.disposition === 'close' && !closeAvailable(entry)) return null;
     return resolveSubjectOf(entry, named.disposition);
   };
+}
+
+/** What spending a resolve approval needs: the approval service and the live operator's `users.id`. */
+export interface ResolveApprovalSpender {
+  readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
+  readonly userId: () => string | null;
+}
+
+export type SpendResolveApproval =
+  | { readonly kind: 'spent'; readonly approverUserId: string }
+  | { readonly kind: 'refused'; readonly reason: ReturnsRefusalReason };
+
+/**
+ * Spend the single-use approval `approvalId` for `disposition` on `entry` and prove it: bound to this
+ * return and to this disposition (`approval_invalid` for another return, the other disposition, a spent
+ * or an expired one), bound to the row as it stands (`approval_stale` once it moved), granted under the
+ * disposition's own reason code, to THIS operator as requester, by a manager who is not them
+ * (four-eyes). Call it INSIDE the transaction that writes the disposition, so any later refusal rolls
+ * the spend back. Fail closed: with no spender, or no live user id, it refuses `approval_invalid`.
+ */
+export function spendResolveApproval(
+  spender: ResolveApprovalSpender | undefined,
+  actor: { readonly operatorId: string; readonly scope: ReturnScope },
+  approvalId: string,
+  entry: JournalEntry,
+  disposition: ResolveDisposition,
+): SpendResolveApproval {
+  const userId = spender?.userId()?.toLowerCase() ?? null;
+  if (spender === undefined || userId === null)
+    return { kind: 'refused', reason: 'approval_invalid' };
+  const consumed = spender.approvals.consume({
+    approvalId,
+    actionKind: RETURN_RESOLVE_ACTION_KIND,
+    subjectRef: resolveSubjectRef(entry.returnId, disposition),
+    subject: resolveSubjectOf(entry, disposition),
+    session: {
+      operator_id: actor.operatorId,
+      tenant_id: actor.scope.tenantId,
+      branch_id: actor.scope.branchId,
+    },
+  });
+  if (consumed.kind === 'refused') return { kind: 'refused', reason: consumed.reason };
+  const evidence = spender.approvals.evidence(approvalId);
+  const granted =
+    evidence !== null &&
+    consumed.reasonCode === `${disposition}_unknown` &&
+    evidence.requesterUserId?.toLowerCase() === userId &&
+    evidence.approverUserId.toLowerCase() !== userId;
+  if (!granted) return { kind: 'refused', reason: 'approval_invalid' };
+  return { kind: 'spent', approverUserId: evidence.approverUserId };
 }

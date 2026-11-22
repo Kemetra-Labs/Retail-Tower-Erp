@@ -28,6 +28,7 @@ import {
   type ComposedReturns,
 } from '../../compose-returns.js';
 import type { ReturnsSession } from '../../returns-service.js';
+import type { StatusReadAvailability } from '../../returns-status-availability.js';
 import {
   createReturnDispositionsRepository,
   type ReturnDispositionsRepository,
@@ -271,6 +272,15 @@ export type ReturnResponder = (
   backend: FakeBackend,
 ) => Response | Promise<Response>;
 
+/** RT-1498 close slice: how the fake answers `readReturnStatusByProvenance`. */
+export type StatusResponder = (
+  call: RecordedCall,
+  backend: FakeBackend,
+) => Response | Promise<Response>;
+
+/** The route of the affirmative status read (RT-1548). */
+const STATUS_ROUTE = '/returns/by-provenance/status';
+
 function urlOf(input: RequestInfo | URL): string {
   if (typeof input === 'string') return input;
   return input instanceof URL ? input.href : input.url;
@@ -313,10 +323,16 @@ export class FakeBackend {
   readLatency: (() => Promise<void>) | null = null;
   /** Returns recorded so far, by Idempotency-Key. */
   readonly recorded = new Map<string, ContractSaleReturn>();
+  /**
+   * RT-1498 close slice: how `readReturnStatusByProvenance` answers; defaults to the verdict the fake's
+   * own `recorded` map implies (`recorded` for a key it recorded, else `not_recorded`).
+   */
+  onStatus: StatusResponder = (call, backend) => backend.answerStatus(call);
 
   /** Method-keyed routes of the fake POS sales surface. */
   private readonly routes: Readonly<Record<string, (call: RecordedCall) => Promise<Response>>> = {
     GET: async (call) => {
+      if (call.url.includes(STATUS_ROUTE)) return await this.onStatus(call, this);
       if (this.readLatency !== null) await this.readLatency();
       return this.answerRead(call);
     },
@@ -340,6 +356,20 @@ export class FakeBackend {
     const saleRef = /\/sales\/([^/]+)$/.exec(call.url)?.[1] ?? '';
     const sale = this.saleFor?.(saleRef) ?? this.sale;
     return sale instanceof Response ? sale : jsonResponse(200, sale);
+  }
+
+  /** The affirmative verdict for the provenance in the query, from what this fake has recorded. */
+  answerStatus(call: RecordedCall): Response {
+    const key = new URL(call.url).searchParams.get('externalId') ?? '';
+    const recorded = this.recorded.get(key);
+    return recorded === undefined
+      ? jsonResponse(200, { status: 'not_recorded' })
+      : jsonResponse(200, { status: 'recorded', creditLinked: false, saleReturn: recorded });
+  }
+
+  /** The status reads, in order. */
+  statusCalls(): RecordedCall[] {
+    return this.calls.filter((c) => c.method === 'GET' && c.url.includes(STATUS_ROUTE));
   }
 
   /** 201 the first time a key is seen; a same-key retry replays it (RT-82 K4). */
@@ -459,6 +489,11 @@ export interface HarnessOptions {
    */
   readonly realShifts?: boolean;
   /**
+   * RT-1498 close slice: the status-read availability the composed domain notes each read in. A test
+   * that mints close approvals builds its approval resolver on the same object (`closeAvailable`).
+   */
+  readonly statusAvailability?: StatusReadAvailability;
+  /**
    * RT-1498 S4/S5: the manager approvals and the live operator's `users.id` the escalation spends,
    * built over the harness's database and state. Absent: no escalation is composed (it refuses).
    */
@@ -493,6 +528,8 @@ export interface HarnessState {
   failFlagRead: boolean;
   /** The domain clock (ISO-8601), read per call; starts at `NOW`. */
   now: string;
+  /** RT-1498 close slice: the monotonic clock (ms) of the quiet period; see `elapse`. */
+  mono: number;
   /** Runs on every audit emit, before it is written (to change state mid-flow). */
   onAudit: ((event: AuditEvent) => void) | null;
   /** When it returns true for an event, that audit insert throws (fault injection). */
@@ -579,6 +616,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     failShiftRead: false,
     failFlagRead: false,
     now: NOW,
+    mono: 1_000,
     onAudit: null,
     failAudit: null,
   };
@@ -625,6 +663,11 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
         error: (_obj, msg) => warnings.push(msg),
       },
       now: () => state.now,
+      // RT-1498 close slice: the quiet period reads the domain clock as its wall clock and `state.mono`.
+      clocks: { wall: () => Date.parse(state.now), mono: () => state.mono },
+      ...(options.statusAvailability === undefined
+        ? {}
+        : { statusAvailability: options.statusAvailability }),
       drawer,
       ...(options.drawerSlot === undefined ? {} : { drawerSlot: options.drawerSlot }),
       printer,
@@ -780,6 +823,15 @@ export function deferredFake<T>(): { promise: Promise<T>; resolve: (value: T) =>
     resolve = r;
   });
   return { promise, resolve };
+}
+
+/**
+ * RT-1498 close slice: real time passes: the domain (wall) clock and the monotonic clock both move
+ * `ms` forward. A test that steps ONLY `state.now` (or only `state.mono`) models a clock step.
+ */
+export function elapse(h: Pick<ReturnsHarness, 'state'>, ms: number): void {
+  h.state.now = new Date(Date.parse(h.state.now) + ms).toISOString();
+  h.state.mono += ms;
 }
 
 /** The audit categories written so far, in order. */

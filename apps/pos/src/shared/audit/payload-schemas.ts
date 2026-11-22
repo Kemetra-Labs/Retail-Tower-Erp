@@ -514,7 +514,9 @@ export interface SaleReturnRefusedPayload {
     | 'payout'
     | 'reprint'
     | 'resend'
-    | 'escalate';
+    | 'escalate'
+    | 'read_status'
+    | 'close';
   reason: string;
 }
 
@@ -549,6 +551,44 @@ export interface SaleReturnNeedsSupportPayload {
   verdict_source: 'provenance_read' | 'send_response' | 'auth_failure' | 'operator';
   reason: 'mismatch' | 'auth_failure' | 'operator';
   origin_user_unknown?: true;
+}
+
+/**
+ * RT-1498 close slice — `sale.return.status_read`: a manager asked the server whether one return was
+ * recorded (or a close re-read it). `verdict` is what the SERVER said: `recorded_match` (it is this
+ * return), `recorded_mismatch` (a different return, or a credit reversal), `not_recorded`, or
+ * `inconclusive` with the closed `cause`. Ids and closed codes only: no body, no envelope.
+ */
+export interface SaleReturnStatusReadPayload {
+  return_id: string;
+  verdict: 'recorded_match' | 'recorded_mismatch' | 'not_recorded' | 'inconclusive';
+  cause?: 'offline' | 'unauthorized' | 'unavailable' | 'server' | 'unreadable';
+  /** Which action read it: the manager's «تحديث الحالة», or the re-read a close makes. */
+  purpose: 'read' | 'close';
+}
+
+/**
+ * RT-1498 close slice — `sale.return.closed_not_recorded`: a return was closed as "not recorded"
+ * (migration 0070 `not_recorded_closed`). `approval_id` is the spent single-use approval;
+ * `read_verdict_at` is when the server's fresh `not_recorded` answer arrived.
+ */
+export interface SaleReturnClosedNotRecordedPayload {
+  return_id: string;
+  approval_id: string;
+  read_verdict_at: string;
+  origin_user_unknown: true;
+}
+
+/**
+ * RT-1498 close slice — `sale.return.late_commit_after_close`: a return the till CLOSED as not
+ * recorded was later seen as recorded on the server (RT-1548's late-commit obligation). A mismatch:
+ * nothing is paid or confirmed (a closed return is frozen). `return_ref` names the server's
+ * return for support. Migration 0070 allows no disposition after a close, so this event is the record.
+ */
+export interface SaleReturnLateCommitPayload {
+  return_id: string;
+  return_ref: string;
+  credit_linked: boolean;
 }
 
 /** `sale.return.confirmed` — Backend-Core answered 201/200 (a replay counts). */
@@ -966,6 +1006,10 @@ export type AuditPayloadMap = {
   'sale.return.resend_requested': SaleReturnResendRequestedPayload;
   // RT-1498 S4
   'sale.return.needs_support': SaleReturnNeedsSupportPayload;
+  // RT-1498 close slice
+  'sale.return.status_read': SaleReturnStatusReadPayload;
+  'sale.return.closed_not_recorded': SaleReturnClosedNotRecordedPayload;
+  'sale.return.late_commit_after_close': SaleReturnLateCommitPayload;
   // RT-215
   'pairing.device_revoked': PairingDeviceRevokedPayload;
   'pairing.device_revoked_cleared': PairingDeviceRevokedClearedPayload;

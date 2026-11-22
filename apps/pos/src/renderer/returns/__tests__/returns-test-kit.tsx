@@ -7,7 +7,9 @@ import type {
   ReturnQuoteView,
   ReturnableSaleView,
   ReturnsBridgeAPI,
+  ReturnsCloseResponse,
   ReturnsEscalateResponse,
+  ReturnsReadStatusResponse,
   ReturnsListResponse,
   ReturnsLookupResponse,
   ReturnsPayoutResponse,
@@ -99,6 +101,8 @@ export interface FakeReturnsBridge extends ReturnsBridgeAPI {
   reprintSlip: Mock<(req: unknown) => Promise<ReturnsReprintResponse>>;
   resend: Mock<(req: unknown) => Promise<ReturnsResendResponse>>;
   escalate: Mock<(req: unknown) => Promise<ReturnsEscalateResponse>>;
+  readStatus: Mock<(req: unknown) => Promise<ReturnsReadStatusResponse>>;
+  close: Mock<(req: unknown) => Promise<ReturnsCloseResponse>>;
 }
 
 export function fakeBridge(): FakeReturnsBridge {
@@ -127,6 +131,19 @@ export function fakeBridge(): FakeReturnsBridge {
       Promise.resolve({
         kind: 'escalated' as const,
         ret: journal({ state: 'unknown', disposition: 'needs_support' }),
+      }),
+    ),
+    readStatus: vi.fn(() =>
+      Promise.resolve({
+        kind: 'inconclusive' as const,
+        ret: journal({ state: 'unknown' }),
+        cause: 'offline' as const,
+      }),
+    ),
+    close: vi.fn(() =>
+      Promise.resolve({
+        kind: 'closed' as const,
+        ret: journal({ state: 'unknown', disposition: 'closed' }),
       }),
     ),
   };

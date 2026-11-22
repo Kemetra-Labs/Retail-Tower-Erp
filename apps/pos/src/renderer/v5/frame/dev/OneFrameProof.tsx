@@ -275,6 +275,8 @@ const returnsBridge: ReturnsBridgeAPI = {
   reprintSlip: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found' }),
   resend: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
   escalate: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
+  readStatus: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
+  close: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
 };
 
 const PROOF_SEARCH_HITS = 12;

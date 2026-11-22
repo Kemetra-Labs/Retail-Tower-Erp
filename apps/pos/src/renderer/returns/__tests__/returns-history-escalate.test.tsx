@@ -9,6 +9,7 @@ import {
   DISPOSITION_COPY,
   ESCALATE_COPY,
   OUTCOME_COPY,
+  STATUS_COPY,
   UNRESOLVED_COPY,
   refusalMessage,
 } from '../returns-messages.js';
@@ -307,13 +308,19 @@ describe('a return with a disposition', () => {
     ).not.toBeInTheDocument();
   });
 
-  it('closed: «لم يُسجَّل — مغلق», its own line, and no action at all', async () => {
+  it('closed: «لم يُسجَّل — مغلق», its own line, and only the server status read (the late-commit check)', async () => {
     await mount([CLOSED]);
     const row = rowOf('T1-000008');
     expect(row).toHaveTextContent(DISPOSITION_COPY.label.closed);
     expect(row).toHaveTextContent(DISPOSITION_COPY.closedDetail);
     expect(row).not.toHaveTextContent(UNRESOLVED_COPY.doNotPay);
-    expect(within(row).queryByRole('button')).not.toBeInTheDocument();
+    // No resend, no escalation, no close: a closed return is never sent again. Only «تحديث الحالة»,
+    // the one way a late commit of its key can be seen (RT-1548).
+    expect(
+      within(row)
+        .getAllByRole('button')
+        .map((b) => b.getAttribute('aria-label')),
+    ).toEqual([`${STATUS_COPY.action} T1-000008`]);
     expect(row).not.toHaveTextContent(OUTCOME_COPY.unconfirmed);
   });
 

@@ -7,8 +7,10 @@
  * spent approval bound to this return AND this disposition, no write after a close); this class
  * only reads and appends, so a bug here cannot write a row the database would refuse.
  *
- * `retry_hold` is part of the table (its CHECK is in 0070 so the append-only table never needs a
- * rebuild) but has no writer yet: that is the owed status read. It is therefore not a state.
+ * `retry_hold` (RT-1498 close slice) is the restrict-only flag a status read that answered "not
+ * recorded" writes, so the background and bar resends stop and the quiet period can elapse. It is not
+ * a state: it never frees the sale. It is effective only while it is newer than the return's last
+ * attempt (`hasEffectiveHold`), so only an explicit per-row resend, which moves the last attempt, voids it.
  */
 import type { DatabaseHandle } from '../db/client.js';
 
@@ -44,6 +46,11 @@ export interface ReturnDispositionsRepository {
   stateOf(returnId: string): DispositionState | null;
   /** The state of each listed return that has one (a return with none is absent). */
   statesOf(returnIds: readonly string[]): Map<string, DispositionState>;
+  /**
+   * RT-1498: is a `retry_hold` of this return newer than its last attempt? With no recorded attempt
+   * (`null`) any hold counts (it only restricts, so the unreadable case fails safe).
+   */
+  hasEffectiveHold(returnId: string, lastAttemptAt: string | null): boolean;
 }
 
 interface Stmt {
@@ -100,7 +107,7 @@ export function createReturnDispositionsRepository(
       `SELECT return_id, kind FROM return_journal_dispositions
         WHERE return_id IN (${marks}) AND kind IN ('not_recorded_closed', 'needs_support')`,
     ).all(...returnIds) as StateRow[];
-    // The query lists only the two kinds that are a state (a `retry_hold` is not one yet).
+    // The query lists only the two kinds that are a state (a `retry_hold` is a flag, not one).
     for (const row of rows)
       states.set(row.return_id, stronger(states.get(row.return_id), row.kind));
     return states;
@@ -137,5 +144,13 @@ export function createReturnDispositionsRepository(
 
     stateOf: (returnId) => statesOf([returnId]).get(returnId) ?? null,
     statesOf,
+
+    hasEffectiveHold(returnId, lastAttemptAt) {
+      const rows = prepare(
+        `SELECT 1 FROM return_journal_dispositions
+          WHERE return_id = ? AND kind = 'retry_hold' AND (? IS NULL OR created_at > ?) LIMIT 1`,
+      ).all(returnId, lastAttemptAt, lastAttemptAt);
+      return rows.length > 0;
+    },
   };
 }

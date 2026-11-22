@@ -29,8 +29,8 @@ import {
 const ALL_REASONS = [...SERVER_RETURN_REFUSALS, ...LOCAL_RETURN_REFUSALS];
 
 describe('returns refusal copy (O1)', () => {
-  it('covers all 44 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers, 3 from RT-1498 S4/S5, 1 from RT-1543) with a non-empty Arabic message', () => {
-    expect(ALL_REASONS).toHaveLength(44);
+  it('covers all 49 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers, 3 from RT-1498 S4/S5, 5 from the RT-1498 close slice, 1 from RT-1543) with a non-empty Arabic message', () => {
+    expect(ALL_REASONS).toHaveLength(49);
     for (const reason of ALL_REASONS) {
       const message = refusalMessage(reason);
       expect(message.trim().length, reason).toBeGreaterThan(0);

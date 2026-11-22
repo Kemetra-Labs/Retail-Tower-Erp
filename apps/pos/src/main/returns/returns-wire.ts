@@ -182,6 +182,30 @@ export function readSaleReturnBody(json: unknown): WireSaleReturn | null {
   return readWith(json, readSaleReturn);
 }
 
+/**
+ * RT-1498 close slice — `readReturnStatusByProvenance` (RT-1548): exactly two verdicts, told apart by
+ * `status`. `recorded` carries the same `SaleReturn` as `recordReturn` (its zero-refund credit shape
+ * differs only in an empty `refundTenders`, which the till does not read) and the always-present
+ * `creditLinked` flag. Any other `status`, or a missing or mistyped needed field, is no verdict.
+ */
+export type WireReturnStatus =
+  | { status: 'not_recorded' }
+  | { status: 'recorded'; creditLinked: boolean; saleReturn: WireSaleReturn };
+
+const readRecordedStatus = readObject<{ creditLinked: boolean; saleReturn: WireSaleReturn }>({
+  creditLinked: bool,
+  saleReturn: readSaleReturn,
+});
+
+/** The needed `ReturnProvenanceStatus` fields, or null when it is not one of the two verdicts. */
+export function readReturnStatusBody(json: unknown): WireReturnStatus | null {
+  if (!isRecord(json)) return null;
+  if (json['status'] === 'not_recorded') return { status: 'not_recorded' };
+  if (json['status'] !== 'recorded') return null;
+  const recorded = readWith(json, readRecordedStatus);
+  return recorded === null ? null : { status: 'recorded', ...recorded };
+}
+
 /** The needed `RefundExecution` fields, or null when any is missing or mistyped. */
 export function readRefundExecutionBody(json: unknown): WireRefundExecution | null {
   return readWith(json, readRefundExecution);

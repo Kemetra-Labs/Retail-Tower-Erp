@@ -187,7 +187,7 @@ describe('the resolver of the approval subject', () => {
     expect(resolver()({ subjectRef: ref('escalate'), session: session('cashier') })).toBeNull();
   });
 
-  it('names no close subject while no status read can offer a close (owed with S5)', () => {
+  it('names no close subject while no status read can offer a close (the server read is off or unknown)', () => {
     journal();
     expect(resolver()({ subjectRef: ref('close'), session: session('manager') })).toBeNull();
   });
@@ -231,12 +231,22 @@ describe('the resolver of the approval subject', () => {
     expect(resolver()({ subjectRef: ref('escalate'), session: session('manager') })).toBeNull();
   });
 
-  it('names no subject once the return is needs_support or closed', () => {
-    journal();
+  it('names the close subject from needs_support (RT-1498 review LOW-1), but never the escalate one', () => {
+    const entry = journal();
     createReturnDispositionsRepository(handleFor(db)).insert(
       automaticMismatch({ returnId: RETURN_ID }),
     );
+    // Escalating twice is over: any earlier disposition ends it.
     expect(resolver()({ subjectRef: ref('escalate'), session: session('manager') })).toBeNull();
+    // needs_support -> close is allowed (spec 3.4), when a status read can offer it.
+    expect(
+      resolver({ closeAvailable: true })({ subjectRef: ref('close'), session: session('manager') }),
+    ).toEqual(resolveSubjectOf(entry, 'close'));
+    expect(resolver()({ subjectRef: ref('close'), session: session('manager') })).toBeNull();
+  });
+
+  it('names no subject once the return is closed', () => {
+    journal();
     seedResolveApproval(db, { returnId: RETURN_ID, disposition: 'close' });
     createReturnDispositionsRepository(handleFor(db)).insert(
       closing({
@@ -244,6 +254,7 @@ describe('the resolver of the approval subject', () => {
         dispositionId: '0192f5a2-3b4c-7d8e-9f01-0000000000d9',
       }),
     );
+    expect(resolver()({ subjectRef: ref('escalate'), session: session('manager') })).toBeNull();
     expect(
       resolver({ closeAvailable: true })({ subjectRef: ref('close'), session: session('manager') }),
     ).toBeNull();

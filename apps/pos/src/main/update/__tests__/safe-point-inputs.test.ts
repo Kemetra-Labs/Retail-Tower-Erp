@@ -290,6 +290,84 @@ describe('SafePointInputs on the real schema', () => {
       expect(createSafePointInputs(handle(), noPrint).hasReturnInFlight()).toBe(true);
     });
 
+    describe('a return disposed of (RT-1498, migration 0070)', () => {
+      const RETURN_ID = uid(40);
+      const APPROVAL_ID = uid(41);
+
+      /** An unknown, once-sent return, and a spent approval of `disposition` for it. */
+      function unknownReturnWithApproval(disposition: 'close' | 'escalate'): void {
+        insert('return_journal', {
+          return_id: RETURN_ID,
+          external_id: ext(40),
+          currency_code: 'EGP',
+          state: 'unknown',
+          tenant_id: 't',
+          branch_id: 'b',
+          terminal_id: 'x',
+          quoted_total_minor: 100,
+          attempt_count: 1,
+          last_attempt_at: '2026-10-20T10:00:00.000Z',
+        });
+        insert('manager_approvals', {
+          approval_id: APPROVAL_ID,
+          tenant_id: 't',
+          branch_id: 'b',
+          terminal_id: 'x',
+          action_kind: 'return.resolve_unknown',
+          subject_ref: `${RETURN_ID}_${disposition}`,
+          subject_version: `${disposition}|unknown|1`,
+          amount_minor: 100,
+          reason_code: `${disposition}_unknown`,
+          requester_operator_id: 'op-1',
+          requester_user_id: 'user-requester',
+          approver_user_id: 'user-approver',
+          policy_version: 'rt114-2026-10-07',
+          issued_at: '2026-10-20T10:00:00.000Z',
+          expires_at: '2026-10-20T10:02:00.000Z',
+          consumed_at: '2026-10-20T10:01:00.000Z',
+        });
+      }
+
+      function dispose(kind: 'not_recorded_closed' | 'needs_support'): void {
+        insert('return_journal_dispositions', {
+          disposition_id: uid(42),
+          return_id: RETURN_ID,
+          kind,
+          verdict_source: kind === 'needs_support' ? 'operator' : 'provenance_read',
+          reason: kind === 'needs_support' ? 'operator' : 'not_recorded',
+          read_verdict_at: kind === 'needs_support' ? null : '2026-10-20T10:00:30.000Z',
+          approval_id: APPROVAL_ID,
+          actor_operator_id: 'op-1',
+          created_at: '2026-10-20T10:01:30.000Z',
+        });
+      }
+
+      it('is clear once the return is closed as not recorded: it is out of the flow for good (LOW-2)', () => {
+        unknownReturnWithApproval('close');
+        expect(createSafePointInputs(handle(), noPrint).hasReturnInFlight()).toBe(true);
+        dispose('not_recorded_closed');
+        expect(createSafePointInputs(handle(), noPrint).hasReturnInFlight()).toBe(false);
+      });
+
+      it('is still in flight while the return only needs support (it is still unknown)', () => {
+        unknownReturnWithApproval('escalate');
+        dispose('needs_support');
+        expect(createSafePointInputs(handle(), noPrint).hasReturnInFlight()).toBe(true);
+      });
+
+      it('a closed return does not hide another return that is still in flight', () => {
+        unknownReturnWithApproval('close');
+        dispose('not_recorded_closed');
+        insert('return_journal', {
+          return_id: uid(43),
+          external_id: ext(43),
+          currency_code: 'EGP',
+          state: 'unknown',
+        });
+        expect(createSafePointInputs(handle(), noPrint).hasReturnInFlight()).toBe(true);
+      });
+    });
+
     it('is clear when every return is refused or paid out', () => {
       insert('return_journal', {
         return_id: 'r-refused',

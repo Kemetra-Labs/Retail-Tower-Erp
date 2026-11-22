@@ -19,9 +19,13 @@ export const RETURNS_IPC_CHANNELS = {
   // RT-1498 (RT-196 S1 remainder; §A4 record C-1): resend ONE unresolved return.
   RESEND: 'returns:resend',
   // RT-1498 S4/S5: hand ONE unresolved return to support, with a single-use manager approval
-  // (`return.resolve_unknown`, disposition `escalate`). There is no `returns:close` channel yet:
-  // a close needs a server status read that is owed (RT-1498 C0).
+  // (`return.resolve_unknown`, disposition `escalate`).
   ESCALATE: 'returns:escalate',
+  // RT-1498 close slice: ask the server whether ONE unresolved return was recorded (a read; it sends
+  // nothing), and close it as "not recorded" with a single-use manager approval (`return.resolve_unknown`,
+  // disposition `close`). Neither is on the locked-session allowlist; recovery mode refuses `returns:*`.
+  READ_STATUS: 'returns:readStatus',
+  CLOSE: 'returns:close',
 } as const;
 
 export type ReturnsIpcChannel = (typeof RETURNS_IPC_CHANNELS)[keyof typeof RETURNS_IPC_CHANNELS];

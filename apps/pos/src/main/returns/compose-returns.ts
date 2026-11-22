@@ -25,6 +25,7 @@ import {
   RETURNS_REQUEST_TIMEOUT_MS,
   type CreateReturnsClientDeps,
 } from './returns-client.js';
+import { createReturnsCloseService } from './returns-close-service.js';
 import { createReturnsDispatcher } from './returns-dispatch.js';
 import {
   createReturnDispositionsRepository,
@@ -43,9 +44,15 @@ import {
   type JournalEntry,
   type ReturnScope,
 } from './returns-repository.js';
+import { createReturnQuietPeriod, type QuietPeriodClocks } from './returns-quiet-period.js';
 import { createReturnsResolver, type ReturnsResolver } from './returns-resolver.js';
 import { createReturnsAuthorizer, type ReturnsSession } from './returns-auth.js';
 import { createReturnsService } from './returns-service.js';
+import {
+  createStatusReadAvailability,
+  type StatusReadAvailability,
+} from './returns-status-availability.js';
+import { createReturnsStatusClient } from './returns-status-client.js';
 import { toJournalView } from './returns-views.js';
 import { newReturnExternalId, uuidv7 } from './uuidv7.js';
 
@@ -114,6 +121,17 @@ export interface ComposeReturnsDeps {
     readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
     readonly userId: () => string | null;
   };
+  /**
+   * RT-1498 close slice: the clocks the quiet period (15 minutes of ELAPSED time) is shown with: a wall
+   * clock and a monotonic one (default: `Date.now` and `performance.now`). Tests inject both.
+   */
+  readonly clocks?: QuietPeriodClocks;
+  /**
+   * RT-1498 close slice: whether the server's status read is available (the last probe was not a 404).
+   * The composition root shares ONE with the close approval's subject resolver (`closeAvailable`), which
+   * is built earlier; absent, the domain keeps its own.
+   */
+  readonly statusAvailability?: StatusReadAvailability;
 }
 
 export interface ComposedReturns {
@@ -175,11 +193,15 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     isSessionLocked: deps.isSessionLocked,
     getEnvelope: deps.getOperatorEnvelope,
   });
+  // RT-1498 close slice: every attempt is anchored for the quiet period (15 minutes of ELAPSED time).
+  const quiet = createReturnQuietPeriod(deps.clocks);
+  const statusAvailability = deps.statusAvailability ?? createStatusReadAvailability();
   const dispatcher = createReturnsDispatcher({
     authorizer,
     client,
     repo,
     dispositions,
+    quiet,
     audit,
     now,
     logger: deps.logger,
@@ -228,6 +250,22 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     },
     isStopped,
   });
+  const closer = createReturnsCloseService({
+    authorizer,
+    isStopped,
+    repo,
+    dispositions,
+    status: createReturnsStatusClient(deps.http),
+    availability: statusAvailability,
+    quiet,
+    sends: dispatcher,
+    audit,
+    views,
+    transaction,
+    now,
+    newDispositionId: uuidv7,
+    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
+  });
   const payout = createReturnsPayoutService({
     authorizer,
     repo,
@@ -267,6 +305,9 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     resend: (req) => core.resend(req),
     // RT-1498 S4/S5: hand one unresolved return to support (a single-use manager approval).
     escalate: (req) => core.escalate(req),
+    // RT-1498 close slice: the server's verdict on one unresolved return, and the close.
+    readStatus: (req) => closer.readStatus(req),
+    close: (req) => closer.close(req),
   };
   const stop = (): void => {
     stopped = true;
