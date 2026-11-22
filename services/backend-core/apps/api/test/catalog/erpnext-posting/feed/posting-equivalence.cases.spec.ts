@@ -142,6 +142,21 @@ describe("RT-1463 posting equivalence — fixed cases", () => {
     }
   });
 
+  it("a database error inside a transaction reaches the caller unchanged and aborts the transaction as without the guard", async () => {
+    if (skip) return;
+    // Review finding on #815: the frozen copy used to run after the live read, in the aborted transaction, so it failed
+    // with 25P02 and the guard reported a mismatch instead of the real error.
+    await client!.query("BEGIN");
+    try {
+      const before = postingGuardComparisons();
+      await expect(allSaleLinesMapped(client!, "not-a-uuid")).rejects.toMatchObject({ code: "22P02" });
+      expect(postingGuardComparisons()).toBe(before + 1);
+      await expect(client!.query("SELECT 1")).rejects.toMatchObject({ code: "25P02" });
+    } finally {
+      await client!.query("ROLLBACK");
+    }
+  });
+
   it("an unknown sale is null", async () => {
     if (skip) return;
     expect(await guarded((c) => buildWorkItem(c, row({ saleId: UNKNOWN })))).toBeNull();
