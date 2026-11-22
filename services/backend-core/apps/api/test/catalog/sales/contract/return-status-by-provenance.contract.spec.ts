@@ -166,14 +166,15 @@ describe("pos-sales/sales.yaml — RT-1548 readReturnStatusByProvenance", () => 
     expect(sales.components?.parameters?.["ReturnExternalId"]).toMatchObject({ in: "query", required: true });
   });
 
-  it("is contract-only with a note naming the runtime slice, and audits as pos_sales.return_read", () => {
+  it("is live since the slice 2 runtime: no contract-only marker, a rollout note, and it audits as pos_sales.return_read", () => {
     const op = statusRead();
-    expect(op["x-runtime-status"]).toBe("contract-only");
+    expect(op["x-runtime-status"]).toBeUndefined();
     const note = flat(op["x-runtime-note"]);
-    expect(note).toContain("RT-1548");
-    expect(note).toContain("slice 2");
-    expect(note).toContain("must not answer a verdict until every instance that serves `recordReturn` enforces the BR-7 bound");
-    expect(note).toContain("ship the bound first, or keep the read off until the rollout has completed");
+    expect(note).toContain("RT-1548 slice 2");
+    expect(note).toContain("`POS_RETURNS_ENABLED`");
+    expect(note).toContain("`POS_RETURN_STATUS_READ_ENABLED`");
+    expect(note).toContain("never as `not_recorded`");
+    expect(note).toContain("only after every instance that serves `recordReturn` enforces the BR-7 bound");
     expect(op["x-audit-action"]).toBe("pos_sales.return_read");
   });
 
@@ -232,8 +233,9 @@ describe("pos-sales/sales.yaml — RT-1548 responses", () => {
     expect(responses()["404"]?.$ref).toBe("#/components/responses/ReturnStatusNotFound");
     const text = flat(sales.components?.responses?.["ReturnStatusNotFound"]?.description);
     expect(text).toContain("returns gate is off");
+    expect(text).toContain("(`POS_RETURN_STATUS_READ_ENABLED`) is off");
     expect(text).toContain("does not resolve in the caller's (tenant, store) scope");
-    expect(text).toContain("one body");
+    expect(text).toContain("one body for all three");
     expect(text).toContain("NEVER `not_recorded`");
     expect(text).toContain("not a verdict");
     const body = (sales.components?.responses?.["ReturnStatusNotFound"] as { content?: Record<string, { schema?: unknown }> }).content;
@@ -414,7 +416,7 @@ describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
     expect(text).toContain("a normative rollout precondition of this read, no unbounded synchronous-replication commit wait");
     expect(text).toContain("slice 2 verifies and documents the `synchronous_commit` and replica setting before the read answers verdicts");
     const note = flat(statusRead()["x-runtime-note"]);
-    expect(note).toContain("slice 2 first verifies and documents the `synchronous_commit` and replica setting");
+    expect(note).toContain("the `synchronous_commit` and replica setting is verified");
     expect(flat(sales.info?.description)).toContain("and slice 2 first verifies and documents the `synchronous_commit` and replica setting");
   });
 

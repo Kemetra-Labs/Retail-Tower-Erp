@@ -49,7 +49,13 @@ import {
   RefundExecutionInvalidError,
   RefundExecutionsService,
 } from "./refund-executions.service";
-import type { RefundExecutionProjection, ReturnReadProjection } from "./return-reads";
+import { isReturnStatusReadEnabled } from "./refund-gates";
+import type {
+  RefundExecutionProjection,
+  ReturnProvenanceStatusProjection,
+  ReturnReadProjection,
+} from "./return-reads";
+import { isPosReturnsEnabled } from "./returns-gate";
 import { toReversalHttpError } from "./sales.controller";
 import { UUID_RE_I } from "../../common/ids";
 
@@ -118,6 +124,41 @@ export class RefundExecutionsController {
     if (read === null) throw new NotFoundException("not_found");
     annotateAudit(request, { sale_ref: saleRef, return_ref: read.saleReturn.returnRef });
     return read;
+  }
+
+  /**
+   * RT-1548 (BR-2): the affirmative recorded / not_recorded verdict. Unlike
+   * the two reads above it IS behind `POS_RETURNS_ENABLED`, and behind its own
+   * rollout gate (`POS_RETURN_STATUS_READ_ENABLED`, default off): a gate-off
+   * refusal is the same 404 as an unresolved sale, which a client treats as
+   * inconclusive, so a verdict is never served while returns are off or before
+   * the BR-7 bound is live everywhere. Order: gates, then the sale in scope,
+   * then the key.
+   */
+  @Get("api/pos/v1/sales/:saleRef/returns/by-provenance/status")
+  @UseGuards(PosOperatorAuthGuard, TenantContextGuard)
+  @Auditable("pos_sales.return_read")
+  async readReturnStatusByProvenance(
+    @Req() request: TenantContextRequest,
+    @Param("saleRef") saleRef: string,
+    @Query(new ZodValidationPipe(ReturnProvenanceQuerySchema)) query: ReturnProvenanceQueryDto,
+  ): Promise<ReturnProvenanceStatusProjection> {
+    if (!isPosReturnsEnabled() || !isReturnStatusReadEnabled()) throw new NotFoundException("not_found");
+    const scope = posScope(request, saleRef);
+    let verdict: ReturnProvenanceStatusProjection;
+    try {
+      verdict = await this.refundExecutionsService.readReturnStatusByProvenance({ ...scope, saleRef }, query);
+    } catch (err) {
+      throw toReversalHttpError(err);
+    }
+    // Identifiers only: the sale ref, and the return ref when recorded (BR-5).
+    annotateAudit(
+      request,
+      verdict.status === "recorded"
+        ? { sale_ref: saleRef, return_ref: verdict.saleReturn.returnRef }
+        : { sale_ref: saleRef },
+    );
+    return verdict;
   }
 
   @Post("api/pos/v1/sales/:saleRef/returns/:returnRef/executions")

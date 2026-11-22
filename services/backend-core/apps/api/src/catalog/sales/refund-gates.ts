@@ -17,6 +17,20 @@ export function isRefundSettleBeforePostEnabled(): boolean {
 }
 
 /**
+ * RT-1548 (BR-7 rollout): the affirmative `readReturnStatusByProvenance`
+ * verdict. Off by default -> 404 `not_found`, which a client reads as
+ * inconclusive, never as `not_recorded`. It sits on top of `POS_RETURNS_ENABLED`
+ * (both must be on). Turn it on only when (1) every instance that serves
+ * `recordReturn` enforces the 60 s commit bound, and (2) the `synchronous_commit`
+ * and replica setting of the database is verified
+ * (`docs/operations/return-commit-bound.md`). The contract: "keep the read off
+ * (404) until the rollout has completed".
+ */
+export function isReturnStatusReadEnabled(): boolean {
+  return isEnvFlagOn("POS_RETURN_STATUS_READ_ENABLED");
+}
+
+/**
  * R-11: the deprecated amount-only `recordRefund`. Off → 404 `not_found` and
  * nothing recorded, a provenance replay of an earlier refund included. No POS
  * calls it; a later breaking contract version removes the operation.

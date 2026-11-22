@@ -34,14 +34,16 @@ import type {
 import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import {
   findOrdinaryReturnByProvenance,
+  findReturnByProvenanceOfSale,
   listOrdinaryReturnIds,
   loadRefundExecution,
   loadReturnRead,
   type RefundExecutionProjection,
+  type ReturnProvenanceStatusProjection,
   type ReturnReadProjection,
 } from "./return-reads";
 import { SaleNotFoundError, TerminalEventProvenanceConflictError } from "./sale-errors";
-import { emitReturnPosting } from "./sale-returns.service";
+import { emitReturnPosting, loadSaleReturn } from "./sale-returns.service";
 import { lockSaleForReversal } from "./sale-reversal";
 
 /** Check 3: the execution names no allocation of the return, or its evidence is refused → 400. */
@@ -144,6 +146,23 @@ export class RefundExecutionsService {
     return this.read(scope, async (client) => {
       const id = await findOrdinaryReturnByProvenance(client, scope.saleRef, provenance);
       return id === null ? null : loadReturnRead(client, id);
+    });
+  }
+
+  /**
+   * `readReturnStatusByProvenance` (RT-1548, BR-2): the sale resolves first
+   * (else `SaleNotFoundError`, the non-disclosing 404, never a verdict), then
+   * the key is looked up among THIS sale's returns, credit-sale reversals
+   * included. Changes and records nothing.
+   */
+  readReturnStatusByProvenance(
+    scope: Scope,
+    provenance: ReturnProvenanceQueryDto,
+  ): Promise<ReturnProvenanceStatusProjection> {
+    return this.read(scope, async (client): Promise<ReturnProvenanceStatusProjection> => {
+      const found = await findReturnByProvenanceOfSale(client, scope.saleRef, provenance);
+      if (found === null) return { status: "not_recorded" };
+      return { status: "recorded", saleReturn: await loadSaleReturn(client, found.id), creditLinked: found.creditLinked };
     });
   }
 

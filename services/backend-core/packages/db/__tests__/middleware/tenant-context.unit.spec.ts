@@ -305,3 +305,58 @@ describe("readTenantContext — return value mapping", () => {
     expect(result).toEqual({ currentTenant: null, isPlatformAdmin: null });
   });
 });
+
+// ---------------------------------------------------------------------------
+// RT-1548 (BR-7) — the optional, synchronous `beforeCommit` hook
+// ---------------------------------------------------------------------------
+
+describe("runWithTenantContext — beforeCommit hook (RT-1548 BR-7)", () => {
+  const ctx = { tenantId: TENANT_A, isPlatformAdmin: false } as const;
+  const sqls = (query: jest.Mock): string[] => query.mock.calls.map((c) => String(c[0]));
+
+  it("BC-1: runs after the work and before COMMIT, with the same client", async () => {
+    const { client, query } = makeClient();
+    const order: string[] = [];
+    query.mockImplementation(async (sql: string) => {
+      order.push(sql);
+      return { rows: [] };
+    });
+    const result = await runWithTenantContext(
+      makePool(client),
+      ctx,
+      async () => {
+        order.push("work");
+        return 7;
+      },
+      {
+        beforeCommit: (c) => {
+          expect(c).toBe(client);
+          order.push("beforeCommit");
+        },
+      },
+    );
+    expect(result).toBe(7);
+    expect(order.slice(-3)).toEqual(["work", "beforeCommit", "COMMIT"]);
+  });
+
+  it("BC-2: a throwing hook means ROLLBACK, never COMMIT, and the hook's error propagates", async () => {
+    const { client, query, release } = makeClient();
+    const boom = new Error("deadline passed");
+    await expect(
+      runWithTenantContext(makePool(client), ctx, async () => "done", {
+        beforeCommit: () => {
+          throw boom;
+        },
+      }),
+    ).rejects.toBe(boom);
+    expect(sqls(query)).toContain("ROLLBACK");
+    expect(sqls(query)).not.toContain("COMMIT");
+    expect(release).toHaveBeenCalledTimes(1);
+  });
+
+  it("BC-3: with no hook the lifecycle is unchanged (COMMIT after the work)", async () => {
+    const { client, query } = makeClient();
+    await runWithTenantContext(makePool(client), ctx, async () => undefined);
+    expect(sqls(query).slice(-1)).toEqual(["COMMIT"]);
+  });
+});

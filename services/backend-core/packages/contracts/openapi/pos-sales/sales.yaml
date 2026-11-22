@@ -734,6 +734,17 @@ info:
     path answers 404, which the POS reads as inconclusive, so a POS must not
     close a return as not recorded before then.
 
+    RT-1548 slice 2 (RUNTIME LIFT; no change to any schema, field, status or
+    `required` list): the `x-runtime-status: contract-only` marker of
+    `readReturnStatusByProvenance` is dropped and the route is registered. It
+    answers behind `POS_RETURNS_ENABLED` AND a second, default-off rollout gate,
+    `POS_RETURN_STATUS_READ_ENABLED` (404 while either is off), turned on only
+    once the BR-7 bound is live on every instance that serves `recordReturn` and
+    the `synchronous_commit` and replica setting is verified. The BR-7 bound is
+    enforced from the receipt of the request; a request that exhausts it is
+    rolled back and answers the existing `SystemFailure` (500), which stores
+    nothing and may be retried.
+
 servers:
   - url: https://api.example.com
 
@@ -1845,23 +1856,21 @@ paths:
       summary: Read an affirmative recorded or not-recorded verdict for a return provenance.
       operationId: readReturnStatusByProvenance
       x-audit-action: pos_sales.return_read
-      x-runtime-status: contract-only
       x-runtime-note: >
-        RT-1548 slice 1: contract only. No route is registered until the RT-1548
-        slice 2 runtime (the read, its ref-only audit event and the BR-7 commit
-        bound on `recordReturn`; no migration). The read must not answer a
-        verdict until every instance that serves `recordReturn` enforces the
-        BR-7 bound: ship the bound first, or keep the read off until the
-        rollout has completed, and slice 2 first verifies and documents the
-        `synchronous_commit` and replica setting (no unbounded synchronous
-        replication commit wait). Until then the path answers 404, which a client
-        reads as inconclusive, never as `not_recorded`.
+        RT-1548 slice 2: live in the runtime, behind two gates that must both
+        be on: `POS_RETURNS_ENABLED` and the default-off rollout gate
+        `POS_RETURN_STATUS_READ_ENABLED`; either off answers 404, which a client
+        reads as inconclusive, never as `not_recorded`. Turn the rollout gate on
+        only after every instance that serves `recordReturn` enforces the BR-7
+        bound (ship the bound first) and the `synchronous_commit` and replica
+        setting is verified (no unbounded synchronous replication commit wait;
+        `docs/operations/return-commit-bound.md`).
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
       description: >
-        RT-1548 slice 1, CONTRACT ONLY (owner approval on RT-1548 comment
-        18204), for RT-196 (design spec section 4, BR-1 to BR-7). The
+        RT-1548 (slice 1, the contract, then slice 2, the runtime; owner
+        approval on RT-1548 comment 18204), for RT-196 (design spec section 4, BR-1 to BR-7). The
         AFFIRMATIVE `not_recorded` that `readReturnByProvenance` cannot give:
         that read answers 200 or one 404, and its 404 is not proof of anything.
         This read answers for ONE return provenance `(sourceSystem,
@@ -4992,9 +5001,10 @@ components:
     ReturnStatusNotFound:
       description: >
         FR-101 `not-found` for `readReturnStatusByProvenance` (RT-1548, BR-2):
-        the returns gate is off, or the sale ref does not resolve in the
-        caller's (tenant, store) scope. Non-disclosing: one body for both and
-        for a malformed sale ref, identical for cross-tenant, out-of-scope and
+        the returns gate is off, or the status read's own rollout gate
+        (`POS_RETURN_STATUS_READ_ENABLED`) is off, or the sale ref does not
+        resolve in the caller's (tenant, store) scope. Non-disclosing: one body
+        for all three and for a malformed sale ref, identical for cross-tenant, out-of-scope and
         absent ids. It is NEVER `not_recorded`: a 404 is not a verdict, and a
         client treats it as inconclusive.
       content:

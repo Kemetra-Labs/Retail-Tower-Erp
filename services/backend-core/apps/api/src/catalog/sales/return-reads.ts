@@ -166,3 +166,34 @@ export async function findOrdinaryReturnByProvenance(
   );
   return r.rows[0]?.id ?? null;
 }
+
+/**
+ * RT-1548 (BR-2, BR-3, BR-4): the verdict of `readReturnStatusByProvenance`.
+ * `saleReturn` is the `recordReturn` projection (no `settlement`); for a
+ * credit-sale reversal with no cash refund its `refundTenders` is empty (the
+ * contract's `ReturnStatusZeroRefundReturn`).
+ */
+export type ReturnProvenanceStatusProjection =
+  | { readonly status: "recorded"; readonly saleReturn: SaleReturnProjection; readonly creditLinked: boolean }
+  | { readonly status: "not_recorded" };
+
+/**
+ * A return of THIS sale with that provenance, whoever recorded it: unlike
+ * `findOrdinaryReturnByProvenance` it keeps a credit-sale reversal's return
+ * (RT-577), flagged. A key recorded against another sale is invisible here.
+ */
+export async function findReturnByProvenanceOfSale(
+  client: PoolClient,
+  saleRef: string,
+  provenance: { readonly sourceSystem: string; readonly externalId: string },
+): Promise<{ readonly id: string; readonly creditLinked: boolean } | null> {
+  const r = await client.query<{ id: string; credit_linked: boolean }>(
+    `SELECT r.id::text AS id,
+            EXISTS (SELECT 1 FROM sale_credit_reversals c WHERE c.return_id = r.id) AS credit_linked
+       FROM sale_returns r
+      WHERE r.sale_id = $1 AND r.source_system = $2 AND r.external_id = $3`,
+    [saleRef, provenance.sourceSystem, provenance.externalId],
+  );
+  const row = r.rows[0];
+  return row ? { id: row.id, creditLinked: row.credit_linked } : null;
+}

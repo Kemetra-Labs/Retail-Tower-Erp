@@ -66,6 +66,20 @@ function validateContext(ctx: TenantContext): void {
 }
 
 /**
+ * Optional hooks of `runWithTenantContext`.
+ */
+export interface TenantContextHooks {
+  /**
+   * RT-1548 (BR-7): called synchronously after `work` resolved and immediately
+   * before COMMIT is issued, with no await between the hook returning and the
+   * COMMIT call. A throw rolls the transaction back (COMMIT is never issued)
+   * and the error propagates. Used to refuse a COMMIT that would be issued
+   * after a deadline.
+   */
+  beforeCommit?: (client: PoolClient) => void;
+}
+
+/**
  * Runs `work(client)` inside a transaction with the tenant-context GUCs set.
  *
  * On success: COMMIT. On error: ROLLBACK and re-throw. Either way: release
@@ -78,6 +92,7 @@ export async function runWithTenantContext<T>(
   pool: Pool,
   ctx: TenantContext,
   work: (client: PoolClient) => Promise<T>,
+  hooks?: TenantContextHooks,
 ): Promise<T> {
   validateContext(ctx);
 
@@ -97,6 +112,7 @@ export async function runWithTenantContext<T>(
         [ctx.isPlatformAdmin ? "true" : "false"],
       );
       const result = await work(client);
+      hooks?.beforeCommit?.(client);
       await client.query("COMMIT");
       return result;
     } catch (err) {
