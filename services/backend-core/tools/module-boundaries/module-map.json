@@ -1,6 +1,6 @@
 {
   "version": 1,
-  "_comment": "RT-1453. The ONE place that declares the Backend-Core api module map: which top-level apps/api/src directory owns which database table, which modules are cross-cutting, and any extra public file. Read by check.mjs (pnpm lint:module-boundaries). A module's public surface is its index.ts and its *.module.ts; add a file to publicFiles only as an explicit, reviewed exception. Moving a table or a module (RT-1456) is a one-line edit here; a stale directory name fails the check. Every table the db migrations create must be owned here, listed in sharedTables, or listed in unownedTables (an explicit, reviewed 'nobody checks this one yet'); the check fails on a new migration table that is none of them, and on a mapped table no migration creates.",
+  "_comment": "RT-1453 / RT-1525. The ONE place that declares the Backend-Core module map: which module (a top-level directory of apps/api/src, apps/worker/src or both; same-named directories are one module) owns which database table, which modules are cross-cutting, and any extra public file. Read by check.mjs (pnpm lint:module-boundaries). A module's public surface is its index.ts and its root *.module.ts; add a file to publicFiles only as an explicit, reviewed exception. Moving a table or a module is a one-line edit here; a stale directory name fails the check. Every live table of the db migrations must be owned by exactly one module here (a new table gets its owner in the same PR as its migration), or be in sharedTables as { table, reason, approvedIn } with the owner's approval in the PR. There is no unowned list: the check fails on a migration table with no owner, and on a declared table that no migration leaves in place (dropped or renamed).",
   "shared": [
     "common",
     "observability"
@@ -262,6 +262,12 @@
         "stores"
       ]
     },
+    "sync-failure-alert": {
+      "tables": [
+        "sync_failure_alert_deliveries",
+        "sync_failure_alert_windows"
+      ]
+    },
     "tenant-access-entitlement": {
       "tables": [
         "tenant_access_entitlements"
@@ -291,9 +297,5 @@
         "voucher_redemptions"
       ]
     }
-  },
-  "unownedTables": [
-    "sync_failure_alert_deliveries",
-    "sync_failure_alert_windows"
-  ]
+  }
 }

@@ -73,14 +73,15 @@ const PLATFORM_ADMIN_ALLOWLIST = [
   "apps/api/src/tenants/tenants.service.ts",
   "apps/worker/src/ai-usage/reservation-sweep.repository.ts",
   "apps/worker/src/audit/drizzle-audit-retention.repository.ts",
-  // RT-1503: the shared tenant listing of the per-tenant sweeps (was replay-purge.repository.ts).
-  "apps/worker/src/common/all-tenant-ids.ts",
   "apps/worker/src/erpnext-reconciliation/stock-run-sweep.repository.ts",
   "apps/worker/src/observability/metrics/worker.metrics.ts",
   "apps/worker/src/outbox/drainer.processor.ts",
   "apps/worker/src/outbox/drizzle-outbox-retention.repository.ts",
   "apps/worker/src/outbox/retention.processor.ts",
   "apps/worker/src/sales/sale-redrive.repository.ts",
+  // RT-1503: the shared tenant listing of the per-tenant sweeps (was replay-purge.repository.ts);
+  // RT-1525 moved it from common/ behind the worker's tenants port.
+  "apps/worker/src/tenants/all-tenant-ids.ts",
   "apps/worker/src/worker.module.ts",
   "packages/db/src/middleware/tenant-context.ts",
   "packages/db/src/outbox/producer.ts",

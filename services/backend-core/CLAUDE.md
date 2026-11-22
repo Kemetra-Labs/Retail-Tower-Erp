@@ -38,6 +38,12 @@ See the package manifests for versions. Not in the manifests: Prometheus exporte
 
 The Admin-Console (`apps/admin-console/` in this monorepo) depends only on the OpenAPI contracts produced here.
 
+## Adding a table
+
+A new migration table must get its owner in `tools/module-boundaries/module-map.json` (the owning module's
+`tables`) in the same PR as the migration; otherwise `pnpm lint:module-boundaries` fails and names the
+migration. There is no unowned list. See [tools/module-boundaries/README.md](tools/module-boundaries/README.md) (RT-1525).
+
 ## Working agreement
 
 See [docs/agent-os/standing-rules.md](docs/agent-os/standing-rules.md) for repo engineering gates (subordinate to the RT operating instructions in the root CLAUDE.md for work-management authority). Critical gates:
