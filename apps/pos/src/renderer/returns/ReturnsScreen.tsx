@@ -1,8 +1,10 @@
 import type { JSX } from 'react';
 
+import type { ManagerApprovalBridgeAPI } from '../../shared/operator/manager-approval.js';
 import type { ReturnJournalView, ReturnsBridgeAPI } from '../../shared/returns/types.js';
 import type { RecentSalesBridge } from '../sale-lookup/recent-sales-bridge';
 import type { SessionEvents } from './returns-bridge.js';
+import { EscalateDialog } from './EscalateDialog';
 import { LinePicker } from './LinePicker';
 import { RefundSummary } from './RefundSummary';
 import { ReturnOutcome, type PayoutDeps } from './ReturnOutcome';
@@ -10,6 +12,7 @@ import { ReturnsHistory } from './ReturnsHistory';
 import { SaleLookup } from './SaleLookup';
 import type { Outcome } from './return-flow-state.js';
 import { useReturnFlow, type ReturnFlow } from './useReturnFlow.js';
+import { useHistoryEscalate } from './useHistoryEscalate.js';
 import { useHistoryReprint } from './useHistoryReprint.js';
 import { useHistoryResend } from './useHistoryResend.js';
 import { useReturnHistory } from './useReturnHistory.js';
@@ -25,6 +28,11 @@ export interface ReturnsScreenProps {
   readonly sessionEvents: SessionEvents | null;
   /** RT-1192: today's sales for the lookup step; null hides the list and the short number. */
   readonly sales: RecentSalesBridge | null;
+  /**
+   * RT-1498 S4/S5: the manager approval bridge «تحويل إلى الدعم» asks a second manager's PIN
+   * through; null hides that action.
+   */
+  readonly approval: ManagerApprovalBridgeAPI | null;
 }
 
 function outcomeKey(outcome: Outcome): string {
@@ -67,11 +75,17 @@ function FlowStep({
   }
 }
 
-export function ReturnsScreen({ bridge, sessionEvents, sales }: ReturnsScreenProps): JSX.Element {
+export function ReturnsScreen({
+  bridge,
+  sessionEvents,
+  sales,
+  approval,
+}: ReturnsScreenProps): JSX.Element {
   const history = useReturnHistory(bridge, sessionEvents);
   const flow = useReturnFlow(bridge, history.reload);
   const reprint = useHistoryReprint(bridge);
   const resend = useHistoryResend(bridge, history.reload);
+  const escalate = useHistoryEscalate();
   return (
     <>
       <FlowStep
@@ -85,8 +99,24 @@ export function ReturnsScreen({ bridge, sessionEvents, sales }: ReturnsScreenPro
       />
       <ReturnsHistory
         history={history}
-        actions={{ pay: flow.openPayout, reprint, resend, checking: history.checking }}
+        actions={{
+          pay: flow.openPayout,
+          reprint,
+          resend,
+          checking: history.checking,
+          escalate: approval === null ? null : escalate,
+        }}
       />
+      {approval !== null && escalate.target !== null && (
+        <EscalateDialog
+          row={escalate.target}
+          bridge={bridge}
+          approval={approval}
+          onDismiss={escalate.close}
+          onAnswered={() => void history.reload()}
+          onEscalated={escalate.record}
+        />
+      )}
     </>
   );
 }

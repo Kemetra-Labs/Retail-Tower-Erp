@@ -5,6 +5,10 @@ import { resolveFeatureFlags } from '../app/feature-flags.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { terminalDrawerSlot } from '../drawer/drawer-slot.js';
 import { registerReturnsHandlers } from '../ipc/returns.js';
+import type {
+  ApprovalSubjectResolver,
+  ManagerApprovalService,
+} from '../operator/manager-approval-service.js';
 import type { JwtHolder } from '../operator/jwt-holder.js';
 import { resolveSessionScope } from '../operator/resolve-session-scope.js';
 import { createSaleSyncTokenReader } from '../operator/sale-sync-token.js';
@@ -16,6 +20,13 @@ import {
   scheduleReturnsResolver,
   type ComposeReturnsDeps,
 } from '../returns/compose-returns.js';
+import { createReturnDispositionsRepository } from '../returns/returns-dispositions-repository.js';
+import { createReturnsRepository } from '../returns/returns-repository.js';
+import {
+  RETURN_RESOLVE_ACTION_KIND,
+  createReturnResolveApprovalResolver,
+} from '../returns/returns-resolve-approval.js';
+import { operatorUserIdOf } from '../sale-void/sale-void-session.js';
 import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
 import { openShiftRefOf } from '../returns/returns-execution-enqueue.js';
 import { resolveApiBaseUrl } from './env.js';
@@ -34,6 +45,11 @@ export interface ReturnsDeps {
   operatorEnvelopeHolder: Pick<JwtHolder, 'get'>;
   /** The pairing store: the live paired terminal id (null while unpaired or revoked). */
   pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>;
+  /**
+   * RT-1498 S4/S5: the one manager approval service. `returns:escalate` spends a single-use
+   * `return.resolve_unknown` approval through it, inside the transaction that writes the disposition.
+   */
+  managerApprovals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
   /** The audit sink the return journal writes to. */
   auditEmitter: ComposeReturnsDeps['auditSink'];
   /** RT-15 S4: the sale drawer's hardware port (the same instance sales use). */
@@ -43,6 +59,25 @@ export interface ReturnsDeps {
   /** Owns the stop callback for the returns resolver interval, run before the DB handle closes. */
   workerRegistry: Pick<WorkerRegistry, 'register'>;
   mainLogger: Logger;
+}
+
+/**
+ * RT-1498 S4/S5: the manager-approval subject resolver of `return.resolve_unknown` (the approval of
+ * handing an unknown return to support, with the disposition bound into its subject). Built over the
+ * same database and the live paired terminal; `index.ts` spreads it into the approval service's
+ * resolvers because that service is built before `registerReturns` runs.
+ */
+export function returnResolveApprovalResolvers(
+  db: DatabaseHandle,
+  pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>,
+): Record<typeof RETURN_RESOLVE_ACTION_KIND, ApprovalSubjectResolver> {
+  return {
+    [RETURN_RESOLVE_ACTION_KIND]: createReturnResolveApprovalResolver({
+      repo: createReturnsRepository(db),
+      dispositions: createReturnDispositionsRepository(db),
+      terminalId: () => pairingStore.getCurrentTerminalId(),
+    }),
+  };
 }
 
 /**
@@ -58,6 +93,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     operatorSessionManager,
     operatorEnvelopeHolder,
     pairingStore,
+    managerApprovals,
     auditEmitter,
     drawerKickTransport,
     printPipeline,
@@ -105,6 +141,14 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-1543: the same signal the shift-cashup bootstrap uses, read per call. Without it no till
     // has a shift, so a new return carries no allocationRef and reports no execution.
     isShiftCashupEnabled: () => resolveFeatureFlags().shiftCashup,
+    // RT-1498 S4/S5: the approval `returns:escalate` spends, and the requester's `users.id`.
+    escalation: {
+      approvals: managerApprovals,
+      userId: () => {
+        const session = operatorSessionManager.getCurrent();
+        return session === null ? null : operatorUserIdOf(session);
+      },
+    },
   });
   registerReturnsHandlers(guardedIpcMain, { service: returnsDomain.service });
   if (resolveFeatureFlags().returns) {

@@ -187,8 +187,10 @@ function createPass(deps: ReturnsResolverDeps) {
     for (const [index, entry] of rows.entries()) {
       const outcome = await deps.dispatcher.send(entry, 'resolve', snapshot);
       // Not sent: the pass's actor lost authorization (sign-out, switch, lock,
-      // unpairing…). Stop; this row and the rest wait for a later pass.
-      if (outcome.kind === 'deferred') {
+      // unpairing…). Stop; this row and the rest wait for a later pass. A send held by the
+      // ROW's disposition (RT-1498: closed, or needs_support after the snapshot) says nothing
+      // about the actor: the row stays as it is and the pass goes on.
+      if (outcome.kind === 'deferred' && outcome.by === undefined) {
         return {
           tally: { ...tally, unresolved: tally.unresolved + rows.length - index },
           stopped: true,

@@ -507,6 +507,8 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     // count auth failures from it) and the per-row resend are main-only.
     'sale.return.attempt_unknown',
     'sale.return.resend_requested',
+    // RT-1498 S4/S5: a return handed to support (a forged one would fake a support case).
+    'sale.return.needs_support',
     // RT-886: the printer choice and its test page are written only by main's
     // printer service, after its session check.
     'terminal.printer.selected',

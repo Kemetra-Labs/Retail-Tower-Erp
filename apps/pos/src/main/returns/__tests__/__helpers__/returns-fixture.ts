@@ -20,8 +20,16 @@ import type { DrawerSlot } from '../../../drawer/drawer-slot.js';
 import type { ReturnsAuditSink } from '../../returns-audit.js';
 import { amount4ToMinor, parseAmount4, parseWholeQuantity } from '../../returns-money.js';
 import type { AuthSnapshot } from '../../returns-auth.js';
-import { composeReturns, type ComposedReturns } from '../../compose-returns.js';
+import {
+  composeReturns,
+  type ComposeReturnsDeps,
+  type ComposedReturns,
+} from '../../compose-returns.js';
 import type { ReturnsSession } from '../../returns-service.js';
+import {
+  createReturnDispositionsRepository,
+  type ReturnDispositionsRepository,
+} from '../../returns-dispositions-repository.js';
 import { createReturnsRepository, type ReturnsRepository } from '../../returns-repository.js';
 import type { Role } from '../../../../shared/operator/role.js';
 import type {
@@ -442,6 +450,14 @@ export interface HarnessOptions {
   readonly timeoutMs?: number;
   /** RT-1403 S2 (M1): the one drawer slot the void payout shares. */
   readonly drawerSlot?: DrawerSlot;
+  /**
+   * RT-1498 S4/S5: the manager approvals and the live operator's `users.id` the escalation spends,
+   * built over the harness's database and state. Absent: no escalation is composed (it refuses).
+   */
+  readonly escalation?: (context: {
+    readonly handle: DatabaseHandle;
+    readonly state: HarnessState;
+  }) => ComposeReturnsDeps['escalation'];
 }
 
 export interface HarnessState {
@@ -493,6 +509,8 @@ export interface ReturnsHarness extends ComposedReturns {
   readonly db: SqlJsDatabase;
   readonly handle: DatabaseHandle;
   readonly repo: ReturnsRepository;
+  /** RT-1498 S4: the dispositions of the journal's returns (migration 0070). */
+  readonly dispositions: ReturnDispositionsRepository;
   readonly backend: FakeBackend;
   /** The production audit path: 004's validating emitter into `audit_events`. */
   readonly auditSink: ReturnsAuditSink;
@@ -554,6 +572,9 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   };
   const drawer = new FakeDrawer();
   const printer = new FakePrinter();
+  const escalation = options.escalation?.({ handle, state });
+  const escalationOf = (): Pick<ComposeReturnsDeps, 'escalation'> =>
+    escalation === undefined ? {} : { escalation };
   let killLatest: () => void = () => undefined;
   const lives = new Lives();
   const compose = (): ComposedReturns => {
@@ -588,6 +609,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
       printer,
       openShiftRef: () => state.shiftRef,
       isShiftCashupEnabled: () => state.shiftCashup,
+      ...escalationOf(),
     });
     return {
       ...domain,
@@ -622,6 +644,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
     db,
     handle,
     repo: createReturnsRepository(handle),
+    dispositions: createReturnDispositionsRepository(handle),
     backend,
     auditSink,
     get audits() {

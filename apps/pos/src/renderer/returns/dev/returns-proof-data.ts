@@ -104,6 +104,7 @@ function journalView(
     attemptCount: 1,
     lastAttemptAt: at,
     lastCause: state === 'unknown' ? 'timeout' : null,
+    disposition: null,
   };
 }
 

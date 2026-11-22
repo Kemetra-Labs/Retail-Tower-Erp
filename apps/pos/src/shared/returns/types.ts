@@ -148,6 +148,13 @@ export const LOCAL_RETURN_REFUSALS = [
   'slip_total_mismatch',
   // RT-196 S1 — a resend of a return that is already confirmed, paid out or refused.
   'already_resolved',
+  // RT-1498 S4/S5 (RT-196 c12801 Gap 3) — a return that was never sent cannot be handed to support
+  // or have its status read: send it first (a never-sent `pending` row has no attempt to judge).
+  'never_sent',
+  // RT-1498 S4/S5 — the manager approval of a resolve was not valid for this return and this
+  // disposition (expired, spent, another return, or the other disposition), or the row moved since.
+  'approval_invalid',
+  'approval_stale',
 ] as const;
 export type LocalReturnRefusal = (typeof LOCAL_RETURN_REFUSALS)[number];
 
@@ -257,7 +264,16 @@ export interface ReturnJournalView {
    * null once resolved, when never sent, or when no cause was recorded.
    */
   readonly lastCause: ReturnUnknownCause | null;
+  /**
+   * RT-1498 S4: what was decided about this unresolved return: `needs_support` (handed to support;
+   * no automatic resend, the sale stays blocked) or `closed` (the server never recorded it; the
+   * sale is free, and it is never sent again). Null when nothing was decided.
+   */
+  readonly disposition: ReturnDisposition | null;
 }
+
+/** RT-1498 S4: a decision about an unresolved return (migration 0070). */
+export type ReturnDisposition = 'needs_support' | 'closed';
 
 export interface ReturnsLookupRequest {
   readonly saleNumber: string;
@@ -317,6 +333,26 @@ export interface ReturnsResendRequest {
 }
 
 export type ReturnsResendResponse = ReturnsSubmitResponse;
+
+/**
+ * RT-1498 S4/S5 — hand ONE unresolved return to support. `approvalId` is the opaque single-use
+ * approval (kind `return.resolve_unknown`, bound to this return AND to `escalate`) a different
+ * manager granted through `approval.request`; main spends it in the same transaction as the
+ * disposition. Nothing else is named: the scope, the operator and the amount come from the row.
+ */
+export interface ReturnsEscalateRequest {
+  readonly returnId: string;
+  readonly approvalId: string;
+}
+
+export type ReturnsEscalateResponse =
+  | { readonly kind: 'escalated'; readonly ret: ReturnJournalView | null }
+  | {
+      readonly kind: 'refused';
+      readonly reason: ReturnsRefusalReason;
+      /** The journaled return, when the refusal came after it was found. */
+      readonly ret: ReturnJournalView | null;
+    };
 
 export type ReturnsListResponse =
   | { readonly kind: 'ok'; readonly returns: readonly ReturnJournalView[] }
@@ -390,4 +426,9 @@ export interface ReturnsBridgeAPI {
    * names only the return id; everything else is derived in main.
    */
   resend(req: ReturnsResendRequest): Promise<ReturnsResendResponse>;
+  /**
+   * RT-1498 S4/S5: hand ONE unresolved return to support (a `needs_support` disposition): no
+   * automatic resend, the sale stays blocked. It spends one manager approval (four-eyes).
+   */
+  escalate(req: ReturnsEscalateRequest): Promise<ReturnsEscalateResponse>;
 }

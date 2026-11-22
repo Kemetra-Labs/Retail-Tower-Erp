@@ -255,10 +255,13 @@ function isManagerSession(session: OperatorSessionRecord): boolean {
  * signed-in manager approves an action on another operator's sale, and
  * (RT-530) a sale void, which ANY operator needs a different manager's
  * approval for (owner decision 4: no self-void), and (RT-1403 S2) the cash-out exception of a
- * void, which ANY operator needs a different manager's approval for (the same rule).
+ * void, which ANY operator needs a different manager's approval for (the same rule), and
+ * (RT-1498) resolving an unknown return, which only a manager or admin session asks for (the
+ * returns domain is theirs, D-b) and ANOTHER manager approves (the default four-eyes branch).
  */
 function mayRequest(session: OperatorSessionRecord, kind: ManagerActionKind): boolean {
   if (kind === 'sale.void' || kind === 'sale.void_cash_exception') return true;
+  if (kind === 'return.resolve_unknown') return isManagerSession(session);
   if (isRecoveryKind(kind)) return isManagerSession(session);
   return kind === 'session.self_unlock' || session.role === 'cashier';
 }

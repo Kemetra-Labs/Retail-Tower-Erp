@@ -181,6 +181,7 @@ export function returnsProofBridge(state: ReturnsProofState): ReturnsBridgeAPI {
     payout: () => (PAYOUT[state] ?? never)(),
     reprintSlip: () => (REPRINT[state] ?? (() => Promise.resolve({ kind: 'printed' })))(),
     resend: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
+    escalate: () => Promise.resolve({ kind: 'refused', reason: 'return_not_found', ret: null }),
   };
 }
 

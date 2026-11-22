@@ -5,6 +5,7 @@
  * Idempotency-Key) and no request body: those stay in the main process.
  */
 import type {
+  ReturnDisposition,
   ReturnJournalView,
   ReturnPayoutKick,
   ReturnPayoutView,
@@ -41,6 +42,8 @@ export function toJournalView(
   now: string | null = null,
   /** RT-196 S1: why the last send left it unknown (shown only while unresolved). */
   lastCause: ReturnUnknownCause | null = null,
+  /** RT-1498 S4: what was decided about this unresolved return (migration 0070). */
+  disposition: ReturnDisposition | null = null,
 ): ReturnJournalView {
   return {
     returnId: entry.returnId,
@@ -59,5 +62,7 @@ export function toJournalView(
     attemptCount: entry.attemptCount,
     lastAttemptAt: entry.lastAttemptAt,
     lastCause: entry.state === 'pending' || entry.state === 'unknown' ? lastCause : null,
+    // A disposition belongs to an unresolved return: once it is confirmed or refused it is history.
+    disposition: entry.state === 'pending' || entry.state === 'unknown' ? disposition : null,
   };
 }

@@ -3,7 +3,7 @@ import { useEffect, useState, type JSX } from 'react';
 import type { ManagerApprover } from '../../../shared/operator/manager-approval';
 import type { ManagerActionKind } from '../../../shared/operator/manager-action-kinds';
 import { VOID_COPY, voidRefusalMessage } from './void-copy';
-import type { VoidBridges } from './void-bridges';
+import type { ApprovalBridges } from './void-bridges';
 import { VoidAlert } from './void-parts';
 import './void.css';
 
@@ -16,7 +16,7 @@ export type Approvers =
   | { kind: 'ready'; approvers: ManagerApprover[] }
   | { kind: 'refused'; message: string };
 
-export function useApprovers(bridges: VoidBridges, actionKind: ManagerActionKind): Approvers {
+export function useApprovers(bridges: ApprovalBridges, actionKind: ManagerActionKind): Approvers {
   const [state, setState] = useState<Approvers>({ kind: 'loading' });
   useEffect(() => {
     let live = true;

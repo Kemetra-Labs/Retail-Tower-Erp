@@ -276,7 +276,19 @@ describe('D-c tender evidence (Codex P1: fail closed on tender-unknown)', () => 
       attemptCount: 0,
       lastAttemptAt: null,
       lastCause: null,
+      disposition: null,
     });
+  });
+
+  it('projects the disposition of an unresolved return only (RT-1498 S4)', () => {
+    const unknown = { ...viewEntry(), state: 'unknown' as const };
+    expect(toJournalView(unknown, null, null, null, 'needs_support').disposition).toBe(
+      'needs_support',
+    );
+    expect(toJournalView(unknown, null, null, null, 'closed').disposition).toBe('closed');
+    // Once resolved a disposition is history, never shown as a state of the row.
+    const confirmed = { ...viewEntry(), state: 'confirmed' as const };
+    expect(toJournalView(confirmed, null, null, null, 'needs_support').disposition).toBeNull();
   });
 
   it('projects a started or completed payout as when and how, never who (RT-15 S4)', () => {

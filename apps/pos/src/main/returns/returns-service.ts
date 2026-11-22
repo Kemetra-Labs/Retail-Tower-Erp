@@ -18,6 +18,13 @@
  * timeout leaves it `unknown`, never success (AC9/AC10). Every refusal after
  * admission is audited (AC11).
  *
+ * RT-1498 S4/S5: `escalate` hands ONE unresolved return to support: a `needs_support` disposition
+ * (migration 0070) with the audit `sale.return.needs_support`, backed by a single-use RT-114
+ * approval of kind `return.resolve_unknown` bound to this return and to the disposition `escalate`
+ * (owner decision RT-1498 c18144 item 1). The approval, the disposition and the audit commit in one
+ * local transaction: a refused escalation spends nothing and writes nothing. It only restricts: no
+ * automatic resend, the sale stays blocked, and the explicit resend still works.
+ *
  * Shutdown (RT-198): once the domain is stopped every call answers
  * `shutting_down` before it touches the database, and a call whose await was
  * in flight at stop checks the latch first when it resumes: every post-await
@@ -26,6 +33,7 @@
  * operator refusal: `refuse` never audits it (AC11 does not apply), and the
  * DB may already be closed.
  */
+import type { ManagerApprovalService } from '../operator/manager-approval-service.js';
 import type {
   LocalReturnRefusal,
   ReturnJournalView,
@@ -37,6 +45,8 @@ import type {
   ReturnsLookupResponse,
   ReturnsQuoteRequest,
   ReturnsQuoteResponse,
+  ReturnsEscalateRequest,
+  ReturnsEscalateResponse,
   ReturnsRefusalReason,
   ReturnsRefused,
   ReturnsResendRequest,
@@ -58,6 +68,13 @@ import {
 } from './returns-auth.js';
 import type { ReadSaleOutcome, ReturnsClient } from './returns-client.js';
 import type { DispatchOutcome, ReturnsDispatcher } from './returns-dispatch.js';
+import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
+import {
+  RETURN_RESOLVE_ACTION_KIND,
+  isDisposable,
+  resolveSubjectOf,
+  resolveSubjectRef,
+} from './returns-resolve-approval.js';
 import { assessSale, buildRecordReturnBody, quoteReturn, viewLines } from './returns-quote.js';
 import type { LineDetail } from './returns-payout-repository.js';
 import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
@@ -120,12 +137,26 @@ export interface ReturnsServiceDeps {
   readonly recordLineDetails: (returnId: string, details: readonly LineDetail[]) => void;
   /** RT-198: true once the return domain is stopping (app shutdown). */
   readonly isStopped: () => boolean;
+  /** RT-1498 S4: the dispositions of the journal's returns (migration 0070). */
+  readonly dispositions: Pick<ReturnDispositionsRepository, 'stateOf' | 'insert'>;
+  /** RT-1498 S4: run `fn` in one local DB transaction (approval, disposition, audit). */
+  readonly transaction: <T>(fn: () => T) => T;
+  /** RT-1498 S4: the id of a new disposition (a UUID). */
+  readonly newDispositionId: () => string;
+  /**
+   * RT-1498 S4/S5: what `escalate` spends: the approval service and the live operator's `users.id`.
+   * Absent: `escalate` refuses with `approval_invalid` (fail closed).
+   */
+  readonly escalation?: {
+    readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
+    readonly userId: () => string | null;
+  };
 }
 
 /** How many journal rows `returns.list` shows. */
 export const RETURNS_LIST_LIMIT = 50;
 
-type Operation = 'lookup' | 'quote' | 'submit' | 'resolve' | 'list' | 'resend';
+type Operation = 'lookup' | 'quote' | 'submit' | 'resolve' | 'list' | 'resend' | 'escalate';
 
 /** A live, returnable sale: the local row, its server ref and the server view. */
 interface LiveSale {
@@ -189,6 +220,13 @@ function isOwnScope(entry: JournalEntry, actor: ReturnActor): boolean {
   const a = entry.scope;
   const b = actor.scope;
   return a.tenantId === b.tenantId && a.branchId === b.branchId && a.terminalId === b.terminalId;
+}
+
+/** A refusal decided inside the escalate transaction: it rolls the approval's spend back. */
+class EscalateRefusal extends Error {
+  constructor(readonly reason: ReturnsRefusalReason) {
+    super(reason);
+  }
 }
 
 class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
@@ -462,13 +500,164 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
       return { ...this.refuse(actor, 'resend', 'return_not_found', ids), ret: null };
     }
     const known: Ids = { ...ids, saleId: entry.saleId, saleRef: entry.serverSaleRef };
-    if (!isResendable(entry)) {
+    // RT-1498 S4: a closed return is out of the flow for good, and is never sent again.
+    if (!isResendable(entry) || this.deps.dispositions.stateOf(entry.returnId) === 'closed') {
       const refused = this.refuse(actor, 'resend', 'already_resolved', known);
       return { ...refused, ret: this.deps.views([entry])[0] ?? null };
     }
     this.deps.audit.resendRequested(actor, entry);
     const outcome = await this.deps.dispatcher.send(entry, 'resend', actor);
     return this.submitResponseFor(actor, outcome);
+  }
+
+  /**
+   * RT-1498 S4/S5 — hand ONE unresolved return of this terminal to support, directly (a manager or
+   * admin session; the admission gate is `resend`'s). The request names only the return and the
+   * approval; the rest is read from the journaled row:
+   *   • the return must be unresolved AND sent at least once (`never_sent` otherwise: send it
+   *     first; RT-196 c12801 Gap 3) and have no disposition yet (`already_resolved` otherwise);
+   *   • the approval is spent INSIDE the transaction that writes the disposition and its audit, so
+   *     any refusal rolls the spend back: it is single use, bound to this return and to `escalate`
+   *     (`approval_invalid` for another return, the other disposition or a spent one),
+   *     bound to the row as it stands (`approval_stale` once it was attempted again), granted to the
+   *     live operator as requester by a different manager (four-eyes), and carrying the escalate
+   *     reason.
+   * Synchronous after admission (no await), so the actor cannot change in between.
+   */
+  // eslint-disable-next-line @typescript-eslint/require-await -- synchronous after admission: no await can change the actor
+  async escalate(req: ReturnsEscalateRequest): Promise<ReturnsEscalateResponse> {
+    const admitted = this.admit('escalate');
+    if (admitted.kind !== 'ok') return { ...admitted, ret: null };
+    const refusal = this.escalateRefusal(admitted.actor, req);
+    if (refusal !== null) return refusal;
+    const ret = this.deps.repo.read(req.returnId);
+    return {
+      kind: 'escalated',
+      ret: ret === null ? null : (this.deps.views([ret])[0] ?? null),
+    };
+  }
+
+  /** Check, then commit; the refusal to answer (audited), or null once it was written. */
+  private escalateRefusal(
+    actor: AuthSnapshot,
+    req: ReturnsEscalateRequest,
+  ): Extract<ReturnsEscalateResponse, { kind: 'refused' }> | null {
+    // `shown` is the row of THIS terminal the refusal may show; never another terminal's.
+    const refuse = (
+      reason: ReturnsRefusalReason,
+      ids: Ids = {},
+      shown: JournalEntry | null = null,
+    ) =>
+      ({
+        ...this.refuse(actor, 'escalate', reason, ids),
+        ret: shown === null ? null : (this.deps.views([shown])[0] ?? null),
+      }) as Extract<ReturnsEscalateResponse, { kind: 'refused' }>;
+    if (!isUuid(req.returnId) || !isUuid(req.approvalId)) return refuse('invalid_input');
+    const entry = this.deps.repo.read(req.returnId);
+    if (entry === null || !isOwnScope(entry, actor)) {
+      return refuse('return_not_found', { returnId: req.returnId });
+    }
+    const known: Ids = {
+      returnId: entry.returnId,
+      saleId: entry.saleId,
+      saleRef: entry.serverSaleRef,
+    };
+    const early = this.escalateStateRefusal(entry);
+    if (early !== null) return refuse(early, known, entry);
+    try {
+      this.deps.transaction(() => {
+        this.commitEscalation(actor, req.approvalId.toLowerCase(), entry.returnId);
+      });
+    } catch (err) {
+      if (err instanceof EscalateRefusal) return refuse(err.reason, known, entry);
+      throw err;
+    }
+    return null;
+  }
+
+  /**
+   * Why this return cannot take a disposition now, or null. This is the ESCALATE rule: any earlier
+   * disposition ends it. NOTE for the close slice (RT-1498 review LOW-1): a close must stay allowed
+   * from `needs_support` (needs_support -> close, spec 3.4); refuse only an already-closed return.
+   */
+  private escalateStateRefusal(entry: JournalEntry): ReturnsRefusalReason | null {
+    if (!isDisposable(entry)) {
+      return entry.state === 'pending' && entry.attemptCount === 0
+        ? 'never_sent'
+        : 'already_resolved';
+    }
+    return this.deps.dispositions.stateOf(entry.returnId) === null ? null : 'already_resolved';
+  }
+
+  /**
+   * INSIDE the transaction, from fresh reads: re-check the state, spend the approval, prove who
+   * requested and who approved, then write the disposition and its audit. Throws `EscalateRefusal`
+   * (rolling the spend back) for anything that does not hold.
+   */
+  private commitEscalation(actor: AuthSnapshot, approvalId: string, returnId: string): void {
+    const fresh = this.deps.repo.read(returnId);
+    if (fresh === null) throw new EscalateRefusal('return_not_found');
+    const stateRefusal = this.escalateStateRefusal(fresh);
+    if (stateRefusal !== null) throw new EscalateRefusal(stateRefusal);
+    const approverUserId = this.spendEscalationApproval(actor, approvalId, fresh);
+    this.deps.dispositions.insert({
+      dispositionId: this.deps.newDispositionId(),
+      returnId: fresh.returnId,
+      kind: 'needs_support',
+      verdictSource: 'operator',
+      reason: 'operator',
+      readVerdictAt: null,
+      approvalId,
+      actorOperatorId: actor.operatorId,
+      createdAt: this.deps.now(),
+    });
+    this.deps.audit.needsSupport(
+      actor,
+      {
+        return_id: fresh.returnId,
+        approval_id: approvalId,
+        verdict_source: 'operator',
+        reason: 'operator',
+        // The return's originating users.id is not captured (RT-196 §9): four-eyes excluded only
+        // the requester.
+        origin_user_unknown: true,
+      },
+      approverUserId,
+    );
+  }
+
+  /**
+   * Spend the approval for `fresh` and prove it: bound to the escalate reason, granted to THIS
+   * operator as requester by a manager who is not them. Returns the approver's `users.id`.
+   */
+  private spendEscalationApproval(
+    actor: AuthSnapshot,
+    approvalId: string,
+    fresh: JournalEntry,
+  ): string {
+    const escalation = this.deps.escalation;
+    const userId = escalation?.userId()?.toLowerCase() ?? null;
+    if (escalation === undefined || userId === null) throw new EscalateRefusal('approval_invalid');
+    const consumed = escalation.approvals.consume({
+      approvalId,
+      actionKind: RETURN_RESOLVE_ACTION_KIND,
+      subjectRef: resolveSubjectRef(fresh.returnId, 'escalate'),
+      subject: resolveSubjectOf(fresh, 'escalate'),
+      session: {
+        operator_id: actor.operatorId,
+        tenant_id: actor.scope.tenantId,
+        branch_id: actor.scope.branchId,
+      },
+    });
+    if (consumed.kind === 'refused') throw new EscalateRefusal(consumed.reason);
+    const evidence = escalation.approvals.evidence(approvalId);
+    const granted =
+      evidence !== null &&
+      consumed.reasonCode === 'escalate_unknown' &&
+      evidence.requesterUserId?.toLowerCase() === userId &&
+      evidence.approverUserId.toLowerCase() !== userId;
+    if (!granted) throw new EscalateRefusal('approval_invalid');
+    return evidence.approverUserId;
   }
 
   async resolve(): Promise<ReturnsResolveResponse> {

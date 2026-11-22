@@ -3,6 +3,8 @@ import { ipcRenderer } from 'electron';
 import { RETURNS_IPC_CHANNELS } from '../shared/returns/channels.js';
 import type {
   ReturnsBridgeAPI,
+  ReturnsEscalateRequest,
+  ReturnsEscalateResponse,
   ReturnsListResponse,
   ReturnsPayoutRequest,
   ReturnsPayoutResponse,
@@ -43,4 +45,6 @@ export const returns: ReturnsBridgeAPI = {
     ipcRenderer.invoke(RETURNS_IPC_CHANNELS.REPRINT_SLIP, req) as Promise<ReturnsReprintResponse>,
   resend: (req: ReturnsResendRequest) =>
     ipcRenderer.invoke(RETURNS_IPC_CHANNELS.RESEND, req) as Promise<ReturnsResendResponse>,
+  escalate: (req: ReturnsEscalateRequest) =>
+    ipcRenderer.invoke(RETURNS_IPC_CHANNELS.ESCALATE, req) as Promise<ReturnsEscalateResponse>,
 };

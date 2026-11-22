@@ -16,6 +16,11 @@ export const MANAGER_ACTION_KINDS = [
   // RT-1403 S2 — cash that left the drawer outside the void payout gate: bound to the void and its
   // cash, single use, approved by a manager other than the requester (the void's four-eyes rule).
   'sale.void_cash_exception',
+  // RT-1498 S4/S5 — resolving a permanently-unknown return (close it as "not recorded", or hand it
+  // to support): ONE kind with the chosen disposition bound into the approval's subject
+  // (`<returnId>_close` / `<returnId>_escalate`), so an approval for one is not valid for the other
+  // (owner decision RT-1498 c18144 item 1). Four-eyes: another manager than the requester; single use.
+  'return.resolve_unknown',
   'cart.discount.manual',
   'shift.pay_in',
   'shift.pay_out',

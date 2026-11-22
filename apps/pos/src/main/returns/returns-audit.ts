@@ -10,6 +10,7 @@
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type {
   AuditPayloadMap,
+  SaleReturnNeedsSupportPayload,
   SaleReturnRefusedPayload,
 } from '../../shared/audit/payload-schemas.js';
 import type {
@@ -61,6 +62,15 @@ export interface ReturnsAudit {
   attemptUnknown(entry: JournalEntry, cause: ReturnUnknownCause, operation: SendOperation): void;
   /** RT-196 S1: a manager resent this return; attributed to the REQUESTING `actor`. */
   resendRequested(actor: ReturnActor, entry: JournalEntry): void;
+  /**
+   * RT-1498 S4: the return was handed to support, by a manager's raise (attributed to the REQUESTING
+   * `actor`, with the approving manager) or automatically (attributed to the operator who journaled it).
+   */
+  needsSupport(
+    actor: ReturnActor,
+    payload: SaleReturnNeedsSupportPayload,
+    approvingSupervisorId?: string,
+  ): void;
   payoutReady(entry: JournalEntry): void;
   // RT-15 S4: attributed to the paying operator (`actor`), for a confirmed return.
   payoutStarted(actor: ReturnActor, entry: JournalEntry): void;
@@ -104,6 +114,7 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
     actor: ReturnActor,
     category: C,
     payload: AuditPayloadMap[C],
+    approvingSupervisorId: string | null = null,
   ): void {
     deps.sink.emit({
       event_id: deps.newEventId(),
@@ -115,7 +126,7 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
       shift_id: null,
       action_category: category,
       created_at: deps.now(),
-      approving_supervisor_id: null,
+      approving_supervisor_id: approvingSupervisorId,
       payload: { ...payload },
     });
   }
@@ -185,6 +196,9 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
     },
     resendRequested(actor, entry) {
       write(actor, 'sale.return.resend_requested', { return_id: entry.returnId });
+    },
+    needsSupport(actor, payload, approvingSupervisorId) {
+      write(actor, 'sale.return.needs_support', payload, approvingSupervisorId ?? null);
     },
     payoutReady(entry) {
       writeConfirmedEvent(entry, 'sale.return.payout_ready', (facts) => ({

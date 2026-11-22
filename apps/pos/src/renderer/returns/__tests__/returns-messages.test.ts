@@ -1,5 +1,7 @@
 import { describe, expect, it } from 'vitest';
 
+import { voidRefusalMessage } from '../../v5/void/void-copy';
+
 import {
   LOCAL_RETURN_REFUSALS,
   RETURN_DRAWER_FAILURES,
@@ -8,10 +10,13 @@ import {
   SERVER_RETURN_REFUSALS,
 } from '../../../shared/returns/types.js';
 import {
+  DISPOSITION_COPY,
+  ESCALATE_COPY,
   OUTCOME_COPY,
   PAYOUT_COPY,
   UNRESOLVED_COPY,
   drawerFailureMessage,
+  escalateApprovalMessage,
   refusalMessage,
   stateLabel,
 } from '../returns-messages.js';
@@ -24,8 +29,8 @@ import {
 const ALL_REASONS = [...SERVER_RETURN_REFUSALS, ...LOCAL_RETURN_REFUSALS];
 
 describe('returns refusal copy (O1)', () => {
-  it('covers all 40 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers) with a non-empty Arabic message', () => {
-    expect(ALL_REASONS).toHaveLength(40);
+  it('covers all 43 reasons (24 from S2/S3, 12 from S4 payout, 2 from RT-196 S1, 2 from RT-1339 offers, 3 from RT-1498 S4/S5) with a non-empty Arabic message', () => {
+    expect(ALL_REASONS).toHaveLength(43);
     for (const reason of ALL_REASONS) {
       const message = refusalMessage(reason);
       expect(message.trim().length, reason).toBeGreaterThan(0);
@@ -113,5 +118,69 @@ describe('drawer failure and payout copy (RT-15 S4)', () => {
     const refusals = new Set(ALL_REASONS.map(refusalMessage));
     expect(payout.filter((line) => refusals.has(line))).toEqual([]);
     expect(payout.filter((line) => line.includes('—'))).toEqual([]);
+  });
+});
+
+describe('escalation and disposition copy (RT-1498 S4/S5, PROPOSED pending owner review)', () => {
+  const own = [
+    ESCALATE_COPY.action,
+    ESCALATE_COPY.title,
+    ESCALATE_COPY.body,
+    ESCALATE_COPY.approve,
+    ESCALATE_COPY.raised,
+    ESCALATE_COPY.approvalUnavailable,
+    ESCALATE_COPY.attemptsExhausted,
+    ESCALATE_COPY.approvalFailed,
+    DISPOSITION_COPY.label.needs_support,
+    DISPOSITION_COPY.label.closed,
+    DISPOSITION_COPY.supportDetail,
+    DISPOSITION_COPY.closedDetail,
+  ];
+
+  it('is Arabic, distinct from itself and from every refusal, outcome, payout and unresolved line', () => {
+    expect(new Set(own).size).toBe(own.length);
+    for (const line of own) expect(line).toMatch(/[؀-ۿ]/);
+    const others = new Set([
+      ...ALL_REASONS.map(refusalMessage),
+      ...Object.values(OUTCOME_COPY),
+      ...Object.values(PAYOUT_COPY),
+      UNRESOLVED_COPY.doNotPay,
+      UNRESOLVED_COPY.neverSent,
+      UNRESOLVED_COPY.resend,
+    ]);
+    expect(own.filter((line) => others.has(line))).toEqual([]);
+  });
+
+  it('never says a return handed to support was declined, and tells nobody to pay', () => {
+    expect(own.filter((line) => line.includes('مرفوض'))).toEqual([]);
+    expect(ESCALATE_COPY.body).toContain('لم يُصرف أي نقد');
+  });
+
+  it('keeps the three approval refusals as their own lines', () => {
+    for (const reason of ['never_sent', 'approval_invalid', 'approval_stale'] as const) {
+      expect(refusalMessage(reason)).not.toBe(OUTCOME_COPY.unknownReason);
+    }
+  });
+
+  it('maps every refused approval to a RETURNS line, never the sale void copy (LOW-5)', () => {
+    expect(escalateApprovalMessage('approval_unavailable')).toBe(ESCALATE_COPY.approvalUnavailable);
+    expect(escalateApprovalMessage('approval_attempts_exhausted')).toBe(
+      ESCALATE_COPY.attemptsExhausted,
+    );
+    expect(escalateApprovalMessage('approval_invalid')).toBe(refusalMessage('approval_invalid'));
+    expect(escalateApprovalMessage('approval_stale')).toBe(refusalMessage('approval_stale'));
+    for (const reason of ['session_locked', 'no_session', 'not_applicable', 'invalid_input', 'x']) {
+      const line = escalateApprovalMessage(reason);
+      expect(line).toBe(ESCALATE_COPY.approvalFailed);
+      expect(voidRefusalMessage(reason)).not.toBe(line);
+    }
+    // None of the approval lines talks about cancelling a sale.
+    for (const line of [
+      ESCALATE_COPY.attemptsExhausted,
+      ESCALATE_COPY.approvalFailed,
+      ESCALATE_COPY.approvalUnavailable,
+    ]) {
+      expect(line).not.toContain('إلغاء');
+    }
   });
 });

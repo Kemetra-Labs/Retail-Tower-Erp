@@ -82,7 +82,7 @@ import { registerBranding } from './bootstrap/branding.js';
 import { registerDeviceHeartbeat } from './bootstrap/device-heartbeat.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerCart, registerPayments } from './bootstrap/payments-cart.js';
-import { registerReturns } from './bootstrap/returns.js';
+import { registerReturns, returnResolveApprovalResolvers } from './bootstrap/returns.js';
 import { registerSaleVoid } from './bootstrap/sale-void.js';
 import { startFinalizeListener } from './bootstrap/finalize.js';
 import { recordCaptureCutoverAtBoot } from './bootstrap/capture-cutover.js';
@@ -920,8 +920,7 @@ singleInstanceReady
       currentTerminalId: () => pairingStore.getCurrentTerminalId(),
     });
     const recoveryRef: { current: ManagerRecovery | null } = { current: null };
-    // RT-554 (b) — "drain the shift outbox now", set once the shift sync engine
-    // starts (paired, flag on); null until then, so a forced close is only queued.
+    // RT-554 (b) — "drain the shift outbox now": null until the shift sync engine starts (then only queued).
     const shiftSyncDrainNowRef: { current: (() => Promise<boolean>) | null } = { current: null };
     // RT-530 — the sale void's approval subject, bound below once the domain exists.
     const saleVoidRef: { current: ComposedSaleVoid | null } = { current: null };
@@ -936,6 +935,7 @@ singleInstanceReady
         // RT-608 — a cashier's manual discount: this cart, line and kind, at this line version.
         'cart.discount.manual': manualDiscountApprovalResolver(bindCartStore(db)),
         ...saleVoidApprovalResolvers(saleVoidRef), // RT-530 sale.void; RT-1403 S2 sale.void_cash_exception
+        ...returnResolveApprovalResolvers(db, pairingStore), // RT-1498 return.resolve_unknown
         // RT-441 — manager recovery (bound below, once the payment path exists).
         'recovery.complete_attempt': (input) =>
           recoveryRef.current?.resolvers.completeAttempt(input) ?? null,
@@ -1537,8 +1537,7 @@ singleInstanceReady
       saleVoidRef,
     });
 
-    // RT-15 S2 — cashier returns: `returns:*` IPC and the flag-gated background resolver
-    // (RT-893 extraction 5; see `bootstrap/returns.ts`).
+    // RT-15 S2 — cashier returns IPC and the flag-gated resolver (RT-893 extraction 5).
     registerReturns({
       guardedIpcMain,
       db,
@@ -1546,6 +1545,7 @@ singleInstanceReady
       operatorSessionManager,
       operatorEnvelopeHolder,
       pairingStore,
+      managerApprovals,
       auditEmitter,
       drawerKickTransport,
       printPipeline,

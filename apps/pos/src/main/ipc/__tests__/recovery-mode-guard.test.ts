@@ -29,6 +29,7 @@ describe('recovery-mode guard', () => {
     'vouchers:validate',
     'returns:submit',
     'returns:resend',
+    'returns:escalate',
   ])('refuses %s in recovery mode', async (channel) => {
     const fake = fakeIpcMain();
     createRecoveryModeGuardedIpcMain(fake.ipcMain, () => true).handle(channel, () => 'ran');

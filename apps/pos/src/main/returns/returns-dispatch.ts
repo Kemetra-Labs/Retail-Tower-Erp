@@ -25,15 +25,24 @@
  * is `unconfirmed` (never a rejected call once the server has answered), and
  * the resolver's same-key resend confirms it later. Sends of the same return
  * are single-flight within the process.
+ *
+ * RT-1498 S4 (RT-196 §3.4): the dispatch COMMIT POINT also re-reads the return's disposition. A
+ * closed return is never sent, by any operation; a `needs_support` return is sent only by the
+ * explicit per-row `resend`, never by a background tick, the bar pass or a first send. A snapshot
+ * taken before the disposition was written therefore cannot POST. And a 2xx the till cannot match
+ * (U-3) or read (U-4) raises `needs_support` by itself, in the same transaction as the unknown
+ * transition: it only restricts (no automatic resend); it never frees the sale or enables a payout.
  */
 import type { ReturnUnknownCause, ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
 import type { ReturnsAudit, SendOperation } from './returns-audit.js';
+import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
 import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
 import type { RecordReturnOutcome, ReturnsClient } from './returns-client.js';
 import { amount4ToMinor, parseAmount4 } from './returns-money.js';
 import type { ConfirmInput, JournalEntry, ReturnsRepository } from './returns-repository.js';
 import { returnedLinesMatch } from './returns-verify.js';
+import { uuidv7 } from './uuidv7.js';
 import type { WireSaleReturn } from './returns-wire.js';
 
 export type DispatchOutcome =
@@ -44,8 +53,16 @@ export type DispatchOutcome =
       /** RT-196 S1: why this send left the row unknown; null when nothing was sent / unknown. */
       readonly cause: ReturnUnknownCause | null;
     }
-  /** Not sent: the actor is no longer authorized; the row stays pending/unknown. */
-  | { readonly kind: 'deferred'; readonly entry: JournalEntry }
+  /**
+   * Not sent: the actor is no longer authorized (the row stays pending/unknown), or, with `by:
+   * 'disposition'` (RT-1498), the row's disposition forbids this send. The latter says nothing about
+   * the actor, so a resolver pass goes on to its next row.
+   */
+  | {
+      readonly kind: 'deferred';
+      readonly entry: JournalEntry;
+      readonly by?: 'disposition';
+    }
   | {
       readonly kind: 'refused';
       readonly reason: ReturnsRefusalReason;
@@ -74,6 +91,10 @@ export interface ReturnsDispatchLogger {
 export interface ReturnsDispatchDeps {
   readonly client: Pick<ReturnsClient, 'recordReturn'>;
   readonly repo: ReturnsRepository;
+  /** RT-1498 S4: read at the commit point; written by a mismatching or unreadable 2xx. */
+  readonly dispositions: Pick<ReturnDispositionsRepository, 'stateOf' | 'insert'>;
+  /** RT-1498 S4: the id of an automatic disposition (a UUID); defaults to a fresh UUIDv7. */
+  readonly newDispositionId?: () => string;
   readonly audit: ReturnsAudit;
   /** The choke point: re-authorizes the actor immediately before every send. */
   readonly authorizer: Pick<ReturnsAuthorizer, 'recheck'>;
@@ -145,6 +166,12 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
     const { entry, op } = send;
     if (this.deps.isStopped()) return { kind: 'deferred', entry };
     const current = this.current(entry);
+    // Commit point (a): the return's disposition, read right here, with no await before the
+    // authorization recheck below. A closed return is never sent; a needs_support one only by
+    // the explicit resend.
+    if (this.heldByDisposition(entry.returnId, op)) {
+      return { kind: 'deferred', entry: current, by: 'disposition' };
+    }
     // Commit point (b): never send for a snapshot whose actor is no longer
     // authorized or whose envelope is no longer live.
     if (this.deps.authorizer.recheck(send.snapshot) !== null) {
@@ -177,6 +204,12 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
       this.deps.logger.warn({ return_id: entry.returnId }, 'returns:local_commit_failed');
       return this.pendingLocally(entry, op);
     }
+  }
+
+  /** RT-1498 S4: does the return's disposition forbid this operation's send? */
+  private heldByDisposition(returnId: string, op: DispatchOperation): boolean {
+    const state = this.deps.dispositions.stateOf(returnId);
+    return state === 'closed' || (state === 'needs_support' && op !== 'resend');
   }
 
   /** The server answered but the local commit failed: report unknown, never reject. */
@@ -238,6 +271,43 @@ class JournaledReturnsDispatcher implements ReturnsDispatcher {
   ): void {
     if (!this.deps.repo.markUnknown(stamp)) return;
     this.deps.audit.attemptUnknown(this.current(entry), cause, op);
+    if (cause === 'confirmation_mismatch' || cause === 'unreadable_body') {
+      this.raiseSupport(this.current(entry), stamp.now);
+    }
+  }
+
+  /**
+   * RT-1498 S4 (U-3 / U-4): the server answered 2xx with something the till cannot match or read.
+   * Resending the same bytes returns the same answer, so the row is handed to support once: an
+   * automatic needs_support (no approval, no actor), in the caller's transaction. A return that
+   * already has a disposition gets no second one. It only restricts; it frees nothing.
+   */
+  private raiseSupport(entry: JournalEntry, now: string): void {
+    if (this.deps.dispositions.stateOf(entry.returnId) !== null) return;
+    this.deps.dispositions.insert({
+      dispositionId: (this.deps.newDispositionId ?? uuidv7)(),
+      returnId: entry.returnId,
+      kind: 'needs_support',
+      verdictSource: 'send_response',
+      reason: 'mismatch',
+      readVerdictAt: null,
+      approvalId: null,
+      actorOperatorId: null,
+      createdAt: now,
+    });
+    this.deps.audit.needsSupport(
+      {
+        scope: entry.scope,
+        operatorId: entry.operatorId,
+        operatorSessionId: entry.operatorSessionId,
+      },
+      {
+        return_id: entry.returnId,
+        approval_id: null,
+        verdict_source: 'send_response',
+        reason: 'mismatch',
+      },
+    );
   }
 
   private confirm(

@@ -7,6 +7,7 @@ import type {
   ReturnQuoteView,
   ReturnableSaleView,
   ReturnsBridgeAPI,
+  ReturnsEscalateResponse,
   ReturnsListResponse,
   ReturnsLookupResponse,
   ReturnsPayoutResponse,
@@ -17,6 +18,11 @@ import type {
   ReturnsSubmitResponse,
 } from '../../../shared/returns/types.js';
 import type { Role } from '../../../shared/operator/role.js';
+import type {
+  ManagerApprovalBridgeAPI,
+  ManagerApprovalResponse,
+  ManagerApproversResponse,
+} from '../../../shared/operator/manager-approval.js';
 import type { SessionStateEvent } from '../../../shared/bridge-api.js';
 import { useFeatureFlagsStore } from '../../stores/feature-flags-store.js';
 import {
@@ -78,6 +84,7 @@ export function journal(overrides: Partial<ReturnJournalView> = {}): ReturnJourn
     attemptCount: 1,
     lastAttemptAt: '2026-10-04T09:05:00.000Z',
     lastCause: null,
+    disposition: null,
     ...overrides,
   };
 }
@@ -91,6 +98,7 @@ export interface FakeReturnsBridge extends ReturnsBridgeAPI {
   payout: Mock<(req: unknown) => Promise<ReturnsPayoutResponse>>;
   reprintSlip: Mock<(req: unknown) => Promise<ReturnsReprintResponse>>;
   resend: Mock<(req: unknown) => Promise<ReturnsResendResponse>>;
+  escalate: Mock<(req: unknown) => Promise<ReturnsEscalateResponse>>;
 }
 
 export function fakeBridge(): FakeReturnsBridge {
@@ -115,6 +123,31 @@ export function fakeBridge(): FakeReturnsBridge {
     resend: vi.fn(() =>
       Promise.resolve({ kind: 'unconfirmed' as const, ret: journal({ state: 'unknown' }) }),
     ),
+    escalate: vi.fn(() =>
+      Promise.resolve({
+        kind: 'escalated' as const,
+        ret: journal({ state: 'unknown', disposition: 'needs_support' }),
+      }),
+    ),
+  };
+}
+
+/** RT-1498 S4/S5: the manager the approval sheet lists, and the opaque approval it grants. */
+export const APPROVER = { approver_ref: 'mgr-omar', display_name: 'عمر المدير' };
+export const APPROVAL_ID = '0190f5a2-3b4c-7d8e-9f01-000000000001';
+export const APPROVER_PIN = '246810';
+
+export interface FakeApprovalBridge extends ManagerApprovalBridgeAPI {
+  listApprovers: Mock<(req: unknown) => Promise<ManagerApproversResponse>>;
+  request: Mock<(req: unknown) => Promise<ManagerApprovalResponse>>;
+}
+
+export function fakeApproval(): FakeApprovalBridge {
+  return {
+    listApprovers: vi.fn(() =>
+      Promise.resolve({ kind: 'approvers' as const, approvers: [APPROVER] }),
+    ),
+    request: vi.fn(() => Promise.resolve({ kind: 'approved' as const, approval_id: APPROVAL_ID })),
   };
 }
 
@@ -165,6 +198,8 @@ export interface RenderReturnsOptions {
   readonly sessionEvents?: FakeSessionEvents;
   /** RT-1192: today's-sales read; absent = none (no list, no short number). */
   readonly sales?: RecentSalesBridge | null;
+  /** RT-1498 S4/S5: the manager approval bridge; absent = none (no escalation is offered). */
+  readonly approval?: ManagerApprovalBridgeAPI | null;
 }
 
 export function renderReturns(options: RenderReturnsOptions = {}): RenderResult {
@@ -176,6 +211,7 @@ export function renderReturns(options: RenderReturnsOptions = {}): RenderResult 
       bridge={bridge}
       sessionEvents={options.sessionEvents ?? null}
       sales={options.sales ?? null}
+      approval={options.approval ?? null}
     />,
   );
 }
