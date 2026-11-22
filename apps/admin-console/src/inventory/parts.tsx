@@ -73,7 +73,7 @@ export function BackLink({ to, label }: Readonly<{ to: string; label: string }>)
   );
 }
 
-function RetryButton({ onRetry }: Readonly<{ onRetry: () => void }>): React.JSX.Element {
+export function RetryButton({ onRetry }: Readonly<{ onRetry: () => void }>): React.JSX.Element {
   const t = useT();
   return (
     <GatedButton type="button" className="btn-secondary" onClick={onRetry}>

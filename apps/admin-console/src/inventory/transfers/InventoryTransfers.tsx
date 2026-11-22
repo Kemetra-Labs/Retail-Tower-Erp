@@ -15,6 +15,7 @@
  * NoAccess and nothing is requested. The API still decides every read (a store
  * manager sees only Transfers touching its stores). Nothing is written here.
  */
+import { Banner } from "@/components/Banner";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { DetailPanel } from "@/components/DetailPanel";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
@@ -23,7 +24,7 @@ import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { ShipmentTransfer, ShipmentTransferFilter } from "@/lib/inventory-queries";
 import { useState } from "react";
 import { useSearchParams } from "react-router";
-import { BackLink, InventoryReadGate, LoadMore, StaleError } from "../parts";
+import { BackLink, InventoryReadGate, LoadMore, RetryButton, StaleError } from "../parts";
 import type { InventoryScope, PagedState } from "../useInventory";
 import { usePickerStores } from "../usePickerStores";
 import { TransferDrawer } from "./TransferDrawer";
@@ -228,6 +229,13 @@ function ListBody({
           )}
           action={filtered ? <ResetButton onReset={onReset} /> : undefined}
         />
+        {list.error?.requestId ? (
+          <p className="list-state__hint">
+            {t.rich("components.banner.requestRef", {
+              id: <bdi dir="ltr">{list.error.requestId}</bdi>,
+            })}
+          </p>
+        ) : null}
       </div>
     );
   }
@@ -315,6 +323,13 @@ function TransfersView({ scope }: Readonly<{ scope: InventoryScope }>): React.JS
         <p className="inventory__note">{t("transfers.note.readOnly")}</p>
         <p className="inventory__note">{t("transfers.note.inTransit")}</p>
       </div>
+      {picker.failed ? (
+        <Banner
+          variant="warning"
+          message={t("inventory.stores.loadFailed")}
+          action={<RetryButton onRetry={picker.retry} />}
+        />
+      ) : null}
       <DetailPanel
         id="transfers-list"
         index={1}

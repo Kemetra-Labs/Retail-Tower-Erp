@@ -297,6 +297,19 @@ describe("transfer list (RT-1515)", () => {
     expect(screen.getByText(/may not be switched on for the organization yet/)).toBeDefined();
     expect(screen.queryByText("There are no stock transfers yet.")).toBeNull();
     expect(screen.queryByRole("button", { name: "Reset filters" })).toBeNull();
+    expect(screen.getByText(REQUEST_ID)).toBeDefined();
+    expect(screen.queryByText("server words")).toBeNull();
+  });
+
+  test("a failed store list says so and retries, while the transfers stay listed", async () => {
+    listStores
+      .mockResolvedValueOnce({ status: 500 })
+      .mockResolvedValue({ status: 200, data: stores });
+    renderAt();
+    expect(await screen.findByText("Stores could not be loaded.")).toBeDefined();
+    expect(screen.getByRole("table", { name: /transfers/i })).toBeDefined();
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }));
+    await waitFor(() => expect(screen.queryByText("Stores could not be loaded.")).toBeNull());
   });
 
   test("a filtered 404 also offers the reset", async () => {
