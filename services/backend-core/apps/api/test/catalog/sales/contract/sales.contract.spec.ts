@@ -75,6 +75,8 @@ const OPERATION_IDS = [
   "listSaleReturns",
   // RT-1403 (RT-530 c12029): the cashier's device-only void (see sale-void-device-path.contract.spec.ts).
   "recordCashierVoid",
+  // RT-1548 (RT-196 BR-2, BR-7): the affirmative return status read, contract-only (see return-status-by-provenance.contract.spec.ts).
+  "readReturnStatusByProvenance",
 ] as const;
 
 const WRITE_OPERATION_IDS = [
@@ -120,6 +122,10 @@ const APPROVED_TENDER_FIELDS = [
   // RT-490 (RT-271 R-2): a refund allocation names the sale tender it is
   // refunded against.
   "RefundTender.originalTenderRef",
+  // RT-1548: the status read's mirror of the approved `SaleReturn.refundTenders`
+  // for a credit-sale reversal with a 0 cash refund (always empty; pinned to
+  // `SaleReturn` by return-status-by-provenance.contract.spec.ts).
+  "ReturnStatusZeroRefundReturn.refundTenders",
 ];
 
 /**
@@ -387,7 +393,7 @@ describe("pos-sales/sales.yaml — idempotency", () => {
   });
 
   it("does NOT require an Idempotency-Key on the reads", () => {
-    for (const id of ["readSale", "readReturnByProvenance", "listSaleReturns"]) {
+    for (const id of ["readSale", "readReturnByProvenance", "listSaleReturns", "readReturnStatusByProvenance"]) {
       const params = findOp(id)?.parameters ?? [];
       const hasIdempotencyRef = params.some(
         (p) => p.$ref === "#/components/parameters/IdempotencyKey",
@@ -2588,8 +2594,8 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | undefined;
 
   it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
-    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft and RT-1544 to 1.27.0-draft; the RT-1114 note still stands.
-    expect(salesDoc.info?.version).toBe("1.27.0-draft");
+    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft and RT-1548 to 1.28.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.28.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2643,8 +2649,8 @@ describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
     CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
 
   it("bumped to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
-    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft and RT-1544 to 1.27.0-draft; the RT-1343 note still stands.
-    expect(salesDoc.info?.version).toBe("1.27.0-draft");
+    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft and RT-1548 to 1.28.0-draft; the RT-1343 note still stands.
+    expect(salesDoc.info?.version).toBe("1.28.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
     expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");

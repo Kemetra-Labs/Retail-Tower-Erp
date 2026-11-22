@@ -134,8 +134,8 @@ function withLine(extra: Record<string, unknown>): unknown {
 // 1. Version and note
 // ===========================================================================
 describe("pos-sales/sales.yaml — RT-1544 Return Policy contract", () => {
-  it("is 1.27.0-draft with a note citing the approval, the decisions, the additive shape and the rollout order", () => {
-    expect(sales.info?.version).toBe("1.27.0-draft");
+  it("was bumped to 1.27.0-draft (RT-1548 then moved it to 1.28.0-draft) with a note citing the approval, the decisions, the additive shape and the rollout order", () => {
+    expect(sales.info?.version).toBe("1.28.0-draft");
     const info = flat(sales.info?.description);
     expect(info).toContain("RT-1544 (1.27.0-draft; [GATED: contract] owner approval on RT-1544, comment 18145");
     expect(info).toContain("specs/045-return-policy");
@@ -431,7 +431,7 @@ describe("pos-sales/sales.yaml — RT-1544 Error envelope exception", () => {
 });
 
 describe("pos-sales/sales.yaml — RT-1544 changes nothing else", () => {
-  it("keeps every operation it had (no operation added or removed)", () => {
+  it("keeps every operation it had (RT-1544 added or removed none; RT-1548 then added one)", () => {
     const ids = Object.values(sales.paths ?? {})
       .flatMap((item) => Object.values(item))
       .map((o) => o.operationId)
@@ -442,6 +442,8 @@ describe("pos-sales/sales.yaml — RT-1544 changes nothing else", () => {
         "captureSale",
         "listSaleReturns",
         "readReturnByProvenance",
+        // RT-1548 (1.28.0-draft) added the contract-only status read after RT-1544.
+        "readReturnStatusByProvenance",
         "readSale",
         "recordCashierVoid",
         "recordCreditSaleReversal",
