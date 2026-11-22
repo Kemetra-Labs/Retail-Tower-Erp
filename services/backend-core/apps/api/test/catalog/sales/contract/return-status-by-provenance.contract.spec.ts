@@ -14,7 +14,8 @@
  *   4. the 200 body is exactly two verdicts, `recorded` (with the exact
  *      `SaleReturn`, BR-3, and the required `creditLinked` flag, BR-4) and
  *      `not_recorded`; no third verdict, no timestamp, no settlement;
- *   5. the BR-7 late-commit bound, stated on the read and on `recordReturn`;
+ *   5. the BR-7 late-commit bound, stated on the read and on `recordReturn`, with the
+ *      rollout rule (bound first), the elapsed-time quiet period and the credit-reversal carve-out;
  *   6. `readReturnByProvenance` and `ReturnRead` are untouched (additive only).
  */
 import "reflect-metadata";
@@ -123,6 +124,13 @@ describe("pos-sales/sales.yaml — RT-1548 return status read: version and note"
     expect(info).toContain("Option B");
   });
 
+  it("the rollout order puts the BR-7 bound first and keeps the read off until it is complete (M-1)", () => {
+    const info = flat(sales.info?.description);
+    expect(info).toContain("(2) the BR-7 bound on `recordReturn`, deployed FIRST to every instance that serves it");
+    expect(info).toContain("(3) the status read (the route and its audit event), which must not answer a verdict until every instance that serves `recordReturn` enforces the bound");
+    expect(info).toContain("ship the bound first, or keep the read off until the rollout has completed");
+  });
+
   it("keeps the RT-1544 note: the version moved on, the earlier note stands", () => {
     expect(flat(sales.info?.description)).toContain("RT-1544 (1.27.0-draft; [GATED: contract] owner approval on RT-1544, comment 18145");
   });
@@ -164,6 +172,8 @@ describe("pos-sales/sales.yaml — RT-1548 readReturnStatusByProvenance", () => 
     const note = flat(op["x-runtime-note"]);
     expect(note).toContain("RT-1548");
     expect(note).toContain("slice 2");
+    expect(note).toContain("must not answer a verdict until every instance that serves `recordReturn` enforces the BR-7 bound");
+    expect(note).toContain("ship the bound first, or keep the read off until the rollout has completed");
     expect(op["x-audit-action"]).toBe("pos_sales.return_read");
   });
 
@@ -318,9 +328,9 @@ describe("pos-sales/sales.yaml — RT-1548 ReturnProvenanceStatus", () => {
 // 5. BR-7: the late-commit bound
 // ===========================================================================
 describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
-  const BOUND = "within 60 seconds of receiving it";
+  const BOUND = "issues no COMMIT later than 60 seconds after receiving the request";
 
-  it("the read states the bound, the guarantee it gives not_recorded and what it does not cover", () => {
+  it("the read states the bound as a COMMIT deadline, the guarantee it gives not_recorded and what it does not cover", () => {
     const text = description(statusRead());
     expect(text).toContain("RT-1548 (BR-7)");
     expect(text).toContain(BOUND);
@@ -331,19 +341,56 @@ describe("pos-sales/sales.yaml — RT-1548 BR-7 late-commit bound", () => {
     expect(text).toContain("15 minutes");
   });
 
-  it("recordReturn carries the same bound, from the slice-2 runtime", () => {
+  it("recordReturn carries the same bound, from the slice-2 runtime, and records the replication assumption (M-2)", () => {
     const text = description(operation(RETURNS_PATH, "post"));
     expect(text).toContain("RT-1548 (BR-7)");
-    expect(text).toContain(BOUND);
+    expect(text).toContain("The runtime issues no COMMIT for a `recordReturn` request later than 60 seconds after receiving the request");
     expect(text).toContain("never commits afterwards");
     expect(text).toContain("slice 2");
+    expect(text).toContain("It bounds when the COMMIT is issued, not when the database finishes it");
+    expect(text).toContain("slice 2 records the deployment assumption it relies on (synchronous replication)");
+  });
+
+  it('says "timed out under this bound", never a bare "timed out" (L-2)', () => {
+    for (const text of [description(statusRead()), description(operation(RETURNS_PATH, "post"))]) {
+      expect(text).toContain("timed out under this bound");
+      expect(text).not.toMatch(/timed out never/);
+    }
+  });
+
+  it("the quiet period covers the transport delay before receipt, not only the bound and the request timeout (L-3)", () => {
+    expect(description(statusRead())).toContain("which must exceed the bound plus its request timeout plus the transport delay before receipt");
+    expect(description(operation(RETURNS_PATH, "post"))).toContain("the quiet period must also cover the transport delay before receipt, which the bound does not");
+  });
+
+  it("the quiet period is elapsed time: a client that cannot show it elapsed treats it as not elapsed (M-3)", () => {
+    const text = description(statusRead());
+    expect(text).toContain("The quiet period is elapsed time");
+    expect(text).toContain("a client that cannot show that it has elapsed (its clock stepped forward, or it restarted) treats it as not elapsed");
+  });
+
+  it("not_recorded makes no claim about an in-flight recordCreditSaleReversal (L-1)", () => {
+    const text = description(statusRead());
+    expect(text).toContain("`not_recorded` makes no claim about an in-flight `recordCreditSaleReversal`");
+    expect(text).toContain("outside the bound");
+    expect(text).toContain("RT-196 D-c");
+  });
+
+  it("the read must not answer a verdict until every recordReturn instance enforces the bound (M-1)", () => {
+    const text = description(statusRead());
+    expect(text).toContain("the read must not answer a verdict until every instance that serves `recordReturn` enforces the bound");
+    expect(text).toContain("ship the bound first, or keep the read off (404) until the rollout has completed");
+    expect(flat(operation(RETURNS_PATH, "post")["x-runtime-note"])).toContain(
+      "must be live on every instance that serves this route before `readReturnStatusByProvenance` answers a verdict",
+    );
   });
 
   it("the bound is shorter than the 15-minute quiet period it must fit inside (OD-196-5)", () => {
-    const seconds = Number(/within (\d+) seconds of receiving it/.exec(description(statusRead()))?.[1]);
+    const seconds = Number(/issues no COMMIT later than (\d+) seconds after receiving the request/.exec(description(statusRead()))?.[1]);
     expect(Number.isInteger(seconds)).toBe(true);
     expect(seconds).toBeGreaterThan(0);
-    // POS request timeout 15 s plus the bound must leave at least 10x headroom inside the quiet period.
+    // The 15 s POS request timeout plus the bound is under a tenth of the 15-minute quiet period, which leaves
+    // the rest as margin for the transport delay before receipt and the commit itself.
     expect((seconds + 15) * 10).toBeLessThan(15 * 60);
   });
 });
@@ -378,11 +425,23 @@ describe("pos-sales/sales.yaml — RT-1548 is additive", () => {
     expect(keys).not.toContain("status");
   });
 
-  it("adds exactly one path, three schemas and one response", () => {
+  it("RT-1548 tags exactly one path, three schemas and one response (additivity itself is oasdiff's check)", () => {
+    const tagged = (value: unknown): boolean => /\bRT-1548\b/.test(String((value as { description?: unknown })?.description ?? ""));
+    // Paths: the operations whose own description cites RT-1548 (recordReturn's BR-7 paragraph is the one documented edit).
+    const taggedOps = Object.entries(sales.paths ?? {}).flatMap(([path, item]) =>
+      Object.entries(item)
+        .filter(([, op]) => tagged(op))
+        .map(([method]) => `${method.toUpperCase()} ${path}`),
+    );
+    expect(taggedOps.sort()).toEqual([`GET ${STATUS_PATH}`, `POST ${RETURNS_PATH}`].sort());
     expect(Object.keys(sales.paths?.[STATUS_PATH] ?? {})).toEqual(["get"]);
-    for (const name of ["ReturnProvenanceStatus", "ReturnRecordedStatus", "ReturnNotRecordedStatus"]) {
-      expect(sales.components?.schemas?.[name]).toBeDefined();
-    }
-    expect(sales.components?.responses?.["ReturnStatusNotFound"]).toBeDefined();
+    const taggedSchemas = Object.entries(sales.components?.schemas ?? {})
+      .filter(([, def]) => tagged(def))
+      .map(([name]) => name);
+    expect(taggedSchemas.sort()).toEqual(["ReturnNotRecordedStatus", "ReturnProvenanceStatus", "ReturnRecordedStatus"]);
+    const taggedResponses = Object.entries(sales.components?.responses ?? {})
+      .filter(([, def]) => tagged(def))
+      .map(([name]) => name);
+    expect(taggedResponses).toEqual(["ReturnStatusNotFound"]);
   });
 });

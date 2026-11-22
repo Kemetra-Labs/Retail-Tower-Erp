@@ -724,9 +724,12 @@ info:
     the POS treats as no verdict, spec 3.2), and no server timestamp or
     tombstone that refuses a later commit of a key (spec Option B, deferred to
     post-pilot hardening because it needs a Backend-Core write and a migration;
-    BR-6 says no migration). ROLLOUT ORDER: (1) this contract; (2) the slice-2
-    runtime: the route, the audit event and the BR-7 bound on `recordReturn`;
-    (3) the POS repin and the close writer (RT-1498). Until (2) is deployed the
+    BR-6 says no migration). ROLLOUT ORDER: (1) this contract; (2) the BR-7
+    bound on `recordReturn`, deployed FIRST to every instance that serves it;
+    (3) the status read (the route and its audit event), which must not answer a
+    verdict until every instance that serves `recordReturn` enforces the bound:
+    ship the bound first, or keep the read off until the rollout has completed;
+    (4) the POS repin and the close writer (RT-1498). Until (3) is deployed the
     path answers 404, which the POS reads as inconclusive, so a POS must not
     close a return as not recorded before then.
 
@@ -1393,7 +1396,8 @@ paths:
         apply from the RP-3 runtime (enforcement stays off until the owner sets
         the legal minimum window); until then the strict DTO rejects the line
         fields (400). The RT-1548 (BR-7) 60-second commit bound applies from the
-        slice 2 runtime.
+        slice 2 runtime, and must be live on every instance that serves this
+        route before `readReturnStatusByProvenance` answers a verdict.
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
@@ -1677,16 +1681,22 @@ paths:
 
 
         Late-commit bound (RT-1548 (BR-7), RT-196 design spec section 4; binds
-        from the RT-1548 slice 2 runtime, not before). A `recordReturn` request
-        either commits or is abandoned within 60 seconds of receiving it, and a
-        request that was abandoned, refused or timed out never commits
-        afterwards: its transaction is rolled back and nothing is recorded
-        under its provenance. The bound runs from receipt and covers the whole
-        request, including the wait for the sale row lock, not only the
-        database statements. It is what gives `readReturnStatusByProvenance` its
-        affirmative `not_recorded`: a return that was not recorded when a client
-        has sent nothing for its quiet period (the POS: 15 minutes) cannot be
-        recorded later. The bound is shorter than that quiet period by design.
+        from the RT-1548 slice 2 runtime, not before). The runtime issues no
+        COMMIT for a `recordReturn` request later than 60 seconds after
+        receiving the request, and a request that was abandoned, refused or
+        timed out under this bound never commits afterwards: its transaction is
+        rolled back and nothing is recorded under its provenance. The bound runs
+        from receipt and covers the whole request, including the wait for the
+        sale row lock, not only the database statements. It bounds when the
+        COMMIT is issued, not when the database finishes it: slice 2 records the
+        deployment assumption it relies on (synchronous replication), and the
+        margin inside the quiet period covers the commit itself. It is what
+        gives `readReturnStatusByProvenance` its affirmative `not_recorded`: a
+        return that was not recorded when a client has sent nothing for its
+        quiet period (the POS: 15 minutes) cannot be recorded later. The bound
+        is shorter than that quiet period by design, and the quiet period must
+        also cover the transport delay before receipt, which the bound does
+        not.
       parameters:
         - $ref: "#/components/parameters/SaleRef"
         - $ref: "#/components/parameters/IdempotencyKey"
@@ -1832,8 +1842,11 @@ paths:
       x-runtime-note: >
         RT-1548 slice 1: contract only. No route is registered until the RT-1548
         slice 2 runtime (the read, its ref-only audit event and the BR-7 commit
-        bound on `recordReturn`; no migration). Until then the path answers 404,
-        which a client reads as inconclusive, never as `not_recorded`.
+        bound on `recordReturn`; no migration). The read must not answer a
+        verdict until every instance that serves `recordReturn` enforces the
+        BR-7 bound: ship the bound first, or keep the read off until the
+        rollout has completed. Until then the path answers 404, which a client
+        reads as inconclusive, never as `not_recorded`.
       tags: [pos-sales]
       security:
         - operatorAuthorization: []
@@ -1889,17 +1902,27 @@ paths:
 
 
         Late-commit bound (RT-1548 (BR-7); binds from the slice 2 runtime).
-        `recordReturn` either commits or is abandoned within 60 seconds of
-        receiving it, and never commits afterwards (see `recordReturn`). So a
-        `not_recorded` verdict guarantees that no `recordReturn` request
-        received more than 60 seconds before the read can still commit a return
-        under this provenance. It does not by itself cover a `recordReturn`
-        request received less than 60 seconds before the read, which may still
-        commit after it: a client closes a return only after its own quiet
-        period since its last send of it (the POS: 15 minutes, RT-196
-        OD-196-5, longer than the bound plus its request timeout), and only on
-        a fresh `not_recorded` read after that period. Inconclusive outcomes
-        (offline, 401, 404, 5xx, an unreadable body) are not verdicts.
+        The `recordReturn` runtime issues no COMMIT later than 60 seconds after
+        receiving the request, and a request that was abandoned, refused or
+        timed out under this bound never commits afterwards (see
+        `recordReturn`). So a `not_recorded` verdict guarantees that no
+        `recordReturn` request received more than 60 seconds before the read
+        can still commit a return under this provenance. It does not by itself
+        cover a `recordReturn` request received less than 60 seconds before the
+        read, which may still commit after it. A client therefore closes a
+        return only after its own quiet period since its last send of it (the
+        POS: 15 minutes, RT-196 OD-196-5), which must exceed the bound plus its
+        request timeout plus the transport delay before receipt, and only on a
+        fresh `not_recorded` read after that period. The quiet period is
+        elapsed time: a client that cannot show that it has elapsed (its clock
+        stepped forward, or it restarted) treats it as not elapsed.
+        `not_recorded` makes no claim about an in-flight
+        `recordCreditSaleReversal`, which is outside the bound (the POS never
+        returns a credit sale, RT-196 D-c). Rollout: the read must not answer a
+        verdict until every instance that serves `recordReturn` enforces the
+        bound; ship the bound first, or keep the read off (404) until the
+        rollout has completed. Inconclusive outcomes (offline, 401, 404, 5xx, an
+        unreadable body) are not verdicts.
       parameters:
         - $ref: "#/components/parameters/SaleRef"
         - $ref: "#/components/parameters/ReturnSourceSystem"

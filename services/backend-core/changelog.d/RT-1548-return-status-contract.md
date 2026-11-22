@@ -11,9 +11,14 @@
   that is off or a sale out of the caller's scope and is never `not_recorded`;
   a key recorded against another sale reads as `not_recorded` exactly like a key
   recorded nowhere. The BR-7 late-commit bound is stated on the read and on
-  `recordReturn`: from the slice 2 runtime a `recordReturn` request commits or
-  is abandoned within 60 seconds of receipt and never commits afterwards, which
-  fits inside the POS quiet period of 15 minutes (OD-196-5). Strictly additive
+  `recordReturn`: from the slice 2 runtime it issues no COMMIT later than 60
+  seconds after receiving a request and a request abandoned or refused under
+  that bound never commits afterwards, which fits inside the POS quiet period of
+  15 minutes (OD-196-5; the quiet period is elapsed time and also covers the
+  transport delay before receipt). The status read must not answer a verdict
+  until every instance that serves `recordReturn` enforces the bound (ship the
+  bound first). `not_recorded` makes no claim about an in-flight
+  `recordCreditSaleReversal`. Strictly additive
   (oasdiff: INFO only); `readReturnByProvenance` and its 404 semantics are
   unchanged. No runtime, migration or POS change. Not in this version for want
   of a spec source: a third `unknown` or `pending` verdict, and a server
