@@ -7,9 +7,6 @@
  * owner, a label or an amount.
  */
 
-/** Spec 024 K2: at most this many parked sales per terminal, across operators. */
-export const PARK_LIMIT_PER_TERMINAL = 5;
-
 /** Spec 024 K2: the optional label, after trimming. */
 export const PARK_LABEL_MAX_LENGTH = 40;
 

@@ -8,7 +8,6 @@
  * the current session's (`operator_session_id`, the M4 check).
  */
 import {
-  PARK_LIMIT_PER_TERMINAL,
   type CartListParkedResponse,
   type CartParkRefusal,
   type CartParkRequest,
@@ -49,14 +48,22 @@ export function parkRefusal(
   return deps.store.hasOpenPayment(cart.cart_id) ? 'not_parkable' : null;
 }
 
-/** K2: room for `adding` more parked sales once `leaving` have left. */
+/**
+ * K2 as amended by RT-838 (RT-1561): room for `adding` more parked sales once
+ * `leaving` have left. No limit (the default) always has room. With a limit, a
+ * move that does not raise the count (`adding <= leaving`, the swap of one
+ * sale for one) is always allowed, even when the limit was lowered below the
+ * count; nothing parked is ever discarded.
+ */
 export function hasRoom(deps: ParkResumeDeps, at: Admitted, adding: number, leaving = 0): boolean {
+  const limit = deps.parkLimit?.() ?? null;
+  if (limit === null || adding <= leaving) return true;
   const scope = {
     tenant_id: at.session.tenant_id,
     branch_id: at.session.branch_id,
     terminal_id: at.terminal_id,
   };
-  return deps.store.countParked(scope) - leaving + adding <= PARK_LIMIT_PER_TERMINAL;
+  return deps.store.countParked(scope) - leaving + adding <= limit;
 }
 
 /** Mark one cart parked and audit it; throws to roll back if it moved. */

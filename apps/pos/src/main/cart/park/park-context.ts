@@ -26,6 +26,11 @@ export interface ParkResumeDeps {
   getTerminalId: () => string | null;
   auditEmitter: Pick<AuditEmitter, 'emit'>;
   prices: PriceLookup;
+  /**
+   * RT-1561 (RT-838 S1) — the parked-sales limit per terminal, or null for no
+   * limit. Absent means null: there is no default limit. Read on every park.
+   */
+  parkLimit?: () => number | null;
   clock?: () => Date;
   /** RT-308 — the monotonic clock (ms) for the offline authority bound. */
   monotonicNow?: () => number;
