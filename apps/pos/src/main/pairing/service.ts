@@ -193,6 +193,8 @@ export function createPairingService(deps: CreatePairingServiceOptions): Pairing
             branch_name: pairResult.body.branch_name,
             branch_address: pairResult.body.branch_address,
             tenant_tax_registration_id: pairResult.body.tenant_tax_registration_id,
+            // RT-373: sealed with the token, so the rotation client knows when to rotate.
+            ...expiryOf(pairResult.body.expires_at),
           });
         } catch {
           // Storage error after a successful network call. The store
@@ -287,4 +289,9 @@ export function createPairingService(deps: CreatePairingServiceOptions): Pairing
       }
     },
   };
+}
+
+/** RT-373: the pair response's credential expiry, when the server sent one. */
+function expiryOf(expiresAt: string | null | undefined): { expires_at?: string } {
+  return typeof expiresAt === 'string' && expiresAt.length > 0 ? { expires_at: expiresAt } : {};
 }

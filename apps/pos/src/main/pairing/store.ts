@@ -300,6 +300,47 @@ export interface ApiOriginBinding {
 export interface PersistInput extends TerminalAssignmentRow {
   /** Opaque server-issued token. SECRET — never logged. */
   device_token: string;
+  /**
+   * RT-373 — the credential expiry from the pair response (ISO-8601), sealed
+   * with the token. Absent or null: unknown (a server before RT-367).
+   */
+  expires_at?: string | null;
+}
+
+/**
+ * RT-373 (RT-138 L4) — what the rotation client needs: the token it may
+ * present, the pairing it belongs to, and its sealed expiry (null: unknown).
+ * SECRET (`token`) — main process only, never logged, never bridged.
+ */
+export interface RotationCredential {
+  token: string;
+  binding: PairingBinding;
+  expiresAt: string | null;
+}
+
+/**
+ * RT-373 — the rotation capability. Kept off {@link PairingStore} like
+ * {@link DeviceRevocationStore}: only the rotation client is handed it.
+ */
+export interface DeviceTokenRotationStore {
+  /**
+   * The usable pairing's credential, or null: unpaired, revoked, another
+   * server, an unreadable or malformed token, or one sealed for another
+   * pairing (RT-306). Never throws.
+   */
+  readRotationCredential(): Promise<RotationCredential | null>;
+  /**
+   * Seal a rotated token and its expiry under `binding`, replacing the old
+   * token in ONE secret write (the RT-306 envelope). `stale` (nothing written)
+   * when `binding` is no longer the usable pairing: a re-pair, a clear, a
+   * revocation or a pairing write in progress came first. A failing write
+   * rejects and leaves the old sealed token in place.
+   */
+  replaceRotatedToken(
+    binding: PairingBinding,
+    token: string,
+    expiresAt: string | null,
+  ): Promise<'replaced' | 'stale'>;
 }
 
 export interface CreatePairingStoreOptions {
@@ -374,7 +415,7 @@ const OTHER_SERVER_STATUS: PairingStatus = { kind: 'invalid', reason: 'other_ser
 
 export function createPairingStore(
   options: CreatePairingStoreOptions,
-): PairingStore & DeviceRevocationStore & ApiOriginBinding {
+): PairingStore & DeviceRevocationStore & ApiOriginBinding & DeviceTokenRotationStore {
   const { secretStore, db, deviceTokenKey, logger } = options;
   const apiOrigin =
     options.apiBaseUrl === undefined ? undefined : normalizeApiOrigin(options.apiBaseUrl);
@@ -406,6 +447,12 @@ export function createPairingStore(
   let revokedInMemory = false;
   /** RT-215 — bumped on every persist/clear/revoke; part of the pairing epoch. */
   let generation = 0;
+  /**
+   * RT-373 — true while persist() is between its token write and its row write:
+   * a rotation landing in that gap would seal the old pairing's token over the
+   * new one, so it is dropped as stale.
+   */
+  let pairingWriteInFlight = false;
 
   function rowRevoked(row: StoredAssignmentRow): boolean {
     return revokedInMemory || typeof row.device_revoked_at === 'number';
@@ -452,7 +499,81 @@ export function createPairingStore(
     }
   }
 
+  /**
+   * The row half of persist(): one SQL transaction. If it throws, the token
+   * written just before is deleted again (compensation), so both halves are
+   * back to their pre-call state.
+   */
+  async function writePairingRow(input: PersistInput): Promise<void> {
+    try {
+      // RT-215: a re-pair replaces the whole row (INSERT OR REPLACE), so
+      // `device_revoked_at` returns to NULL with the new pairing.
+      db.transaction(() => {
+        db.writeAssignment({
+          tenant_id: input.tenant_id,
+          branch_id: input.branch_id,
+          terminal_id: input.terminal_id,
+          terminal_label: input.terminal_label,
+          paired_at: input.paired_at,
+          branch_name: input.branch_name,
+          branch_address: input.branch_address,
+          tenant_tax_registration_id: input.tenant_tax_registration_id,
+          // RT-1348: the pairing was just made against THIS process's backend.
+          api_origin: apiOrigin ?? null,
+        });
+      });
+    } catch (err) {
+      // Compensation. We deliberately swallow any error from delete()
+      // because the original SQL failure is the load-bearing one to
+      // surface; a stacked compensation failure would obscure it.
+      await secretStore.delete(deviceTokenKey).catch(() => {
+        /* noop — original SQL error is the one the caller cares about */
+      });
+      throw err;
+    }
+  }
+
+  /** RT-373 — the stored row's binding when it is still the usable pairing. */
+  function usableBinding(): PairingBinding | null {
+    const row = db.readAssignment();
+    return row === null || notUsable(row) ? null : bindingOf(row);
+  }
+
+  /** RT-373 — the token half, opened, for the rotation client; null if unusable. */
+  function rotatableToken(
+    tokenState: TokenState,
+    binding: PairingBinding,
+  ): { token: string; expiresAt: string | null } | null {
+    if (tokenState.kind !== 'present') return null;
+    const opened = tokenState.opened;
+    if (opened.kind === 'malformed') return null;
+    if (opened.kind === 'legacy') return { token: opened.token, expiresAt: null };
+    if (!sameBinding(opened.binding, binding)) return null;
+    return { token: opened.token, expiresAt: opened.expiresAt ?? null };
+  }
+
   return {
+    async readRotationCredential(): Promise<RotationCredential | null> {
+      const before = usableBinding();
+      if (before === null) return null;
+      const tokenState = await readTokenState();
+      // Re-read after the await: a revocation or re-pair meanwhile wins.
+      const binding = usableBinding();
+      if (binding === null || !sameBinding(before, binding)) return null;
+      const held = rotatableToken(tokenState, binding);
+      return held === null ? null : { ...held, binding };
+    },
+
+    async replaceRotatedToken(binding, token, expiresAt): Promise<'replaced' | 'stale'> {
+      const current = usableBinding();
+      if (pairingWriteInFlight || current === null || !sameBinding(current, binding)) {
+        return 'stale';
+      }
+      // Nothing awaits between the check above and the write below.
+      await secretStore.set(deviceTokenKey, sealDeviceToken(token, binding, expiresAt));
+      return 'replaced';
+    },
+
     async getStatus(): Promise<PairingStatus> {
       // RT-1348: a pairing made against another backend is reported before
       // anything else, so nothing downstream (not even a revoked marker left by
@@ -520,32 +641,15 @@ export function createPairingStore(
       // old row. The token is sealed with the identity of the pairing it was
       // issued for, so getStatus() reports that as `invalid/inconsistent` and
       // no reader hands it out.
-      await secretStore.set(deviceTokenKey, sealDeviceToken(input.device_token, input));
+      pairingWriteInFlight = true;
       try {
-        // RT-215: a re-pair replaces the whole row (INSERT OR REPLACE), so
-        // `device_revoked_at` returns to NULL with the new pairing.
-        db.transaction(() => {
-          db.writeAssignment({
-            tenant_id: input.tenant_id,
-            branch_id: input.branch_id,
-            terminal_id: input.terminal_id,
-            terminal_label: input.terminal_label,
-            paired_at: input.paired_at,
-            branch_name: input.branch_name,
-            branch_address: input.branch_address,
-            tenant_tax_registration_id: input.tenant_tax_registration_id,
-            // RT-1348: the pairing was just made against THIS process's backend.
-            api_origin: apiOrigin ?? null,
-          });
-        });
-      } catch (err) {
-        // Compensation. We deliberately swallow any error from delete()
-        // because the original SQL failure is the load-bearing one to
-        // surface; a stacked compensation failure would obscure it.
-        await secretStore.delete(deviceTokenKey).catch(() => {
-          /* noop — original SQL error is the one the caller cares about */
-        });
-        throw err;
+        await secretStore.set(
+          deviceTokenKey,
+          sealDeviceToken(input.device_token, input, input.expires_at ?? null),
+        );
+        await writePairingRow(input);
+      } finally {
+        pairingWriteInFlight = false;
       }
       revokedInMemory = false;
       generation += 1;

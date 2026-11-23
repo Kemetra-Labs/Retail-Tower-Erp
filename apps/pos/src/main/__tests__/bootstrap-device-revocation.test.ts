@@ -95,9 +95,11 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
   it('RT-601: backendFetch is the reachability seam only, never the device-401 detector', () => {
     // RT-634: the base fetch carries X-Request-Id; RT-719 adds the build identity headers
     // (device-token reporting requests only); the observation layers sit above both.
+    // RT-373: the rotation wraps that observed fetch only to READ the rotate-soon hint headers.
     expect(source).toMatch(
-      /const backendFetch = terminalStatus\.observeFetch\(backendBaseFetch\);/,
+      /registerDeviceTokenRotation\(\{\s*baseUrl: apiBaseUrl,\s*fetch: terminalStatus\.observeFetch\(backendBaseFetch\),/,
     );
+    expect(source).toMatch(/const backendFetch = deviceTokenRotation\.fetch;/);
     expect(source).toMatch(
       /const backendBaseFetch = withBuildIdentity\(\s*withRequestId\(globalThis\.fetch\.bind\(globalThis\), \{\s*logger: mainLogger,\s*\}\),\s*\{\s*baseUrl: resolveApiBaseUrl\(\),\s*identity: \(\) => telemetry\.buildIdentity,\s*readDeviceToken: readSendableDeviceToken,\s*\},?\s*\);/,
     );
@@ -114,7 +116,7 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
 
   it('the confirmation call uses an UNOBSERVED admission client', () => {
     expect(source).toMatch(
-      /probe: createRosterConfirmationProbe\(\s*createCashierAdmissionClient\(\{\s*baseUrl: apiBaseUrl,\s*fetch: backendFetch,/,
+      /probe: deviceTokenRotation\.recoveryFirst\(\s*createRosterConfirmationProbe\(\s*createCashierAdmissionClient\(\{\s*baseUrl: apiBaseUrl,\s*fetch: backendFetch,/,
     );
   });
 

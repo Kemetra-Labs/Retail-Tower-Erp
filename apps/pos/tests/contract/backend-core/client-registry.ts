@@ -47,6 +47,7 @@ import { runLivenessProbe } from '../../../src/main/terminal-status/liveness-pro
 import { createBackendTransport } from '../../../src/main/http/transport.js';
 import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
 import { createHeartbeatClient } from '../../../src/main/device-health/heartbeat-client.js';
+import { createBackendRotationClient } from '../../../src/main/device-token-rotation/rotation-client.js';
 import { createUnknownItemCaptureClient } from '../../../src/main/unknown-items/capture-client.js';
 import { createQuarantineUploadClient } from '../../../src/main/quarantine-upload/quarantine-upload-client.js';
 import {
@@ -298,6 +299,9 @@ const telemetryConfigClient = (fetch: FetchLike): ReturnType<typeof createTeleme
 const heartbeatClient = (fetch: FetchLike): ReturnType<typeof createHeartbeatClient> =>
   createHeartbeatClient({ baseUrl: BASE_URL, fetch });
 
+const rotationClient = (fetch: FetchLike): ReturnType<typeof createBackendRotationClient> =>
+  createBackendRotationClient(BASE_URL, fetch);
+
 const BACKEND_CLIENT = 'src/main/operator/backend-client.ts';
 const CASHIER_ADMISSION_CLIENT = 'src/main/operator/cashier-admission-client.ts';
 const CASHIER_ADMISSION_WIRING =
@@ -320,6 +324,7 @@ const LIVENESS_PROBE = 'src/main/terminal-status/liveness-probe.ts';
 const TELEMETRY_CONFIG_MODULE = 'src/main/observability/telemetry-config.ts';
 const TUNNEL_TRANSPORT_MODULE = 'src/main/observability/tunnel-transport.ts';
 const HEARTBEAT_MODULE = 'src/main/device-health/heartbeat-client.ts';
+const ROTATION_MODULE = 'src/main/device-token-rotation/rotation-client.ts';
 const TELEMETRY_WIRING =
   'bootstrap/telemetry.ts bind(): `readToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215), on the shared base fetch BEFORE the terminal-status observer (a telemetry 401 never counts toward a revocation)';
 
@@ -369,6 +374,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   // RT-1312 Phase 1: the device heartbeat with the sale queue counts (device bearer, on the
   // shared transport).
   { module: HEARTBEAT_MODULE, fetchCallSites: 0, surface: heartbeatClient },
+  // RT-373: the device token rotation (device bearer, on the shared transport).
+  { module: ROTATION_MODULE, fetchCallSites: 0, surface: rotationClient },
   // RT-1490: the unknown-item capture (operator envelope, on the shared transport).
   { module: UNKNOWN_ITEM_CAPTURE_MODULE, fetchCallSites: 0, surface: unknownItemCaptureClient },
   // RT-1312 Phase 3(c): the sale-quarantine upload (device bearer, on the shared transport).
@@ -447,6 +454,12 @@ export const TRANSPORT_DECORATORS: ReadonlyArray<{
     fetchCallSites: 1,
     reason:
       'RT-719 withBuildIdentity wraps the same base fetch and, only on the device-token requests of the thirteen reporting operations, adds the optional X-POS-Build-Commit and X-POS-Contract-Pin headers (pos-terminal-pairing.openapi.yaml "Build identity report"; a header never fails or changes a request); every other request, and the body and response, pass through untouched.',
+  },
+  {
+    module: 'src/main/bootstrap/device-token-rotation.ts',
+    fetchCallSites: 1,
+    reason:
+      'RT-373 wraps the shared backendFetch and only READS the RT-639 rotate-soon hint headers (X-Device-Token-Rotate-After / -Stage) off each answer to schedule a rotation; request and response pass through untouched.',
   },
   {
     module: 'src/main/observability/request-id.ts',
@@ -945,6 +958,16 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
       heartbeatClient(fetch).report(SENTINEL.device, {
         source_clock_at: '2026-11-10T12:00:00.000Z',
       }),
+  },
+  {
+    id: 'rotationClient.rotate',
+    module: ROTATION_MODULE,
+    method: 'post',
+    pathTemplate: '/api/pos/v1/terminals/rotate',
+    wiring:
+      'bootstrap/device-token-rotation.ts: the token = the pairing store readRotationCredential (paired only; never once revoked, RT-215; bound to the stored pairing, RT-306), on the shared backendFetch',
+    invoke: (fetch) =>
+      rotationClient(fetch).rotate(SENTINEL.device, '0190d0f1-7c6e-7a10-8b2c-3d4e5f607182'),
   },
   {
     id: 'runLivenessProbe',
