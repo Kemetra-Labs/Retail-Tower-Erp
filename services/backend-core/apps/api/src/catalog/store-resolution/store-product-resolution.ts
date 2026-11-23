@@ -75,3 +75,36 @@ export function storedAmount(amount: string, currencyCode: string): string {
   const dot = amount.indexOf(".");
   return `${amount.slice(0, dot)}.${stripTrailingZeros(amount.slice(dot + 1))}`;
 }
+
+/** The resolved columns {@link classifyResolvedSellability} reads. */
+interface SellabilityInput {
+  readonly resolved_price: string | null;
+  readonly resolved_currency: string | null;
+  readonly resolved_active: boolean;
+  readonly retired_at: Date | null;
+}
+
+/**
+ * Whether a resolved row is in the store's sellable catalogue (read-down R5): active (the resolved flag and not retired),
+ * priced, with a currency, and representable in that currency's minor unit. An excluded row carries `priceRelated`, so the
+ * caller counts only price, currency and representability issues as an unpriced-issue signal (a retired or deactivated row
+ * is excluded but is not an unpriced issue).
+ *
+ * The one predicate behind the catalogue read-down and the POS availability snapshot (RT-1577), so both serve the same
+ * product set.
+ */
+export function classifyResolvedSellability(
+  row: SellabilityInput,
+): { readonly kind: "sellable" } | { readonly kind: "excluded"; readonly priceRelated: boolean } {
+  const active = row.resolved_active && row.retired_at === null;
+  if (row.resolved_price === null || row.resolved_currency === null) {
+    // null_price / missing_currency (the latter is unreachable as stored data, but guarded defensively). Price-related
+    // only if the row was otherwise active: an inactive unpriced row is excluded for activity, not price.
+    return { kind: "excluded", priceRelated: active };
+  }
+  if (!isRepresentable(row.resolved_price, row.resolved_currency)) {
+    return { kind: "excluded", priceRelated: true }; // non_representable
+  }
+  if (!active) return { kind: "excluded", priceRelated: false }; // retired / deactivated
+  return { kind: "sellable" };
+}

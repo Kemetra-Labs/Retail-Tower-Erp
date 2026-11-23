@@ -36,6 +36,7 @@ import { anyJsonObject, decodeOpaque, encodeOpaque } from "../../common/cursor/o
 import { runWithTenantContext } from "@data-pulse-2/db";
 import { recordCatalogUnpricedIssue } from "../../observability/metrics/api.metrics";
 import {
+  classifyResolvedSellability,
   pinOverrideStore,
   RESOLVED_STORE_COLUMNS_SQL,
   storeOverrideJoinSql,
@@ -48,7 +49,6 @@ import {
 } from "./read-down.cursor";
 import {
   toSellableRow,
-  isRepresentable,
   type ResolvedCatalogRow,
   type SellableCatalogRow,
 } from "./read-down.toBody";
@@ -424,20 +424,9 @@ export class ReadDownService {
   ):
     | { kind: "sellable"; row: ResolvedCatalogRow }
     | { kind: "excluded"; priceRelated: boolean } {
-    const active = row.resolved_active && row.retired_at === null;
-    const priced = row.resolved_price !== null && row.resolved_currency !== null;
-    if (!priced) {
-      // null_price / missing_currency (the latter is unreachable as stored data,
-      // but guarded defensively). Price-related only if the row was otherwise
-      // active (an inactive unpriced row is excluded for activity, not price).
-      return { kind: "excluded", priceRelated: active };
-    }
-    if (!isRepresentable(row.resolved_price as string, row.resolved_currency as string)) {
-      return { kind: "excluded", priceRelated: true }; // non_representable
-    }
-    if (!active) {
-      return { kind: "excluded", priceRelated: false }; // retired / deactivated
-    }
+    // RT-1577: the one predicate, shared with the POS availability snapshot.
+    const verdict = classifyResolvedSellability(row);
+    if (verdict.kind === "excluded") return verdict;
     return {
       kind: "sellable",
       row: {
