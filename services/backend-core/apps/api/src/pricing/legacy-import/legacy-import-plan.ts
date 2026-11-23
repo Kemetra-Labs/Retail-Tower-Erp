@@ -21,14 +21,14 @@
 import { representablePrice } from "../resolution/representable-price";
 import { instantToWallClock } from "../resolution/store-local-time";
 
-export interface LegacyBookPrice {
+interface LegacyBookPrice {
   readonly productId: string;
   /** `numeric(19,4)` as text. */
   readonly price: string;
   readonly currencyCode: string;
 }
 
-export interface LegacyStorePrice extends LegacyBookPrice {
+interface LegacyStorePrice extends LegacyBookPrice {
   readonly storeId: string;
 }
 
@@ -61,7 +61,7 @@ export interface PlannedEvent {
   readonly fromLocal: Date;
 }
 
-export type ExceptionClass = "zero_price" | "not_representable";
+type ExceptionClass = "zero_price" | "not_representable";
 
 export interface ImportException {
   readonly cls: ExceptionClass;
@@ -73,7 +73,14 @@ export interface ImportException {
 export type RefusalReason = "multi_currency_tenant" | "currency_mismatch" | "reference_zone_required";
 
 export type ImportPlan =
-  | { readonly kind: "ok"; readonly events: PlannedEvent[]; readonly exceptions: ImportException[]; readonly currencyCode: string }
+  | {
+      readonly kind: "ok";
+      readonly events: PlannedEvent[];
+      readonly exceptions: ImportException[];
+      readonly currencyCode: string;
+      /** The zone the book-event starts were taken in (MC-1), recorded with the run. */
+      readonly bookZone: string;
+    }
   | { readonly kind: "refused"; readonly reason: RefusalReason; readonly currencies: string[] };
 
 const ZERO = /^0*(?:\.0*)?$/;
@@ -124,5 +131,17 @@ export function planLegacyImport(legacy: LegacyPrices, inputs: ImportInputs, sto
     if (zone === undefined) throw new Error(`legacy import: no zone for store ${storeId}`);
     events.push({ scope, storeId, productId: row.productId, price: c.price, fromLocal: instantToWallClock(at, zone) });
   }
-  return { kind: "ok", events, exceptions, currencyCode: inputs.currencyCode };
+  return { kind: "ok", events, exceptions, currencyCode: inputs.currencyCode, bookZone };
+}
+
+/**
+ * The revision's `earliest_effective_at` (data-model §2.5): the earliest `store_local` start read at
+ * UTC+14:00, so it holds for every Store. A loop, not `Math.min(...)`: a large tenant has more
+ * events than a call can take as arguments.
+ */
+export function earliestEffectiveAt(events: readonly PlannedEvent[]): Date {
+  let earliest = Number.POSITIVE_INFINITY;
+  for (const e of events) earliest = Math.min(earliest, e.fromLocal.getTime());
+  if (earliest === Number.POSITIVE_INFINITY) throw new Error("legacy import: no event to publish");
+  return new Date(earliest - 14 * 3_600_000);
 }

@@ -13,7 +13,7 @@ import { newId } from "@data-pulse-2/shared";
 import type { PoolClient } from "pg";
 
 import { liveAndNamedStores } from "../../stores";
-import type { ImportInputs, PlannedEvent } from "./legacy-import-plan";
+import { earliestEffectiveAt, type ImportInputs, type PlannedEvent } from "./legacy-import-plan";
 
 type Queryable = Pick<PoolClient, "query">;
 
@@ -132,12 +132,10 @@ export async function publishLegacyImport(client: Queryable, w: Writer, book: Re
      VALUES ($1, $2, 'pricing', 'legacy_import', $3, 'draft', $4, $5)`,
     [changeSetId, w.tenantId, IMPORT_TITLE, w.actorUserId, w.correlationId],
   );
-  // earliest_effective_at (data-model §2.5): the earliest start, a store_local start taken at UTC+14:00.
-  const earliest = Math.min(...events.map((e) => e.fromLocal.getTime())) - 14 * 3_600_000;
   await client.query(
     `INSERT INTO pricing_revisions (id, tenant_id, revision_no, change_set_id, kind, published_by_user_id, earliest_effective_at, correlation_id)
      VALUES ($1, $2, $3, $4, 'legacy_import', $5, $6, $7)`,
-    [newId(), w.tenantId, revisionNo, changeSetId, w.actorUserId, new Date(earliest), w.correlationId],
+    [newId(), w.tenantId, revisionNo, changeSetId, w.actorUserId, earliestEffectiveAt(events), w.correlationId],
   );
   await client.query(
     `UPDATE change_sets SET state = 'published', revision_no = $3, published_by_user_id = $4, published_at = now()

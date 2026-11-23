@@ -3,18 +3,20 @@
  * by the operator CLI (`cli/pricing-legacy-import.ts`). Order:
  *
  *   1. The tenant's pricing publish lock (spec 042 §8), first.
- *   2. Refusals, before any write: authority not `legacy` (§4.3; the cutover caller of PR-16b does
+ *   2. Watermark (§4.3 step 2): the tenant's `catalog_change_log` head, read before any legacy
+ *      price, and the import instant.
+ *   3. Refusals, before any write: authority not `legacy` (§4.3; the cutover caller of PR-16b does
  *      not exist yet, so `cutover_in_progress` is refused too); a non-empty `price_history`; the
  *      planner's refusals (multi-currency tenant, currency mismatch, no reference zone); an
  *      existing Book whose currency or tax basis differs from the declared MC-10 inputs.
- *   3. Watermark: the tenant's `catalog_change_log` head and the import instant.
  *   4. First import (no revision yet): create the Book and default Zone when missing (§4.1), then
  *      publish the `legacy_import` set as revision 1 with one event per accepted row (§4.2). A
  *      tenant with no accepted row gets its Book and no revision ("an empty diff creates none").
  *   5. Re-run (revision 1 is the import): when the active events equal the legacy state, nothing
  *      is written but the run row (a no-op). Any difference is a delta, which this slice refuses:
  *      0123 allows a `legacy_import` set only once per tenant and only as revision 1 (owner
- *      decision RT-1151 c17827), so the §4.3 delta publication needs an owner decision first.
+ *      decision RT-1151 c17827). The owner chose to amend 0123 (2026-11-23); the §4.3 delta
+ *      publication lands with that amendment in PR-16a-2b.
  *      A tenant whose revisions did not start with the import is refused.
  *   6. The run row (§4.3 step 5) and the audit rows: `pricing.price_book.created` when the Book was
  *      created here, `pricing.change_set.published` when the revision was.
@@ -46,7 +48,7 @@ import {
 
 type Queryable = Pick<PoolClient, "query">;
 
-export interface LegacyImportRequest {
+interface LegacyImportRequest {
   readonly tenantId: string;
   readonly inputs: ImportInputs;
   /** The operator who runs the import: `created_by_user_id` and the audit actor. */
@@ -58,7 +60,7 @@ export interface LegacyImportRequest {
   readonly dryRun: boolean;
 }
 
-export type LegacyImportRefusal =
+type LegacyImportRefusal =
   | RefusalReason
   | "authority_not_legacy"
   | "price_history_present"
@@ -66,7 +68,7 @@ export type LegacyImportRefusal =
   | "tenant_has_pricing_revisions"
   | "delta_import_pending_decision";
 
-export interface ImportCounts {
+interface ImportCounts {
   readonly bookEvents: number;
   readonly storeEvents: number;
   readonly zeroPrice: number;
@@ -84,6 +86,9 @@ export type LegacyImportResult =
       readonly changeLogSequence: number;
       readonly counts: ImportCounts;
       readonly exceptions: readonly ImportException[];
+      /** The zone of the book-event starts: the westernmost Store zone, or the reference zone (MC-1). */
+      readonly bookZone: string;
+      readonly referenceZone: string | null;
     };
 
 const refused = (reason: LegacyImportRefusal, detail: Record<string, unknown> = {}): LegacyImportResult => ({ outcome: "refused", reason, detail });
@@ -129,9 +134,10 @@ interface Checked {
   readonly exceptions: readonly ImportException[];
   readonly existing: RetailBook | null;
   readonly head: number | null;
+  readonly bookZone: string;
 }
 
-/** Steps 2 and 5 (order of the header): every refusal, before any write. */
+/** Steps 3 and 5 (order of the header): every refusal, before any write. */
 async function check(client: Queryable, req: LegacyImportRequest): Promise<Checked | LegacyImportResult> {
   const { tenantId, inputs } = req;
   const authority = await tenantAuthority(client, tenantId);
@@ -149,7 +155,7 @@ async function check(client: Queryable, req: LegacyImportRequest): Promise<Check
     if (existing === null || (await legacyImportRevision(client, tenantId)) !== 1) return refused("tenant_has_pricing_revisions", { head });
     if (!(await matchesLegacy(client, tenantId, existing, plan.events))) return refused("delta_import_pending_decision", { head });
   }
-  return { events: plan.events, exceptions: plan.exceptions, existing, head };
+  return { events: plan.events, exceptions: plan.exceptions, existing, head, bookZone: plan.bookZone };
 }
 
 /** Steps 4 and 6: the Book when missing, revision 1 on a first import with events, the audit rows. */
@@ -174,6 +180,8 @@ async function write(client: Queryable, w: Writer, inputs: ImportInputs, c: Chec
     book_event_count: counts.bookEvents,
     store_event_count: counts.storeEvents,
     exception_count: c.exceptions.length,
+    book_zone: c.bookZone,
+    reference_zone: inputs.referenceZone,
   });
   return { book, revisionNo: publication.revisionNo };
 }
@@ -181,17 +189,27 @@ async function write(client: Queryable, w: Writer, inputs: ImportInputs, c: Chec
 /** Runs the import on `client`, already inside the tenant's `pricing_legacy_import` transaction. */
 export async function runLegacyImport(client: Queryable, req: LegacyImportRequest): Promise<LegacyImportResult> {
   await lockPricingPublish(client, req.tenantId);
+  // §4.3 step 2 before step 3: the watermark is read before any legacy price, so a change committed
+  // in between is above it (an `import_lag` mismatch, §5.3), never below it.
+  const changeLogSequence = await catalogChangeLogHead(client, req.tenantId);
   const checked = await check(client, req);
   if ("outcome" in checked) return checked;
-  const changeLogSequence = await catalogChangeLogHead(client, req.tenantId);
   const counts = countsOf(checked.events, checked.exceptions);
-  const base = { counts, exceptions: checked.exceptions, changeLogSequence };
+  const base = {
+    counts,
+    exceptions: checked.exceptions,
+    changeLogSequence,
+    bookZone: checked.bookZone,
+    referenceZone: req.inputs.referenceZone,
+  };
   if (req.dryRun) return { outcome: "dry_run", revisionNo: null, priceBookId: checked.existing?.id ?? null, bookCreated: false, runId: null, ...base };
 
   const w: Writer = { tenantId: req.tenantId, actorUserId: req.actorUserId, correlationId: req.correlationId };
   const { book, revisionNo } = await write(client, w, req.inputs, checked, counts);
   const outcome = revisionNo === null ? "no_change" : "imported";
   const runId = newId();
-  await recordImportRun(client, w, { id: runId, at: req.at, changeLogSequence, revisionNo, counts: { ...counts, outcome } });
+  // MC-10: the declared inputs are recorded with the run (the zones are in no other column).
+  const recorded = { ...counts, outcome, bookZone: checked.bookZone, referenceZone: req.inputs.referenceZone ?? "" };
+  await recordImportRun(client, w, { id: runId, at: req.at, changeLogSequence, revisionNo, counts: recorded });
   return { outcome, revisionNo, priceBookId: book.id, bookCreated: checked.existing === null, runId, ...base };
 }

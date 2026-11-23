@@ -88,10 +88,16 @@ function printText(out: ImportCliIo["out"], tenantId: string, result: LegacyImpo
     `tenant ${tenantId}: ${result.outcome}; revision ${result.revisionNo ?? "-"}; price book ${result.priceBookId ?? "-"}` +
       `${result.bookCreated ? " (created)" : ""}; change-log watermark ${result.changeLogSequence}`,
   );
+  const ignored =
+    result.referenceZone !== null && result.referenceZone !== result.bookZone ? " (the tenant has Stores: --reference-zone ignored)" : "";
+  out(`  book-event zone: ${result.bookZone}${ignored}`);
   out(`  events: ${c.bookEvents} book, ${c.storeEvents} store; exceptions: ${c.zeroPrice} zero_price, ${c.notRepresentable} not_representable`);
   for (const x of result.exceptions) out(`  exception ${x.cls} ${x.scope} product ${x.productId}${x.storeId === null ? "" : ` store ${x.storeId}`}`);
   if (result.exceptions.length > 0) {
-    out("Each exception blocks this tenant's cutover (spec 044 §4.4): fix it on the legacy side, then re-run.");
+    out(
+      "Each exception blocks this tenant's cutover (spec 044 §4.4): fix it on the legacy side. After revision 1 a fix is a " +
+        "delta, which this CLI refuses until the delta import (RT-1485 PR-16a-2b) lands; a dry run lists the exceptions first.",
+    );
   }
 }
 

@@ -53,6 +53,8 @@ const imported: LegacyImportResult = {
   changeLogSequence: 42,
   counts: { bookEvents: 2, storeEvents: 1, zeroPrice: 1, notRepresentable: 0 },
   exceptions: [{ cls: "zero_price", scope: "store", storeId: "0a000000-0000-7000-8000-0000000014d0", productId: "0a000000-0000-7000-8000-0000000014e0" }],
+  bookZone: "Africa/Cairo",
+  referenceZone: null,
 };
 
 async function cli(argv: readonly string[], result: LegacyImportResult): Promise<{ code: number; lines: string[]; calls: ParsedArgs[] }> {
@@ -81,6 +83,13 @@ describe("runImportCli", () => {
     expect(r.lines[0]).toContain("(created)");
     expect(r.lines.join("\n")).toContain("exception zero_price store product 0a000000-0000-7000-8000-0000000014e0 store 0a000000-0000-7000-8000-0000000014d0");
     expect(r.lines.at(-1)).toContain("blocks this tenant's cutover");
+    expect(r.lines.at(-1)).toContain("PR-16a-2b");
+    expect(r.lines[1]).toBe("  book-event zone: Africa/Cairo");
+  });
+
+  it("says when --reference-zone was ignored because the tenant has Stores", async () => {
+    const r = await cli(BASE, { ...imported, referenceZone: "Europe/London" });
+    expect(r.lines[1]).toBe("  book-event zone: Africa/Cairo (the tenant has Stores: --reference-zone ignored)");
   });
 
   it("exits 3 on a refusal and prints its reason", async () => {

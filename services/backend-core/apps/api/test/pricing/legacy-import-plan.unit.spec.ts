@@ -1,7 +1,7 @@
 /**
  * RT-1485 PR-16a-2a — the pure legacy import planner (spec 044 §4.1, §4.2, §4.4, MC-1, MC-2, MC-10).
  */
-import { planLegacyImport, type LegacyPrices, type ImportInputs } from "../../src/pricing/legacy-import/legacy-import-plan";
+import { earliestEffectiveAt, planLegacyImport, type ImportInputs, type LegacyPrices, type PlannedEvent } from "../../src/pricing/legacy-import/legacy-import-plan";
 import { instantToWallClock } from "../../src/pricing/resolution/store-local-time";
 
 const P1 = "0a000000-0000-7000-8000-000000000a01";
@@ -36,6 +36,7 @@ describe("planLegacyImport — mapping (§4.2)", () => {
     ]);
     expect(plan.exceptions).toEqual([]);
     expect(plan.currencyCode).toBe("EGP");
+    expect(plan.bookZone).toBe("Africa/Cairo");
   });
 
   it("Cairo wall clock of T is T + 2h (winter)", () => {
@@ -44,7 +45,7 @@ describe("planLegacyImport — mapping (§4.2)", () => {
 
   it("a tenant with no priced rows plans no events but still succeeds (the Book comes from the declared currency)", () => {
     const plan = planLegacyImport(legacy(), EGP, [{ id: S_CAIRO, timezone: "Africa/Cairo" }], T);
-    expect(plan).toEqual({ kind: "ok", events: [], exceptions: [], currencyCode: "EGP" });
+    expect(plan).toEqual({ kind: "ok", events: [], exceptions: [], currencyCode: "EGP", bookZone: "Africa/Cairo" });
   });
 });
 
@@ -147,6 +148,24 @@ describe("planLegacyImport — bounds (MC-1)", () => {
     );
     if (plan.kind !== "ok") throw new Error("expected ok");
     expect(plan.events[0]!.fromLocal.toISOString()).toBe(wall("2026-11-01T01:30:00.000Z"));
+  });
+});
+
+describe("earliestEffectiveAt", () => {
+  it("is the earliest start minus 14 hours, and handles far more events than a call can take as arguments", () => {
+    const base = Date.UTC(2026, 10, 23, 12, 0, 0);
+    const events: PlannedEvent[] = Array.from({ length: 200_000 }, (_, i) => ({
+      scope: "store",
+      storeId: S_CAIRO,
+      productId: P1,
+      price: "1.0000",
+      fromLocal: new Date(base + (i === 123_456 ? -60_000 : i)),
+    }));
+    expect(earliestEffectiveAt(events).toISOString()).toBe(new Date(base - 60_000 - 14 * 3_600_000).toISOString());
+  });
+
+  it("refuses an empty event list", () => {
+    expect(() => earliestEffectiveAt([])).toThrow("no event");
   });
 });
 

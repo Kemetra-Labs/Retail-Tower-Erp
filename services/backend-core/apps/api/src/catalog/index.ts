@@ -11,13 +11,7 @@ export {
   tenantProductLiveness,
   trackingModesOfProducts,
 } from "./product-lookups";
-export {
-  catalogChangeLogHead,
-  legacyPriceHistoryCount,
-  readLegacyPrices,
-  type LegacyOverridePrice,
-  type LegacyTenantPrice,
-} from "./legacy-price-reads";
+export { catalogChangeLogHead, legacyPriceHistoryCount, readLegacyPrices } from "./legacy-price-reads";
 export { lockProductProfiles } from "./tracking-profile/tracking-profile-lock";
 export { readStoreProductTracking, type StoreProductTracking } from "./store-resolution/store-product-tracking";
 export { productNamesByIds, productTrackingProfiles, tenantProductVisible } from "./product-lookups";

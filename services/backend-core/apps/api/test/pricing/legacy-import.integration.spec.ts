@@ -101,6 +101,8 @@ async function seed(): Promise<void> {
   await seedOverride(T1, S_CAIRO, P.priced, "9.75");
   await seedOverride(T1, S_CAIRO, P.unpriced, null);
   await seedOverride(T1, S_LONDON_INACTIVE, P.priced, "8.00");
+  // A product retire keeps its overrides live; the import skips them (zero here: no false blocker).
+  await seedOverride(T1, S_CAIRO, P.retired, "0");
   // T2: two legacy currencies.
   await seedTenant(T2, "rt1485-t2");
   await seedStore(T2, S_T2, "T2S", "Africa/Cairo");
@@ -226,7 +228,14 @@ describe("legacy price import (RT-1485 PR-16a-2a)", () => {
     expect(fanOut.rows.map((x) => x.s)).toEqual([S_CAIRO, S_LONDON_INACTIVE].sort());
 
     const run = await admin().query(`SELECT revision_no::int, import_instant, counts FROM pricing_import_runs WHERE tenant_id = $1`, [T1]);
-    expect(run.rows).toEqual([{ revision_no: 1, import_instant: AT, counts: { bookEvents: 1, storeEvents: 2, zeroPrice: 1, notRepresentable: 1, outcome: "imported" } }]);
+    expect(run.rows).toEqual([
+      {
+        revision_no: 1,
+        import_instant: AT,
+        counts: { bookEvents: 1, storeEvents: 2, zeroPrice: 1, notRepresentable: 1, outcome: "imported", bookZone: "Europe/London", referenceZone: "" },
+      },
+    ]);
+    expect(r.bookZone).toBe("Europe/London");
     expect(r.changeLogSequence).toBeGreaterThan(0);
 
     const audits = await admin().query(`SELECT action, actor_user_id::text AS actor FROM audit_events WHERE tenant_id = $1 ORDER BY action`, [T1]);

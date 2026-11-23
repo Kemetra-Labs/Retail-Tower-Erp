@@ -9,19 +9,21 @@ import type { PoolClient } from "pg";
 type Queryable = Pick<PoolClient, "query">;
 
 /** A priced live tenant product (`retired_at IS NULL AND default_price IS NOT NULL`). */
-export interface LegacyTenantPrice {
+interface LegacyTenantPrice {
   readonly productId: string;
   readonly price: string;
   readonly currencyCode: string;
 }
 
-/** A priced live override (`retired_at IS NULL AND price IS NOT NULL`). */
-export interface LegacyOverridePrice extends LegacyTenantPrice {
+/** A priced live override of a live product (both `retired_at IS NULL`, `price IS NOT NULL`). */
+interface LegacyOverridePrice extends LegacyTenantPrice {
   readonly storeId: string;
 }
 
 /**
  * The tenant's priced live legacy rows, ordered by product (and Store), so a plan is deterministic.
+ * An override of a retired product is skipped: a product retire keeps its overrides live, but the
+ * product is gone for the import (spec 044 §4.2, §4.3).
  * The import reads every Store's overrides, so it sets the tenant-wide store GUC (`'*'`) for the
  * rest of the caller's transaction, as the console catalogue detail does: `store_product_overrides`
  * otherwise shows no row when `app.current_store` is empty (0011 carve-out, fail closed).
@@ -39,10 +41,11 @@ export async function readLegacyPrices(
   );
   await client.query("SELECT set_config('app.current_store', '*', true)");
   const store = await client.query<LegacyOverridePrice>(
-    `SELECT store_id::text AS "storeId", product_id::text AS "productId", price::text AS price, currency_code AS "currencyCode"
-       FROM store_product_overrides
-      WHERE tenant_id = $1::uuid AND retired_at IS NULL AND price IS NOT NULL
-      ORDER BY product_id, store_id`,
+    `SELECT o.store_id::text AS "storeId", o.product_id::text AS "productId", o.price::text AS price, o.currency_code AS "currencyCode"
+       FROM store_product_overrides o
+       JOIN tenant_products p ON p.tenant_id = o.tenant_id AND p.id = o.product_id AND p.retired_at IS NULL
+      WHERE o.tenant_id = $1::uuid AND o.retired_at IS NULL AND o.price IS NOT NULL
+      ORDER BY o.product_id, o.store_id`,
     [tenantId],
   );
   return { book: book.rows, store: store.rows };

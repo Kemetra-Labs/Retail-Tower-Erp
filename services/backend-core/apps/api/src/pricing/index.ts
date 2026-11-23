@@ -5,11 +5,6 @@
  *
  * RT-1485 (spec 044 PR-16a-2a): the legacy price import, for the operator CLI.
  */
-export {
-  runLegacyImport,
-  type LegacyImportRefusal,
-  type LegacyImportRequest,
-  type LegacyImportResult,
-} from "./legacy-import/legacy-import";
-export type { ImportException, ImportInputs } from "./legacy-import/legacy-import-plan";
+export { runLegacyImport, type LegacyImportResult } from "./legacy-import/legacy-import";
+export type { ImportInputs } from "./legacy-import/legacy-import-plan";
 export { assertTimeZone } from "./resolution/store-local-time";
