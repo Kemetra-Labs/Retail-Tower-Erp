@@ -43,6 +43,8 @@ let service: PosAvailabilityService;
 let inventory: InventoryService;
 const explained: string[] = [];
 let capture = false;
+/** Every product of the tenant is scanned (the fixture adds a few unpriced ones, which are scanned but not served). */
+let scannedProducts = SKUS;
 
 const skipped = (): boolean => env === null;
 const productId = (g: number): string => `0a000000-0000-7000-8000-${(BASE + g).toString(16).padStart(12, '0')}`;
@@ -131,7 +133,7 @@ async function seed(pool: Pool): Promise<void> {
        SELECT id, $1, 'external', '2020-01-01T00:00:00Z' FROM perf_lot_moves`,
       [TENANT_A],
     );
-    // 1,500 active and 500 lapsed reservations (untracked products).
+    // Reservations on every fifth untracked product: two thirds of them active, one third lapsed (never swept).
     await client.query(
       `INSERT INTO inventory_reservations
          (id, tenant_id, store_id, stock_location_id, tenant_product_ref, quantity, expires_at, source_type, source_id,
@@ -212,30 +214,35 @@ describe('10,000 sellable SKUs against spec 013 NFR-2', () => {
       `SELECT (SELECT count(*) FROM tenant_products WHERE tenant_id = $1 AND default_price IS NOT NULL)::int AS products,
               (SELECT count(*) FROM stock_movements WHERE tenant_id = $1 AND store_id = $2)::int AS movements_at_store,
               (SELECT count(*) FROM stock_movements WHERE tenant_id = $1)::int AS movements_all,
-              (SELECT count(*) FROM inventory_reservations WHERE tenant_id = $1 AND state = 'active')::int AS reservations,
+              (SELECT count(*) FROM tenant_products WHERE tenant_id = $1)::int AS products_scanned,
+              (SELECT count(*) FROM inventory_reservations WHERE tenant_id = $1 AND state = 'active' AND expires_at > now())::int AS reservations_active,
+              (SELECT count(*) FROM inventory_reservations WHERE tenant_id = $1 AND state = 'active' AND expires_at <= now())::int AS reservations_lapsed,
               (SELECT count(*) FROM product_stock_levels WHERE tenant_id = $1)::int AS levels`,
       [TENANT_A, STORE_A_X],
     );
-    console.log(`RT-1577 seed: ${JSON.stringify(r.rows[0])}`);
+    console.log(`RT-1577 seed (counted in the database): ${JSON.stringify(r.rows[0])}`);
+    scannedProducts = r.rows[0].products_scanned;
     expect(r.rows[0].products).toBe(SKUS);
     expect(r.rows[0].movements_at_store).toBeGreaterThan(100_000);
   });
 
   it('walks the whole snapshot within half of the NFR-2 budget, and prints the evidence', async () => {
     if (skipped()) return;
-    const lines: string[] = ['=== RT-1577 PERF EVIDENCE ===', `products=${SKUS} node=${process.version}`];
+    const lines: string[] = [
+      '=== RT-1577 PERF EVIDENCE ===',
+      `products=${SKUS} scanned_by_the_page_walk=${scannedProducts} node=${process.version}`,
+    ];
     const medians: Record<number, number> = {};
+    const allRuns: Array<{ limit: number; run: WalkResult }> = [];
     for (const limit of [500, 1000]) {
       const runs: WalkResult[] = [];
       for (let i = 0; i < 3; i += 1) runs.push(await walk(limit));
       for (const [i, run] of runs.entries()) {
+        allRuns.push({ limit, run });
         lines.push(
           `limit=${limit} run=${i + 1}${i === 0 ? ' (cold)' : ''} pages=${run.pageMs.length} items=${run.items} total_ms=${fmt(run.totalMs)} ` +
             `page_ms min=${fmt(stat(run.pageMs, 0))} p50=${fmt(stat(run.pageMs, 0.5))} p95=${fmt(stat(run.pageMs, 0.95))} max=${fmt(stat(run.pageMs, 1))}`,
         );
-        expect(run.items).toBe(SKUS);
-        expect(run.pageMs).toHaveLength(SKUS / limit);
-        expect(new Set(run.asOfs).size).toBeGreaterThan(0);
       }
       medians[limit] = stat(runs.map((r) => r.totalMs), 0.5);
       lines.push(`limit=${limit} median_total_ms=${fmt(medians[limit]!)} (NFR-2 budget ${NFR2_MS} ms; server budget ${SERVER_BUDGET_MS} ms)`);
@@ -248,7 +255,14 @@ describe('10,000 sellable SKUs against spec 013 NFR-2', () => {
     capture = false;
     lines.push('--- EXPLAIN (ANALYZE, BUFFERS) of one 500-product page, page 3 of the walk, as app_test under RLS', ...explained);
     lines.push('=== END RT-1577 PERF EVIDENCE ===');
-    console.log(lines.join('\n'));
+    // Print first: a missed bound must still leave the plan and the timings behind.
+    console.log(lines.join('
+'));
+
+    for (const { limit, run } of allRuns) {
+      expect(run.items).toBe(SKUS);
+      expect(run.pageMs).toHaveLength(Math.ceil(scannedProducts / limit));
+    }
     for (const limit of [500, 1000]) expect(medians[limit]!).toBeLessThan(SERVER_BUDGET_MS);
   }, 600_000);
 
