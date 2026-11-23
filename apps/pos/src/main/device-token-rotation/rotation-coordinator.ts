@@ -104,6 +104,22 @@ function expiryMs(expiresAt: string | null): number | null {
   return Number.isNaN(ms) ? null : ms;
 }
 
+/**
+ * The wait before the next try, or null to stop. A lost answer waits the next
+ * overlap delay. A 429 after an earlier try of the same rotation waits its
+ * `Retry-After`: that earlier try may have rotated, so the old token has at
+ * most 10 minutes left. A 429 on the first try only defers.
+ */
+function nextWait(
+  outcome: RotationOutcome | 'retry',
+  result: RotationResult,
+  tries: number,
+): number | null {
+  if (outcome === 'retry') return OVERLAP_RETRY_DELAYS_MS[tries - 1] ?? null;
+  if (result.kind === 'rate_limited' && tries > 1) return result.retryAfterMs;
+  return null;
+}
+
 export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): DeviceTokenRotation {
   let inFlight: Promise<RotationOutcome> | null = null;
   /** Whether the run in flight is a forced (RT-215 recovery) one. */
@@ -206,22 +222,6 @@ export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): Device
   async function stillHeld(binding: PairingBinding): Promise<RotationCredential | null> {
     const cred = await deps.store.readRotationCredential();
     return cred !== null && bindingKey(cred.binding) === bindingKey(binding) ? cred : null;
-  }
-
-  /**
-   * The wait before the next try, or null to stop. A lost answer waits the next
-   * overlap delay. A 429 after an earlier try of the same rotation waits its
-   * `Retry-After`: that earlier try may have rotated, so the old token has at
-   * most 10 minutes left. A 429 on the first try only defers.
-   */
-  function nextWait(
-    outcome: RotationOutcome | 'retry',
-    result: RotationResult,
-    tries: number,
-  ): number | null {
-    if (outcome === 'retry') return OVERLAP_RETRY_DELAYS_MS[tries - 1] ?? null;
-    if (result.kind === 'rate_limited' && tries > 1) return result.retryAfterMs;
-    return null;
   }
 
   async function attempt(force: boolean): Promise<RotationOutcome> {
