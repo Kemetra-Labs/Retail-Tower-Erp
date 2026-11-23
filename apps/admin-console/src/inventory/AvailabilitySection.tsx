@@ -42,6 +42,16 @@ function Figure({
   );
 }
 
+/** The one-line meaning under a label; a hidden stop keeps it out of the term's name. */
+function Hint({ text }: Readonly<{ text: string }>): React.JSX.Element {
+  return (
+    <>
+      <span className="sr-only">. </span>
+      <span className="inventory__hint">{text}</span>
+    </>
+  );
+}
+
 /** One ledger row: a label with the one-line meaning of the figure under it. */
 function Row({
   label,
@@ -65,7 +75,7 @@ function Row({
       label={
         <>
           {t(label)}
-          {hint ? <span className="inventory__hint">{t(hint)}</span> : null}
+          {hint ? <Hint text={t(hint)} /> : null}
         </>
       }
     >
@@ -179,17 +189,17 @@ function OutsideAts({
         label={
           <>
             {t("inventory.availability.onOrder")}
-            <span className="inventory__hint">{t("inventory.availability.hint.onOrder")}</span>
+            <Hint text={t("inventory.availability.hint.onOrder")} />
           </>
         }
       >
         <span data-testid="availability-on-order">
-          {a.onOrder === null ? (
-            t("inventory.availability.onOrderNone")
-          ) : (
+          {typeof a.onOrder === "string" ? (
             <>
               <Quantity value={a.onOrder} /> <Unit unit={unit} />
             </>
+          ) : (
+            t("inventory.availability.onOrderNone")
           )}
         </span>
       </LedgerField>
@@ -197,9 +207,12 @@ function OutsideAts({
   );
 }
 
-/** A decimal string below zero: the API's own sign, read, never parsed. */
-function isNegative(value: string): boolean {
-  return value.trim().startsWith("-");
+/**
+ * A decimal string below zero: the API's own sign, read, never parsed. A
+ * negative zero is not below zero, and a missing value is not negative.
+ */
+function isNegative(value: unknown): boolean {
+  return typeof value === "string" && value.trim().startsWith("-") && /[1-9]/.test(value);
 }
 
 /** Available To Sell with no answer: Unknown, never zero. */

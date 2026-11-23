@@ -142,10 +142,10 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.availability.hint.primarySellable": "The only location sold from",
   "inventory.availability.hint.expired": "Sellable stock past its expiry date",
   "inventory.availability.hint.reserved": "Reserved and not yet lapsed",
-  "inventory.availability.hint.safety": "Zero until a safety-stock policy exists",
+  "inventory.availability.hint.safety": "Held back by a safety-stock policy",
   "inventory.availability.hint.inTransitInbound": "On its way here; counts only once received",
   "inventory.availability.hint.inTransitOutbound": "Already left this store",
-  "inventory.availability.hint.onOrder": "No purchasing source exists yet",
+  "inventory.availability.hint.onOrder": "Ordered from suppliers, not yet received",
   "inventory.availability.negative":
     "Available to sell is below zero. It is shown as computed and never raised to zero.",
 

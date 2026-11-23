@@ -183,6 +183,30 @@ describe("stock quantities panel (RT-1579)", () => {
     expect(screen.getByTestId("availability-on-order").textContent).toBe("12.5000 kg");
   });
 
+  test("a negative zero is not below zero, and a partial availability never throws", async () => {
+    api.getOnHand.mockResolvedValue(
+      ok(
+        onHandWith({
+          availability: { ...availability({ availableToSell: "-0.0000" }), onOrder: undefined },
+        }),
+      ),
+    );
+    renderPage();
+    await screen.findByTestId("availability-ats");
+    expect(screen.queryByText(/Available to sell is below zero/)).toBeNull();
+    expect(screen.getByTestId("availability-on-order").textContent).toBe("Not available yet");
+  });
+
+  test("the hints stay true whatever the value: a nonzero safety figure is shown as sent", async () => {
+    api.getOnHand.mockResolvedValue(
+      ok(onHandWith({ availability: availability({ safetyProtection: "3.0000" }) })),
+    );
+    renderPage();
+    await screen.findByTestId("availability-ats");
+    expect(figure("safety")).toBe("3.0000 kg");
+    expect(screen.queryByText(/Zero until/)).toBeNull();
+  });
+
   test("the as-of time is the API's, in the store's time zone", async () => {
     renderPage();
     const asOf = await screen.findByTestId("availability-as-of");
@@ -220,7 +244,7 @@ describe("stock quantities panel (RT-1579)", () => {
     api.getOnHand.mockImplementation(never);
     renderPage();
     const panel = await screen.findByRole("region", { name: "Stock quantities" });
-    expect(panel.textContent).toMatch(/stock quantities/i);
+    expect(within(panel).getByRole("status").textContent).toMatch(/Loading stock quantities/);
     expect(within(panel).queryByTestId("availability-ats")).toBeNull();
     expect(screen.queryByTestId("availability-as-of")).toBeNull();
   });
