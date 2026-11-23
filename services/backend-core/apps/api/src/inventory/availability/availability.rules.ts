@@ -13,9 +13,9 @@ import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-qua
 import type { AvailabilityBody } from './availability.types';
 
 /** V1 safety protection (A-3): a policy value, not a stored quantity. */
-export const SAFETY_PROTECTION_V1 = 0n;
+const SAFETY_PROTECTION_V1 = 0n;
 
-export interface AvailabilityFacts {
+interface AvailabilityFacts {
   readonly primaryLocationId: string;
   readonly primarySellable: string;
   readonly expiredTrackedSellable: string;
