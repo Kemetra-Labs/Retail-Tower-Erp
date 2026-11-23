@@ -179,6 +179,16 @@ full command line, password included, is readable by other users through
 `/proc/<pid>/cmdline`. `DOMAIN_DB_ROLE` is the role name in `DATABASE_URL`; it
 is a name, not a secret.
 
+`LOOKUP_DB_ROLE` is the role name in `AUTH_LOOKUP_DATABASE_URL`, also a name
+and not a secret, and it must differ from `DOMAIN_DB_ROLE`. Since RT-1558 step 2
+requires it and passes it to every grant script as `-v lookup_role=<role>`. The
+scripts that check the lookup role (cashier admissions, shift cash-up, catalog
+import) then refuse the release when that role holds a privilege it must not
+have, before the API starts, instead of only at API boot. Nothing is run by
+hand for this any more, migration `0124` included. Add `LOOKUP_DB_ROLE` to
+`deploy/grants.env` before the first release that carries RT-1558: without it,
+step 2 stops with `LOOKUP_DB_ROLE is not set` and grants nothing.
+
 ### Enabling credit posting (RT-418 hold lift, once, after RT-419)
 
 Credit sales (sales with payer `responsibilities`) are captured from RT-418,
@@ -595,7 +605,8 @@ runs any of it, and none of it is done by merging this workflow:
        `--env-file`, has one `SENTRY_RELEASE=<id>` line (`v1.2.3`, or `<sha12>`
        for a legacy release);
      - `/root/rt-lab-secrets/grants.env` holds the migration-owner `PG*`
-       variables, `PGSSLMODE=require` and `DOMAIN_DB_ROLE`;
+       variables, `PGSSLMODE=require`, `DOMAIN_DB_ROLE` and (since RT-1558)
+       `LOOKUP_DB_ROLE`, the `AUTH_LOOKUP_DATABASE_URL` role name;
      - `docker`, `python3`, `curl` and `systemd-run` are installed;
      - Caddy serves `lab.kemetralabs.com` over plain HTTP on port 80 of the host
        (`CADDY_SITE_ADDRESS=http://lab.kemetralabs.com`, behind the tunnel). A bare

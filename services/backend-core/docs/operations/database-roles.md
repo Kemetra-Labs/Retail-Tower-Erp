@@ -275,8 +275,10 @@ A script without the marker, such as the owner-gated
 
   The auth lookup role must hold no privilege on either table, nor on
   `tenants` (RT-213). The API refuses to boot if it holds any table privilege
-  on one, `TRUNCATE`, `REFERENCES` and `TRIGGER` included. Pass
-  `-v lookup_role=<role>` to the script to run the same check at deploy time.
+  on one, `TRUNCATE`, `REFERENCES` and `TRIGGER` included. The script runs
+  the same check at deploy time when given `-v lookup_role=<role>`;
+  `deploy/apply-domain-grants.sh` passes it from `LOOKUP_DB_ROLE` on every
+  release (RT-1558).
 
 - **Migration `0036_shift_cash_up` (RT-17).** Run
   [`sql/shift-cash-up-domain-grants.sql`](sql/shift-cash-up-domain-grants.sql)
@@ -294,8 +296,9 @@ A script without the marker, such as the owner-gated
   It runs with `ON_ERROR_STOP` and exits non-zero if a grant fails or the
   verification finds a missing grant. Without these grants the API refuses
   to boot (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no
-  privilege on any of the four tables (`AUTH_LOOKUP_FORBIDDEN_GRANTS`); pass
-  `-v lookup_role=<role>` to run the same check at deploy time.
+  privilege on any of the four tables (`AUTH_LOOKUP_FORBIDDEN_GRANTS`); the
+  release wrapper passes `-v lookup_role=<role>` (RT-1558), so the same check
+  runs at deploy time.
 
 - **Migration `0037_erpnext_posting_resolution` (RT-330).** Run
   [`sql/erpnext-posting-resolution-domain-grants.sql`](sql/erpnext-posting-resolution-domain-grants.sql)
@@ -981,9 +984,11 @@ A script without the marker, such as the owner-gated
   EXCLUSIVE` on `tenants` and `tenant_products` until its single transaction
   commits, so writes to those tables wait briefly; with `lock_timeout` 2s,
   0124 fails (and changes nothing) if a conflicting writer holds a lock longer,
-  and `migrate up` is then simply re-run. Pass `-v lookup_role=<role>` to the
-  grants script to also check that the auth lookup role holds no table or
-  column privilege on the three tables. Its down migration refuses while any
+  and `migrate up` is then simply re-run. The grants script also checks that
+  the auth lookup role holds no table or column privilege on the three tables:
+  `deploy/apply-domain-grants.sh` passes `-v lookup_role=<role>` from
+  `LOOKUP_DB_ROLE` on every release (RT-1558), so no manual run is needed
+  before deploying 0124. Its down migration refuses while any
   batch or mapping profile is stored. No runtime reads or writes the tables
   until RT-1505 / RT-1507.
 
