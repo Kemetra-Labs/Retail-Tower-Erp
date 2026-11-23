@@ -488,13 +488,22 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     for (const file of files(step4)) expect(bundle).toContain(`  ${file}\n`);
   });
 
-  it("reports the counts the 0113 and 0128 catch-ups return on the RT_GATE line, and nothing else from psql (RT-1560)", () => {
-    expect(b).toContain('say "RT_GATE catch-up pass $CATCHUP_COUNTS"');
-    expect(b).toContain('say "RT_GATE post-start-catch-up pass $CATCHUP_COUNTS"');
-    expect(b).not.toMatch(/\bpass (post-start-)?catch-up\b/);
-    // the counts are digits only, so the line always matches the workflow's RESULT_RE
+  it("reports the counts the 0113 and 0128 catch-ups return on their own gate line, and nothing else from psql (RT-1560)", () => {
+    // the pass lines keep their 3-token form; the counts follow on a separate 3-token gate line
+    expectInOrder(b, [
+      'run_catchups || stop "catch-up-failed"\npass catch-up\nsay "RT_GATE catch-up-rows $CATCHUP_COUNTS"\n',
+      'run_catchups || stop "post-start-catch-up-failed"\npass post-start-catch-up\nsay "RT_GATE post-start-catch-up-rows $CATCHUP_COUNTS"\n',
+    ]);
+    // digits only between fixed keys, so the line always matches the workflows' RESULT_RE
     expect(catchupDef).toContain('[[ "$counts" =~ ^([0-9]+)\\ ([0-9]+)\\ $ ]] || return 1');
-    expect(catchupDef).toContain('CATCHUP_COUNTS="host_labels_moved=${BASH_REMATCH[1]} rollback_sets_filled=${BASH_REMATCH[2]}"');
+    expect(catchupDef).toContain('CATCHUP_COUNTS="host_labels_moved=${BASH_REMATCH[1]}:rollback_sets_filled=${BASH_REMATCH[2]}"');
+    // the ledgers (system_ledger.py gate_of, deploy-lab.yml jq) read `RT_GATE <gate> <result>`: exactly 3 tokens
+    const resultRe = new RegExp(/RESULT_RE='([^']+)'/.exec(read("../../.github/workflows/deploy-lab.yml"))?.[1] ?? "^$");
+    for (const gate of ["catch-up-rows", "post-start-catch-up-rows"]) {
+      const line = `RT_GATE ${gate} host_labels_moved=12:rollback_sets_filled=0`;
+      expect(resultRe.test(line)).toBe(true);
+      expect(line.split(" ")).toHaveLength(3);
+    }
     // the connection comes from the env file only
     expect(catchupDef).not.toMatch(/postgres(ql)?:\/\/|-d |--dbname|PGPASSWORD/);
   });
@@ -534,7 +543,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       return { status: r.status, out: r.stdout.trim() };
     };
     const all = "erpnext-posting-resolution-catchup.sql inventory-effect-integration-catchup.sql erp-provisioning-host-label-catchup.sql price-change-set-rollback-from-catchup.sql";
-    expect(run("")).toEqual({ status: 0, out: `OK host_labels_moved=2 rollback_sets_filled=5\n${all}` });
+    expect(run("")).toEqual({ status: 0, out: `OK host_labels_moved=2:rollback_sets_filled=5\n${all}` });
     // a failing script stops the chain: the later ones never run
     expect(run("inventory-effect")).toEqual({
       status: 0,
