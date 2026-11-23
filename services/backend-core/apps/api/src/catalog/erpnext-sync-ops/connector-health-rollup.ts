@@ -8,6 +8,10 @@
  *   - any active instance stale / never_seen   -> attention
  *   - every active instance healthy            -> ok
  * `headlineCount` is the number of active instances that are not healthy.
+ *
+ * RT-1404: `ok` / `attention` also carry `instances` = { total, stale,
+ * neverSeen } over the active instances, so `stale + neverSeen` equals
+ * `headlineCount`; `not_available` omits it (the contract's `allOf` rule).
  */
 import type { LivenessVerdict } from "../../connector-health/connector-health.liveness";
 import type { DomainSummary } from "./erpnext-sync-ops.read-model.service";
@@ -35,12 +39,14 @@ export function rollupConnectorHealth(
   const stale = active.filter((v) => v === "stale").length;
   const neverSeen = active.filter((v) => v === "never_seen").length;
   const unhealthy = stale + neverSeen;
+  const instances = { total: active.length, stale, neverSeen };
   if (unhealthy === 0) {
     return {
       domain: "connector_health",
       status: "ok",
       headlineCount: 0,
       detail: `All ${active.length} active connector instance(s) healthy`,
+      instances,
     };
   }
   return {
@@ -48,5 +54,6 @@ export function rollupConnectorHealth(
     status: "attention",
     headlineCount: unhealthy,
     detail: `${unhealthy} of ${active.length} connector instance(s) not healthy (${stale} stale, ${neverSeen} never seen)`,
+    instances,
   };
 }

@@ -46,7 +46,27 @@ export interface DomainSummary {
     | "product_master";
   readonly status: "ok" | "attention" | "not_available";
   readonly headlineCount: number | null;
+  /** Diagnostic English text, not operator copy (RT-1404). */
   readonly detail: string | null;
+  /** RT-1404: `reconciliation` only — the latest run in scope, or null. */
+  readonly latestRun?: ReconciliationLatestRun | null;
+  /** RT-1404: `connector_health` only, and only when not `not_available`. */
+  readonly instances?: ConnectorInstanceCounts;
+}
+
+/** RT-1404 — the latest reconciliation run in scope (wire shape). */
+export interface ReconciliationLatestRun {
+  /** The 0020 `erpnext_reconciliation_run_status_valid` CHECK values. */
+  readonly status: "running" | "completed" | "failed";
+  /** The run's `started_at`. */
+  readonly at: string;
+}
+
+/** RT-1404 — active connector-instance counts by liveness verdict (wire shape). */
+export interface ConnectorInstanceCounts {
+  readonly total: number;
+  readonly stale: number;
+  readonly neverSeen: number;
 }
 
 export interface SyncOpsSummaryBody {
@@ -197,8 +217,8 @@ export class ErpnextSyncOpsReadModelService {
         const openMismatchCount = Number(openMismatches.rows[0]?.count ?? "0");
 
         const latestRun = await client.query<{
-          status: string;
-          started_at: string;
+          status: ReconciliationLatestRun["status"];
+          started_at: Date;
         }>(
           `SELECT status, started_at
              FROM erpnext_reconciliation_run
@@ -255,6 +275,11 @@ export class ErpnextSyncOpsReadModelService {
             detail: latest
               ? `Latest run ${latest.status}`
               : "No reconciliation runs yet",
+            // RT-1404: the same row as `detail`; `at` = `started_at`, as in
+            // ReconciliationRunView.startedAt. null = no run in scope.
+            latestRun: latest
+              ? { status: latest.status, at: new Date(latest.started_at).toISOString() }
+              : null,
           },
           // 020 connector health (RT-563), derived from the 020 read model.
           rollupConnectorHealth(connectorVerdicts),

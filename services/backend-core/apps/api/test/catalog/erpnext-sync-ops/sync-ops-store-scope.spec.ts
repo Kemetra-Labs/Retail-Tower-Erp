@@ -128,6 +128,34 @@ describe("RT-192 sync-ops summary — membership store scope", () => {
       expect(res.body.error).toMatchObject({ code: "not_found", message: "Not found." });
     }
   });
+
+  it("RT-1404: a newer run in an out-of-scope store never becomes latestRun", async () => {
+    if (skip()) return;
+    // A run on STORE_A_Y (never granted to the specific sessions), newer than every
+    // seeded run. Removed again so the run-history walks below keep their fixture.
+    const NEWER_Y = "0a000000-0000-7000-8000-000001404a01";
+    const admin = scoped.env().admin;
+    await admin.query(
+      `INSERT INTO erpnext_reconciliation_run (id, tenant_id, store_id, kind, trigger, status, started_at)
+       VALUES ($1, (SELECT tenant_id FROM stores WHERE id = $2), $2, 'stock', 'on_demand', 'running',
+               now() + interval '1 day')`,
+      [NEWER_Y, STORE_A_Y],
+    );
+    try {
+      const latestRun = async (session: string): Promise<{ status: string; at: string } | null> => {
+        const res = await get(SUMMARY, session).expect(200);
+        return (res.body.domains as Array<{ domain: string; latestRun?: { status: string; at: string } | null }>)
+          .find((d) => d.domain === "reconciliation")!.latestRun!;
+      };
+      for (const [, session] of SPECIFIC_SESSIONS) {
+        // Only RUN_X / RUN_X2 (both completed) are in scope.
+        expect((await latestRun(session))?.status).toBe("completed");
+      }
+      expect((await latestRun(SES_OWNER_ALL))?.status).toBe("running");
+    } finally {
+      await admin.query(`DELETE FROM erpnext_reconciliation_run WHERE id = $1`, [NEWER_Y]);
+    }
+  });
 });
 
 // ---------------------------------------------------------------------------

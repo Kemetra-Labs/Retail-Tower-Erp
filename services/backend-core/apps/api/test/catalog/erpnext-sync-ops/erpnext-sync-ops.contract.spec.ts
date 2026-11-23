@@ -224,8 +224,11 @@ describe("console-sync-ops.yaml — posting freshness (1.2.0-draft, RT-565 D1–
   const prop = (schemaName: string, name: string): Prop | undefined =>
     (schema(schemaName)?.properties ?? {})[name] as Prop | undefined;
 
-  it("bumps the contract to 1.2.0-draft (additive minor)", () => {
-    expect(doc.info?.version).toBe("1.2.0-draft");
+  it("introduced in 1.2.0-draft (additive minor); later additive minors keep it", () => {
+    // RT-1404 bumped to 1.3.0-draft; its own block pins the exact version.
+    const [major, minor] = (doc.info?.version ?? "").split(".").map(Number);
+    expect(major).toBe(1);
+    expect(minor).toBeGreaterThanOrEqual(2);
   });
   it("D1: extends the existing summary — no new operation, no new request parameter", () => {
     const summary = findOp("consoleGetSyncOpsSummary");
@@ -280,11 +283,15 @@ describe("console-sync-ops.yaml — posting freshness (1.2.0-draft, RT-565 D1–
       }
     }
   });
-  it("D5: the posting DomainSummary rule is unchanged (status enum and fields)", () => {
+  it("D5: the posting DomainSummary rule is unchanged (status enum, required and fields)", () => {
     const d = schema("DomainSummary");
+    // RT-1404 added the optional, domain-specific latestRun + instances; nothing
+    // posting-specific was added and the required set is unchanged.
     expect(Object.keys(d?.properties ?? {}).sort()).toEqual(
-      ["detail", "domain", "headlineCount", "status"].sort(),
+      ["detail", "domain", "headlineCount", "instances", "latestRun", "status"].sort(),
     );
+    expect(d?.required?.slice().sort()).toEqual(["domain", "status"]);
+    expect((d?.properties ?? {})["status"]?.enum?.slice().sort()).toEqual(["attention", "not_available", "ok"]);
   });
   it("D4: the freshness shapes carry no identifier (aggregates and timestamps only)", () => {
     for (const name of ["PostingFreshness", "LastPosted"]) {
@@ -367,6 +374,102 @@ describe("console-sync-ops.yaml — posting freshness instances (RT-565, schema-
   });
 });
 
+describe("console-sync-ops.yaml — structured tile fields (1.3.0-draft, RT-1404 / RT-1303)", () => {
+  type Prop = {
+    type?: string | string[];
+    format?: string;
+    enum?: string[];
+    minimum?: number;
+    $ref?: string;
+    oneOf?: Array<{ $ref?: string; type?: string }>;
+  };
+  const prop = (schemaName: string, name: string): Prop | undefined =>
+    (schema(schemaName)?.properties ?? {})[name] as Prop | undefined;
+  function validator(name: string) {
+    const ajv = new Ajv({ strict: false, allErrors: true });
+    addFormats(ajv);
+    ajv.addSchema(doc as object, NEW_CONTRACT_ID);
+    const v = ajv.getSchema(`${NEW_CONTRACT_ID}#/components/schemas/${name}`);
+    if (!v) throw new Error(`ajv cannot resolve ${name}`);
+    return v;
+  }
+  const AT = "2026-11-23T10:00:00.000Z";
+  const recon = (over: Record<string, unknown>) => ({
+    domain: "reconciliation",
+    status: "ok",
+    headlineCount: 0,
+    detail: "Latest run completed",
+    ...over,
+  });
+  const conn = (over: Record<string, unknown>) => ({
+    domain: "connector_health",
+    status: "attention",
+    headlineCount: 1,
+    detail: "1 of 2 connector instance(s) not healthy (1 stale, 0 never seen)",
+    ...over,
+  });
+  const counts = { total: 2, stale: 1, neverSeen: 0 };
+
+  it("bumps the contract to 1.3.0-draft (additive minor)", () => {
+    expect(doc.info?.version).toBe("1.3.0-draft");
+  });
+  it("latestRun and instances are optional (not in DomainSummary.required)", () => {
+    expect(schema("DomainSummary")?.required).not.toContain("latestRun");
+    expect(schema("DomainSummary")?.required).not.toContain("instances");
+  });
+  it("latestRun is a nullable ReconciliationLatestRun", () => {
+    const refs = (prop("DomainSummary", "latestRun")?.oneOf ?? []).map((o) => o.$ref ?? o.type).sort();
+    expect(refs).toEqual(["#/components/schemas/ReconciliationLatestRun", "null"]);
+  });
+  it("ReconciliationLatestRun is strict: status running | completed | failed (the 0020 CHECK), at date-time", () => {
+    const r = schema("ReconciliationLatestRun");
+    expect(r?.additionalProperties).toBe(false);
+    expect(r?.required?.slice().sort()).toEqual(["at", "status"]);
+    expect(Object.keys(r?.properties ?? {}).sort()).toEqual(["at", "status"]);
+    expect(prop("ReconciliationLatestRun", "status")?.enum?.slice().sort()).toEqual(["completed", "failed", "running"]);
+    expect(prop("ReconciliationLatestRun", "at")).toMatchObject({ type: "string", format: "date-time" });
+  });
+  it("instances is a ConnectorInstanceCounts of non-negative integers", () => {
+    expect(prop("DomainSummary", "instances")?.$ref).toBe("#/components/schemas/ConnectorInstanceCounts");
+    const c = schema("ConnectorInstanceCounts");
+    expect(c?.additionalProperties).toBe(false);
+    expect(c?.required?.slice().sort()).toEqual(["neverSeen", "stale", "total"]);
+    expect(Object.keys(c?.properties ?? {}).sort()).toEqual(["neverSeen", "stale", "total"]);
+    for (const p of ["total", "stale", "neverSeen"]) {
+      expect(prop("ConnectorInstanceCounts", p)).toMatchObject({ type: "integer", minimum: 0 });
+    }
+  });
+
+  it.each([
+    ["a reconciliation tile with no run (null)", recon({ latestRun: null, detail: "No reconciliation runs yet" })],
+    ["a running run", recon({ latestRun: { status: "running", at: AT } })],
+    ["a completed run", recon({ latestRun: { status: "completed", at: AT } })],
+    ["a failed run", recon({ status: "attention", latestRun: { status: "failed", at: AT } })],
+    ["a reconciliation tile from an older server (field omitted)", recon({})],
+    ["a connector tile with counts", conn({ instances: counts })],
+    ["a not_available connector tile without counts", conn({ status: "not_available", headlineCount: null, detail: null })],
+    ["a posting tile with neither field", { domain: "posting", status: "ok", headlineCount: 0, detail: null }],
+  ])("DomainSummary accepts %s", (_label, instance) => {
+    expect(validator("DomainSummary")(instance)).toBe(true);
+  });
+  it.each([
+    ["an unlisted run status", recon({ latestRun: { status: "queued", at: AT } })],
+    ["a run without at", recon({ latestRun: { status: "completed" } })],
+    ["a run with a non date-time at", recon({ latestRun: { status: "completed", at: "yesterday" } })],
+    ["a run with an extra property", recon({ latestRun: { status: "completed", at: AT, runId: "x" } })],
+    ["latestRun on a posting tile", { domain: "posting", status: "ok", headlineCount: 0, detail: null, latestRun: null }],
+    ["latestRun on a connector tile", conn({ instances: counts, latestRun: null })],
+    ["instances on a reconciliation tile", recon({ latestRun: null, instances: counts })],
+    ["instances on a not_available connector tile", conn({ status: "not_available", headlineCount: null, instances: counts })],
+    ["a negative count", conn({ instances: { ...counts, stale: -1 } })],
+    ["a missing count", conn({ instances: { total: 2, stale: 1 } })],
+    ["a non-integer count", conn({ instances: { ...counts, total: 1.5 } })],
+    ["an extra count", conn({ instances: { ...counts, disabled: 1 } })],
+  ])("DomainSummary rejects %s", (_label, instance) => {
+    expect(validator("DomainSummary")(instance)).toBe(false);
+  });
+});
+
 describe("console-sync-ops.yaml — list projections + pagination (US2/US3, FR-014)", () => {
   // Per-endpoint page schemas (NOT a shared oneOf envelope) so the Console's
   // openapi-typescript generator produces a homogeneous, fully-typed items array
@@ -440,6 +543,8 @@ describe("console-sync-ops.yaml — error envelope + object safety", () => {
       "ReconciliationRunView",
       "PostingFreshness",
       "LastPosted",
+      "ReconciliationLatestRun",
+      "ConnectorInstanceCounts",
     ]) {
       expect(schema(name)?.additionalProperties).toBe(false);
     }
@@ -447,8 +552,11 @@ describe("console-sync-ops.yaml — error envelope + object safety", () => {
   it("NO money/valuation field anywhere (the 015/017 source tables carry none)", () => {
     const schemas = doc.components?.schemas ?? {};
     const banned = /money|amount|price|cost|valuation|currency|total|rate/i;
+    // RT-1404: an instance COUNT (owner-accepted name, RT-1303 comment 17135), not money.
+    const countNotMoney = new Set(["ConnectorInstanceCounts.total"]);
     for (const [name, s] of Object.entries(schemas)) {
       for (const prop of Object.keys(s.properties ?? {})) {
+        if (countNotMoney.has(`${name}.${prop}`)) continue;
         expect(`${name}.${prop}`).not.toMatch(banned);
       }
     }
