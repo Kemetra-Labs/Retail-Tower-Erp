@@ -1,0 +1,274 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Inventory — POS Store Availability API
+  version: "1.0.0-draft"
+  description: >
+    RT-1577 (RT-1511 slice S2, W3 Inventory Visibility; [GATED: contract]; owner approval in chat
+    2026-11-23, recorded in the RT-1511 decision record, Confluence page 91389953, sections 3, 4 and 7). The READ-ONLY
+    publication of a store's Available To Sell (ATS) to device-authenticated POS terminals, as a paged snapshot. GET
+    only; no write surface; additive to every other contract (a new file, no existing operation or schema changes).
+
+
+    One operation, `posGetStoreAvailability` (`/api/pos/v1/inventory/availability`), authenticated by the role-named
+    `device` scheme (the terminal's pairing token, as `catalog/read-down.yaml`). The device row supplies the
+    authoritative tenant and store; body or query scope is never trusted. A supplied `branch_id` is checked against the
+    device's store and a mismatch is a non-disclosing 404, and so is a `cursor` that is malformed or was issued to
+    another device scope.
+
+
+    PRODUCT SET. The store's sellable catalogue, exactly the set of the catalogue read-down (`posGetCatalogSnapshot`):
+    resolved active, not retired, priced and representable in its currency. `items[].productId` is the read-down's
+    `product_id`. A product the till holds from the read-down but finds absent here has no availability record: the till
+    shows "availability unknown", never "in stock".
+
+
+    ATS (RT-1511 A-1 to A-9). Backend-Core computes it; no client reads ERPNext. For one product at the store's
+    PRIMARY stock location: the sellable quantity, less the sellable quantity of tracking lots whose expiry date is before
+    today in the store's time zone, less the quantity of active reservations (`state = active` and not past `expires_at`,
+    even before a sweep marks it expired), less safety protection (zero in V1). Holds already left `sellable` and are not
+    subtracted again. In Transit never counts toward the destination. A negative ATS is reported as computed and is never
+    clamped to zero. It is the same number `OnHand.availability.availableToSell` shows the Console (`inventory.yaml`
+    1.23.0-draft).
+
+
+    BAND. `out` when ATS is 0 or less; `low` when ATS is above 0 and at most the active low-stock level (the store's
+    level when it has one, otherwise the tenant default, `product_stock_levels.reorder_level`); `in_stock` otherwise,
+    including when no level is set. Availability is shown and never enforced: it never blocks a sale (spec 013 FR-5), and
+    no reservation is created or consumed offline.
+
+
+    SYNC. Page through the snapshot with `nextCursor` until it is null. Each page carries its own `asOf`, the server
+    instant that page was computed; the till keeps the OLDEST `asOf` of a refresh as its freshness. Pages are keyset pages
+    in product order and a page can hold fewer than `limit` items, even none, and still carry a `nextCursor`: continue
+    until it is null. A product added or retired while the pages are read is neither repeated nor allowed to hide another.
+    Refresh every 15 minutes; after 60 minutes without a successful refresh the till shows "freshness unknown" with the
+    last-updated time. There is no delta feed in V1.
+
+
+    PERFORMANCE. The snapshot is computed on read over the movements of the page's products, with no stored projection.
+    The measured plan and timings for a store of 10,000 sellable products against spec 013 NFR-2 (a full refresh within
+    30 seconds) are recorded on RT-1577.
+
+
+    ROLLOUT. A till MUST pin this contract before it consumes the operation (POS RT-1578, `apps/pos/contracts/backend-core`
+    PIN). The responses are `additionalProperties: false`.
+
+
+    Errors use the canonical envelope. The `error.code` set on this surface is closed: `validation_error` (400),
+    `unauthorized` (401, including the message `store_context_required` for a device with no resolved store),
+    `not_found` (404) and `internal_error` (500).
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: inventory-pos-availability
+    description: >
+      POS store availability: a store's Available To Sell per sellable product, as a paged snapshot (RT-1577).
+
+paths:
+  /api/pos/v1/inventory/availability:
+    get:
+      summary: Get the store's Available To Sell, one page of its sellable products.
+      operationId: posGetStoreAvailability
+      tags: [inventory-pos-availability]
+      security:
+        - device: []
+      description: >
+        One page of the store's sellable catalogue with each product's Available To Sell and band, ordered by product id
+        and cursor-paginated via `nextCursor`. Scope comes from the device row only; a supplied `branch_id` that is not
+        the device's store is a non-disclosing 404, and so is a `cursor` that is malformed or was issued to another device
+        scope. The snapshot is read-only and computed on read.
+      parameters:
+        - $ref: "#/components/parameters/BranchId"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: One page of the store's availability, with the instant it was computed.
+          headers:
+            X-Device-Token-Rotate-After:
+              $ref: "#/components/headers/DeviceTokenRotateAfter"
+            X-Device-Token-Rotate-Stage:
+              $ref: "#/components/headers/DeviceTokenRotateStage"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/StoreAvailabilityPage"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+components:
+  headers:
+    DeviceTokenRotateAfter:
+      description: >
+        RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant
+        `expires_at - 15 days`. The terminal rotates at or after it. Never carries token material. See
+        `pos-terminal-pairing.openapi.yaml`, "Credential rotation".
+      required: false
+      schema:
+        type: string
+        format: date-time
+    DeviceTokenRotateStage:
+      description: >
+        RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less),
+        `urgent` (3 or less, or already past `expires_at`).
+      required: false
+      schema:
+        type: string
+        enum: [notice, warning, urgent]
+
+  securitySchemes:
+    # The role-named POS device-credential scheme of catalog/read-down.yaml: the terminal's pairing token, an opaque token
+    # (NOT a JWT), so no `bearerFormat`.
+    device:
+      type: http
+      scheme: bearer
+      description: >
+        Opaque, device-scoped bearer token. The POS terminal presents its `devices` pairing token as
+        `Authorization: Bearer <device_token>`; the token is hashed and matched against an active (non-revoked) `devices`
+        row, which supplies the authoritative tenant and store. Fail-closed: a missing, malformed, unknown or revoked
+        token, or a non-device credential, is a generic 401. An operator session does not authenticate this surface.
+
+  parameters:
+    BranchId:
+      name: branch_id
+      in: query
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        The device's store (POS wire term for `store_id`). When supplied it must equal the device's store; a mismatch is
+        a non-disclosing 404. Callers SHOULD send it to catch branch drift early.
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      schema:
+        type: string
+        minLength: 1
+      description: >
+        The previous page's `nextCursor`. Opaque: clients MUST NOT decode or construct it. It is bound to the device's
+        scope; a malformed or foreign cursor is a non-disclosing 404. Omit it for the first page.
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 1000
+        default: 500
+      description: >
+        The number of products SCANNED per page (the page holds at most that many items, fewer when some scanned
+        products are not sellable). The server MAY return fewer.
+
+  schemas:
+    DecimalQuantity:
+      type: string
+      pattern: '^-?\d{1,15}(\.\d{1,4})?$'
+      description: >
+        Exact-decimal quantity as a STRING (`numeric(19,4)` at rest); no float on the wire. May be negative: a negative
+        Available To Sell is reported as computed, never clamped (RT-1511 A-4). There is NO money, currency or tender field
+        anywhere in this contract.
+    AvailabilityBand:
+      type: string
+      enum: [in_stock, low, out]
+      description: >
+        `out` when `availableToSell` is 0 or less; `low` when it is above 0 and at most the product's active low-stock
+        level (the store's level, otherwise the tenant default); `in_stock` otherwise, including when no level is set.
+    StoreAvailabilityItem:
+      type: object
+      additionalProperties: false
+      required: [productId, availableToSell, band]
+      description: One sellable product's availability at the store's primary location.
+      properties:
+        productId:
+          type: string
+          format: uuid
+          description: The product, the catalogue read-down's `product_id`.
+        availableToSell:
+          $ref: "#/components/schemas/DecimalQuantity"
+        band:
+          $ref: "#/components/schemas/AvailabilityBand"
+    StoreAvailabilityPage:
+      type: object
+      additionalProperties: false
+      required: [storeId, asOf, items, nextCursor]
+      properties:
+        storeId:
+          type: string
+          format: uuid
+          description: The device's store (the scope the page was computed for).
+        asOf:
+          type: string
+          format: date-time
+          description: The server instant this page was computed. The till keeps the oldest `asOf` of a refresh as its freshness.
+        items:
+          type: array
+          items:
+            $ref: "#/components/schemas/StoreAvailabilityItem"
+        nextCursor:
+          type: [string, "null"]
+          description: The next page's cursor; null on the last page. Continue until it is null, even after an empty page.
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope (`auth.openapi.yaml`). Out-of-scope refusals are non-disclosing; they never name the
+        cause. A 400 may carry `details` (the failed query checks).
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: "Closed set on this surface: validation_error | unauthorized | not_found | internal_error."
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id.
+            details:
+              description: Validation detail of a 400 only.
+
+  responses:
+    ValidationFailure:
+      description: "400 `validation_error`: a malformed `branch_id`, `cursor` or `limit`."
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    Unauthorized:
+      description: >
+        401 `unauthorized`. A missing, invalid or revoked device token, or a non-device credential (non-disclosing). Also
+        a device with no resolved store (message `store_context_required`).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    NotFound:
+      description: >
+        404 `not_found`: a `branch_id` that is not the device's store, or a malformed or foreign `cursor`.
+        Indistinguishable from an absent scope (non-disclosing).
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
+    SystemFailure:
+      description: >
+        500 `internal_error`: an unexpected server error. The cause is recorded server-side under `request_id`.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/Error"
