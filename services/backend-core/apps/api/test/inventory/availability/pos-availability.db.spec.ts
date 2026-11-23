@@ -185,11 +185,11 @@ async function product(
   );
 }
 
-async function level(productId: string, storeId: string | null, reorder: string): Promise<void> {
+async function level(productId: string, storeId: string | null, reorder: string, retired = false): Promise<void> {
   await admin.query(
-    `INSERT INTO product_stock_levels (id, tenant_id, product_id, store_id, reorder_level, created_by, updated_by)
-     VALUES ($1, $2, $3, $4, $5::numeric, $6, $6)`,
-    [nextId(), TENANT_A, productId, storeId, reorder, ACTOR_A],
+    `INSERT INTO product_stock_levels (id, tenant_id, product_id, store_id, reorder_level, retired_at, created_by, updated_by)
+     VALUES ($1, $2, $3, $4, $5::numeric, CASE WHEN $7::boolean THEN now() END, $6, $6)`,
+    [nextId(), TENANT_A, productId, storeId, reorder, ACTOR_A, retired],
   );
 }
 
@@ -286,9 +286,23 @@ beforeAll(async () => {
   await level(P.storeLevelWins, null, '50');
   await level(P.storeLevelWins, STORE_A_X, '10');
   await level(P.tenantLevelOnY, null, '50');
+  await level(P.inStock, STORE_A_X, '1000', true); // a RETIRED store level must be ignored: ATS 100 stays in_stock
 
   // Quantities at STORE_A_X's primary location.
   await move(STORE_A_X, P.inStock, '100');
+  // Stock at a non-primary location is not sold from (V1 sells from the primary location only): ATS stays 100.
+  const storage = nextId();
+  await admin.query(
+    `INSERT INTO stock_locations (id, tenant_id, store_id, code, name, kind) VALUES ($1, $2, $3, 'BACK', 'Back room', 'storage')`,
+    [storage, TENANT_A, STORE_A_X],
+  );
+  await admin.query(
+    `INSERT INTO stock_movements
+       (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at, created_by,
+        stock_location_id, inventory_status)
+     VALUES ($1, $2, $3, 'inbound', 40, 'ea', $4, 'rt1577 seed', now(), $5, $6, 'sellable')`,
+    [nextId(), TENANT_A, STORE_A_X, P.inStock, ACTOR_A, storage],
+  );
   await move(STORE_A_X, P.low, '20');
   await move(STORE_A_X, P.low, '-15');
   await move(STORE_A_X, P.atLevel, '10');
@@ -380,7 +394,7 @@ describe('paging', () => {
     const { pages, items } = await walk(DEV_AX, 1);
     expect(items.map((i) => i.productId)).toEqual(full);
     expect(new Set(items.map((i) => i.productId)).size).toBe(items.length);
-    // Excluded products sit between sellable ones in id order, so some single-product pages hold nothing.
+    // The fixture's unpriced products sort first in id order, so the first single-product pages hold nothing.
     const emptyWithCursor = pages.filter((p) => p.items.length === 0 && p.nextCursor !== null);
     expect(emptyWithCursor.length).toBeGreaterThan(0);
     expect(pages.every((p) => !Number.isNaN(Date.parse(p.asOf)))).toBe(true);
@@ -406,7 +420,7 @@ describe('paging', () => {
     const first = await asDevice(DEV_AX, '?limit=4');
     expect(first.status).toBe(200);
     const seen = (first.body as Page).items.map((i) => i.productId);
-    const early = id(0x001); // sorts before every product, so before the cursor: not seen by this walk
+    const early = id(0x001); // sorts before every product of this test, so before the cursor: not seen by this walk
     const late = id(0x999); // sorts after: seen exactly once
     await product(early);
     await product(late);
