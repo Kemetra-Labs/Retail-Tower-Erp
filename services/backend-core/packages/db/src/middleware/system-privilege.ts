@@ -13,6 +13,9 @@
  *   provisioner_lookup  the provisioner bearer verifier: erp_provisioner_credential S;
  *   membership_bootstrap (0120, RT-1457) the request bootstrap reads of the auth and context
  *                       guards: SELECT only on memberships, roles, tenants, stores, store_access.
+ *   pricing_legacy_import (0123, RT-1485) the legacy price import CLI: the only path that may
+ *                       write a `legacy_import` Change Set (0123 change_sets_assert_legacy_import).
+ *                       No RLS policy names it; every row is reached through the tenant pin.
  *
  * Every other table is reached through the tenant pin (`tenantId`), exactly like a
  * tenant session. The setting holds one value at a time, so the privileges
@@ -29,13 +32,14 @@ import type { Pool, PoolClient } from "pg";
 
 import { runWithTenantContext } from "./tenant-context";
 
-export type SystemPrivilege = "signup" | "provisioning_sweep" | "provisioner_lookup" | "membership_bootstrap";
+export type SystemPrivilege = "signup" | "provisioning_sweep" | "provisioner_lookup" | "membership_bootstrap" | "pricing_legacy_import";
 
 const PRIVILEGES: ReadonlySet<string> = new Set<SystemPrivilege>([
   "signup",
   "provisioning_sweep",
   "provisioner_lookup",
   "membership_bootstrap",
+  "pricing_legacy_import",
 ]);
 
 export interface SystemContext {

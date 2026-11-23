@@ -27,6 +27,19 @@ export async function liveStoreTimezone(client: Queryable, tenantId: string, sto
 }
 
 /**
+ * RT-1485 (spec 044 MC-1): every store of `tenantId` with its IANA time zone, active or not and
+ * deleted or not, ordered by id. The legacy import takes its Book-scope bound from the westernmost
+ * of them, so a Store that comes back still sees the imported price from the import instant.
+ */
+export async function allStoreZones(client: Queryable, tenantId: string): Promise<{ id: string; timezone: string }[]> {
+  const r = await client.query<{ id: string; timezone: string }>(
+    `SELECT id::text AS id, timezone FROM stores WHERE tenant_id = $1::uuid ORDER BY id`,
+    [tenantId],
+  );
+  return r.rows;
+}
+
+/**
  * A store as Pricing validation sees it: its IANA time zone and whether it is live for Pricing.
  * RT-1531: live for Pricing means not deleted AND active (`deleted_at IS NULL AND is_active`), as
  * spec 042 §3 (Q-B8: deactivating a Store stales a set) and 041 data-model §2.6 (reactivation

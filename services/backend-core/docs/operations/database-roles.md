@@ -1089,6 +1089,10 @@ A script without the marker, such as the owner-gated
   no maintenance window. Its down migration refuses while any authority row is
   not `legacy` or any run row exists. **Before it runs**, see
   [Before migration 0132](#before-migration-0132-pricing_projection_writer).
+  **PR-16a-2a (legacy import CLI, RT-1485):** the same script now also grants
+  `SELECT, INSERT` on `pricing_import_runs` (the import's watermark rows; never
+  `UPDATE` or `DELETE`). The API refuses to boot without them, so the release
+  that ships this runs step 2 before the API, as every release does.
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
