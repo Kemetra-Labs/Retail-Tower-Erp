@@ -16,3 +16,8 @@ export { lockProductProfiles } from "./tracking-profile/tracking-profile-lock";
 export { readStoreProductTracking, type StoreProductTracking } from "./store-resolution/store-product-tracking";
 export { productNamesByIds, productTrackingProfiles, tenantProductVisible } from "./product-lookups";
 export { PRODUCT_SALE_LINES_PORT, type ProductSaleLinesPort } from "./tracking-profile/product-sale-lines.port";
+/**
+ * RT-1577: one keyset page of a store's sellable catalogue with each product's low-stock level, read by the POS
+ * availability snapshot (inventory) on the caller's client. The same product set as the catalogue read-down.
+ */
+export { readStoreSellablePage } from "./store-resolution/store-sellable-page";

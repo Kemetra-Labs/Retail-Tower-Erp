@@ -31,6 +31,7 @@ const HINTED_OPERATIONS: Readonly<Record<string, readonly string[]>> = {
   "pos-device-health.openapi.yaml": ["posReportDeviceHeartbeat"],
   "pos-telemetry.openapi.yaml": ["posGetTelemetryConfig", "posForwardTelemetryEnvelope"],
   "inventory/inventory-safety-feed.yaml": ["posGetInventorySafetySnapshot", "posGetInventorySafetyDeltas"],
+  "inventory/pos-availability.yaml": ["posGetStoreAvailability"],
 };
 
 interface Operation {

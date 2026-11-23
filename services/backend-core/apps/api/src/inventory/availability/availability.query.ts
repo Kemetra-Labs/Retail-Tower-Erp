@@ -13,6 +13,7 @@ import { NotFoundException } from '@nestjs/common';
 import type { PoolClient } from 'pg';
 
 import { composeAvailability } from './availability.rules';
+import { LOT_EXPIRED_SQL, MOVEMENT_SELLABLE_AT_PRIMARY_SQL, RESERVATION_ACTIVE_SQL } from './availability.sql';
 import type { AvailabilityBody } from './availability.types';
 
 interface FactsRow {
@@ -32,14 +33,13 @@ const FACTS_SQL = `
   biz AS (SELECT store_business_date($1) AS d),
   sellable AS (
     SELECT COALESCE(SUM(m.quantity), 0) AS total,
-           COALESCE(SUM(m.quantity) FILTER (WHERE ti.expiry_date IS NOT NULL AND ti.expiry_date < biz.d), 0) AS expired
+           COALESCE(SUM(m.quantity) FILTER (WHERE ${LOT_EXPIRED_SQL}), 0) AS expired
       FROM loc
       CROSS JOIN biz
       LEFT JOIN stock_movements m
              ON m.store_id = $1
             AND m.tenant_product_ref = $2
-            AND COALESCE(m.inventory_status, 'sellable') = 'sellable'
-            AND COALESCE(m.stock_location_id, loc.id) = loc.id
+            AND ${MOVEMENT_SELLABLE_AT_PRIMARY_SQL}
       LEFT JOIN tracking_identities ti ON ti.id = m.tracking_identity_id
   ),
   reserved AS (
@@ -49,8 +49,7 @@ const FACTS_SQL = `
              ON r.store_id = $1
             AND r.tenant_product_ref = $2
             AND r.stock_location_id = loc.id
-            AND r.state = 'active'
-            AND r.expires_at > now()
+            AND ${RESERVATION_ACTIVE_SQL}
   ),
   transit AS (
     SELECT COALESCE(SUM(l.dispatched_quantity - l.received_quantity - l.short_closed_quantity)

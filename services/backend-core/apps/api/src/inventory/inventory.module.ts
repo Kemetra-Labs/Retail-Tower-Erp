@@ -48,6 +48,8 @@ import { ShipmentTransfersSettingController } from "./shipment-transfers/shipmen
 import { ShipmentTransfersService } from "./shipment-transfers/shipment-transfers.service";
 import { IdentityExpiryService } from "./safety/identity-expiry.service";
 import { InventoryRecallsService } from "./safety/inventory-recalls.service";
+import { PosAvailabilityController } from "./availability/pos-availability.controller";
+import { PosAvailabilityService } from "./availability/pos-availability.service";
 import { InventorySafetyFeedController } from "./safety/inventory-safety-feed.controller";
 import { InventorySafetyFeedService } from "./safety/inventory-safety-feed.service";
 import { InventorySafetyController } from "./safety/inventory-safety.controller";
@@ -97,6 +99,8 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     InventoryPositionEventsController,
     InventorySafetyController,
     InventorySafetyFeedController,
+    // RT-1577: the POS store-availability snapshot (device bearer, as the catalogue read-down).
+    PosAvailabilityController,
     // RT-451 S2: the tenant's tracked-selling switch (cookieAuth, RolesGuard;
     // behind the deployment gate POS_TRACKED_SELLING_ENABLED).
     TrackedSellingSettingController,
@@ -123,6 +127,7 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     SafetyTtlService,
     SafetyFindingsService,
     InventorySafetyFeedService,
+    PosAvailabilityService,
     // RT-1081: the tracking Console reads (hold, recall and correction
     // history; one identity and its positions).
     SafetyHistoryService,
