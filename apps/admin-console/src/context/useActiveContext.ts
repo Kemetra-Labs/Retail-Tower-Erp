@@ -57,6 +57,22 @@ export interface ActiveContextValue {
   refresh: () => Promise<void>;
 }
 
+/**
+ * RT-980: true while the provider's last-notified value still says "signed out"
+ * but the query cache already holds the context fetched after sign-in. The
+ * provider only re-renders when TanStack Query's (setTimeout-batched)
+ * notification runs, so a navigation that renders first reads the stale
+ * `session-lost` entry. A caller that would act on `sessionLost` (redirect to
+ * /signin) waits instead: the notification is already scheduled, and the next
+ * value is the fresh one. The cache is read at render time, so no ordering
+ * between the notification and the navigation is assumed.
+ */
+export function useProviderBehindCache(value: ActiveContextValue): boolean {
+  const qc = useQueryClient();
+  const cached = qc.getQueryData<ContextResult>(queryKeys.activeContext);
+  return value.sessionLost && cached?.kind === "context";
+}
+
 export function useActiveContext(): ActiveContextValue {
   const qc = useQueryClient();
 

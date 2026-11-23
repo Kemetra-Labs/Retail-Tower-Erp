@@ -77,179 +77,190 @@ function submitCredentials(): void {
 // Every test here signs in, re-fetches the context, then navigates into the
 // protected area. ActiveContextProvider does not re-render on navigation, so it
 // only sees the refreshed context when TanStack's setTimeout-batched
-// notification runs. In jsdom, React's post-navigation render and that timer
-// race: under load the render can go first, ProtectedArea reads the stale
-// signed-out entry and redirects back to /signin, where nothing sends the user
-// on (RT-944: the CI flake). Playwright passes these journeys in a real browser
-// (tests/e2e/signin-return.spec.ts S1-S3), but nothing in the app guarantees
-// that order either; these tests check the refresh, not the ordering. Notify
-// synchronously here so the order is fixed, then restore the default.
-beforeAll(() => notifyManager.setScheduler((cb) => cb()));
-afterAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, 0)));
+// notification runs. If React renders the navigation first, ProtectedArea reads
+// the stale signed-out entry (RT-980). RT-944 pinned that order with a
+// synchronous scheduler, which hid the race; the journeys now run under the
+// default scheduler and under a deliberately delayed one (30 ms, which made the
+// RT-343 tests fail every time before RT-980).
+const SCHEDULERS: ReadonlyArray<readonly [string, number]> = [
+  ["the default notification scheduler", 0],
+  ["a notification scheduler delayed by 30 ms", 30],
+];
 
-describe("sign-in route enters the console with a fresh context (RT-343)", () => {
-  const tenantContext = {
-    status: 200,
-    data: {
-      user: { display_name: "Amal Saleh" },
-      active_tenant: { id: "t1", name: "Northstar Retail" },
-      active_store: null,
-      active_role_code: "tenant_admin",
-      memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail" }],
-    },
-  };
+describe.each(SCHEDULERS)("with %s", (_name, delayMs) => {
+  beforeAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, delayMs)));
+  afterAll(() => notifyManager.setScheduler((cb) => setTimeout(cb, 0)));
 
-  beforeEach(() => {
-    getActiveContext.mockReset();
-    signIn.mockReset();
-    refreshSession.mockReset().mockResolvedValue({ status: 401 });
-  });
+  describe("sign-in route enters the console with a fresh context (RT-343)", () => {
+    const tenantContext = {
+      status: 200,
+      data: {
+        user: { display_name: "Amal Saleh" },
+        active_tenant: { id: "t1", name: "Northstar Retail" },
+        active_store: null,
+        active_role_code: "tenant_admin",
+        memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail" }],
+      },
+    };
 
-  test("sign-in body without memberships still enters the shell", async () => {
-    getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: [] } });
+    beforeEach(() => {
+      getActiveContext.mockReset();
+      signIn.mockReset();
+      refreshSession.mockReset().mockResolvedValue({ status: 401 });
+    });
 
-    renderSignIn();
-    await signedOutContextSettled();
-    submitCredentials();
+    test("sign-in body without memberships still enters the shell", async () => {
+      getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
+      signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: [] } });
 
-    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
+      renderSignIn();
+      await signedOutContextSettled();
+      submitCredentials();
+
+      expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
+    });
+
+    /**
+     * Holds the signed-out fetch open, submits, and releases it only once a fresh
+     * context fetch has started: if the post-sign-in invalidation joined the
+     * stale fetch instead, that second call never comes and this times out.
+     */
+    async function signInWhileSignedOutFetchRuns(membershipsInBody: unknown[]): Promise<void> {
+      let finishSignedOutFetch: (value: unknown) => void = () => {};
+      getActiveContext
+        .mockImplementationOnce(
+          () =>
+            new Promise((done) => {
+              finishSignedOutFetch = done;
+            }),
+        )
+        .mockResolvedValue(tenantContext);
+      signIn.mockResolvedValue({
+        status: 200,
+        data: { user: { id: "u1" }, memberships: membershipsInBody },
+      });
+
+      renderSignIn();
+      await vi.waitFor(() => expect(getActiveContext).toHaveBeenCalledTimes(1));
+      submitCredentials();
+      await vi.waitFor(() => expect(getActiveContext).toHaveBeenCalledTimes(2));
+      finishSignedOutFetch(signedOut);
+    }
+
+    test("a sign-in submitted while the signed-out fetch is still running still enters the shell", async () => {
+      await signInWhileSignedOutFetchRuns([]);
+
+      expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
+    });
+
+    test("a single-tenant sign-in during the signed-out fetch selects the tenant and enters the shell", async () => {
+      await signInWhileSignedOutFetchRuns([{ tenant_id: "t1", tenant_name: "Northstar Retail" }]);
+
+      expect(switchActiveTenant).toHaveBeenCalledWith("t1");
+      expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
+    });
+
+    test("several memberships land on the scope chooser, not back on sign-in", async () => {
+      const memberships = [
+        { tenant_id: "t1", tenant_name: "Northstar Retail" },
+        { tenant_id: "t2", tenant_name: "Helios Markets" },
+      ];
+      getActiveContext
+        .mockResolvedValueOnce(signedOut)
+        .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships } });
+      signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships } });
+
+      renderSignIn();
+      await signedOutContextSettled();
+      submitCredentials();
+
+      expect(await screen.findByRole("heading", { name: /select your context/i })).toBeDefined();
+    });
   });
 
   /**
-   * Holds the signed-out fetch open, submits, and releases it only once a fresh
-   * context fetch has started: if the post-sign-in invalidation joined the
-   * stale fetch instead, that second call never comes and this times out.
+   * RT-355: a signed-out user who opened a protected URL (a shared link) is sent
+   * to sign-in and, after a sign-in that lands in a tenant, returns to exactly
+   * that URL. The chooser and no-access paths still land on `/`.
    */
-  async function signInWhileSignedOutFetchRuns(membershipsInBody: unknown[]): Promise<void> {
-    let finishSignedOutFetch: (value: unknown) => void = () => {};
-    getActiveContext
-      .mockImplementationOnce(
-        () =>
-          new Promise((done) => {
-            finishSignedOutFetch = done;
-          }),
-      )
-      .mockResolvedValue(tenantContext);
-    signIn.mockResolvedValue({
+  describe("sign-in returns to the requested page (RT-355)", () => {
+    const deepLink = "/audit?actor=u1#top";
+    const oneTenant = [{ tenant_id: "t1", tenant_name: "Northstar Retail" }];
+    const tenantContext = {
       status: 200,
-      data: { user: { id: "u1" }, memberships: membershipsInBody },
+      data: {
+        user: { display_name: "Amal Saleh" },
+        active_tenant: { id: "t1", name: "Northstar Retail" },
+        active_store: null,
+        active_role_code: "tenant_admin",
+        memberships: oneTenant,
+      },
+    };
+
+    beforeEach(() => {
+      getActiveContext.mockReset();
+      signIn.mockReset();
+      refreshSession.mockReset().mockResolvedValue({ status: 401 });
     });
 
-    renderSignIn();
-    await vi.waitFor(() => expect(getActiveContext).toHaveBeenCalledTimes(1));
-    submitCredentials();
-    await vi.waitFor(() => expect(getActiveContext).toHaveBeenCalledTimes(2));
-    finishSignedOutFetch(signedOut);
-  }
+    test("a deep link survives the sign-in redirect and auto-select returns to it", async () => {
+      getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
+      signIn.mockResolvedValue({
+        status: 200,
+        data: { user: { id: "u1" }, memberships: oneTenant },
+      });
 
-  test("a sign-in submitted while the signed-out fetch is still running still enters the shell", async () => {
-    await signInWhileSignedOutFetchRuns([]);
+      renderSignIn(deepLink);
+      expect(await screen.findByLabelText("Email")).toBeDefined();
+      expect(landedAt()).toBe("/signin");
+      submitCredentials();
 
-    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
-  });
+      expect(await screen.findByRole("heading", { name: "Audit" })).toBeDefined();
+      expect(landedAt()).toBe(deepLink);
+    });
 
-  test("a single-tenant sign-in during the signed-out fetch selects the tenant and enters the shell", async () => {
-    await signInWhileSignedOutFetchRuns([{ tenant_id: "t1", tenant_name: "Northstar Retail" }]);
+    test("the chooser path lands on / even with a deep link pending", async () => {
+      const memberships = [...oneTenant, { tenant_id: "t2", tenant_name: "Helios Markets" }];
+      getActiveContext
+        .mockResolvedValueOnce(signedOut)
+        .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships } });
+      signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships } });
 
-    expect(switchActiveTenant).toHaveBeenCalledWith("t1");
-    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
-  });
+      renderSignIn(deepLink);
+      expect(await screen.findByLabelText("Email")).toBeDefined();
+      submitCredentials();
 
-  test("several memberships land on the scope chooser, not back on sign-in", async () => {
-    const memberships = [
-      { tenant_id: "t1", tenant_name: "Northstar Retail" },
-      { tenant_id: "t2", tenant_name: "Helios Markets" },
-    ];
-    getActiveContext
-      .mockResolvedValueOnce(signedOut)
-      .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships } });
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships } });
+      expect(await screen.findByRole("heading", { name: /select your context/i })).toBeDefined();
+      expect(landedAt()).toBe("/");
+    });
 
-    renderSignIn();
-    await signedOutContextSettled();
-    submitCredentials();
+    test("the no-access path lands on / even with a deep link pending", async () => {
+      getActiveContext
+        .mockResolvedValueOnce(signedOut)
+        .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships: [] } });
+      signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: [] } });
 
-    expect(await screen.findByRole("heading", { name: /select your context/i })).toBeDefined();
-  });
-});
+      renderSignIn(deepLink);
+      expect(await screen.findByLabelText("Email")).toBeDefined();
+      submitCredentials();
 
-/**
- * RT-355: a signed-out user who opened a protected URL (a shared link) is sent
- * to sign-in and, after a sign-in that lands in a tenant, returns to exactly
- * that URL. The chooser and no-access paths still land on `/`.
- */
-describe("sign-in returns to the requested page (RT-355)", () => {
-  const deepLink = "/audit?actor=u1#top";
-  const oneTenant = [{ tenant_id: "t1", tenant_name: "Northstar Retail" }];
-  const tenantContext = {
-    status: 200,
-    data: {
-      user: { display_name: "Amal Saleh" },
-      active_tenant: { id: "t1", name: "Northstar Retail" },
-      active_store: null,
-      active_role_code: "tenant_admin",
-      memberships: oneTenant,
-    },
-  };
+      await vi.waitFor(() => expect(landedAt()).toBe("/"));
+      expect(screen.queryByRole("heading", { name: "Audit" })).toBeNull();
+    });
 
-  beforeEach(() => {
-    getActiveContext.mockReset();
-    signIn.mockReset();
-    refreshSession.mockReset().mockResolvedValue({ status: 401 });
-  });
+    test("opening /signin directly lands on / after an auto-select sign-in", async () => {
+      getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
+      signIn.mockResolvedValue({
+        status: 200,
+        data: { user: { id: "u1" }, memberships: oneTenant },
+      });
 
-  test("a deep link survives the sign-in redirect and auto-select returns to it", async () => {
-    getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: oneTenant } });
+      renderSignIn("/signin");
+      await signedOutContextSettled();
+      submitCredentials();
 
-    renderSignIn(deepLink);
-    expect(await screen.findByLabelText("Email")).toBeDefined();
-    expect(landedAt()).toBe("/signin");
-    submitCredentials();
-
-    expect(await screen.findByRole("heading", { name: "Audit" })).toBeDefined();
-    expect(landedAt()).toBe(deepLink);
-  });
-
-  test("the chooser path lands on / even with a deep link pending", async () => {
-    const memberships = [...oneTenant, { tenant_id: "t2", tenant_name: "Helios Markets" }];
-    getActiveContext
-      .mockResolvedValueOnce(signedOut)
-      .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships } });
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships } });
-
-    renderSignIn(deepLink);
-    expect(await screen.findByLabelText("Email")).toBeDefined();
-    submitCredentials();
-
-    expect(await screen.findByRole("heading", { name: /select your context/i })).toBeDefined();
-    expect(landedAt()).toBe("/");
-  });
-
-  test("the no-access path lands on / even with a deep link pending", async () => {
-    getActiveContext
-      .mockResolvedValueOnce(signedOut)
-      .mockResolvedValue({ status: 200, data: { active_tenant: null, memberships: [] } });
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: [] } });
-
-    renderSignIn(deepLink);
-    expect(await screen.findByLabelText("Email")).toBeDefined();
-    submitCredentials();
-
-    await vi.waitFor(() => expect(landedAt()).toBe("/"));
-    expect(screen.queryByRole("heading", { name: "Audit" })).toBeNull();
-  });
-
-  test("opening /signin directly lands on / after an auto-select sign-in", async () => {
-    getActiveContext.mockResolvedValueOnce(signedOut).mockResolvedValue(tenantContext);
-    signIn.mockResolvedValue({ status: 200, data: { user: { id: "u1" }, memberships: oneTenant } });
-
-    renderSignIn("/signin");
-    await signedOutContextSettled();
-    submitCredentials();
-
-    expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
-    expect(landedAt()).toBe("/");
+      expect(await screen.findByRole("heading", { level: 1, name: OVERVIEW_H1 })).toBeDefined();
+      expect(landedAt()).toBe("/");
+    });
   });
 });

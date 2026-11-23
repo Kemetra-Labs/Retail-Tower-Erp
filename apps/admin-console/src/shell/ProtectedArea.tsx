@@ -22,6 +22,7 @@ import { NoAccess } from "@/auth/NoAccess";
  */
 import { RateLimitBanner } from "@/components/RateLimitBanner";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { useProviderBehindCache } from "@/context/useActiveContext";
 import { Navigate, Outlet, useLocation } from "react-router";
 import { AppShell } from "./AppShell";
 import { ScopeGate } from "./ScopeGate";
@@ -45,7 +46,9 @@ function inSupportSession(context: Context): boolean {
 }
 
 export function ProtectedArea(): React.JSX.Element | null {
-  const { context, isLoading, sessionLost, rateLimited, membershipCount } = useActiveContextValue();
+  const value = useActiveContextValue();
+  const { context, isLoading, sessionLost, rateLimited, membershipCount } = value;
+  const behindCache = useProviderBehindCache(value);
   const signOut = useSignOut();
   const location = useLocation();
 
@@ -57,6 +60,12 @@ export function ProtectedArea(): React.JSX.Element | null {
     );
   }
   if (isLoading) {
+    return null;
+  }
+  if (behindCache) {
+    // RT-980: sign-in has already replaced the signed-out entry in the cache; the
+    // provider's notification is on its way. Do not bounce back to /signin on the
+    // stale value (nothing there sends an authenticated user on).
     return null;
   }
   if (sessionLost || !context) {
