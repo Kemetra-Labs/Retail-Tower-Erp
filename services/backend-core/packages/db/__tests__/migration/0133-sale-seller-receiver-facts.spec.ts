@@ -172,6 +172,15 @@ async function runAsOwner(file: string): Promise<{ code: string | null; message:
   });
 }
 
+/** Clear every seller, receiver and Seller Code (fixtures; triggers and FKs off). */
+async function clearFacts(): Promise<void> {
+  await fixture(async (c) => {
+    await c.query(`UPDATE sale_lines SET seller_user_id = NULL, seller_store_id = NULL, seller_role_id = NULL`);
+    await c.query(`UPDATE sale_tenders SET received_by_user_id = NULL`);
+    await c.query(`UPDATE memberships SET seller_code = NULL`);
+  });
+}
+
 let preExistingLine = "";
 
 beforeAll(async () => {
@@ -299,13 +308,25 @@ describe("0133 — down, as the NOSUPERUSER migration owner under FORCE RLS", ()
     expect(await forcedRls()).toEqual(ALL_FORCED);
   });
 
+  // CodeRabbit (PR #846): each fact kind alone must block the rollback, so a guard that dropped one of the
+  // three counts would fail here.
+  it.each([
+    ["only a line's seller", async () => insertLine(aSeller(), TENANT_C)],
+    ["only a tender's receiver", async () => insertTender(randomUUID(), TENANT_C)],
+    ["only a Seller Code", async () => insertMembership(TENANT_C, "S900")],
+  ])("refuses with %s recorded", async (_label, record) => {
+    if (skip()) return;
+    await clearFacts();
+    await record();
+    const refused = await runAsOwner(DOWN);
+    expect(refused.code).toBe("P0001");
+    expect(refused.message).toContain("0133 down refused: 1 row(s)");
+    expect(await newColumnCount()).toBe(5);
+  });
+
   it("drops every column once the facts are cleared, and the up re-applies", async () => {
     if (skip()) return;
-    await fixture(async (c) => {
-      await c.query(`UPDATE sale_lines SET seller_user_id = NULL, seller_store_id = NULL, seller_role_id = NULL`);
-      await c.query(`UPDATE sale_tenders SET received_by_user_id = NULL`);
-      await c.query(`UPDATE memberships SET seller_code = NULL`);
-    });
+    await clearFacts();
     expect((await runAsOwner(DOWN)).code).toBeNull();
     expect(await newColumnCount()).toBe(0);
     expect(await forcedRls()).toEqual(ALL_FORCED);

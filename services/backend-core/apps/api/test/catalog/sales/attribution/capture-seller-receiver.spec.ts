@@ -57,6 +57,7 @@ const SOFT_DELETED = id(7);
 const USER_DELETED = id(8);
 const OTHER_TENANT = id(9);
 const UNKNOWN = id(10);
+const RETURNED = id(11); // left after the sale (store_manager), came back later (store_staff)
 
 interface Member {
   readonly userId: string;
@@ -93,6 +94,23 @@ async function roleIdOf(admin: Pool, tenantId: string, code: string): Promise<st
 }
 
 const roles = new Map<string, string>();
+
+/**
+ * RT-1565 review (CodeRabbit, PR #846): a member who held `store_manager` at the sale, left after it, and
+ * came back later as `store_staff`. The frozen role must be the one in effect at the sale.
+ */
+async function seedReturnedMember(admin: Pool): Promise<void> {
+  await admin.query(`INSERT INTO users (id, email) VALUES ($1, 'rt1565-returned@example.test')`, [RETURNED]);
+  const manager = await roleIdOf(admin, TENANT_A, "store_manager");
+  const staff = await roleIdOf(admin, TENANT_A, "store_staff");
+  roles.set(RETURNED, manager);
+  await admin.query(
+    `INSERT INTO memberships (id, tenant_id, user_id, role_id, store_access_kind, deleted_at, created_at)
+     VALUES (gen_random_uuid(), $1, $2, $3, 'all', $4, $5),
+            (gen_random_uuid(), $1, $2, $6, 'all', NULL, $7)`,
+    [TENANT_A, RETURNED, manager, AFTER_SALE, LONG_AGO, staff, "2026-07-01T00:00:00Z"],
+  );
+}
 
 async function seedMembers(admin: Pool): Promise<void> {
   for (const m of MEMBERS) {
@@ -149,6 +167,7 @@ beforeAll(async () => {
   Object.assign(h, await startCaptureHarness());
   if (!h.harness) return;
   await seedMembers(h.harness.env.admin);
+  await seedReturnedMember(h.harness.env.admin);
 }, 180_000);
 afterAll(async () => {
   delete process.env[FLAG];
@@ -260,6 +279,16 @@ describe("RT-1565 — sellers per line and a receiver per tender", () => {
     expectValidSale(read.body);
     expect(read.body.lines).toEqual(res.body.lines);
     expect(read.body.tenders).toEqual(res.body.tenders);
+  });
+
+  it("freezes the role in effect at the sale, not a later membership's (a member who left and came back)", async () => {
+    if (skip()) return;
+    const res = await post(
+      captureBody({ externalId: "rt1565-returned", lines: linesWithSellers(RETURNED, null) }),
+      "rt1565returned",
+    );
+    expect(res.status).toBe(201);
+    expect(res.body.lines[0].seller).toEqual({ userId: RETURNED, storeId: STORE_A_X, roleId: roles.get(RETURNED) });
   });
 
   it("accepts a member revoked after the sale (an offline sale that syncs late)", async () => {

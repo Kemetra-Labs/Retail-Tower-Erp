@@ -6,12 +6,23 @@
  * membership was neither revoked nor soft-deleted at the sale's `occurredAt`, with access to the sale's
  * store as it stands now (`store_access_kind = 'all'`, or a `store_access` row). Checked at `occurredAt`,
  * like {@link wasTenantMemberAt}, so a sale rung offline still syncs after the member later leaves. The
- * membership's start is not checked: `created_at` is the server's clock and `occurredAt` the till's.
+ * membership's start does not decide eligibility: `created_at` is the server's clock and `occurredAt` the
+ * till's.
  *
- * Returns each eligible user with the role of the membership that covered `at` (the newest, if a member
- * left and came back). Runs on the caller's tenant-scoped client (RLS); `tenantId` is also explicit.
+ * It does decide WHICH membership's role is frozen (Policy §8: the role at sale time). Among a user's
+ * qualifying memberships, the role comes from:
+ *   1. a membership in effect at `at`: created no later than `at` plus {@link START_SKEW_SECONDS} (the
+ *      cashier-admission clock-skew tolerance, rev709 F2); the newest of them, if there are several;
+ *   2. otherwise (none had started yet, a till clock far behind), the EARLIEST membership created after
+ *      `at`, the closest to the sale, never a later replacement.
+ * So a member who left and came back is frozen with the role they held when the sale was rung.
+ *
+ * Runs on the caller's tenant-scoped client (RLS); `tenantId` is also explicit.
  */
 import type { PoolClient } from "pg";
+
+/** The clock-skew allowance on a membership's start, equal to the cashier-admission tolerance (120 s). */
+const START_SKEW_SECONDS = 120;
 
 export async function attributableMembersAt(
   client: PoolClient,
@@ -32,8 +43,12 @@ export async function attributableMembersAt(
         AND (m.deleted_at IS NULL OR m.deleted_at > $4::timestamptz)
         AND (m.store_access_kind = 'all'
              OR EXISTS (SELECT 1 FROM store_access sa WHERE sa.membership_id = m.id AND sa.store_id = $2::uuid))
-      ORDER BY m.user_id, m.created_at DESC, m.id`,
-    [query.tenantId, query.storeId, [...query.userIds], query.at],
+      ORDER BY m.user_id,
+               (m.created_at <= $4::timestamptz + make_interval(secs => $5::float8)) DESC,
+               CASE WHEN m.created_at <= $4::timestamptz + make_interval(secs => $5::float8) THEN m.created_at END DESC NULLS LAST,
+               m.created_at ASC,
+               m.id`,
+    [query.tenantId, query.storeId, [...query.userIds], query.at, START_SKEW_SECONDS],
   );
   return new Map(r.rows.map((row) => [row.user_id.toLowerCase(), row.role_id]));
 }
