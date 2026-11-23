@@ -52,11 +52,15 @@ const productId = (g: number): string => `0a000000-0000-7000-8000-${(BASE + g).t
 
 /** A pool whose clients also print `EXPLAIN (ANALYZE, BUFFERS)` of the availability statements while `capture` is set. */
 function explainingPool(real: Pool): Pool {
+  const wrapped = new WeakSet<PoolClient>();
   const wrap = (client: PoolClient): PoolClient => {
+    // A pool hands the same client out again: wrap it once, or the wrappers nest and explain each other's EXPLAIN.
+    if (wrapped.has(client)) return client;
+    wrapped.add(client);
     const query = client.query.bind(client) as (text: unknown, values?: unknown) => Promise<unknown>;
     (client as unknown as { query: unknown }).query = async (text: unknown, values?: unknown) => {
       const result = await query(text, values);
-      if (capture && typeof text === 'string' && /FROM tenant_products tp|ANY\(\$2::uuid\[\]\)/.test(text)) {
+      if (capture && typeof text === 'string' && !text.startsWith('EXPLAIN') && /FROM tenant_products tp|ANY\(\$2::uuid\[\]\)/.test(text)) {
         const plan = (await query(`EXPLAIN (ANALYZE, BUFFERS) ${text}`, values)) as { rows: Array<Record<string, string>> };
         const label = text.includes('FROM tenant_products tp') ? 'PAGE SCAN (catalog port)' : 'PAGE FACTS (inventory)';
         explained.push(`--- ${label}\n${plan.rows.map((r) => r['QUERY PLAN']).join('\n')}`);
