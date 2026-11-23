@@ -524,6 +524,10 @@ runs these steps and stops at the first failure:
 6. Migrate, then grants, then catch-up.
 7. Start `api` + `worker` by digest, then run the catch-up scripts again
    (Deploy step 4: what the previous release wrote while it still ran).
+   Both catch-up runs use the four Deploy step 4 scripts in that order, with the
+   migration-owner `PG*` variables from `grants.env` (RT-1560). Each run reports
+   the counts of the 0113 and 0128 catch-ups on its gate line, for example
+   `RT_GATE post-start-catch-up pass host_labels_moved=0 rollback_sets_filled=0`.
 8. `/health/ready` and `console-smoke.sh` on the origin.
 9. Cancel the auto-revert.
 10. Recreate the Datadog agent when it is running and the release's compose files

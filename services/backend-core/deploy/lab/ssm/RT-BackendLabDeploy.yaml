@@ -412,9 +412,25 @@ mainSteps:
           }
           psql_client bash deploy/apply-domain-grants.sh || stop "grants-failed"
           pass grants
-          psql_client sh -c 'psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
-            psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/inventory-effect-integration-catchup.sql' || stop "catch-up-failed"
-          pass catch-up
+          # README Deploy step 4's catch-up scripts, in its order (RT-1560): 0038, 0043, then 0113 (ERP
+          # provisioning host labels) and 0128 (Price Change Set rollback start). Each psql stops on its
+          # first SQL error and the chain stops at the first failing script. All idempotent. Only the two
+          # counts 0113 and 0128 return leave the container on stdout (into this root-only log); the
+          # other scripts' output goes to stderr (the same log). CATCHUP_COUNTS is digits only.
+          run_catchups() {
+            local out counts
+            CATCHUP_COUNTS=""
+            out="$(psql_client sh -c 'psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/erpnext-posting-resolution-catchup.sql >&2 &&
+              psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/inventory-effect-integration-catchup.sql >&2 &&
+              psql -X -q -A -t -v ON_ERROR_STOP=1 -f docs/operations/sql/erp-provisioning-host-label-catchup.sql &&
+              psql -X -q -A -t -v ON_ERROR_STOP=1 -f docs/operations/sql/price-change-set-rollback-from-catchup.sql')" || return 1
+            printf '%s\n' "$out"
+            counts="$({ grep -E '^[0-9]+$' <<<"$out" || true; } | tr '\n' ' ')"
+            [[ "$counts" =~ ^([0-9]+)\ ([0-9]+)\ $ ]] || return 1
+            CATCHUP_COUNTS="host_labels_moved=${BASH_REMATCH[1]} rollback_sets_filled=${BASH_REMATCH[2]}"
+          }
+          run_catchups || stop "catch-up-failed"
+          say "RT_GATE catch-up pass $CATCHUP_COUNTS"
 
           # ---------------------------------------------------------------- start api + worker
           GATE=start
@@ -423,10 +439,10 @@ mainSteps:
           running_matches api "$API_REF" || stop "running-api-is-not-ApiDigest"
           running_matches worker "$WORKER_REF" || stop "running-worker-is-not-WorkerDigest"
           pass start
-          # README Deploy step 4: freeze what the previous release wrote while it still ran (idempotent).
-          psql_client sh -c 'psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/erpnext-posting-resolution-catchup.sql &&
-            psql -X -v ON_ERROR_STOP=1 -f docs/operations/sql/inventory-effect-integration-catchup.sql' || stop "post-start-catch-up-failed"
-          pass post-start-catch-up
+          # README Deploy step 4: catch up what the previous release wrote while it still ran (idempotent).
+          # From here every writer is the new release, so this pass covers every row the old code left.
+          run_catchups || stop "post-start-catch-up-failed"
+          say "RT_GATE post-start-catch-up pass $CATCHUP_COUNTS"
 
           # ---------------------------------------------------------------- G-Ready
           GATE=G-Ready
