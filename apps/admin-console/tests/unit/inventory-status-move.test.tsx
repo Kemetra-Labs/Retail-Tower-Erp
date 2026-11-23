@@ -25,6 +25,7 @@ vi.mock("@/context/ActiveContextProvider", () => ({
 import { InventoryProduct } from "@/inventory/InventoryProduct";
 import { createQueryClient } from "@/lib/query";
 import { resetRateLimit } from "@/lib/rate-limit";
+import { availability } from "./availability-fixtures";
 
 const STORE = "0190f000-0000-7000-8000-0000000007a1";
 const PRODUCT = "0190f000-0000-7000-8000-0000000007c1";
@@ -71,6 +72,7 @@ const onHand = {
     { inventoryStatus: "expired", quantity: "0.0000" },
     { inventoryStatus: "recall_hold", quantity: "0.0000" },
   ],
+  availability: availability(),
 };
 
 function renderProduct(): void {
@@ -117,9 +119,13 @@ describe("quantity labels (RT-436)", () => {
     expect((await screen.findByTestId("on-hand-quantity")).textContent).toContain("10.0000");
     expect(screen.getByTestId("on-hand-sellable").textContent).toContain("8.0000");
     expect(screen.getByText("ERP Book (ERPNext snapshot)")).toBeDefined();
-    expect(screen.getByText("Physical on-hand", { selector: "dt" })).toBeDefined();
-    expect(screen.getByText("Sellable", { selector: "dt" })).toBeDefined();
-    expect(document.body.textContent).not.toMatch(/\bStock\b(?! (locations|movement|between))/);
+    // Each is named in the band and again in the stock quantities panel (RT-1579).
+    expect(screen.getAllByText("Physical on-hand", { selector: "dt" })).toHaveLength(2);
+    expect(screen.getAllByText("Sellable, all locations", { selector: "dt" })).toHaveLength(2);
+    expect(screen.getByText("Available to sell", { selector: "dt" })).toBeDefined();
+    expect(document.body.textContent).not.toMatch(
+      /\bStock\b(?! (locations|movement|between|quantities))/,
+    );
   });
 
   test("ERP Book shows no number, only a link to the store's ERPNext snapshot view", async () => {

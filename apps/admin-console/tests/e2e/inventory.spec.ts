@@ -1,3 +1,4 @@
+import { availability } from "../unit/availability-fixtures";
 import { expectNoAxeViolations } from "./axe";
 import { type Page, expect, test } from "./fixtures";
 
@@ -94,6 +95,7 @@ const onHand = {
   negativeBalance: false,
   sellableQuantity: "12.0000",
   statusQuantities: [{ inventoryStatus: "sellable", quantity: "12.0000" }],
+  availability: availability({ primarySellable: "12.0000", availableToSell: "9.0000" }),
 };
 
 function json(body: unknown, status = 200) {
@@ -171,6 +173,11 @@ test("S1: owner → store ledger → product on-hand, read-only", async ({ page:
     .click();
   await expect(p).toHaveURL(new RegExp(`/inventory/stores/${CAIRO}/products/${PRODUCT}$`));
   await expect(p.getByTestId("on-hand-quantity")).toHaveText("12.0000 kg");
+  // RT-1579: Available To Sell is its own figure beside the physical one.
+  await expect(p.getByTestId("availability-ats")).toHaveText("9.0000 kg");
+  await expect(p.getByTestId("availability-on-order")).toHaveText(
+    t("inventory.availability.onOrderNone"),
+  );
   await expect(p.getByText(t("inventory.tracking.empty"))).toBeVisible();
   await expectNoAxeViolations(p, "inventory product on-hand");
   expect(seen.tracking).toBe(1);

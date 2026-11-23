@@ -64,6 +64,12 @@ export function useStoreName(tenantId: string | null, storeId: string): string |
   return result?.kind === "rows" ? result.rows.find((s) => s.id === storeId)?.name : undefined;
 }
 
+/** The store's IANA time zone from the tenant's store list, once it has loaded. */
+export function useStoreTimeZone(tenantId: string | null, storeId: string): string | undefined {
+  const { result } = useStoreList(tenantId);
+  return result?.kind === "rows" ? result.rows.find((s) => s.id === storeId)?.timezone : undefined;
+}
+
 /** One store's inventory, read within the active scope. */
 export interface StoreTarget {
   scope: InventoryScope;

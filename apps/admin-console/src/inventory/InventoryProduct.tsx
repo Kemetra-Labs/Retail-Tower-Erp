@@ -20,8 +20,11 @@ import { Banner } from "@/components/Banner";
  * served physical and sellable on-hand (`getOnHand`), and none while that read
  * is loading or has failed: an unknown balance is never drawn as a number, and
  * the band never changes colour for a negative one (the warning is a banner in
- * the on-hand panel). The panels are numbered only when more than one renders
- * for the role (on-hand, then the status move, then tracking).
+ * the on-hand panel). The panels are numbered by what renders for the role
+ * (on-hand, stock quantities, then the status move, then tracking).
+ *
+ * RT-1579 (RT-1511 S4): the stock quantities panel (AvailabilitySection) sits
+ * right after the on-hand panel, so the page always has two numbered panels.
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -33,6 +36,7 @@ import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
 import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
 import { Link, useParams } from "react-router";
+import { AvailabilitySection } from "./AvailabilitySection";
 import { StatusMoveSection } from "./StatusMoveSection";
 import {
   canReadInventory,
@@ -42,7 +46,16 @@ import {
   isUuid,
   trackingKindKey,
 } from "./inventoryLogic";
-import { BackLink, LoadMore, Machine, Quantity, ReadError, StaleError, Unknown } from "./parts";
+import {
+  BackLink,
+  LoadMore,
+  Machine,
+  Quantity,
+  ReadError,
+  StaleError,
+  Unit,
+  Unknown,
+} from "./parts";
 import { canMoveStock } from "./statusMoveLogic";
 import {
   type InventoryScope,
@@ -51,6 +64,7 @@ import {
   type ReadState,
   useInventoryScope,
   useOnHand,
+  useStoreTimeZone,
   useTrackingIdentities,
 } from "./useInventory";
 import "../shell/surface.css";
@@ -66,10 +80,6 @@ interface Target {
 /** Anything under a panel header that is not a table: a state, a banner, a note. */
 function Body({ children }: Readonly<{ children: React.ReactNode }>): React.JSX.Element {
   return <div className="inventory__panel-body">{children}</div>;
-}
-
-function Unit({ unit }: Readonly<{ unit: string | null | undefined }>): React.JSX.Element {
-  return unit ? <Machine value={unit} /> : <Unknown />;
 }
 
 /**
@@ -355,12 +365,13 @@ function ProductView({
 }: Readonly<{ scope: InventoryScope; target: Target }>): React.JSX.Element {
   const t = useT();
   const onHand = useOnHand({ scope, ...target });
+  const timeZone = useStoreTimeZone(scope.tenantId, target.storeId);
   const facts = useBandFacts(onHand);
-  // Panels are numbered by what renders for this role; a lone panel carries no badge.
+  // Panels are numbered by what renders for this role. The on-hand and stock
+  // quantity panels always render, so the page is always numbered.
   const moves = canMoveStock(scope.role);
   const tracking = canReadTracking(scope.role);
-  const numbered = moves || tracking;
-  const trackingIndex = moves ? 3 : 2;
+  const trackingIndex = moves ? 4 : 3;
   return (
     <div className="surface inventory--v4">
       <BackLink to={`/inventory/stores/${target.storeId}`} label={t("inventory.product.back")} />
@@ -373,19 +384,15 @@ function ProductView({
       {/* A deep link to another store's view never switches scope (RT-268); the
           notice sits under the band, which never carries state. */}
       <ScopeMismatchBanner storeId={target.storeId} />
-      <OnHandSection
-        onHand={onHand}
-        storeId={target.storeId}
-        role={scope.role}
-        index={numbered ? 1 : undefined}
-      />
+      <OnHandSection onHand={onHand} storeId={target.storeId} role={scope.role} index={1} />
+      <AvailabilitySection onHand={onHand} timeZone={timeZone} index={2} />
       {moves ? (
         <StatusMoveSection
           scope={scope}
           storeId={target.storeId}
           productId={target.productId}
           onHand={onHand}
-          index={2}
+          index={3}
         />
       ) : null}
       {tracking ? <TrackingSection target={{ scope, ...target }} index={trackingIndex} /> : null}
