@@ -10,6 +10,7 @@ import type {
   PairingSubmitResult,
 } from './pairing-types.js';
 import type { Role } from './operator/role.js';
+import type { AvailabilityBridgeAPI } from './availability/types.js';
 import type { OperatorRefusal } from './audit/event-shape.js';
 import type { ForcedCloseReason } from './audit/payload-schemas.js';
 import type { ReturnsBridgeAPI } from './returns/types.js';
@@ -847,6 +848,11 @@ export interface PreloadBridgeAPI {
    * (handlers return `catalogue_unavailable` until the read model lands in S2).
    */
   catalogue?: CatalogueBridgeAPI;
+  /**
+   * RT-1578 (RT-1511 S3, spec 013): read-only `availability.*` namespace (status / bands / refresh).
+   * Band and freshness only; never a number, never a stock write. Session-gated main-side.
+   */
+  availability?: AvailabilityBridgeAPI;
 
   /**
    * 011-sale-sync-capture-up: READ-ONLY sale-sync status namespace. A single

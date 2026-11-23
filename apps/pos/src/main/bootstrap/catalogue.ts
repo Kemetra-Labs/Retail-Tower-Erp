@@ -19,6 +19,7 @@ import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
 import type { DeviceRevocationStore, PairingStore } from '../pairing/store.js';
 import type { PairingStatus } from '../../shared/pairing-types.js';
 import { resolveApiBaseUrl } from './env.js';
+import { registerAvailability } from './availability.js';
 import { registerOffers } from './offers.js';
 import { registerUnknownItemCapture } from './unknown-item-capture.js';
 
@@ -186,6 +187,8 @@ export async function registerCatalogue(deps: CatalogueDeps): Promise<CatalogueW
   }
   // RT-1339 — the store's Offer Pack read-down rides the same deps (RT-893: `index.ts` may not grow).
   registerOffers(deps);
+  // RT-1578 — the store-availability cache and its `availability:*` bridge (spec 013), same deps.
+  registerAvailability(deps);
 
   return { bootPairing };
 }

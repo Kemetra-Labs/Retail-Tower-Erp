@@ -53,6 +53,9 @@ const STOP_ORDER = [
   // RT-1339 — the store's Offer Pack read-down (start + 5 min). It writes only the Pack file
   // beside the database, so it stops with the other read-down workers, before the DB closes.
   'offer pack read-down',
+  // RT-1578 — the store-availability refresh (start + 15 min). It writes the availability cache,
+  // so it stops with the other read-down workers, before the DB closes.
+  'availability refresh',
   'sale-sync interval',
   // RT-1231 — the audit upload (D-2 privileged events). It writes the audit
   // sync state, so it stops with the sale-sync interval, before the DB closes.
