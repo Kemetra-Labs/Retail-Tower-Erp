@@ -199,6 +199,18 @@ describe('cart.park — no default limit (RT-1561); a configured limit counts pe
     expect(refusals()).toEqual([]);
   });
 
+  it('with no parkLimit wired at all (the shipped default), the 6th and the 20th park succeed', async () => {
+    w = createParkWorld({ wireParkLimit: false });
+    w.session = sessionOf('cashier-1');
+    for (let i = 1; i <= 20; i += 1) {
+      const cart = await openSale(w, [PARA]);
+      expect(w.parks.park({ cart_id: cart, idempotency_key: `k-${String(i)}` })).toEqual({
+        kind: 'parked',
+      });
+    }
+    expect(refusals()).toEqual([]);
+  });
+
   it('with an injected limit of 5, refuses the 6th park_limit_reached, counting other operators and stale sales', async () => {
     w.parkLimit = 5;
     for (const op of ['cashier-1', 'cashier-1', 'cashier-2', 'cashier-2', 'cashier-3']) {

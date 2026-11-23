@@ -78,7 +78,11 @@ export { initGrantSql as initParkSql } from '../../../../../src/main/operator/__
 
 const FIXTURE_PRICES: Record<string, number> = { [PARA]: 150, [IBUP]: 200, [AMOX]: 450 };
 
-export function createParkWorld(): ParkWorld {
+/**
+ * `wireParkLimit: false` builds the park deps without a `parkLimit` at all, as
+ * the shipped bootstrap does today (RT-1561): the default path under test.
+ */
+export function createParkWorld(options: { wireParkLimit?: boolean } = {}): ParkWorld {
   const raw = freshGrantDb();
   const handle = makeSqlJsHandle(raw);
   const capture = (level: string) =>
@@ -121,7 +125,7 @@ export function createParkWorld(): ParkWorld {
     auditEmitter: { emit: (e) => world.audit.push(e) },
     prices: (_tenant, item) =>
       world.catalogue.get(item) ?? { kind: 'price', unit_price_minor: FIXTURE_PRICES[item] ?? 0 },
-    parkLimit: () => world.parkLimit,
+    ...(options.wireParkLimit === false ? {} : { parkLimit: () => world.parkLimit }),
     clock: () => world.now,
     logger: logger as never,
   });
