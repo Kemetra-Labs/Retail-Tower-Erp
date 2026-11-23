@@ -25,6 +25,29 @@
   font-size: var(--text-meta);
 }
 
+/* RT-1579: the stock quantities panel: titled groups of ledger rows, each label
+ * with its one-line meaning under it. */
+.inventory__group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+}
+.inventory__group + .inventory__group {
+  padding-block-start: var(--space-3);
+}
+.inventory__group-title {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-medium);
+}
+.inventory__hint {
+  display: block;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+  font-weight: var(--weight-regular);
+}
+
 .inventory__figures {
   display: flex;
   flex-wrap: wrap;

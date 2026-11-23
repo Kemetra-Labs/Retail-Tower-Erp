@@ -10,6 +10,7 @@
  */
 import { mkdirSync } from "node:fs";
 import { join } from "node:path";
+import { negativeAvailability } from "../unit/availability-fixtures";
 import { expectNoAxeViolations } from "./axe";
 import { type Page, expect, test } from "./fixtures";
 
@@ -104,6 +105,7 @@ async function mock(page: Page): Promise<void> {
           { inventoryStatus: "sellable", quantity: "-1.2500" },
           { inventoryStatus: "damaged", quantity: "0.0000" },
         ],
+        availability: negativeAvailability(),
       }),
     ),
   );

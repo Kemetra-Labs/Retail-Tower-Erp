@@ -65,6 +65,11 @@ export function Unknown(): React.JSX.Element {
   return <span className="inventory__unknown">{t("inventory.value.unknown")}</span>;
 }
 
+/** The stocking unit beside a quantity; Unknown when the product has none. */
+export function Unit({ unit }: Readonly<{ unit: string | null | undefined }>): React.JSX.Element {
+  return unit ? <Machine value={unit} /> : <Unknown />;
+}
+
 export function BackLink({ to, label }: Readonly<{ to: string; label: string }>) {
   return (
     <Link to={to} className="surface__back">

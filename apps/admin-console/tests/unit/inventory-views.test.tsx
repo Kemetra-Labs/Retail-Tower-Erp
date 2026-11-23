@@ -30,6 +30,7 @@ import { InventoryStore } from "@/inventory/InventoryStore";
 import { InventoryStores } from "@/inventory/InventoryStores";
 import { createQueryClient } from "@/lib/query";
 import { resetRateLimit } from "@/lib/rate-limit";
+import { negativeAvailability } from "./availability-fixtures";
 
 const STORE = "0190f000-0000-7000-8000-0000000007a1";
 const OTHER_STORE = "0190f000-0000-7000-8000-0000000007a2";
@@ -111,6 +112,7 @@ const onHand = {
     { inventoryStatus: "sellable", quantity: "-1.2500" },
     { inventoryStatus: "damaged", quantity: "0.0000" },
   ],
+  availability: negativeAvailability(),
 };
 
 const stores = [

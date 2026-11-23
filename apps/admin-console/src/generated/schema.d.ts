@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ 510706c4d6d95d1faed121d79a35a105c80f79d5
+// Source: Kemetra-Labs/Retail-Tower-Erp @ 1f23da8b3adbfac96dded9e4706c7657e14feff5
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -6267,7 +6267,7 @@ export namespace SyncOpsSchema {
             };
             /**
              * Consolidated sync-ops summary across domains for the operator's tenant.
-             * @description One tenant-scoped summary aggregating 015 posting health + 017 reconciliation health, with 020 connector_health + 021 product_master reported as `not_available` (forward-compat). Optional `store_id` narrows to one in-scope store. Tenant resolves server-side from the session. Also carries the posting freshness facts (`postingFreshness`) for the same scope and the instant they were read (`asOf`); facts only, no "posting is current" verdict (1.2.0-draft, RT-565).
+             * @description One tenant-scoped summary aggregating 015 posting health + 017 reconciliation health + 020 connector_health (RT-563), with 021 product_master reported as `not_available` (forward-compat). Optional `store_id` narrows to one in-scope store. Tenant resolves server-side from the session. Also carries the posting freshness facts (`postingFreshness`) for the same scope and the instant they were read (`asOf`); facts only, no "posting is current" verdict (1.2.0-draft, RT-565).
              */
             get: operations["consoleGetSyncOpsSummary"];
             put?: never;
@@ -6324,7 +6324,7 @@ export namespace SyncOpsSchema {
         schemas: {
             /** @description The consolidated sync-ops summary for one tenant (optionally one store). One `DomainSummary` per sync-ops domain, plus the posting freshness facts (1.2.0-draft, RT-565) and the instant they were read. */
             SyncOpsSummary: {
-                /** @description One entry per sync-ops domain. v1 populates `posting` + `reconciliation`; `connector_health` + `product_master` are present as `not_available`. */
+                /** @description One entry per sync-ops domain. `posting`, `reconciliation` and `connector_health` (RT-563) are populated; `product_master` is present as `not_available`. */
                 domains: components["schemas"]["DomainSummary"][];
                 /**
                  * Format: date-time
@@ -6359,7 +6359,7 @@ export namespace SyncOpsSchema {
                  */
                 at: string | null;
             };
-            /** @description Health of one sync-ops domain. `status` is the operator-facing rollup; `not_available` means the domain's source spec (020/021) is not yet built (forward-compat stub — the Console renders a deferred tile). */
+            /** @description Health of one sync-ops domain. `status` is the operator-facing rollup; `not_available` means the domain has nothing to report: `product_master` (021 not yet built, forward-compat stub) or `connector_health` with no active instance. `latestRun` appears only on `reconciliation`, and `instances` only on `connector_health` when it is not `not_available` (1.3.0-draft, RT-1404; the `allOf` rules below). Servers before 1.3.0-draft omit both. */
             DomainSummary: {
                 /**
                  * @description The sync-ops domain this summary describes.
@@ -6367,14 +6367,39 @@ export namespace SyncOpsSchema {
                  */
                 domain: "posting" | "reconciliation" | "connector_health" | "product_master";
                 /**
-                 * @description `ok` — nothing needs operator attention. `attention` — there is a backlog / open mismatch / failed run to look at. `not_available` — the domain's source is not yet built (020/021 in v1).
+                 * @description `ok` — nothing needs operator attention. `attention` — there is a backlog / open mismatch / failed run to look at. `not_available` — the domain has nothing to report: its source is not yet built (021 product_master), or `connector_health` has no active instance.
                  * @enum {string}
                  */
                 status: "ok" | "attention" | "not_available";
                 /** @description The single operator-facing count for the domain (e.g. dead-letter backlog size for `posting`; open-mismatch count for `reconciliation`). Null when `not_available`. */
                 headlineCount?: number | null;
-                /** @description Short human-readable context (e.g. latest run outcome). Null when `not_available`. No PII, no internal identifiers. */
+                /** @description Short English diagnostic text (e.g. latest run outcome). It is NOT operator copy: the Console renders its own catalog message from `status`, `headlineCount`, `latestRun` and `instances`, and shows `detail` only as a fallback for a server that predates them. Its wording may change without a contract change. No PII, no internal identifiers. */
                 detail?: string | null;
+                /** @description `reconciliation` only (1.3.0-draft, RT-1404). The newest reconciliation run (by `started_at`) within the tenant, the `store_id` filter and the caller's store scope; null when there is no run in that scope. Absent on every other domain. */
+                latestRun?: components["schemas"]["ReconciliationLatestRun"] | null;
+                instances?: components["schemas"]["ConnectorInstanceCounts"];
+            } & (unknown & unknown);
+            /** @description The latest reconciliation run in scope (1.3.0-draft, RT-1404). */
+            ReconciliationLatestRun: {
+                /**
+                 * @description The run's status (the 017 `erpnext_reconciliation_run.status` CHECK, migration 0020). `failed` also makes the tile `attention`.
+                 * @enum {string}
+                 */
+                status: "running" | "completed" | "failed";
+                /**
+                 * Format: date-time
+                 * @description When the run started (`started_at`), for every status.
+                 */
+                at: string;
+            };
+            /** @description `connector_health` only (1.3.0-draft, RT-1404), and only when the tile is `ok` or `attention`; absent when `not_available` (no instance registered, or every instance disabled). Counts of the tenant's active (not disabled) connector instances, by the 020 read-time liveness verdict (5-minute staleness threshold). Healthy instances are `total - stale - neverSeen`, and `stale + neverSeen` equals `headlineCount`. */
+            ConnectorInstanceCounts: {
+                /** @description Active (not disabled) connector instances. A count, not money. */
+                total: number;
+                /** @description Active instances whose last heartbeat is older than the threshold. */
+                stale: number;
+                /** @description Active instances that have never sent a heartbeat. */
+                neverSeen: number;
             };
             /** @description A bounded page of posting dead-letter backlog items. */
             PostingBacklogPage: {
@@ -10130,7 +10155,7 @@ export namespace ErpnextWarehouseMapSchema {
             };
             /**
              * List a tenant's ERPNext Warehouse mappings.
-             * @description Returns the tenant's active mappings as `ErpnextWarehouseMapping` projections. Scoped to the session tenant (RLS); cross-tenant rows are never disclosed.
+             * @description Returns the tenant's active store mappings as `ErpnextWarehouseMapping` projections. Scoped to the session tenant (RLS); cross-tenant rows are never disclosed. The tenant transit warehouse is not listed here (RT-1574): read it with `tenantAdminGetErpnextTransitWarehouseMapping`.
              */
             get: operations["tenantAdminListErpnextWarehouseMappings"];
             put?: never;
@@ -10156,9 +10181,53 @@ export namespace ErpnextWarehouseMapSchema {
             put?: never;
             /**
              * Retire (or re-point) a mapping — append-only.
-             * @description Sets `retired_at` on the addressed active mapping (append-only: the row is preserved as history; a re-point is a retire here followed by a fresh `tenantAdminSetErpnextWarehouseMapping`, never an in-place identity rewrite). Carries the expected `version` (§III optimistic concurrency); a mismatch is `409 conflict`. Cross-tenant / out-of-scope ids are non-disclosing 404s.
+             * @description Sets `retired_at` on the addressed active mapping (append-only: the row is preserved as history; a re-point is a retire here followed by a fresh `tenantAdminSetErpnextWarehouseMapping`, never an in-place identity rewrite). Carries the expected `version` (§III optimistic concurrency); a mismatch is `409 conflict`. Cross-tenant / out-of-scope ids are non-disclosing 404s, and so is the tenant transit warehouse's id (RT-1574: it is retired with `tenantAdminRetireErpnextTransitWarehouseMapping`).
              */
             post: operations["tenantAdminRetireErpnextWarehouseMapping"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/erpnext-transit-warehouse-mapping": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Read the tenant's ERPNext transit warehouse mapping.
+             * @description RT-1574. The tenant's active transit warehouse (`purpose = 'transit'`, no store), or `mapping: null` when it has none. Shipment transfers cannot be switched on until it is set (`transit_warehouse_unmapped`). Scoped to the session tenant (RLS).
+             */
+            get: operations["tenantAdminGetErpnextTransitWarehouseMapping"];
+            put?: never;
+            /**
+             * Set the tenant's ERPNext transit warehouse mapping.
+             * @description RT-1574. Maps the tenant's goods-in-transit ERPNext Warehouse (a Warehouse of type Transit; its type is not checked here, the Connector meets it when it posts). At most ONE active transit mapping per tenant: a second is `409 conflict`; re-point is a retire followed by a fresh set. A Warehouse already held by any active mapping of the tenant is also `409 conflict` (RT-433). `tenant_id` and the actor are server-resolved (§XII).
+             */
+            post: operations["tenantAdminSetErpnextTransitWarehouseMapping"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/v1/catalog/erpnext-transit-warehouse-mapping/{id}/retire": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Retire the tenant's ERPNext transit warehouse mapping — append-only.
+             * @description RT-1574. Sets `retired_at` on the tenant's active transit mapping (append-only, §III optimistic `version`). Any other id (a store mapping, another tenant's row, an unknown id) is a non-disclosing 404. While no transit mapping is active, shipment transfers cannot be switched on.
+             */
+            post: operations["tenantAdminRetireErpnextTransitWarehouseMapping"];
             delete?: never;
             options?: never;
             head?: never;
@@ -10214,6 +10283,39 @@ export namespace ErpnextWarehouseMapSchema {
                 created_at: string;
                 /** Format: date-time */
                 updated_at: string;
+            };
+            /** @description RT-1574 transit set command. Strict (§XII): the tenant, the purpose (`transit`), the version and the actor are server-resolved; there is no store. */
+            SetErpnextTransitWarehouseMappingRequest: {
+                /** @description The ERPNext transit Warehouse reference (e.g. the Warehouse name). Opaque string — no FK, version-independent (012 O-6). */
+                erpnext_warehouse_ref: string;
+            };
+            /** @description RT-1574. The `toBody()` projection of the tenant's `purpose = 'transit'` `erpnext_warehouse_map` row. It belongs to the tenant, not a store, so it has no `store_id`. Identity + lifecycle only (OQ-1). */
+            ErpnextTransitWarehouseMapping: {
+                /** Format: uuid */
+                id: string;
+                erpnext_warehouse_ref: string;
+                /** @description Optimistic-concurrency token (§III). */
+                version: number;
+                /**
+                 * Format: uuid
+                 * @description Tenant Admin that set the mapping.
+                 */
+                set_by?: string | null;
+                /** Format: date-time */
+                set_at: string;
+                /**
+                 * Format: date-time
+                 * @description Soft-delete timestamp. Null = active.
+                 */
+                retired_at?: string | null;
+                /** Format: date-time */
+                created_at: string;
+                /** Format: date-time */
+                updated_at: string;
+            };
+            /** @description RT-1574. The tenant's active transit warehouse mapping, or null when it has none. */
+            ErpnextTransitWarehouseMappingState: {
+                mapping: components["schemas"]["ErpnextTransitWarehouseMapping"] | null;
             };
             /** @description Canonical error envelope, identical to the shared shape in `auth.openapi.yaml` / `catalog/erpnext-item-map.yaml` (used verbatim). Cross-tenant / out-of-scope refusals are non-disclosing (§II/§XII) — they never enumerate the underlying cause. */
             Error: {
@@ -10384,6 +10486,170 @@ export namespace ErpnextWarehouseMapSchema {
                     };
                     content: {
                         "application/json": components["schemas"]["ErpnextWarehouseMapping"];
+                    };
+                };
+                /** @description Bad request (invalid path UUID or body). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller is not authenticated. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Not found OR not in scope (non-disclosing, §II/§XII). */
+                404: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Optimistic-concurrency conflict (stale `version`) OR already retired. `error.code = "conflict"` (§III). */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        tenantAdminGetErpnextTransitWarehouseMapping: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's active transit warehouse mapping, or null. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErpnextTransitWarehouseMappingState"];
+                    };
+                };
+                /** @description Caller is not authenticated. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        tenantAdminSetErpnextTransitWarehouseMapping: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["SetErpnextTransitWarehouseMappingRequest"];
+                };
+            };
+            responses: {
+                /** @description Transit warehouse mapping set. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErpnextTransitWarehouseMapping"];
+                    };
+                };
+                /** @description Bad request (validation failure). */
+                400: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description Caller is not authenticated. */
+                401: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                /** @description The tenant already has an active transit warehouse mapping, or the Warehouse is already held by an active mapping. `error.code = "conflict"`. */
+                409: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                429: components["responses"]["TooManyRequests"];
+            };
+        };
+        tenantAdminRetireErpnextTransitWarehouseMapping: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description UUIDv7 primary key of the `erpnext_warehouse_map` row. */
+                    id: components["parameters"]["MappingId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["VersionedMutationRequest"];
+                };
+            };
+            responses: {
+                /** @description Transit warehouse mapping retired. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["ErpnextTransitWarehouseMapping"];
                     };
                 };
                 /** @description Bad request (invalid path UUID or body). */
@@ -13751,7 +14017,7 @@ export namespace InventorySchema {
                 /** @description Opaque cursor for the next page, bound to the request's store and filters; null when exhausted. Absent is read as null. */
                 nextCursor?: string | null;
             };
-            /** @description Derived on-hand projection. `quantity` is the compute-on-read signed SUM (FR-003) over every location and inventory status of the store — the physical on-hand (decision 732). `negativeBalance` is true when `quantity` < 0 (FR-024); on-hand is never a stored mutable value. RT-432: `sellableQuantity` and `statusQuantities` split the same movements by inventory status (decision 745); a movement recorded before positions existed counts as `sellable`. Available To Sell is not projected here. */
+            /** @description Derived on-hand projection. `quantity` is the compute-on-read signed SUM (FR-003) over every location and inventory status of the store — the physical on-hand (decision 732). `negativeBalance` is true when `quantity` < 0 (FR-024); on-hand is never a stored mutable value. RT-432: `sellableQuantity` and `statusQuantities` split the same movements by inventory status (decision 745); a movement recorded before positions existed counts as `sellable`. RT-1576: `availability` carries Available To Sell (742) and its facts, so the physical, sellable, reserved, available and In Transit figures are shown separately (745). */
             OnHand: {
                 /** Format: uuid */
                 storeId: string;
@@ -13765,6 +14031,33 @@ export namespace InventorySchema {
                 sellableQuantity: components["schemas"]["DecimalQuantity"];
                 /** @description RT-432 — one entry per inventory status, in the order of the `InventoryStatus` enum; a status with no movements reads zero. The entries sum to `quantity`. */
                 statusQuantities: components["schemas"]["StatusQuantity"][];
+                availability: components["schemas"]["Availability"];
+            };
+            /** @description RT-1576 (RT-1511 S1) — Available To Sell of one (store, product), computed on read by Backend-Core (no ERPNext read). `availableToSell` = `primarySellable` - `expiredTrackedSellable` - `activeReserved` - `safetyProtection`; it is never clamped and may be negative (743). Only the store's `primary` location counts. Holds and non-sellable statuses are not subtracted again: they already left `sellable`. In Transit never enters `availableToSell`. */
+            Availability: {
+                /** Format: uuid */
+                primaryLocationId: string;
+                /** @description The `sellable` quantity at the primary location. May be negative. */
+                primarySellable: components["schemas"]["DecimalQuantity"];
+                /** @description The sellable quantity at the primary location of tracking identities whose expiry date is before today in the store's time zone (a lot is sellable through its expiry date). */
+                expiredTrackedSellable: components["schemas"]["DecimalQuantity"];
+                /** @description Active reservations at the primary location: state `active` and `expires_at` in the future. A lapsed reservation never counts. */
+                activeReserved: components["schemas"]["DecimalQuantity"];
+                /** @description Zero in V1; reported so a later safety-stock policy is additive. */
+                safetyProtection: components["schemas"]["DecimalQuantity"];
+                /** @description May be negative; never clamped. */
+                availableToSell: components["schemas"]["DecimalQuantity"];
+                /** @description Dispatched less received less short-closed on Transfers into the store. Not part of `availableToSell`. */
+                inTransitInbound: components["schemas"]["DecimalQuantity"];
+                /** @description The same arithmetic on Transfers out of the store. */
+                inTransitOutbound: components["schemas"]["DecimalQuantity"];
+                /** @description Always null today; no purchasing source exists yet. */
+                onOrder: string | null;
+                /**
+                 * Format: date-time
+                 * @description The instant the figures were read.
+                 */
+                asOf: string;
             };
             /**
              * @description RT-432 (RT-290 G4-2, decision 751): the closed set of inventory statuses. All are physical stock; only `sellable` is sellable (733).
@@ -24098,6 +24391,32 @@ export namespace ConsoleForceActionsSchema {
             patch?: never;
             trace?: never;
         };
+        "/api/v1/open-shifts/summary": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Count the tenant's open shifts by verdict, per store and in total.
+             * @description RT-1450 (RT-1437 A1 "Health"). For every store of the session's tenant that is not deleted and has at least one open shift, the number of open shifts, how many of them are `stale` and how many are `eligible` (the verdict fields of `ShiftVerdict`), plus the tenant totals. Each store's counts are taken over exactly the shifts `consoleListOpenShifts` lists for that store (at most 200), with the same verdict, all judged at one `evaluatedAt`; a store's counts therefore always equal what that read shows. `eligibleShiftCount` counts the shifts a Console force close would accept now: stale, with no live operator session and no live cashier admission (the stuck rule). `staleShiftCount` counts every shift opened longer ago than `staleThresholdMinutes`, live or not.
+             *
+             *     A deleted store is never listed, as `consoleListOpenShifts` answers it 404. A store with no open shift has no row. Stores are ordered by `storeId`, at most 1000. The tenant is the session's active tenant, never the request's; there is no parameter.
+             *
+             *     **Caps.** `truncated` is true when a cap left something out: the tenant has more than 1000 such stores, or a store has more open shifts than the 200 its per-store read lists (that read is newest first, so the oldest, most likely stale, shifts are the ones left out). The counts are then lower bounds. At most one shift is open per device, so in practice neither cap is reached. The work is one verdict per counted shift, in one read-only transaction.
+             *
+             *     Owner or `tenant_admin` with all-store access, or a platform admin (RT-1462); every other caller is the non-disclosing 404, the same body as the per-store read's. Read-only: it writes nothing (apart from the platform admin's `platform.cross_tenant.accessed` row) and takes no lock.
+             */
+            get: operations["consoleGetOpenShiftsSummary"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
         "/api/v1/shifts/{shift_id}/force-close-preview": {
             parameters: {
                 query?: never;
@@ -24297,6 +24616,31 @@ export namespace ConsoleForceActionsSchema {
                 /** @description The staleness threshold the verdicts used (the stuck-list threshold). */
                 staleThresholdMinutes: number;
                 items: components["schemas"]["OpenShiftSummary"][];
+            };
+            /** @description One store's open shifts as `consoleListOpenShifts` lists them, counted by verdict (RT-1450). */
+            StoreOpenShiftCounts: {
+                /** Format: uuid */
+                storeId: string;
+                openShiftCount: number;
+                staleShiftCount: number;
+                eligibleShiftCount: number;
+            };
+            /** @description The tenant's open shifts counted by verdict (RT-1450). Each total is the sum of the same count over `stores`. */
+            OpenShiftsSummary: {
+                /**
+                 * Format: date-time
+                 * @description Server time every verdict was computed at.
+                 */
+                evaluatedAt: string;
+                /** @description The staleness threshold the verdicts used (the same as `OpenShiftList`). */
+                staleThresholdMinutes: number;
+                openShiftCount: number;
+                staleShiftCount: number;
+                eligibleShiftCount: number;
+                /** @description True when a cap left a store or a shift out (more than 1000 stores with an open shift, or a store with more than 200 open shifts); the counts are then lower bounds. */
+                truncated: boolean;
+                /** @description Stores with at least one open shift, by `storeId`. */
+                stores: components["schemas"]["StoreOpenShiftCounts"][];
             };
             /** @description Recorded counts and amounts only, as the server received them. Never an expected-cash or variance figure. */
             RecordedFacts: {
@@ -24546,6 +24890,39 @@ export namespace ConsoleForceActionsSchema {
                 };
                 401: components["responses"]["Unauthorized"];
                 /** @description `support_session_required`: the active tenant of a platform admin who is not a member no longer exists (for example it was deleted), so the direct-route gate refuses before the handler runs. An unknown or foreign resource in a valid active tenant stays 404. */
+                403: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["Error"];
+                    };
+                };
+                404: components["responses"]["NotFound"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        consoleGetOpenShiftsSummary: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The tenant's open-shift counts, possibly all zero. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["OpenShiftsSummary"];
+                    };
+                };
+                401: components["responses"]["Unauthorized"];
+                /** @description `support_session_required`: the active tenant of a platform admin who is not a member no longer exists (for example it was deleted), so the direct-route gate refuses before the handler runs. */
                 403: {
                     headers: {
                         [name: string]: unknown;

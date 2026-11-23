@@ -39,6 +39,7 @@ import { InventoryStore } from "@/inventory/InventoryStore";
 import { InventoryStores } from "@/inventory/InventoryStores";
 import { createQueryClient } from "@/lib/query";
 import { resetRateLimit } from "@/lib/rate-limit";
+import { negativeAvailability } from "./availability-fixtures";
 
 const STORE = "0190f000-0000-7000-8000-0000000007a1";
 const PRODUCT = "0190f000-0000-7000-8000-0000000007c1";
@@ -85,6 +86,7 @@ const negativeOnHand = {
   negativeBalance: true,
   sellableQuantity: "-1.2500",
   statusQuantities: [{ inventoryStatus: "sellable", quantity: "-1.2500" }],
+  availability: negativeAvailability(),
 };
 const stores = [
   { id: STORE, code: "CAI", name: "Cairo Festival", timezone: "Africa/Cairo", is_active: true },
@@ -272,32 +274,33 @@ describe("product page band and panels (RT-1016)", () => {
     expect(screen.queryByTestId("on-hand-sellable")).toBeNull();
   });
 
-  test("an owner sees three numbered panels; the move is 02 and tracking 03", async () => {
+  test("an owner sees four numbered panels; stock quantities 02, the move 03, tracking 04", async () => {
     renderAt(PRODUCT_URL);
     await screen.findByRole("heading", { name: "Batches and serials" });
-    expect(badges()).toEqual(["01", "02", "03"]);
+    expect(badges()).toEqual(["01", "02", "03", "04"]);
     const labelled = (name: string) => screen.getByRole("region", { name });
     expect(labelled("Physical on-hand")).toBeDefined();
+    expect(labelled("Stock quantities")).toBeDefined();
     expect(labelled("Move stock between statuses")).toBeDefined();
   });
 
-  test("a store manager has no tracking panel: two numbered panels, no tracking read", async () => {
+  test("a store manager has no tracking panel: three numbered panels, no tracking read", async () => {
     activeContext.mockReturnValue(ctx("store_manager"));
     renderAt(PRODUCT_URL);
     await screen.findByRole("heading", { name: "Move stock between statuses" });
-    expect(badges()).toEqual(["01", "02"]);
+    expect(badges()).toEqual(["01", "02", "03"]);
     expect(screen.queryByRole("heading", { name: "Batches and serials" })).toBeNull();
     expect(api.listTrackingIdentities).not.toHaveBeenCalled();
   });
 
-  test("a tracking read the API refuses drops the panel and leaves 01 and 02", async () => {
+  test("a tracking read the API refuses drops the panel and leaves 01 to 03", async () => {
     api.listTrackingIdentities.mockResolvedValue({ status: 404, error: {} });
     renderAt(PRODUCT_URL);
     await screen.findByRole("heading", { name: "Move stock between statuses" });
     await waitFor(() =>
       expect(screen.queryByRole("heading", { name: "Batches and serials" })).toBeNull(),
     );
-    expect(badges()).toEqual(["01", "02"]);
+    expect(badges()).toEqual(["01", "02", "03"]);
   });
 
   test("ERP Book is the snapshot link, never a number", async () => {
