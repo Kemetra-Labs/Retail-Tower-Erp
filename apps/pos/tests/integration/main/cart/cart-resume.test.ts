@@ -377,32 +377,79 @@ describe('cart.resume — the current sale (I-13, VN-R10, R-6)', () => {
     ]);
   });
 
-  it('a full terminal can still swap (the selected sale leaves the set first)', async () => {
+  /** The current operator's own parked sale plus four other operators' ones. */
+  async function fullTerminal(): Promise<string> {
     const mine = await parkedSale([PARA]);
     for (const op of ['cashier-2', 'cashier-3', 'cashier-4', 'cashier-5']) {
       w.session = sessionOf(op);
       await parkedSale([PARA]);
     }
     w.session = sessionOf('cashier-1');
-    const current = await openSale(w, [IBUP]);
-    expect(w.parks.resume(resumeReq(mine, { current_cart: 'park' }))).toMatchObject({
-      kind: 'resumed',
-    });
-    expect(cartOf(current)?.parked_at).toBe(T0);
-  });
+    return mine;
+  }
 
-  it('refuses park_limit_reached when two open drafts would not fit', async () => {
-    const mine = await parkedSale([PARA]);
-    for (const op of ['cashier-2', 'cashier-3', 'cashier-4', 'cashier-5']) {
-      w.session = sessionOf(op);
+  const parkedCount = (): number =>
+    rows(w, `SELECT cart_id FROM carts WHERE parked_at IS NOT NULL`).length;
+
+  it('with no limit, a swap is never refused for room, however many are parked', async () => {
+    const mine = await fullTerminal();
+    for (let i = 0; i < 15; i += 1) {
+      w.session = sessionOf('cashier-6');
       await parkedSale([PARA]);
     }
     w.session = sessionOf('cashier-1');
     await openSale(w, [IBUP]);
     await openSale(w, [AMOX]);
     expect(w.parks.resume(resumeReq(mine, { current_cart: 'park' }))).toMatchObject({
+      kind: 'resumed',
+    });
+    expect(parkedCount()).toBe(20 + 2 - 1);
+  });
+
+  it('a terminal at its limit can still swap (the selected sale leaves the set first)', async () => {
+    const mine = await fullTerminal();
+    w.parkLimit = 5;
+    const current = await openSale(w, [IBUP]);
+    expect(w.parks.resume(resumeReq(mine, { current_cart: 'park' }))).toMatchObject({
+      kind: 'resumed',
+    });
+    expect(cartOf(current)?.parked_at).toBe(T0);
+    expect(parkedCount()).toBe(5);
+  });
+
+  it('a swap still succeeds when the limit was lowered below the count, and nothing is discarded', async () => {
+    const mine = await fullTerminal();
+    for (const op of ['cashier-6', 'cashier-7', 'cashier-8']) {
+      w.session = sessionOf(op);
+      await parkedSale([PARA]);
+    }
+    w.session = sessionOf('cashier-1');
+    w.parkLimit = 5; // 8 parked, limit now 5
+    const current = await openSale(w, [IBUP]);
+    expect(w.parks.resume(resumeReq(mine, { current_cart: 'park' }))).toMatchObject({
+      kind: 'resumed',
+    });
+    expect(cartOf(current)?.parked_at).toBe(T0);
+    expect(cartOf(mine)?.parked_at).toBeNull();
+    expect(parkedCount()).toBe(8);
+    expect(rows(w, `SELECT cart_id FROM carts WHERE state = 'cancelled'`)).toEqual([]);
+    // New parks stay refused until the count is back under the limit.
+    const extra = await openSale(w, [AMOX]);
+    expect(w.parks.park({ cart_id: extra, idempotency_key: 'k-x' })).toMatchObject({
       reason: 'park_limit_reached',
     });
+  });
+
+  it('refuses park_limit_reached when two open drafts would not fit', async () => {
+    const mine = await fullTerminal();
+    w.parkLimit = 5;
+    await openSale(w, [IBUP]);
+    await openSale(w, [AMOX]);
+    expect(w.parks.resume(resumeReq(mine, { current_cart: 'park' }))).toMatchObject({
+      reason: 'park_limit_reached',
+    });
+    expect(cartOf(mine)?.parked_at).toBe(T0);
+    expect(parkedCount()).toBe(5);
   });
 
   it('refuses not_parkable when the current sale awaits a manager attribution', async () => {

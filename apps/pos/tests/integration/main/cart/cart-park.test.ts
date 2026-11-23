@@ -187,8 +187,20 @@ describe('cart.park — refusals (each audited with its closed reason)', () => {
   });
 });
 
-describe('cart.park — at most 5 parked sales per terminal, across operators (K2)', () => {
-  it('refuses the 6th park_limit_reached, counting other operators and stale sales', async () => {
+describe('cart.park — no default limit (RT-1561); a configured limit counts per terminal across operators (K2)', () => {
+  it('with no limit, the 6th and the 20th park succeed', async () => {
+    for (let i = 1; i <= 20; i += 1) {
+      const cart = await openSale(w, [PARA]);
+      expect(w.parks.park({ cart_id: cart, idempotency_key: `k-${String(i)}` })).toEqual({
+        kind: 'parked',
+      });
+    }
+    expect(rows(w, `SELECT cart_id FROM carts WHERE parked_at IS NOT NULL`)).toHaveLength(20);
+    expect(refusals()).toEqual([]);
+  });
+
+  it('with an injected limit of 5, refuses the 6th park_limit_reached, counting other operators and stale sales', async () => {
+    w.parkLimit = 5;
     for (const op of ['cashier-1', 'cashier-1', 'cashier-2', 'cashier-2', 'cashier-3']) {
       w.session = sessionOf(op);
       parkCart(w, await openSale(w, [PARA]));
@@ -201,14 +213,27 @@ describe('cart.park — at most 5 parked sales per terminal, across operators (K
       reason: 'park_limit_reached',
     });
     expect(refusals()).toEqual([{ reason: 'park_limit_reached' }]);
+    expect(parkedAt(sixth)).toBeNull();
   });
 
   it('counts only this terminal', async () => {
+    w.parkLimit = 5;
     for (let i = 0; i < 5; i += 1) parkCart(w, await openSale(w, [PARA]));
     w.raw.run(`UPDATE carts SET terminal_id = 'term-other'`);
     expect(w.parks.park({ cart_id: await openSale(w, [PARA]), idempotency_key: 'k' })).toEqual({
       kind: 'parked',
     });
+  });
+
+  it('reads the limit on each park, so clearing it lifts a refusal', async () => {
+    w.parkLimit = 1;
+    parkCart(w, await openSale(w, [PARA]));
+    const second = await openSale(w, [PARA]);
+    expect(w.parks.park({ cart_id: second, idempotency_key: 'k-a' })).toMatchObject({
+      reason: 'park_limit_reached',
+    });
+    w.parkLimit = null;
+    expect(w.parks.park({ cart_id: second, idempotency_key: 'k-b' })).toEqual({ kind: 'parked' });
   });
 });
 

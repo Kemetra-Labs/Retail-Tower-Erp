@@ -63,6 +63,8 @@ export interface ParkWorld {
   /** The session the bridges see; set it to switch operator or sign out. */
   session: OperatorSessionRecord | null;
   terminal: string | null;
+  /** RT-1561: the configured parked-sales limit; null (the default) is no limit. */
+  parkLimit: number | null;
   now: Date;
   /** The scripted catalogue; an item absent here answers its fixture price. */
   catalogue: Map<string, PriceAnswer>;
@@ -102,6 +104,7 @@ export function createParkWorld(): ParkWorld {
     logs: [],
     session: null,
     terminal: TERMINAL,
+    parkLimit: null,
     now: new Date(T0),
     catalogue: new Map(),
     cart: undefined as unknown as CartBridgeHandlers,
@@ -118,6 +121,7 @@ export function createParkWorld(): ParkWorld {
     auditEmitter: { emit: (e) => world.audit.push(e) },
     prices: (_tenant, item) =>
       world.catalogue.get(item) ?? { kind: 'price', unit_price_minor: FIXTURE_PRICES[item] ?? 0 },
+    parkLimit: () => world.parkLimit,
     clock: () => world.now,
     logger: logger as never,
   });
