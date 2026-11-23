@@ -83,6 +83,13 @@ export interface DeviceTokenRotation {
   rotateIfDue(): Promise<RotationOutcome>;
   /** An RT-639 hint from a device response; a due hint starts a rotation. */
   observeHint(hint: RotationHint | null): void;
+  /**
+   * Shutdown latch (quit): no new try starts, including a retry waking from its
+   * sleep, so no rotation commits on the server once its answer can no longer be
+   * stored. A request already on the wire finishes; if its answer comes too late,
+   * the old token still authenticates for 10 minutes and the next start retries.
+   */
+  stop(): void;
   /** Wrap the RT-215 confirmation probe: unless the credential is live, rotate first. */
   recoveryFirst(probe: () => Promise<DeviceAuthOutcome>): () => Promise<DeviceAuthOutcome>;
 }
@@ -99,6 +106,10 @@ function expiryMs(expiresAt: string | null): number | null {
 
 export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): DeviceTokenRotation {
   let inFlight: Promise<RotationOutcome> | null = null;
+  /** Whether the run in flight is a forced (RT-215 recovery) one. */
+  let inFlightForced = false;
+  /** Shutdown latch: no new try starts once set. */
+  let stopped = false;
   let hint: RotationHint | null = null;
   /** The pairing the last read credential belonged to; a new one drops the old hint. */
   let currentKey: string | null = null;
@@ -222,6 +233,8 @@ export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): Device
     const binding = cred.binding;
     const deadlineMs = deps.now() + OVERLAP_BUDGET_MS;
     for (let tries = 1; ; tries += 1) {
+      // After stop (quit), never start a try: its answer could not be stored.
+      if (stopped) return 'failed';
       const result = await deps.client.rotate(cred.token, deps.newIdempotencyKey());
       const outcome = await settle(cred, result);
       const waitMs = nextWait(outcome, result, tries);
@@ -236,6 +249,11 @@ export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): Device
   }
 
   function run(force: boolean): Promise<RotationOutcome> {
+    if (inFlight !== null && force && !inFlightForced) {
+      // A scheduled run's "not due" is no answer for the RT-215 recovery: decide again, forced.
+      return inFlight.then((outcome) => (outcome === 'not_due' ? run(true) : outcome));
+    }
+    if (inFlight === null) inFlightForced = force;
     inFlight ??= attempt(force)
       .catch((): RotationOutcome => 'failed')
       .then((outcome) => {
@@ -255,6 +273,10 @@ export function createDeviceTokenRotation(deps: DeviceTokenRotationDeps): Device
 
   return {
     rotateIfDue: () => run(false),
+
+    stop() {
+      stopped = true;
+    },
 
     observeHint(next) {
       if (next === null) return;

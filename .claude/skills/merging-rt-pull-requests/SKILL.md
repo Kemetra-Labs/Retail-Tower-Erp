@@ -148,8 +148,9 @@ terminal session, check once later or ask the owner to ping. A head pushed secon
   until a second file needs it.
 - **A new POS Backend-Core client, or a wrapper that calls `fetch`, must be registered (RT-373, 2026-11-23).**
   `tests/contract/backend-core/backend-core-conformance.test.ts` fails until the client module is in
-  `CLIENT_MODULES` with its call in `CLIENT_CALLS`, and a header-reading fetch wrapper is in
-  `NON_BACKEND_CORE_TRANSPORTS` with a reason (all in `client-registry.ts`). Changing how `backendFetch` or the
+  `CLIENT_MODULES` with its call in `CLIENT_CALLS`, and a fetch wrapper that only decorates or reads Backend-Core
+  traffic (for example the rotate-soon hint reader) is in `TRANSPORT_DECORATORS` with a reason (all in
+  `client-registry.ts`). Changing how `backendFetch` or the
   RT-215 probe is built in `index.ts` also breaks the source-regex tests in
   `src/main/__tests__/bootstrap-device-revocation.test.ts`. Only the full suite runs either.
 - **Lint and typecheck the whole project, not the files you changed (RT-1331, 2026-11-19).** CI runs

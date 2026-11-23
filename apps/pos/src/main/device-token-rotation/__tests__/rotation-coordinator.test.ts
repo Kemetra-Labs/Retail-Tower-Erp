@@ -280,6 +280,33 @@ describe('RT-373 refusals', () => {
   });
 });
 
+describe('RT-373 CodeRabbit round 1', () => {
+  it('a forced recovery that joins a scheduled "not due" run decides again, forced', async () => {
+    // Expired in the grace, but a 429 backoff is running: the scheduled run says not_due,
+    // the forced one must answer deferred (→ other), never reach the roster.
+    const now = EXPIRES_MS + DAY;
+    const h = harness({ now, answers: [{ kind: 'rate_limited', retryAfterMs: 60_000 }] });
+    await h.rotation.rotateIfDue(); // sets the 429 backoff
+    const roster = vi.fn(() => Promise.resolve('unauthorized' as const));
+    const scheduled = h.rotation.rotateIfDue();
+    const recovery = h.rotation.recoveryFirst(roster)();
+    await expect(scheduled).resolves.toBe('not_due');
+    await expect(recovery).resolves.toBe('other');
+    expect(roster).not.toHaveBeenCalled();
+  });
+
+  it('after stop no new try starts, not even a retry waking from its sleep', async () => {
+    const h = harness({ now: EXPIRES_MS - DAY, answers: [{ kind: 'retryable' }, rotated(NEW)] });
+    h.sleep.mockImplementationOnce(() => {
+      h.rotation.stop();
+      return Promise.resolve();
+    });
+    await expect(h.rotation.rotateIfDue()).resolves.toBe('failed');
+    expect(h.client.rotate).toHaveBeenCalledTimes(1);
+    expect(h.store.held()).toBe(OLD);
+  });
+});
+
 describe('RT-373 review fixes', () => {
   it('a 429 on a retry after a lost answer waits Retry-After inside the overlap, then rotates with the old token', async () => {
     const h = harness({

@@ -58,6 +58,7 @@ export function registerDeviceTokenRotation(
     interval = setInterval(tick, ROTATION_TICK_MS);
   }, ROTATION_START_DELAY_MS);
   deps.workerRegistry.register('device token rotation', () => {
+    rotation.stop();
     clearTimeout(first);
     if (interval !== null) clearInterval(interval);
   });
