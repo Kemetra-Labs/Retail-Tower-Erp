@@ -161,7 +161,7 @@ function ProductRow(
             {product.display_name_en}
           </span>
         )}
-        <SaleProductFlags product={product} />
+        <SaleProductFlags product={product} productId={product.product_id} />
         <ProductMeta product={product} />
       </div>
       <div className="v5-sale-product-tail">

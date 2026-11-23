@@ -1,5 +1,6 @@
 import { useCartStore } from '../stores/cart-store';
 import { useLineFlagsStore } from '../stores/line-flags-store';
+import { useLineProductStore } from '../stores/line-product-store';
 import { usePaymentStore } from '../stores/payment-store';
 
 /**
@@ -12,4 +13,5 @@ export function resetSaleStores(): void {
   usePaymentStore.getState().reset();
   useCartStore.getState().reset();
   useLineFlagsStore.getState().reset();
+  useLineProductStore.getState().reset();
 }

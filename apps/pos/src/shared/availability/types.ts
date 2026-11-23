@@ -10,7 +10,7 @@
 export type AvailabilityRowState = 'in_stock' | 'low' | 'out' | 'unknown' | 'uncertain';
 
 /** `never`: no successful refresh for this pairing. `stale`: older than the staleness window. */
-export type AvailabilityFreshnessState = 'never' | 'fresh' | 'stale';
+type AvailabilityFreshnessState = 'never' | 'fresh' | 'stale';
 
 export interface AvailabilityFreshness {
   readonly state: AvailabilityFreshnessState;
@@ -18,7 +18,7 @@ export interface AvailabilityFreshness {
   readonly as_of: string | null;
 }
 
-export type AvailabilityRefusalReason = 'no_session' | 'invalid_request';
+type AvailabilityRefusalReason = 'no_session' | 'invalid_request';
 
 export type AvailabilityStatusResponse =
   | ({ readonly kind: 'ok' } & AvailabilityFreshness)

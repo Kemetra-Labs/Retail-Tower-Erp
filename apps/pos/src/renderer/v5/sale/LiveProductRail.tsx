@@ -11,6 +11,7 @@ import type { ProductSnapshotDisplay } from '../../../shared/catalogue/product-s
 import { useDebouncedSearch, type DebouncedSearch } from '../../stores/useDebouncedSearch';
 import type { FreshnessState, RefreshFeedback } from '../../sale/useCatalogueFreshness';
 import { Icon } from '../../icons/Icon';
+import { AvailabilityBar } from './AvailabilityParts';
 import { LiveSearchResults } from './LiveSearchResults';
 import { SCAN_ANCHOR_ID } from '../../scan/scan-anchor';
 import { formatHumanDateTime } from '../../ui/format/human-format';
@@ -116,6 +117,7 @@ export function LiveProductRail(props: Readonly<Props>): JSX.Element {
       <div className="v5-sale-command-status">
         {props.status}
         <FreshnessBar {...props} />
+        <AvailabilityBar />
       </div>
       {open && <ResultsDropdown {...props} onSelect={select} />}
     </section>

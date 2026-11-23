@@ -14,6 +14,7 @@ import { DISCOUNT_COPY } from './discount/discount-copy';
 import { DiscountAmount } from './discount/DiscountParts';
 import { useRemovalFocus } from './useRemovalFocus';
 import type { LineFlags } from '../../stores/line-flags-store';
+import { useLineProductStore } from '../../stores/line-product-store';
 import { moveRowFocus, useNewestRowInView } from './useCartRowFocus';
 import type { PromotionFact, PromotionPreview } from '../../../shared/offers/types';
 import { OFFER_COPY, promotionViewsByLine } from './offers/offers-ui';
@@ -218,6 +219,7 @@ function CartLines(
   props: Props & { editable: boolean; onOpenNote: (line: CartLineItem) => void },
 ): JSX.Element {
   const planRemoval = useRemovalFocus(props.lines);
+  const lineProducts = useLineProductStore((state) => state.byLine);
   const flashing = useNewestRowInView(props.lastAddedLineId ?? null, props.lastAddNonce ?? 0);
   if (props.lines.length === 0)
     return <p className="v5-live-message">لا توجد أصناف في السلة بعد.</p>;
@@ -230,6 +232,7 @@ function CartLines(
           key={line.lineId}
           line={line}
           flags={props.lineFlags?.[line.lineId]}
+          productId={lineProducts[line.lineId]}
           index={index}
           lastAdded={line.lineId === props.lastAddedLineId}
           flashing={flashing && line.lineId === props.lastAddedLineId}

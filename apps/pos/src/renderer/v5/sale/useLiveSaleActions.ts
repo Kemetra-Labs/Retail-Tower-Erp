@@ -13,6 +13,7 @@ import type { AddLane } from '../../sale/useAddLane';
 import { focusScanOwner } from '../../scan/scan-anchor';
 import { useCartStore } from '../../stores/cart-store';
 import { useLineFlagsStore } from '../../stores/line-flags-store';
+import { useLineProductStore } from '../../stores/line-product-store';
 import { acknowledgeDrawerNotice } from '../../ui/receipts/drawer-notice-store';
 import { DISCOUNT_COPY } from './discount/discount-copy';
 
@@ -91,6 +92,7 @@ export function useLiveSaleActions(
       // 15 §3.1 rule 6: after an add the next scan is the next thing the cashier does.
       focusScanOwner();
       useLineFlagsStore.getState().remember(line.line_id, product);
+      useLineProductStore.getState().remember(line.line_id, product.product_id);
       setLastAdd((previous) => ({ lineId: line.line_id, nonce: (previous?.nonce ?? 0) + 1 }));
       const cartId = useCartStore.getState().activeCart?.cart_id;
       if (cartId !== undefined) {

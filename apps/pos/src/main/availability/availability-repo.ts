@@ -7,12 +7,12 @@
 import type { DatabaseHandle } from '../db/client.js';
 import type { WireAvailabilityItem, WireBand } from './availability-client.js';
 
-export interface AvailabilityStateRow {
+interface AvailabilityStateRow {
   readonly scope_key: string;
   readonly oldest_as_of: string;
 }
 
-export interface AvailabilitySnapshot {
+interface AvailabilitySnapshot {
   readonly scopeKey: string;
   readonly oldestAsOf: string;
   readonly refreshedAt: string;
