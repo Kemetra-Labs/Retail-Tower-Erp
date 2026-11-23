@@ -27,6 +27,7 @@ vi.mock('../../sales/audit-emitter.js', () => ({
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 
 import { SALE_VOID_DRAIN_TIMEOUT_MS } from '../../sale-void/compose-sale-void.js';
+import { processLateReturnCheck } from '../returns.js';
 import { registerSaleVoid } from '../sale-void.js';
 import type { SaleVoidDeps } from '../sale-void.js';
 
@@ -214,5 +215,27 @@ describe('registerSaleVoid composition (both flag states pass the same sources)'
     registerSaleVoid(h.deps);
     expect(h.deps.saleVoidRef.current).toBe(h.domain);
     expect(m.registerSaleVoidHandlers).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe('registerSaleVoid, the late-commit check before a void is quoted (RT-1553)', () => {
+  afterEach(() => {
+    processLateReturnCheck.current = null;
+  });
+
+  it('is a no-op until the returns domain binds its check', async () => {
+    registerSaleVoid(makeHarness().deps);
+    const check = composed()['checkLateReturns'] as (saleId: string) => Promise<void>;
+    processLateReturnCheck.current = null;
+    await expect(check('sale-1')).resolves.toBeUndefined();
+  });
+
+  it("runs the returns domain's live check once it is bound", async () => {
+    registerSaleVoid(makeHarness().deps);
+    const check = composed()['checkLateReturns'] as (saleId: string) => Promise<void>;
+    const bound = vi.fn(() => Promise.resolve());
+    processLateReturnCheck.current = bound;
+    await check('sale-1');
+    expect(bound).toHaveBeenCalledWith('sale-1');
   });
 });

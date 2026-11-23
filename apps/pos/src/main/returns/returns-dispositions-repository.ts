@@ -11,6 +11,12 @@
  * recorded" writes, so the background and bar resends stop and the quiet period can elapse. It is not
  * a state: it never frees the sale. It is effective only while it is newer than the return's last
  * attempt (`hasEffectiveHold`), so only an explicit per-row resend, which moves the last attempt, voids it.
+ *
+ * RT-1553 (migration 0071): after a close, one `needs_support` from a status read that saw the return
+ * recorded may follow it (the late commit). The rows are ordered by rowid (append-only: a later row has
+ * a larger rowid), and a close followed by that row is the `late_commit` state: a SUPPORT state that
+ * blocks the sale again, while the return stays closed for every flow decision (never sent, never
+ * re-closed, never confirmed, so never paid out).
  */
 import type { DatabaseHandle } from '../db/client.js';
 
@@ -34,8 +40,31 @@ export interface NewDisposition {
   readonly createdAt: string;
 }
 
-/** What a return's dispositions add up to: `closed` is terminal and wins over `needs_support`. */
-type DispositionState = 'closed' | 'needs_support';
+/**
+ * What a return's dispositions add up to: `closed` is terminal and wins over an earlier `needs_support`;
+ * `late_commit` (RT-1553) is a close followed by a `needs_support`: closed for the flow, support for the
+ * sale (it blocks it again).
+ */
+type DispositionState = 'closed' | 'needs_support' | 'late_commit';
+
+/** RT-1553: true when the return was closed (with or without a later late-commit raise). */
+export function isClosedState(state: DispositionState | null | undefined): boolean {
+  return state === 'closed' || state === 'late_commit';
+}
+
+/**
+ * RT-1553: SQL that is true when the journal row aliased `row` was closed and NO late-commit
+ * `needs_support` followed the close, i.e. the close still frees the sale. A late commit (migration
+ * 0071) makes it false again, so every reader that frees a sale on a close re-blocks it.
+ */
+export function releasedByCloseSql(row: string): string {
+  return `EXISTS (
+    SELECT 1 FROM return_journal_dispositions c
+     WHERE c.return_id = ${row}.return_id AND c.kind = 'not_recorded_closed'
+       AND NOT EXISTS (
+         SELECT 1 FROM return_journal_dispositions s
+          WHERE s.return_id = c.return_id AND s.kind = 'needs_support' AND s.rowid > c.rowid))`;
+}
 
 export interface ReturnDispositionsRepository {
   /** Append one disposition. Throws what the 0070 CHECKs and triggers refuse. */
@@ -89,9 +118,14 @@ function toRow(row: Row): NewDisposition {
   };
 }
 
-/** `closed` beats `needs_support`: a close stays the state whatever was written before it. */
+/**
+ * Fold one more row (in rowid order) into a return's state: a close wins over what came before it, and
+ * a `needs_support` after a close makes it a late commit (RT-1553).
+ */
 function stronger(current: DispositionState | undefined, kind: DispositionKind): DispositionState {
-  return kind === 'not_recorded_closed' || current === 'closed' ? 'closed' : 'needs_support';
+  if (kind === 'not_recorded_closed') return 'closed';
+  if (current === 'closed' || current === 'late_commit') return 'late_commit';
+  return 'needs_support';
 }
 
 export function createReturnDispositionsRepository(
@@ -105,9 +139,11 @@ export function createReturnDispositionsRepository(
     const marks = returnIds.map(() => '?').join(', ');
     const rows = prepare(
       `SELECT return_id, kind FROM return_journal_dispositions
-        WHERE return_id IN (${marks}) AND kind IN ('not_recorded_closed', 'needs_support')`,
+        WHERE return_id IN (${marks}) AND kind IN ('not_recorded_closed', 'needs_support')
+        ORDER BY rowid ASC`,
     ).all(...returnIds) as StateRow[];
-    // The query lists only the two kinds that are a state (a `retry_hold` is a flag, not one).
+    // The query lists only the two kinds that are a state (a `retry_hold` is a flag, not one), in the
+    // order they were written (RT-1553: a needs_support after the close is the late commit).
     for (const row of rows)
       states.set(row.return_id, stronger(states.get(row.return_id), row.kind));
     return states;

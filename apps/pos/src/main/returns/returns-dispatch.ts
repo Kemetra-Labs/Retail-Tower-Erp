@@ -42,7 +42,10 @@
 import type { ReturnUnknownCause, ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
 import type { ReturnsAudit, SendOperation } from './returns-audit.js';
-import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
+import {
+  isClosedState,
+  type ReturnDispositionsRepository,
+} from './returns-dispositions-repository.js';
 import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
 import type { RecordReturnOutcome, ReturnsClient } from './returns-client.js';
 import { amount4ToMinor, parseAmount4 } from './returns-money.js';
@@ -245,7 +248,7 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
    */
   private heldByDisposition(entry: JournalEntry, op: DispatchOperation): boolean {
     const state = this.deps.dispositions.stateOf(entry.returnId);
-    if (state === 'closed') return true;
+    if (isClosedState(state)) return true;
     if (op === 'resend') return false;
     return (
       state === 'needs_support' ||

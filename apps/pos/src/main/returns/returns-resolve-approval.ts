@@ -25,7 +25,10 @@ import type {
 } from '../operator/manager-approval-service.js';
 import type { ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { isReturnsRole } from './returns-auth.js';
-import type { ReturnDispositionsRepository } from './returns-dispositions-repository.js';
+import {
+  isClosedState,
+  type ReturnDispositionsRepository,
+} from './returns-dispositions-repository.js';
 import type { JournalEntry, ReturnScope, ReturnsRepository } from './returns-repository.js';
 import { isUuid } from './returns-wire.js';
 
@@ -115,7 +118,7 @@ export function createReturnResolveApprovalResolver(
     // Escalate: any earlier disposition ends it. Close: allowed from `needs_support`
     // (needs_support -> close, spec 3.4); only an already-`closed` return is refused.
     const earlier = deps.dispositions.stateOf(entry.returnId);
-    if (named.disposition === 'escalate' ? earlier !== null : earlier === 'closed') return null;
+    if (named.disposition === 'escalate' ? earlier !== null : isClosedState(earlier)) return null;
     if (named.disposition === 'close' && !closeAvailable(entry)) return null;
     return resolveSubjectOf(entry, named.disposition);
   };

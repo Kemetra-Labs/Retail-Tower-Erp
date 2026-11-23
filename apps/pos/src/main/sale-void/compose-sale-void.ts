@@ -33,6 +33,7 @@ import { DEFAULT_CURRENCY_CODE } from '../sales-sync/create-sale-sync-client.js'
 import { createSaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 import { createSellingUserIdResolver } from '../sales-sync/selling-user-id.js';
 import { DRAIN_MARGIN_MS } from '../sales-sync/settled-within.js';
+import { releasedByCloseSql } from '../returns/returns-dispositions-repository.js';
 import { kickReturnDrawer } from '../returns/returns-drawer.js';
 import { uuidv7 } from '../returns/uuidv7.js';
 import { createShiftCashupRepo } from '../shift-cashup/shift-cashup-repo.js';
@@ -99,6 +100,11 @@ export interface ComposeSaleVoidDeps {
    * store business day. Tests may pin a simpler day function.
    */
   readonly localDayOf?: (iso: string) => string;
+  /**
+   * RT-1553: the returns domain's live late-commit check of a sale (best effort, never rejects), run
+   * before a void is quoted. Absent: no check.
+   */
+  readonly checkLateReturns?: (saleId: string) => Promise<void>;
 }
 
 export interface ComposedSaleVoid {
@@ -164,13 +170,12 @@ interface Row1 {
 /**
  * A live return blocks a void of its sale (`has_return`). RT-1498 S4: a return the till closed as
  * "not recorded" (migration 0070, a terminal disposition) is not live; a needs_support one still is.
+ * RT-1553: a closed return later seen recorded (the late commit, migration 0071) is live again.
  */
 export const LIVE_RETURN_SQL = `
   SELECT 1 FROM return_journal
    WHERE sale_id = ? AND state IN ('pending', 'unknown', 'confirmed', 'paid_out')
-     AND NOT EXISTS (
-       SELECT 1 FROM return_journal_dispositions d
-        WHERE d.return_id = return_journal.return_id AND d.kind = 'not_recorded_closed')
+     AND NOT ${releasedByCloseSql('return_journal')}
    LIMIT 1`;
 
 export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
@@ -254,6 +259,7 @@ export function composeSaleVoid(deps: ComposeSaleVoidDeps): ComposedSaleVoid {
     repo,
     payout,
     hasLiveReturn: (saleId) => hasLiveReturn.get(saleId) !== undefined,
+    ...(deps.checkLateReturns === undefined ? {} : { checkLateReturns: deps.checkLateReturns }),
     approvals: deps.approvals,
     sellerUserIdOf,
     saleRef: saleRefOf,

@@ -93,6 +93,13 @@ export interface SaleVoidServiceDeps {
   readonly payout: SaleVoidPayoutService;
   /** True when the sale has a return that is not refused (any other state counts). */
   readonly hasLiveReturn: (saleId: string) => boolean;
+  /**
+   * RT-1553: before a void of a sale is quoted (`lookup`), a status read of each return of that sale
+   * the till closed as not recorded, so a late commit makes the return live again (`has_return`).
+   * Best effort: it runs only for a signed-in manager or admin (the read needs their envelope) and
+   * never rejects; a cashier's lookup relies on the returns' background sweep. Absent: no check.
+   */
+  readonly checkLateReturns?: (saleId: string) => Promise<void>;
   readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
   /** The sale's selling operator as a lower-case `users.id`, when provable. */
   readonly sellerUserIdOf: (sale: SaleRow) => string | undefined;
@@ -367,7 +374,6 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
     approvalSubject,
     cashExceptionApprovalSubject: (input) => deps.payout.cashExceptionSubject(input),
 
-    // eslint-disable-next-line @typescript-eslint/require-await
     async lookup(req: SaleVoidLookupRequest): Promise<SaleVoidLookupResponse> {
       const admitted = admit();
       if (admitted.kind !== 'ok') return admitted;
@@ -382,6 +388,18 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
       // OD-534-1: the view carries the total, cash and seller name.
       if (!deps.access.admitSale('saleVoid.lookup', gate.session, sale)) {
         return refuse(SALE_OWNERSHIP_REFUSAL);
+      }
+      if (deps.checkLateReturns !== undefined) {
+        await deps.checkLateReturns(sale.sale_id);
+        // After the await, both gates again for the session that is current NOW: a sign-out, lock or
+        // stop meanwhile refuses, and the own-sales rule holds for whoever receives the view.
+        const again = admit();
+        if (again.kind !== 'ok') return again;
+        const regate = deps.access.admitSession('saleVoid.lookup');
+        if (!regate.ok) return refuse(regate.reason);
+        if (!deps.access.admitSale('saleVoid.lookup', regate.session, sale)) {
+          return refuse(SALE_OWNERSHIP_REFUSAL);
+        }
       }
       return { kind: 'sale', sale: saleView(sale) };
     },

@@ -1,4 +1,5 @@
 import type { DatabaseHandle } from '../db/client.js';
+import { releasedByCloseSql } from '../returns/returns-dispositions-repository.js';
 import type { PrintActivity } from './print-activity.js';
 import type { SafePointInputs } from './update-types.js';
 
@@ -50,14 +51,12 @@ const PAYMENT_IN_FLIGHT = `
 
 // RT-1498 close slice (review LOW-2): a return closed as "not recorded" (migration 0070,
 // `not_recorded_closed`) is out of the flow for good (never sent again, never payable), so it no longer
-// holds an update back; a `needs_support` return (still `unknown`) correctly keeps counting.
+// holds an update back; a `needs_support` return (still `unknown`) correctly keeps counting, and so does a
+// closed return later seen recorded (RT-1553, the late commit of migration 0071: a support state).
 const RETURN_IN_FLIGHT = `
   SELECT 1 FROM return_journal j
    WHERE j.state IN ('pending', 'unknown', 'confirmed')
-     AND NOT EXISTS (
-       SELECT 1 FROM return_journal_dispositions d
-        WHERE d.return_id = j.return_id AND d.kind = 'not_recorded_closed'
-     )
+     AND NOT ${releasedByCloseSql('j')}
    LIMIT 1`;
 
 export function createSafePointInputs(
