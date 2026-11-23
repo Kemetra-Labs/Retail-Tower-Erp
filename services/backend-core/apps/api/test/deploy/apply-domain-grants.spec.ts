@@ -6,8 +6,9 @@
  *
  * The script is exercised with bash against the real repo (`--list`) and with
  * a stub `psql` on PATH (apply mode), so the deploy semantics are checked
- * without a database: refuse without DOMAIN_DB_ROLE, apply in name order with
- * the role variable, stop at the first failure. Skipped only when no working
+ * without a database: refuse without DOMAIN_DB_ROLE or LOOKUP_DB_ROLE (RT-1558),
+ * apply in name order with both role variables, stop at the first failure. The
+ * refusal a lookup_role check makes on a real database is recorded on RT-1558. Skipped only when no working
  * bash exists locally; CI (Linux) always runs it.
  */
 import { spawnSync } from "node:child_process";
@@ -39,7 +40,7 @@ describe("deploy/apply-domain-grants.sh", () => {
     expect(text).toContain("set -euo pipefail");
     expect(text).toContain("export LC_ALL=C");
     expect(text).toContain("MARKER='-- deploy: every-release'");
-    expect(text).toContain('psql -X -v domain_role="$DOMAIN_DB_ROLE" -f "$script"');
+    expect(text).toContain('psql -X -v domain_role="$DOMAIN_DB_ROLE" -v lookup_role="$LOOKUP_DB_ROLE" -f "$script"');
     expect(text).not.toMatch(/postgres(ql)?:\/\//);
   });
 
@@ -112,23 +113,42 @@ describe("deploy/apply-domain-grants.sh", () => {
     };
 
     itBash("refuses to run without DOMAIN_DB_ROLE and calls no psql", () => {
-      const r = withStub({ DOMAIN_DB_ROLE: "" });
+      const r = withStub({ DOMAIN_DB_ROLE: "", LOOKUP_DB_ROLE: "auth_lookup" });
       expect(r.status).not.toBe(0);
       expect(r.stderr).toMatch(/DOMAIN_DB_ROLE is not set/);
       expect(calls()).toEqual([]);
     });
 
-    itBash("applies every routine script once, in order, with the domain role", () => {
-      const r = withStub({ DOMAIN_DB_ROLE: "app_domain" });
+    // RT-1558: the lookup-role checks in the grant scripts must run on every release.
+    itBash("refuses to run without LOOKUP_DB_ROLE and calls no psql", () => {
+      for (const env of [{ LOOKUP_DB_ROLE: "" }, { LOOKUP_DB_ROLE: undefined }]) {
+        const r = withStub({ DOMAIN_DB_ROLE: "app_domain", ...env });
+        expect(r.status).not.toBe(0);
+        expect(r.stderr).toMatch(/LOOKUP_DB_ROLE is not set \(the AUTH_LOOKUP_DATABASE_URL role name\)/);
+      }
+      expect(calls()).toEqual([]);
+    });
+
+    itBash("refuses the same role for the domain and the lookup pools and calls no psql", () => {
+      const r = withStub({ DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "app_domain" });
+      expect(r.status).not.toBe(0);
+      expect(r.stderr).toMatch(/LOOKUP_DB_ROLE must differ from DOMAIN_DB_ROLE/);
+      expect(calls()).toEqual([]);
+    });
+
+    itBash("applies every routine script once, in order, with the domain and lookup roles", () => {
+      const r = withStub({ DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "auth_lookup" });
       expect(r.stderr).toBe("");
       expect(r.status).toBe(0);
-      expect(calls()).toEqual(expected().map((f) => `-X -v domain_role=app_domain -f ${f}`));
+      expect(calls()).toEqual(
+        expected().map((f) => `-X -v domain_role=app_domain -v lookup_role=auth_lookup -f ${f}`),
+      );
     });
 
     itBash("stops at the first failing script", () => {
       const scripts = expected();
       const failing = scripts[2]!;
-      const r = withStub({ DOMAIN_DB_ROLE: "app_domain", FAIL_ON: failing });
+      const r = withStub({ DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "auth_lookup", FAIL_ON: failing });
       expect(r.status).not.toBe(0);
       expect(r.stderr).toContain(`failed: ${failing}`);
       expect(calls()).toHaveLength(3);

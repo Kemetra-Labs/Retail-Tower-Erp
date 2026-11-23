@@ -10,8 +10,15 @@
 # then refuses to boot naming the missing grant (its grants fragment), so the
 # opt-in fails closed.
 #
-#   deploy/apply-domain-grants.sh           apply them (needs DOMAIN_DB_ROLE)
+#   deploy/apply-domain-grants.sh           apply them (needs DOMAIN_DB_ROLE and LOOKUP_DB_ROLE)
 #   deploy/apply-domain-grants.sh --list    print them, one path per line
+#
+# RT-1558: every script also gets -v lookup_role=$LOOKUP_DB_ROLE (the
+# AUTH_LOOKUP_DATABASE_URL role name). A script with the optional `\if
+# :{?lookup_role}` check then refuses a release whose lookup role holds a
+# privilege it must not (for example catalog-import-domain-grants.sql, 0124),
+# so the release stops here instead of at API boot; psql ignores the variable
+# in the other scripts, so a script that adds the check later gets it too.
 #
 # psql takes the migration-owner connection from the PG* variables (run it
 # under `op run --env-file=deploy/grants.env`), never from a URL argument.
@@ -52,9 +59,14 @@ esac
 # The domain role must be named explicitly: guessing a default could grant to
 # a role that DATABASE_URL does not use and still report success.
 [ -n "${DOMAIN_DB_ROLE:-}" ] || fail "DOMAIN_DB_ROLE is not set (the DATABASE_URL role name)"
+# RT-1558: the lookup-role checks must run on every release, so that role is
+# required too. It must differ from the domain role: the API refuses one role
+# for both pools.
+[ -n "${LOOKUP_DB_ROLE:-}" ] || fail "LOOKUP_DB_ROLE is not set (the AUTH_LOOKUP_DATABASE_URL role name)"
+[ "$LOOKUP_DB_ROLE" != "$DOMAIN_DB_ROLE" ] || fail "LOOKUP_DB_ROLE must differ from DOMAIN_DB_ROLE"
 
 while IFS= read -r script; do
   echo "apply-domain-grants: $script"
-  psql -X -v domain_role="$DOMAIN_DB_ROLE" -f "$script" || fail "failed: $script"
+  psql -X -v domain_role="$DOMAIN_DB_ROLE" -v lookup_role="$LOOKUP_DB_ROLE" -f "$script" || fail "failed: $script"
 done <<< "$SCRIPTS"
 echo "apply-domain-grants: done"
