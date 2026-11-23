@@ -48,25 +48,21 @@ export interface DomainSummary {
   readonly headlineCount: number | null;
   /** Diagnostic English text, not operator copy (RT-1404). */
   readonly detail: string | null;
-  /** RT-1404: `reconciliation` only — the latest run in scope, or null. */
-  readonly latestRun?: ReconciliationLatestRun | null;
+  /**
+   * RT-1404: `reconciliation` only — the latest run in scope (`status` = the 0020
+   * `erpnext_reconciliation_run_status_valid` CHECK values, `at` = its
+   * `started_at`), or null when there is none.
+   */
+  readonly latestRun?: {
+    readonly status: "running" | "completed" | "failed";
+    readonly at: string;
+  } | null;
   /** RT-1404: `connector_health` only, and only when not `not_available`. */
-  readonly instances?: ConnectorInstanceCounts;
-}
-
-/** RT-1404 — the latest reconciliation run in scope (wire shape). */
-export interface ReconciliationLatestRun {
-  /** The 0020 `erpnext_reconciliation_run_status_valid` CHECK values. */
-  readonly status: "running" | "completed" | "failed";
-  /** The run's `started_at`. */
-  readonly at: string;
-}
-
-/** RT-1404 — active connector-instance counts by liveness verdict (wire shape). */
-export interface ConnectorInstanceCounts {
-  readonly total: number;
-  readonly stale: number;
-  readonly neverSeen: number;
+  readonly instances?: {
+    readonly total: number;
+    readonly stale: number;
+    readonly neverSeen: number;
+  };
 }
 
 export interface SyncOpsSummaryBody {
@@ -217,14 +213,14 @@ export class ErpnextSyncOpsReadModelService {
         const openMismatchCount = Number(openMismatches.rows[0]?.count ?? "0");
 
         const latestRun = await client.query<{
-          status: ReconciliationLatestRun["status"];
+          status: NonNullable<DomainSummary["latestRun"]>["status"];
           started_at: Date;
         }>(
           `SELECT status, started_at
              FROM erpnext_reconciliation_run
             WHERE ($1::uuid IS NULL OR store_id = $1::uuid)
               AND ($2::uuid[] IS NULL OR store_id = ANY($2::uuid[]))
-            ORDER BY started_at DESC
+            ORDER BY started_at DESC, id DESC -- RT-1404: same order as the run list
             LIMIT 1`,
           [storeId, scoped],
         );

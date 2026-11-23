@@ -147,9 +147,18 @@ describe("RT-192 sync-ops summary — membership store scope", () => {
         return (res.body.domains as Array<{ domain: string; latestRun?: { status: string; at: string } | null }>)
           .find((d) => d.domain === "reconciliation")!.latestRun!;
       };
+      // Only RUN_X / RUN_X2 are in scope: the newest of them by (started_at, id).
+      const inScope = await admin.query<{ status: string; started_at: Date }>(
+        `SELECT status, started_at FROM erpnext_reconciliation_run
+          WHERE id = ANY($1::uuid[]) ORDER BY started_at DESC, id DESC LIMIT 1`,
+        [[RUN_X, RUN_X2]],
+      );
+      const expected = {
+        status: inScope.rows[0]!.status,
+        at: new Date(inScope.rows[0]!.started_at).toISOString(),
+      };
       for (const [, session] of SPECIFIC_SESSIONS) {
-        // Only RUN_X / RUN_X2 (both completed) are in scope.
-        expect((await latestRun(session))?.status).toBe("completed");
+        expect(await latestRun(session)).toEqual(expected);
       }
       expect((await latestRun(SES_OWNER_ALL))?.status).toBe("running");
     } finally {

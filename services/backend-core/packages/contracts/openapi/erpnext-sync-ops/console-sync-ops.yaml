@@ -92,7 +92,8 @@ tags:
   - name: erpnext-sync-ops
     description: >
       Console-facing read-only consolidation of ERPNext sync-ops state (015
-      posting + 017 reconciliation; 020/021 deferred). Spec 025.
+      posting + 017 reconciliation + 020 connector health; 021 deferred).
+      Spec 025.
 
 security:
   - cookieAuth: []
@@ -105,8 +106,8 @@ paths:
       tags: [erpnext-sync-ops]
       description: >
         One tenant-scoped summary aggregating 015 posting health + 017
-        reconciliation health, with 020 connector_health + 021 product_master
-        reported as `not_available` (forward-compat). Optional `store_id` narrows
+        reconciliation health + 020 connector_health (RT-563), with 021
+        product_master reported as `not_available` (forward-compat). Optional `store_id` narrows
         to one in-scope store. Tenant resolves server-side from the session.
         Also carries the posting freshness facts (`postingFreshness`) for the
         same scope and the instant they were read (`asOf`); facts only, no
@@ -423,7 +424,8 @@ components:
           description: >
             `ok` — nothing needs operator attention. `attention` — there is a
             backlog / open mismatch / failed run to look at. `not_available` — the
-            domain's source is not yet built (020/021 in v1).
+            domain has nothing to report: its source is not yet built (021
+            product_master), or `connector_health` has no active instance.
         headlineCount:
           type: [integer, "null"]
           description: >
