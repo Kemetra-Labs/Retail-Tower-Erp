@@ -41,16 +41,20 @@ export async function insertTenders(
     readonly storeId: string;
     readonly currencyCode: string;
     readonly tenders: ReadonlyArray<SaleTenderDto>;
+    /** RT-1565: each tender's checked receiver (null = the Transaction Operator), in tender order. */
+    readonly receivers?: ReadonlyArray<string | null>;
   },
 ): Promise<void> {
   const { tenders } = sale;
   await client.query(
     `INSERT INTO sale_tenders
        (id, sale_id, tenant_id, store_id, method, amount, currency_code, reference,
-        tender_ref, sequence, redemption_id)
-     SELECT t.id, $1, $2, $3, t.method, t.amount, $4, t.reference, t.tender_ref, t.sequence, t.redemption_id
-       FROM unnest($5::uuid[], $6::text[], $7::numeric[], $8::text[], $9::uuid[], $10::smallint[], $11::uuid[])
-            AS t(id, method, amount, reference, tender_ref, sequence, redemption_id)`,
+        tender_ref, sequence, redemption_id, received_by_user_id)
+     SELECT t.id, $1, $2, $3, t.method, t.amount, $4, t.reference, t.tender_ref, t.sequence, t.redemption_id,
+            t.received_by_user_id
+       FROM unnest($5::uuid[], $6::text[], $7::numeric[], $8::text[], $9::uuid[], $10::smallint[], $11::uuid[],
+                   $12::uuid[])
+            AS t(id, method, amount, reference, tender_ref, sequence, redemption_id, received_by_user_id)`,
     [
       sale.saleId,
       sale.tenantId,
@@ -63,6 +67,7 @@ export async function insertTenders(
       tenders.map((t) => t.tenderRef ?? null),
       tenders.map((t) => t.sequence ?? null),
       tenders.map(tenderRedemption),
+      tenders.map((_t, i) => sale.receivers?.[i] ?? null),
     ],
   );
 }

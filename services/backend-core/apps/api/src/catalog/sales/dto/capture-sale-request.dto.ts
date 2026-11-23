@@ -179,6 +179,9 @@ export const CaptureSaleLineSchema = z
     promotion: CaptureSaleLinePromotionSchema.optional(),
     // RT-1151 (RT-282 PR-07): what priced the line on the till. Hashed and stored verbatim.
     pricingProvenance: CaptureSaleLinePricingProvenanceSchema.optional(),
+    // RT-1565 (RT-285 F-1): the line's seller, a member of the tenant. Stored (with the store and role the
+    // member held at capture) but NOT hashed: the controller drops it from payload_hash, like operatorUserId.
+    sellerUserId: z.string().uuid("must be a uuid").optional(),
   })
   .strict();
 
@@ -400,6 +403,9 @@ export const CaptureSaleRequestSchema = CaptureSaleRequestObject.superRefine(che
 const tenderLineIdentity = {
   tenderRef: z.string().uuid("must be a uuid").optional(),
   sequence: z.number().int().min(1).max(32767).optional(),
+  // RT-1565 (RT-285 F-1): the member who took this payment; absent means the Transaction Operator. Stored but
+  // NOT hashed: the controller drops it from payload_hash and the replay tender compare ignores it.
+  receivedByUserId: z.string().uuid("must be a uuid").optional(),
 };
 
 const CashTenderSchema = z.object({ method: z.literal("cash"), amount: decimalAmount, ...tenderLineIdentity }).strict();

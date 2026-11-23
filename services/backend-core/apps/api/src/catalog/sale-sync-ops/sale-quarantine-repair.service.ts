@@ -32,6 +32,7 @@ import type { PoolClient } from "pg";
 import { isPostgresInputError } from "../../common/postgres-input-error";
 import { wasTenantMemberAt } from "../../memberships";
 import { captureSchema } from "../sales/dto/capture-sale-request.pipe";
+import { splitSaleAttribution } from "../sales/sale-attribution";
 import { SaleNotFoundError } from "../sales/sale-errors";
 import { toCaptureHttpError } from "../sales/sales.controller";
 import { captureSaleInTransaction } from "../sales/sales.service";
@@ -81,7 +82,10 @@ async function attemptCapture(client: PoolClient, input: RepairInput, item: Item
   const parsed = captureSchema().safeParse(stored.rows[0]?.sale_body);
   // An `open` item always has its body (migration 0093 CHECK); a body that is not a valid capture is a refusal.
   if (!parsed.success) return REFUSE_VALIDATION;
-  const { operatorUserId, admissionCheckAt: _window, receipt, safetyRevision, safetySyncedAt, ...saleBody } = parsed.data;
+  const { operatorUserId, admissionCheckAt: _window, receipt, safetyRevision, safetySyncedAt, ...withAttribution } =
+    parsed.data;
+  // RT-1565: sellers and receivers are stored but not hashed, exactly as on the till's captureSale.
+  const { body: saleBody, attribution } = splitSaleAttribution(withAttribution);
   if (saleBody.sourceSystem !== item.source_system || saleBody.externalId !== item.external_id) return REFUSE_VALIDATION;
 
   // Under the savepoint from the start: a body value Postgres refuses (a date out of range, say) in the
@@ -108,6 +112,7 @@ async function attemptCapture(client: PoolClient, input: RepairInput, item: Item
         ...(safetyRevision === undefined ? {} : { safetyRevision }),
         ...(safetySyncedAt === undefined ? {} : { safetySyncedAt }),
       },
+      attribution,
     });
     await client.query(`RELEASE SAVEPOINT ${SAVEPOINT}`);
     return { kind: captured.created ? "captured" : "already-captured", saleId: captured.saleId };

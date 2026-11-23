@@ -123,7 +123,8 @@ export interface CreditSaleFacts {
   readonly collected: string;
   readonly currencyCode: string;
   readonly businessDate: string;
-  readonly sellerUserId: string;
+  /** The Transaction Operator, `sales.created_by` (named `sellerUserId` before RT-1565; RT-285 OQ-5). */
+  readonly operatorUserId: string;
   /** The sale's payer; null only on a visibility fault (refused at the settlement step). */
   readonly payerId: string | null;
   /** sum of `reversal_total` over the sale's earlier credit reversals (X0). */
@@ -171,7 +172,7 @@ export async function readCreditSaleFacts(client: PoolClient, saleRef: string): 
     collected: row.collected,
     currencyCode: row.currency_code,
     businessDate: row.business_date,
-    sellerUserId: row.created_by,
+    operatorUserId: row.created_by,
     payerId: row.payer_id,
     creditReversedBefore: row.before,
     allocationBlocked: row.blocked,
@@ -266,7 +267,8 @@ export interface CreditReturnApprovalInput {
   readonly scope: SaleScope;
   readonly saleRef: string;
   readonly actorUserId: string;
-  readonly sellerUserId: string;
+  /** The sale's Transaction Operator (`created_by`); the D6 approver must not be them. */
+  readonly operatorUserId: string;
   readonly refundable: string;
   readonly approval: VoidApprovalDto | undefined;
   readonly now: Date;
@@ -280,9 +282,10 @@ const RETURN_APPROVAL_CLAIMS: ReadonlyArray<ApprovalClaim> = [
   (a, i) => same(a.saleRef, i.saleRef),
   (a, i) => Date.parse(a.approvedAt) <= i.now.getTime() + VOID_APPROVAL_SKEW_MS,
   (a, i) => same(a.requesterUserId, i.actorUserId),
-  // The same actor never counts twice: neither the requester nor the seller approves.
+  // The same actor never counts twice: neither the requester nor the Transaction Operator (`created_by`)
+  // approves. RT-285 OQ-5: the rule stays bound to the operator; a line's seller (RT-1565) is not part of it.
   (a) => !same(a.approverUserId, a.requesterUserId),
-  (a, i) => !same(a.approverUserId, i.sellerUserId),
+  (a, i) => !same(a.approverUserId, i.operatorUserId),
 ];
 
 /**

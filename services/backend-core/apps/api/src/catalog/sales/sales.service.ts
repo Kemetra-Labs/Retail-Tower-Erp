@@ -61,6 +61,12 @@ import {
   insertTenders,
 } from "./sale-tender-writes";
 import { insertSaleHeader, insertSaleLines } from "./sale-capture-writes";
+import {
+  NO_ATTRIBUTION,
+  resolveSaleAttribution,
+  type ResolvedSaleAttribution,
+  type SaleAttribution,
+} from "./sale-attribution";
 import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 import { findLinePricingViolation } from "./sale-line-pricing";
@@ -109,6 +115,7 @@ export {
   SaleLinePricingInvalidError,
   SaleNotFoundError,
   SalePayloadReplayConflictError,
+  SaleSellerRefusedError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleTendersNotVisibleError,
@@ -149,6 +156,11 @@ export interface CaptureSaleInput {
   readonly receipt?: CaptureSaleReceiptDto;
   /** RT-451 S3: `safetyRevision` / `safetySyncedAt`, dropped from the hashed body by the controller. */
   readonly safety?: CaptureSafetyProvenance;
+  /**
+   * RT-1565: the sellers and payment receivers the body named, split out of the hashed body
+   * (`splitSaleAttribution`). Checked and stored with a FIRST capture only; a replay ignores them.
+   */
+  readonly attribution?: SaleAttribution;
 }
 
 /** The `toBody` wire projection of a captured sale (snake-free, no secrets). */
@@ -192,6 +204,15 @@ export interface SaleTenderProjection {
   readonly tenderRef?: string;
   readonly sequence?: number;
   readonly redemptionId?: string;
+  /** RT-1565: who took the payment, only when it was not the Transaction Operator. */
+  readonly receivedByUserId?: string;
+}
+
+/** RT-1565: contract `SaleLineSeller`, the seller frozen on the line at capture. */
+export interface SaleLineSellerProjection {
+  readonly userId: string;
+  readonly storeId: string;
+  readonly roleId: string;
 }
 
 export interface SaleLineProjection {
@@ -213,6 +234,8 @@ export interface SaleLineProjection {
   readonly tracking?: SaleLineTrackingProjection;
   /** RT-1337 (spec 048 §8): the automatic-offer fact the line was captured with; absent without one. */
   readonly promotion?: SaleLinePromotionProjection;
+  /** RT-1565: the line's seller; absent when none was named. */
+  readonly seller?: SaleLineSellerProjection;
 }
 
 /** RT-1337: contract `SaleLinePromotion`, echoed as stored. */
@@ -288,6 +311,8 @@ interface SaleTenderRow {
   tender_ref: string | null;
   sequence: number | null;
   redemption_id: string | null;
+  /** RT-1565; optional so a unit-test row double may omit it. */
+  received_by_user_id?: string | null;
 }
 
 interface SaleLineRow {
@@ -311,6 +336,10 @@ interface SaleLineRow {
   promotion_offer_version: number | null;
   promotion_pack_revision: string | null;
   promotion_discount_amount: string | null;
+  /** RT-1565; optional so a unit-test row double may omit them. */
+  seller_user_id?: string | null;
+  seller_store_id?: string | null;
+  seller_role_id?: string | null;
 }
 
 @Injectable()
@@ -382,6 +411,8 @@ export class SalesService {
                   sl.tracking_identity_id::text AS tracking_identity_id, sl.tracking_code,
                   sl.tracking_expiry_date::text AS tracking_expiry_date, sl.tracking_selection,
                   sl.tracking_validation_id::text AS tracking_validation_id,
+                  sl.seller_user_id::text AS seller_user_id, sl.seller_store_id::text AS seller_store_id,
+                  sl.seller_role_id::text AS seller_role_id,
                   r.returned::text AS returned_quantity,
                   (CASE WHEN $2::boolean THEN 0 ELSE sl.quantity - r.returned END)
                     ::numeric(19,6)::text AS returnable_quantity,
@@ -408,7 +439,8 @@ export class SalesService {
           row.tender_count > 0
             ? (
                 await client.query<SaleTenderRow>(
-                  `SELECT method, amount::text AS amount, reference, tender_ref, sequence, redemption_id
+                  `SELECT method, amount::text AS amount, reference, tender_ref, sequence, redemption_id,
+                          received_by_user_id::text AS received_by_user_id
                      FROM sale_tenders WHERE sale_id = $1
                     ORDER BY sequence NULLS LAST, method, tender_ref`,
                   [saleId],
@@ -729,6 +761,7 @@ function toBody(
       returnableQuantity: l.returnable_quantity,
       ...lineTrackingField(l),
       ...linePromotionField(l),
+      ...lineSellerField(l),
     })),
     tenders: tenders.map((t) => ({
       method: t.method,
@@ -737,6 +770,7 @@ function toBody(
       ...(t.tender_ref === null ? {} : { tenderRef: t.tender_ref }),
       ...(t.sequence === null ? {} : { sequence: t.sequence }),
       ...(t.redemption_id === null ? {} : { redemptionId: t.redemption_id }),
+      ...((t.received_by_user_id ?? null) === null ? {} : { receivedByUserId: t.received_by_user_id! }),
     })),
     ...responsibilitiesField(responsibilities),
     safetyRevision: (row.safety_revision ?? null) === null ? null : Number(row.safety_revision),
@@ -756,6 +790,13 @@ function linePromotionField(l: SaleLineRow): { promotion?: SaleLinePromotionProj
       discountAmount: l.promotion_discount_amount!,
     },
   };
+}
+
+/** RT-1565: a line's `seller` echo, only when it was captured with one (the snapshot is whole or absent). */
+function lineSellerField(l: SaleLineRow): { seller?: SaleLineSellerProjection } {
+  const userId = l.seller_user_id ?? null;
+  if (userId === null) return {};
+  return { seller: { userId, storeId: l.seller_store_id!, roleId: l.seller_role_id! } };
 }
 
 /** RT-451 S3: a line's `tracking` echo, only when it was captured with a snapshot. */
@@ -820,6 +861,12 @@ export async function captureSaleInTransaction(
     tenders,
     responsibilities,
   });
+  // RT-1565: after every earlier refusal; a refused seller or receiver is a 422 and nothing is recorded.
+  const attribution = await resolveSaleAttribution(
+    client,
+    { tenantId, storeId, occurredAt: body.occurredAt },
+    input.attribution ?? NO_ATTRIBUTION,
+  );
   await insertCaptureRows(client, {
     saleId,
     tenantId,
@@ -830,6 +877,7 @@ export async function captureSaleInTransaction(
     responsibilities,
     tracking,
     promotions,
+    attribution,
   });
   // ONLY the created path emits: a replay returned above, so a
   // re-delivery does NOT double-emit.
@@ -944,15 +992,18 @@ async function insertCaptureRows(
     readonly tracking: CaptureTracking;
     /** RT-1337: the automatic-offer facts to store, or null when no line carries one. */
     readonly promotions: PromotionPlan | null;
+    /** RT-1565: the checked sellers (per line) and receivers (per tender), in body order. */
+    readonly attribution: ResolvedSaleAttribution;
   },
 ): Promise<void> {
-  const { saleId, tenantId, storeId, body, tenders, responsibilities, tracking } = sale;
+  const { saleId, tenantId, storeId, body, tenders, responsibilities, tracking, attribution } = sale;
   const lineIds = await insertSaleLines(client, {
     saleId,
     tenantId,
     storeId,
     lines: body.lines,
     classes: tracking.classes,
+    sellers: attribution.lineSellers,
   });
   // RT-1337: the frozen automatic-offer facts (and the OD-9 review flag), once the lines exist.
   if (sale.promotions !== null) {
@@ -971,7 +1022,14 @@ async function insertCaptureRows(
     }),
   );
   if (tenders.length > 0) {
-    await insertTenders(client, { saleId, tenantId, storeId, currencyCode: body.currencyCode, tenders });
+    await insertTenders(client, {
+      saleId,
+      tenantId,
+      storeId,
+      currencyCode: body.currencyCode,
+      tenders,
+      receivers: attribution.tenderReceivers,
+    });
   }
   if (responsibilities.length > 0) {
     await insertResponsibilities(client, { saleId, tenantId, storeId, responsibilities });

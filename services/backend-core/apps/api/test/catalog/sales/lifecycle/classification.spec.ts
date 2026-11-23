@@ -155,6 +155,12 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "tracking_validation_id",
       "tracking_class",
       "tracking_unresolved_reason",
+      // RT-1565 (0133) — reviewed under SI-012: the line's seller frozen at capture, three opaque UUIDs
+      // (the user, the sale's store, the role held), the same actor-reference class as `sales.created_by`.
+      // No name, Seller Code, email or other personal data is stored on the line.
+      "seller_user_id",
+      "seller_store_id",
+      "seller_role_id",
     ],
   },
   {
@@ -320,6 +326,9 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "tender_ref",
       "sequence",
       "redemption_id",
+      // RT-1565 (0133) — reviewed under SI-012: who took the payment, an opaque user UUID (null = the
+      // Transaction Operator), the same actor-reference class as `sales.created_by`. No personal data.
+      "received_by_user_id",
     ],
   },
   // RT-538 (0047) — reviewed under SI-012: the reprint record holds opaque

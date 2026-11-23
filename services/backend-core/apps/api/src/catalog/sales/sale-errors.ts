@@ -49,6 +49,18 @@ export class SaleVoucherTenderInvalidError extends Error {
 }
 
 /**
+ * RT-1565 (RT-285 F-1): a first capture naming a seller (`lines[].sellerUserId`) or a payment receiver
+ * (`tenders[].receivedByUserId`) that is not a member of this tenant who was active at `occurredAt` and can
+ * access the sale's store (→ 422 `sale_seller_refused`, one body for every cause). Nothing is recorded.
+ */
+export class SaleSellerRefusedError extends Error {
+  constructor() {
+    super("a named seller or payment receiver is not an eligible member of this store");
+    this.name = "SaleSellerRefusedError";
+  }
+}
+
+/**
  * RT-105 (RT-87 decision D): a first capture whose line breaks the price
  * invariant — money beyond the currency's minor unit, `lineAmount ≠ unitPrice ×
  * quantity`, or a fractional quantity (→ 422 `sale_line_pricing_invalid`).

@@ -27,6 +27,9 @@ export const memberships = pgTable("memberships", {
     .notNull()
     .references(() => roles.id, { onDelete: "restrict" }),
   storeAccessKind: text("store_access_kind").notNull(),
+  // RT-1565 (0133): the member's Seller Code (RT-285 OQ-1), `^[A-Z0-9]{2,16}$`, unique within the tenant
+  // among non-deleted memberships (`uq_memberships_tenant_seller_code`, declared in SQL). Null when none.
+  sellerCode: text("seller_code"),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),
   createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   updatedAt: timestamp("updated_at", { withTimezone: true }).notNull().defaultNow(),

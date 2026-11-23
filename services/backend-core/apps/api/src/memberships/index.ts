@@ -6,3 +6,4 @@
  */
 export { listSpecificAccessMembersOfStore } from "./store-members";
 export { wasTenantMemberAt } from "./membership-at";
+export { attributableMembersAt } from "./attributable-members";

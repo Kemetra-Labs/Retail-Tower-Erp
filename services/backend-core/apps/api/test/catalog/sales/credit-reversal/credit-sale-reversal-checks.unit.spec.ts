@@ -17,7 +17,7 @@ const SCOPE = { tenantId: "0a000000-0000-7000-8000-000000057901", storeId: "0a00
 const SALE = "0a000000-0000-7000-8000-000000057903";
 const ACTOR = "0a000000-0000-7000-8000-000000057904";
 const APPROVER = "0a000000-0000-7000-8000-000000057905";
-const SELLER = "0a000000-0000-7000-8000-000000057906";
+const OPERATOR = "0a000000-0000-7000-8000-000000057906";
 
 /** A client whose standing lookup (the membership read) throws; every other query answers `ok`. */
 function clientFailingStanding(): PoolClient {
@@ -51,7 +51,7 @@ describe("RT-577 credit-reversal checks — a failed standing lookup is the refu
         scope: SCOPE,
         saleRef: SALE,
         actorUserId: ACTOR,
-        sellerUserId: SELLER,
+        operatorUserId: OPERATOR,
         refundable: "1",
         approval,
         now: new Date(),

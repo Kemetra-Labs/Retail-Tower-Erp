@@ -22,10 +22,27 @@ export const CAPTURE_HASH_EXCLUDED_FIELDS = [
   "safetySyncedAt",
 ] as const;
 
+/**
+ * RT-1565: the per-entry fields capture also leaves out (`splitSaleAttribution`): each line's
+ * `sellerUserId` and each tender's `receivedByUserId`.
+ */
+const CAPTURE_HASH_EXCLUDED_ENTRY_FIELDS = { lines: "sellerUserId", tenders: "receivedByUserId" } as const;
+
+/** `value` without `field` when it is a plain object; anything else as it is (arbitrary JSON). */
+function withoutField(value: unknown, field: string): unknown {
+  if (typeof value !== "object" || value === null || Array.isArray(value) || !(field in value)) return value;
+  const { [field]: _dropped, ...rest } = value as Record<string, unknown>;
+  return rest;
+}
+
 /** The body without the fields capture leaves out of its hash. */
 export function saleFactsOf(body: Readonly<Record<string, unknown>>): Record<string, unknown> {
   const facts: Record<string, unknown> = { ...body };
   for (const field of CAPTURE_HASH_EXCLUDED_FIELDS) delete facts[field];
+  for (const [list, field] of Object.entries(CAPTURE_HASH_EXCLUDED_ENTRY_FIELDS)) {
+    const entries = facts[list];
+    if (Array.isArray(entries)) facts[list] = entries.map((entry) => withoutField(entry, field));
+  }
   return facts;
 }
 

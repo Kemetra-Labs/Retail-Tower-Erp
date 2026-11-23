@@ -58,6 +58,9 @@ export const saleTenders = pgTable(
     tenderRef: uuid("tender_ref"),
     sequence: smallint("sequence"),
     redemptionId: uuid("redemption_id"),
+    // RT-1565 (0133, RT-285 F-1): who took this payment; NULL means the Transaction Operator
+    // (`sales.created_by`). FK to users declared in SQL (NOT VALID).
+    receivedByUserId: uuid("received_by_user_id"),
     createdAt: timestamp("created_at", { withTimezone: true }).notNull().defaultNow(),
   },
   (t) => [
