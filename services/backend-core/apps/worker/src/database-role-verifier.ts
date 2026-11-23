@@ -95,6 +95,65 @@ interface RetentionGrantRow {
 }
 
 /**
+ * The checks every dedicated worker role shares (RT-353, RT-1556): the URL logs
+ * in as the role itself, is neither superuser nor BYPASSRLS, reaches the same
+ * database as `DATABASE_URL`, and is a different role from it.
+ */
+async function assertDedicatedLogin(
+  envName: string,
+  rolePool: Pool,
+  domainPool: Pool,
+): Promise<void> {
+  const login = (
+    await rolePool.query<RetentionLoginRow>(
+      `SELECT current_user AS role_name,
+            session_user AS session_role,
+            r.rolsuper AS is_superuser,
+            r.rolbypassrls AS bypass_rls,
+            ${DB_IDENTITY_COLUMNS}
+       FROM pg_roles r
+      WHERE r.rolname = current_user`,
+    )
+  ).rows[0];
+  if (!login) {
+    throw new Error(`WorkerModule: ${envName} role could not be resolved`);
+  }
+  // A URL can log in as a privileged role and switch with `options=-c role=…`:
+  // current_user is then the dedicated role, but RESET ROLE restores the
+  // login's own privileges. Every check is about current_user, so the login
+  // itself must be the dedicated role.
+  if (login.session_role !== login.role_name) {
+    throw new Error(
+      `WorkerModule: ${envName} role must log in as itself, not switch to it from another login`,
+    );
+  }
+  if (login.is_superuser || login.bypass_rls) {
+    throw new Error(
+      `WorkerModule: ${envName} role must be non-superuser and must not have BYPASSRLS`,
+    );
+  }
+  const domain = (
+    await domainPool.query<DbIdentity & { role_name: string }>(
+      `SELECT current_user AS role_name,
+            ${DB_IDENTITY_COLUMNS}`,
+    )
+  ).rows[0];
+  // A URL pointing at another migrated database (a staging copy has the same
+  // role and grants) would pass every check below and act on the wrong rows.
+  if (
+    !domain ||
+    domain.db_name !== login.db_name ||
+    domain.db_oid !== login.db_oid ||
+    domain.server_started !== login.server_started
+  ) {
+    throw new Error(`WorkerModule: ${envName} must connect to the same database as DATABASE_URL`);
+  }
+  if (domain.role_name === login.role_name) {
+    throw new Error(`WorkerModule: ${envName} role must be a different role from DATABASE_URL`);
+  }
+}
+
+/**
  * RT-353 — the audit retention role (`audit_retention_worker`, migration 0005)
  * must be a distinct, non-superuser, NOBYPASSRLS role holding exactly
  * `SELECT` and `UPDATE (retention_marked_at)` on `audit_events`, in the same
@@ -106,58 +165,7 @@ export async function verifyAuditRetentionRole(
   retentionPool: Pool,
   domainPool: Pool,
 ): Promise<void> {
-  const login = (
-    await retentionPool.query<RetentionLoginRow>(
-      `SELECT current_user AS role_name,
-            session_user AS session_role,
-            r.rolsuper AS is_superuser,
-            r.rolbypassrls AS bypass_rls,
-            ${DB_IDENTITY_COLUMNS}
-       FROM pg_roles r
-      WHERE r.rolname = current_user`,
-    )
-  ).rows[0];
-  if (!login) {
-    throw new Error("WorkerModule: AUDIT_RETENTION_DATABASE_URL role could not be resolved");
-  }
-  // A URL can log in as a privileged role and switch with `options=-c role=…`:
-  // current_user is then the retention role, but RESET ROLE restores the
-  // login's own privileges. Every check below is about current_user, so the
-  // login itself must be the retention role.
-  if (login.session_role !== login.role_name) {
-    throw new Error(
-      "WorkerModule: AUDIT_RETENTION_DATABASE_URL role must log in as itself, " +
-        "not switch to it from another login",
-    );
-  }
-  if (login.is_superuser || login.bypass_rls) {
-    throw new Error(
-      "WorkerModule: AUDIT_RETENTION_DATABASE_URL role must be non-superuser and must not have BYPASSRLS",
-    );
-  }
-  const domain = (
-    await domainPool.query<DbIdentity & { role_name: string }>(
-      `SELECT current_user AS role_name,
-            ${DB_IDENTITY_COLUMNS}`,
-    )
-  ).rows[0];
-  // A URL pointing at another migrated database (a staging copy has the same
-  // role and grants) would pass every check below and mark the wrong rows.
-  if (
-    !domain ||
-    domain.db_name !== login.db_name ||
-    domain.db_oid !== login.db_oid ||
-    domain.server_started !== login.server_started
-  ) {
-    throw new Error(
-      "WorkerModule: AUDIT_RETENTION_DATABASE_URL must connect to the same database as DATABASE_URL",
-    );
-  }
-  if (domain.role_name === login.role_name) {
-    throw new Error(
-      "WorkerModule: AUDIT_RETENTION_DATABASE_URL role must be a different role from DATABASE_URL",
-    );
-  }
+  await assertDedicatedLogin("AUDIT_RETENTION_DATABASE_URL", retentionPool, domainPool);
   const grants = (
     await retentionPool.query<RetentionGrantRow>(
       `SELECT has_table_privilege('audit_events', 'SELECT') AS can_select,
@@ -204,5 +212,136 @@ export async function verifyAuditRetentionRole(
       "WorkerModule: AUDIT_RETENTION_DATABASE_URL role may hold only SELECT and " +
         "UPDATE (retention_marked_at) on audit_events, and no role membership",
     );
+  }
+}
+
+/**
+ * RT-1556 — the exact table privileges the sync-failure alert role
+ * (`docs/operations/sql/sync-failure-alert-role.sql`) may hold, as
+ * [table, column | null, privilege]. `null` is a table-level privilege. Keep it
+ * in step with the template and with the `alert_probe` set RT-1034 proved S13 on.
+ */
+export const SYNC_FAILURE_ALERT_ROLE_GRANTS: ReadonlyArray<
+  readonly [string, string | null, string]
+> = [
+  ...[
+    "tenants",
+    "stores",
+    "sales",
+    "erpnext_posting_status",
+    "memberships",
+    "roles",
+    "store_access",
+  ].map((t) => [t, null, "SELECT"] as const),
+  ["audit_events", null, "SELECT"],
+  ["audit_events", null, "INSERT"],
+  ...["sync_failure_alert_windows", "sync_failure_alert_deliveries"].flatMap((t) =>
+    ["SELECT", "INSERT", "UPDATE"].map((p) => [t, null, p] as const),
+  ),
+  ["users", "id", "SELECT"],
+  ["users", "email", "SELECT"],
+  ["users", "deleted_at", "SELECT"],
+];
+
+interface HeldPrivilege {
+  tbl: string;
+  col: string | null;
+  priv: string;
+}
+
+const privilegeKey = (tbl: string, col: string | null, priv: string): string =>
+  `${priv} ON ${tbl}${col === null ? "" : ` (${col})`}`;
+
+/** What the role lacks of the required grants, and what it holds beyond them. */
+export function diffSyncFailureAlertGrants(held: readonly HeldPrivilege[]): {
+  missing: string[];
+  extra: string[];
+} {
+  const heldKeys = new Set(held.map((h) => privilegeKey(h.tbl, h.col, h.priv)));
+  const required = new Set(SYNC_FAILURE_ALERT_ROLE_GRANTS.map(([t, c, p]) => privilegeKey(t, c, p)));
+  return {
+    missing: [...required].filter((k) => !heldKeys.has(k)).sort(),
+    extra: [...heldKeys].filter((k) => !required.has(k)).sort(),
+  };
+}
+
+/**
+ * Every privilege `current_user` holds on a relation outside the system
+ * schemas: table-level ones, column-level ones where the table-level one is
+ * missing, and sequence ones. `has_*_privilege` counts inherited privileges
+ * (and PUBLIC's) only; a NOINHERIT membership is refused separately.
+ * MAINTAIN (PG17+) includes LOCK TABLE; PG16 rejects the name, so it is only in
+ * the list from 17.
+ */
+const HELD_PRIVILEGES_SQL = `
+  WITH privs(priv) AS (
+    SELECT unnest(CASE WHEN current_setting('server_version_num')::int >= 170000
+      THEN ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER','MAINTAIN']
+      ELSE ARRAY['SELECT','INSERT','UPDATE','DELETE','TRUNCATE','REFERENCES','TRIGGER'] END)
+  ), rels AS (
+    SELECT c.oid, c.relkind,
+           CASE WHEN n.nspname = 'public' THEN c.relname
+                ELSE n.nspname || '.' || c.relname END AS tbl
+      FROM pg_class c
+      JOIN pg_namespace n ON n.oid = c.relnamespace
+     WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
+       AND n.nspname NOT IN ('pg_catalog', 'information_schema')
+       AND n.nspname NOT LIKE 'pg_toast%'
+  )
+  SELECT r.tbl, NULL::text AS col, p.priv
+    FROM rels r CROSS JOIN privs p
+   WHERE r.relkind <> 'S' AND has_table_privilege(current_user, r.oid, p.priv)
+  UNION ALL
+  SELECT r.tbl, a.attname::text AS col, p.priv
+    FROM rels r
+    JOIN pg_attribute a ON a.attrelid = r.oid AND a.attnum > 0 AND NOT a.attisdropped
+    CROSS JOIN privs p
+   WHERE r.relkind <> 'S'
+     AND p.priv IN ('SELECT', 'INSERT', 'UPDATE', 'REFERENCES')
+     AND NOT has_table_privilege(current_user, r.oid, p.priv)
+     AND has_column_privilege(current_user, r.oid, a.attnum, p.priv)
+  UNION ALL
+  SELECT r.tbl, NULL::text AS col, s.priv
+    FROM rels r CROSS JOIN (VALUES ('USAGE'), ('SELECT'), ('UPDATE')) AS s(priv)
+   WHERE r.relkind = 'S' AND has_sequence_privilege(current_user, r.oid, s.priv)`;
+
+/**
+ * RT-1556 — the sync-failure alert role (created from
+ * `docs/operations/sql/sync-failure-alert-role.sql`) must be a distinct,
+ * non-superuser, NOBYPASSRLS role, in the same database as `DATABASE_URL`,
+ * holding exactly the privileges of SYNC_FAILURE_ALERT_ROLE_GRANTS: no write on
+ * the posting, reconciliation or sale tables, no DELETE anywhere, and no role
+ * membership.
+ */
+export async function verifySyncFailureAlertRole(alertPool: Pool, domainPool: Pool): Promise<void> {
+  await assertDedicatedLogin("SYNC_FAILURE_ALERT_DATABASE_URL", alertPool, domainPool);
+  const held = (await alertPool.query<HeldPrivilege>(HELD_PRIVILEGES_SQL)).rows;
+  const { missing, extra } = diffSyncFailureAlertGrants(held);
+  if (extra.length > 0) {
+    throw new Error(
+      "WorkerModule: SYNC_FAILURE_ALERT_DATABASE_URL role holds privileges beyond the " +
+        `sync-failure alert grants: ${extra.join(", ")}`,
+    );
+  }
+  if (missing.length > 0) {
+    throw new Error(
+      `WorkerModule: SYNC_FAILURE_ALERT_DATABASE_URL role is missing required grants: ${missing.join(", ")}`,
+    );
+  }
+  const membership = (
+    await alertPool.query<{ member_of_role: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1
+           FROM pg_auth_members m
+           JOIN pg_roles r ON r.oid = m.member
+          WHERE r.rolname = current_user
+       ) AS member_of_role`,
+    )
+  ).rows[0];
+  // has_*_privilege counts inherited privileges only: a NOINHERIT membership can
+  // still reach more through SET ROLE (unless granted WITH SET FALSE, PG16+).
+  // As a conservative rule the alert role may be a member of no role at all.
+  if (membership?.member_of_role) {
+    throw new Error("WorkerModule: SYNC_FAILURE_ALERT_DATABASE_URL role must be a member of no role");
   }
 }

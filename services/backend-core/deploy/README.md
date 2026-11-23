@@ -64,6 +64,13 @@ compose stack. Redis is containerized by default.
    [`docs/operations/sql/auth-lookup-role.sql`](../docs/operations/sql/auth-lookup-role.sql)
    after the first `migrate up`. The API and worker refuse to boot when a role's
    posture or grants are wrong.
+   Before turning the sync-failure email alert on (`SYNC_FAILURE_ALERT_ENABLED=true`),
+   create its own role from
+   [`docs/operations/sql/sync-failure-alert-role.sql`](../docs/operations/sql/sync-failure-alert-role.sql)
+   and set `SYNC_FAILURE_ALERT_DATABASE_URL` (RT-1556): the sweep then runs without
+   any write grant on posting, reconciliation or sale tables. With the alert off
+   the variable stays empty. With the alert on and the variable empty, the worker
+   refuses to boot in production.
 8. An Admin Console releases directory on `<app-host>` (for example
    `/opt/dp2-console`), set as `CONSOLE_RELEASES_DIR` in `deploy/prod.env`. Compose
    refuses to start without it. It must hold at least one verified release and a
@@ -840,7 +847,7 @@ idempotent, so restarts and replicas share one schedule.
 | ERPNext stock reconciliation run sweep (RT-179) | 24 h | `ERPNEXT_STOCK_RECONCILIATION_SWEEP_INTERVAL_MS` |
 | Cashier-admission replay purge (RT-209) | 1 h | `CASHIER_ADMISSION_REPLAY_PURGE_INTERVAL_MS` |
 | Catalogue import expiry and retention (RT-1503) | 1 h | `CATALOG_IMPORT_RETENTION_INTERVAL_MS` |
-| Sync-failure email alert (RT-1034) | 5 min, **off** | `SYNC_FAILURE_ALERT_SWEEP_INTERVAL_MS` (at least `60000`); the alert only runs with `SYNC_FAILURE_ALERT_ENABLED=true` |
+| Sync-failure email alert (RT-1034) | 5 min, **off** | `SYNC_FAILURE_ALERT_SWEEP_INTERVAL_MS` (at least `60000`); the alert only runs with `SYNC_FAILURE_ALERT_ENABLED=true`, on its own role (`SYNC_FAILURE_ALERT_DATABASE_URL`, RT-1556) |
 
 The stock sweep creates one `scheduled` stock reconciliation run for every store
 that has an active `stock` warehouse map. A store is skipped when it already has

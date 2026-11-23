@@ -185,13 +185,21 @@ import {
 } from "./catalog-import/import-retention.repository";
 import { ImportRetentionScheduler } from "./catalog-import/import-retention.scheduler";
 import { ImportRetentionWorker } from "./catalog-import/import-retention.worker";
-import { verifyAuditRetentionRole, verifyWorkerDatabaseRole } from "./database-role-verifier";
+import {
+  verifyAuditRetentionRole,
+  verifySyncFailureAlertRole,
+  verifyWorkerDatabaseRole,
+} from "./database-role-verifier";
 import { captureFinalJobFailure } from "./observability/sentry/failed-job";
 import { recordSyncFailureAlert } from "./observability/metrics/worker.metrics";
 import {
   resolveSyncFailureAlertEnabled,
   resolveSyncFailureAlertIntervalMs,
 } from "./sync-failure-alert/sync-failure-alert.config";
+import {
+  SyncFailureAlertDbPool,
+  syncFailureAlertPoolProviderFactory,
+} from "./sync-failure-alert/sync-failure-alert-db-pool";
 import { SyncFailureAlertProcessor } from "./sync-failure-alert/sync-failure-alert.processor";
 import {
   NoOpSyncFailureAlertRepository,
@@ -512,12 +520,14 @@ export function replayPurgeProcessorProviderFactory(wrapper: AuditDbPool): Repla
 /**
  * Factory for the `SyncFailureAlertProcessor` provider (RT-1034).
  *
- * Reuses the shared `AuditDbPool` wrapper (no second pool) and the `EMAIL_ADAPTER` seam
- * (SES behind config, NoOp outside production). The alert is OFF unless
- * `SYNC_FAILURE_ALERT_ENABLED=true`; on the no-DB path the NoOp repository lists no tenants.
+ * Runs on `SyncFailureAlertDbPool` (RT-1556: the sweep's own least-privilege
+ * `SYNC_FAILURE_ALERT_DATABASE_URL` credential, never the shared `DATABASE_URL`
+ * role in production) and the `EMAIL_ADAPTER` seam (SES behind config, NoOp outside
+ * production). The alert is OFF unless `SYNC_FAILURE_ALERT_ENABLED=true`; on the
+ * no-DB path the NoOp repository lists no tenants.
  */
 function syncFailureAlertProcessorProviderFactory(
-  wrapper: AuditDbPool,
+  wrapper: { readonly pool: Pool | null },
   adapter: EmailAdapter,
 ): SyncFailureAlertProcessor {
   const repo = poolOrNoOp(
@@ -709,6 +719,32 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
         );
       }
       await verifyAuditRetentionRole(retentionPool, domainPool);
+    }
+  }
+}
+
+/**
+ * Boot-time check of the sync-failure alert role (RT-1556), under the same
+ * production / `VERIFY_DATABASE_POOL_BOUNDARY=1` gate as the checks above, and
+ * only when the dedicated URL is configured (the sweep may borrow the domain
+ * pool while it is off or outside production). Skipped on the no-DB path.
+ */
+@Injectable()
+export class SyncFailureAlertRoleVerifier implements OnModuleInit {
+  constructor(
+    private readonly domain: AuditDbPool,
+    private readonly alert: SyncFailureAlertDbPool,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    const domainPool = this.domain.pool;
+    const alertPool = this.alert.pool;
+    if (domainPool === null || alertPool === null || !this.alert.dedicated) return;
+    if (
+      process.env["NODE_ENV"] === "production" ||
+      process.env["VERIFY_DATABASE_POOL_BOUNDARY"] === "1"
+    ) {
+      await verifySyncFailureAlertRole(alertPool, domainPool);
     }
   }
 }
@@ -906,10 +942,22 @@ export class AuditRetentionRoleVerifier implements OnModuleInit {
     // SYNC_FAILURE_ALERT_ENABLED=true) that reads the existing ERP posting and
     // sale sync failure state and sends one deduplicated email per open
     // condition through the EmailAdapter seam. Read-only on posting state.
+    //
+    // RT-1556: it runs on its own credential (SYNC_FAILURE_ALERT_DATABASE_URL, a role
+    // created from docs/operations/sql/sync-failure-alert-role.sql), not the shared
+    // DATABASE_URL role. SyncFailureAlertDbPool is a class-token provider so Nest
+    // closes its pool.
+    {
+      provide: SyncFailureAlertDbPool,
+      useFactory: (domain: AuditDbPool): SyncFailureAlertDbPool =>
+        syncFailureAlertPoolProviderFactory(domain.pool),
+      inject: [AuditDbPool],
+    },
+    SyncFailureAlertRoleVerifier,
     {
       provide: SyncFailureAlertProcessor,
       useFactory: syncFailureAlertProcessorProviderFactory,
-      inject: [AuditDbPool, EMAIL_ADAPTER],
+      inject: [SyncFailureAlertDbPool, EMAIL_ADAPTER],
     },
     SyncFailureAlertWorker,
     SyncFailureAlertScheduler,
