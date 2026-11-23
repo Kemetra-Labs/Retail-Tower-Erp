@@ -20,6 +20,7 @@
  */
 import {
   createBackendTransport,
+  statusOutcome,
   type BackendTransport,
   type FetchLike,
 } from '../http/transport.js';
@@ -63,12 +64,28 @@ function retryAfterMs(header: string | undefined): number {
     : DEFAULT_RETRY_AFTER_MS;
 }
 
+type StatusClass = 'rotated' | 'unauthorized' | 'rate_limited' | 'retryable' | 'rejected';
+
+/** The rotate route's fixed statuses (RT-880 `statusOutcome`); 5xx is a range, below. */
+const STATUS_TABLE: Readonly<Partial<Record<number, StatusClass>>> = {
+  200: 'rotated',
+  401: 'unauthorized',
+  425: 'retryable',
+  429: 'rate_limited',
+};
+
 function resultOf(status: number, json: unknown, retryAfter: string | undefined): RotationResult {
-  if (status === 200) return rotatedFrom(json);
-  if (status === 401) return { kind: 'unauthorized' };
-  if (status === 429) return { kind: 'rate_limited', retryAfterMs: retryAfterMs(retryAfter) };
-  if (status >= 500 || status === 425) return { kind: 'retryable' };
-  return { kind: 'rejected', status };
+  const outcome = status >= 500 ? 'retryable' : statusOutcome(status, STATUS_TABLE, 'rejected');
+  switch (outcome) {
+    case 'rotated':
+      return rotatedFrom(json);
+    case 'rate_limited':
+      return { kind: 'rate_limited', retryAfterMs: retryAfterMs(retryAfter) };
+    case 'rejected':
+      return { kind: 'rejected', status };
+    default:
+      return { kind: outcome };
+  }
 }
 
 export function createRotationClient(deps: { transport: BackendTransport }): RotationClient {
