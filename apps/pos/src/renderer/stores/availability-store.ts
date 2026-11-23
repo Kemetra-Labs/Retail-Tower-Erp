@@ -47,16 +47,20 @@ export const useAvailabilityStore = create<AvailabilityStoreState>((set, get) =>
   /** Ask main about `ids`; a refusal or a fault leaves what is shown as it was. */
   async function load(ids: readonly string[]): Promise<void> {
     const api = bridge();
-    if (api === null || ids.length === 0) return;
-    try {
-      const answer = await api.bands({ product_ids: ids.slice(0, BATCH) });
-      if (answer.kind !== 'ok') return;
-      set((s) => ({
-        freshness: { state: answer.state, as_of: answer.as_of },
-        states: { ...s.states, ...answer.states },
-      }));
-    } catch {
-      // Display only: a failed read changes nothing on screen.
+    if (api === null) return;
+    // Chunks of BATCH, so no id queued in one tick is dropped (main refuses a longer list).
+    for (let start = 0; start < ids.length; start += BATCH) {
+      try {
+        const answer = await api.bands({ product_ids: ids.slice(start, start + BATCH) });
+        if (answer.kind !== 'ok') return;
+        set((s) => ({
+          freshness: { state: answer.state, as_of: answer.as_of },
+          states: { ...s.states, ...answer.states },
+        }));
+      } catch {
+        // Display only: a failed read changes nothing on screen.
+        return;
+      }
     }
   }
 

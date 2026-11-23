@@ -231,6 +231,15 @@ describe('row badges (search results and cart lines)', () => {
     });
     expect(api.bands).toHaveBeenCalledTimes(settled);
   });
+  it('asks in chunks of 200, so no product queued in one tick is dropped', async () => {
+    const ids = Array.from({ length: 450 }, (_, n) => `bulk-${String(n)}`);
+    for (const id of ids) useAvailabilityStore.getState().track(id);
+    await waitFor(() => {
+      expect(Object.keys(useAvailabilityStore.getState().states)).toHaveLength(450);
+    });
+    const sizes = api.bands.mock.calls.map(([req]) => req.product_ids.length);
+    expect(sizes).toEqual([200, 200, 50]);
+  });
 });
 
 describe('a sale is never blocked by any badge state (spec 013 FR-5)', () => {
