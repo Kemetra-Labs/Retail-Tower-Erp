@@ -4,6 +4,7 @@
  * guards (`DashboardAuthGuard`, and RT-1484 `SessionOnlyAdminGuard`, which also refuses every
  * bearer and checks a write's `Origin`) and the role gate (`@Roles` + `RolesGuard`).
  */
+export type { AuthedRequest } from "./auth.guard";
 export { DashboardAuthGuard } from "./dashboard-auth.guard";
 export { Roles } from "./roles.decorator";
 export { RolesGuard } from "./roles.guard";

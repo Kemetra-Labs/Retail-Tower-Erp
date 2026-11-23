@@ -7,3 +7,6 @@ platformIssueProvisionerCredential: onboarding
 platformRevokeProvisionerCredential: incidentControl
 # RT-1356: the platform admin's rotation, an incident-control action.
 platformRotateProvisionerCredential: incidentControl
+
+# RT-1557: the platform admin's adoption of one existing connector registration as provisioner-managed, an incident-control action.
+platformAdoptConnectorRegistration: incidentControl
