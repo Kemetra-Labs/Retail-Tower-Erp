@@ -6,6 +6,7 @@
  * that were file-private now carry `export` so the service and the mappers can
  * import them.
  */
+import type { AvailabilityBody } from './availability/availability.types';
 import type { InventoryStatus } from '@data-pulse-2/db';
 
 import type { StockMovementScope } from './movement-list.cursor';
@@ -187,6 +188,8 @@ export interface OnHandBody {
   readonly sellableQuantity: string;
   /** RT-432: one entry per inventory status, in enum order (745). */
   readonly statusQuantities: readonly StatusQuantityBody[];
+  /** RT-1576 (RT-1511 S1): Available To Sell and its facts, read in the same transaction (742). */
+  readonly availability: AvailabilityBody;
 }
 
 /** RT-432: wire projection of a stock location (contract `StockLocation`). */

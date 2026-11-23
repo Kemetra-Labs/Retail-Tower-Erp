@@ -68,6 +68,7 @@ import type { Pool } from 'pg';
 
 import { PG_POOL } from '../database';
 import { formatQuantity, parseQuantity } from '../common/quantity/decimal-quantity';
+import { readAvailability } from './availability/availability.query';
 import {
   MOVEMENT_OCCURRED_AT_KEY_SQL,
   StockMovementCursorError,
@@ -220,6 +221,8 @@ export class InventoryService {
             statusQuantities.find((q) => q.inventoryStatus === DEFAULT_INVENTORY_STATUS)
               ?.quantity ?? '0.0000',
           statusQuantities,
+          // RT-1576: same transaction, tenant RLS active; Backend-Core is the ATS authority (A-9).
+          availability: await readAvailability(client, { storeId: input.storeId, productId: input.productId }),
         };
       },
     );

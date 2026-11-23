@@ -1550,7 +1550,7 @@ describe("inventory/inventory.yaml — RT-1419 Count Session", () => {
 
 describe("inventory/inventory.yaml — RT-1420 Count Session runtime", () => {
   it("keeps the 1.16.0 note (version moved on in RT-1423, RT-1424 and RT-1444), a wording-only note citing the owner delegation", () => {
-    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.16.0-draft (RT-1420, additive;");
     expect(description).toContain("`count_cut_barrier_not_met`");
@@ -1585,7 +1585,7 @@ describe("inventory/inventory.yaml — RT-1423 Count Session activation (1.17.0-
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
 
   it("keeps the 1.17.0 note (version moved on in RT-1424 and RT-1444), the activation note citing the owner authorization", () => {
-    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.17.0-draft (RT-1423, additive;");
     expect(description).toContain("`count_sessions_readiness_unmet`");
@@ -1627,7 +1627,7 @@ describe("inventory/inventory.yaml — RT-1424 governed late-count compensation 
     "/api/inventory/v1/stores/{storeId}/count-sessions/{sessionId}/late-event-findings/{findingId}/compensation";
 
   it("keeps the 1.18.0 note (version moved on in RT-1444); the note cites the owner delegation and the oasdiff acknowledgement", () => {
-    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
     const description = inventoryDoc.info?.description ?? "";
     expect(description).toContain("**1.18.0-draft (RT-1424, additive;");
     expect(description).toContain("`erp_absorbed`");
@@ -1729,7 +1729,7 @@ describe("inventory/inventory.yaml — RT-1512 shipment transfer (1.21.0-draft; 
   const U = (n: number) => `0198b000-0000-7000-8000-${String(n).padStart(12, "0")}`;
 
   it("keeps the 1.21.0 note (version moved on in RT-1517), citing the planning record, the owner rulings and the runtime issue", () => {
-    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
     const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
     expect(description).toContain("**1.21.0-draft (RT-1512, additive, contract-only;");
     expect(description).toContain("RT-291 comments 17800 and 17801");
@@ -1881,8 +1881,8 @@ describe("inventory/inventory.yaml — RT-1517 shipment-Transfer activation swit
   const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
   const PATH = "/api/inventory/v1/settings/shipment-transfers";
 
-  it("bumps to 1.22.0-draft with a note citing the owner decision and the legacy 409", () => {
-    expect(inventoryDoc.info?.version).toBe("1.22.0-draft");
+  it("keeps the 1.22.0 note (version moved on in RT-1576), citing the owner decision and the legacy 409", () => {
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
     const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
     expect(description).toContain("**1.22.0-draft (RT-1517, additive;");
     expect(description).toContain("`shipment_transfers_readiness_unmet`");
@@ -1931,5 +1931,35 @@ describe("inventory/inventory.yaml — RT-1517 shipment-Transfer activation swit
     const text = String(conflict?.description ?? "").replace(/\s+/g, " ");
     expect(text).toContain("`shipment_transfers_readiness_unmet`");
     expect(text).toContain("`shipment_transfers_in_flight`");
+  });
+});
+
+// RT-1576 (RT-1511 S1) — Available To Sell on OnHand (1.23.0-draft)
+describe("inventory/inventory.yaml — RT-1576 OnHand.availability (1.23.0-draft)", () => {
+  const schema = (n: string) => (inventoryDoc.components?.schemas?.[n] ?? {}) as Record<string, any>;
+
+  it("bumps to 1.23.0-draft with a note citing RT-1511 and RT-1576", () => {
+    expect(inventoryDoc.info?.version).toBe("1.23.0-draft");
+    const description = (inventoryDoc.info?.description ?? "").replace(/\s+/g, " ");
+    expect(description).toContain("**1.23.0-draft (RT-1576, additive;");
+    expect(description).toContain("RT-1511");
+  });
+
+  it("adds a required availability object to OnHand without removing a field, and drops the 'not projected' wording", () => {
+    const onHand = schema("OnHand");
+    expect(onHand["required"]).toEqual(expect.arrayContaining(["quantity", "sellableQuantity", "statusQuantities", "availability"]));
+    expect(onHand["properties"]["availability"]["$ref"]).toBe("#/components/schemas/Availability");
+    expect(String(onHand["description"])).not.toContain("Available To Sell is not projected here");
+  });
+
+  it("declares the availability facts, closed, with a nullable onOrder", () => {
+    const a = schema("Availability");
+    expect(a["additionalProperties"]).toBe(false);
+    const fields = [
+      "primaryLocationId", "primarySellable", "expiredTrackedSellable", "activeReserved", "safetyProtection",
+      "availableToSell", "inTransitInbound", "inTransitOutbound", "onOrder", "asOf",
+    ];
+    expect(a["required"]).toEqual(fields);
+    expect(Object.keys(a["properties"])).toEqual(fields);
   });
 });

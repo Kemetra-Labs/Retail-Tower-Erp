@@ -1,8 +1,14 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Inventory — Stock Movement Ledger API
-  version: "1.22.0-draft"
+  version: "1.23.0-draft"
   description: >
+    **1.23.0-draft (RT-1576, additive; [GATED: contract], RT-1511 decision record
+    "Available-to-Sell computation", slice S1).** `OnHand` gains the required
+    `availability` object (`getOnHand`): Available To Sell and the facts it is
+    made of, computed by Backend-Core at the store's primary location. No
+    existing field, operation or status changes; the `OnHand` description no
+    longer says Available To Sell is not projected.
     **1.22.0-draft (RT-1517, additive; [GATED: contract] owner decision in chat
     2026-11-22, recorded on RT-1517).** The tenant's shipment-Transfer
     activation switch, as `getShipmentTransfersSetting` and
@@ -4208,7 +4214,7 @@ components:
             filters; null when exhausted. Absent is read as null.
     OnHand:
       type: object
-      required: [storeId, productId, quantity, negativeBalance, sellableQuantity, statusQuantities]
+      required: [storeId, productId, quantity, negativeBalance, sellableQuantity, statusQuantities, availability]
       description: >
         Derived on-hand projection. `quantity` is the compute-on-read signed
         SUM (FR-003) over every location and inventory status of the store —
@@ -4216,8 +4222,9 @@ components:
         `quantity` < 0 (FR-024); on-hand is never a stored mutable value.
         RT-432: `sellableQuantity` and `statusQuantities` split the same
         movements by inventory status (decision 745); a movement recorded before
-        positions existed counts as `sellable`. Available To Sell is not
-        projected here.
+        positions existed counts as `sellable`. RT-1576: `availability` carries
+        Available To Sell (742) and its facts, so the physical, sellable,
+        reserved, available and In Transit figures are shown separately (745).
       properties:
         storeId: { type: string, format: uuid }
         productId: { type: string, format: uuid }
@@ -4241,6 +4248,72 @@ components:
             entries sum to `quantity`.
           items:
             $ref: "#/components/schemas/StatusQuantity"
+        availability:
+          $ref: "#/components/schemas/Availability"
+    Availability:
+      type: object
+      additionalProperties: false
+      required:
+        - primaryLocationId
+        - primarySellable
+        - expiredTrackedSellable
+        - activeReserved
+        - safetyProtection
+        - availableToSell
+        - inTransitInbound
+        - inTransitOutbound
+        - onOrder
+        - asOf
+      description: >
+        RT-1576 (RT-1511 S1) — Available To Sell of one (store, product), computed
+        on read by Backend-Core (no ERPNext read). `availableToSell` =
+        `primarySellable` - `expiredTrackedSellable` - `activeReserved` -
+        `safetyProtection`; it is never clamped and may be negative (743). Only
+        the store's `primary` location counts. Holds and non-sellable statuses are
+        not subtracted again: they already left `sellable`. In Transit never enters
+        `availableToSell`.
+      properties:
+        primaryLocationId: { type: string, format: uuid }
+        primarySellable:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: The `sellable` quantity at the primary location. May be negative.
+        expiredTrackedSellable:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: >
+            The sellable quantity at the primary location of tracking identities
+            whose expiry date is before today in the store's time zone (a lot is
+            sellable through its expiry date).
+        activeReserved:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: >
+            Active reservations at the primary location: state `active` and
+            `expires_at` in the future. A lapsed reservation never counts.
+        safetyProtection:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: Zero in V1; reported so a later safety-stock policy is additive.
+        availableToSell:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: May be negative; never clamped.
+        inTransitInbound:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: Dispatched less received less short-closed on Transfers into the store. Not part of `availableToSell`.
+        inTransitOutbound:
+          allOf:
+            - $ref: "#/components/schemas/DecimalQuantity"
+          description: The same arithmetic on Transfers out of the store.
+        onOrder:
+          type: [string, "null"]
+          description: Always null today; no purchasing source exists yet.
+        asOf:
+          type: string
+          format: date-time
+          description: The instant the figures were read.
     InventoryStatus:
       type: string
       enum: [sellable, return_inspection, quality_hold, damaged, expired, recall_hold]
