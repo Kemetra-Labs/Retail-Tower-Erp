@@ -60,6 +60,10 @@ compose stack. Redis is containerized by default.
    `UPDATE` and `DELETE` on `audit_events` from the domain role if it holds
    them, and setting the URL. Otherwise compose refuses to run, and the
    worker refuses to boot.
+   The same superuser also creates the `NOLOGIN` role `pricing_projection_writer`
+   and grants it to the migration owner, once per cluster, before `migrate up`
+   reaches migration 0132 (RT-1485); otherwise `migrate up` stops at 0132
+   ([details](../docs/operations/database-roles.md#before-migration-0132-pricing_projection_writer)).
    Create the lookup role from
    [`docs/operations/sql/auth-lookup-role.sql`](../docs/operations/sql/auth-lookup-role.sql)
    after the first `migrate up`. The API and worker refuse to boot when a role's

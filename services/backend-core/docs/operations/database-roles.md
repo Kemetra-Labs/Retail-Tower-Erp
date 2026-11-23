@@ -111,6 +111,49 @@ user can run it alone:
   the cluster still grants privileges to the role, `DROP ROLE` fails until
   those grants are revoked.
 
+## Before migration 0132: `pricing_projection_writer`
+
+Migration `0132_pricing_authority_freeze` (RT-1485, spec 044 §6.2) freezes the
+legacy price columns per tenant once its pricing authority leaves `legacy`. The
+only way past the freeze is a database privilege: the `NOLOGIN` role
+`pricing_projection_writer` owns the `SECURITY DEFINER` function
+`pricing_reverse_project(...)`, and the freeze trigger lets a frozen write
+through only when `current_user` is that role. No session variable is read, so
+the runtime role cannot defeat the freeze with `set_config`.
+
+The migration owner has no `CREATEROLE`, so a superuser (on managed PostgreSQL,
+the provider's admin user) runs this **once per database cluster, before
+`migrate up` reaches 0132**:
+
+```sql
+CREATE ROLE pricing_projection_writer NOLOGIN;
+GRANT pricing_projection_writer TO <migration owner>;
+```
+
+`ALTER FUNCTION ... OWNER TO` also needs the new owner to hold `CREATE` on
+schema `public`. 0132 grants it for those three statements and revokes it
+again, which works when the migration owner owns schema `public` (it normally
+does, as the database owner). If it does not, 0132 stops with a hint; the
+superuser then also runs `GRANT CREATE ON SCHEMA public TO
+pricing_projection_writer;` (0132 leaves a grant it did not make in place).
+
+The membership lets the migration owner hand the role its functions (`ALTER
+FUNCTION ... OWNER TO` needs it) and run `pricing_reverse_project` from the
+rollback CLI (PR-16b). It adds no power: the migration owner owns the legacy
+tables and could already disable their triggers. **No other role may be a
+member** (with `INHERIT` or `SET`): 0132 refuses to run if one is, and the
+domain, lookup and retention roles must never be granted it. The role must
+stay `NOLOGIN`, `NOSUPERUSER`, `NOBYPASSRLS` and `NOCREATEROLE` (0132 checks).
+
+Without the role, `migrate up` stops at 0132 with `role pricing_projection_writer
+does not exist`; earlier migrations stay applied, and re-running after the step
+above resumes at 0132. Test databases migrate as a superuser, so 0132 creates
+the role itself there.
+
+0132's down migration does not drop the role (the migration owner could not
+re-create it); it revokes the role's table privileges and leaves it owning
+nothing.
+
 ## Boot-time verification
 
 In production (or with `VERIFY_DATABASE_POOL_BOUNDARY=1`) both processes check
@@ -991,6 +1034,23 @@ A script without the marker, such as the owner-gated
   before deploying 0124. Its down migration refuses while any
   batch or mapping profile is stored. No runtime reads or writes the tables
   until RT-1505 / RT-1507.
+
+- **Migration `0132_pricing_authority_freeze` (RT-1485, spec 044 PR-16a-1).** Run
+  [`sql/pricing-authority-domain-grants.sql`](sql/pricing-authority-domain-grants.sql)
+  after `migrate up` and before the API starts, in the same step 2 of
+  [`deploy/README.md`](../../deploy/README.md#deploy), with the same
+  `-v domain_role=<role>`. It grants the domain role `SELECT` only on
+  `tenant_pricing_authority`. Never grant the domain role `INSERT`, `UPDATE`,
+  `DELETE` or `TRUNCATE` on it, nor any privilege on `pricing_import_runs` or
+  `pricing_cutover_runs` until the slice that writes them (PR-16a-2, PR-16b)
+  says so: a runtime role that can change the authority row could unfreeze its
+  own legacy prices. Without the grant the API refuses to boot
+  (`DOMAIN_REQUIRED_GRANTS`). The auth lookup role must hold no privilege on the
+  three tables (`AUTH_LOOKUP_FORBIDDEN_GRANTS`). 0132 seeds one `legacy` row per
+  tenant and adds triggers that change nothing while every tenant is `legacy`;
+  no maintenance window. Its down migration refuses while any authority row is
+  not `legacy` or any run row exists. **Before it runs**, see
+  [Before migration 0132](#before-migration-0132-pricing_projection_writer).
 
 - **Console device revoke (RT-365, on migration `0040_device_lifecycle`).** Run
   [`sql/device-lifecycle-domain-grants.sql`](sql/device-lifecycle-domain-grants.sql)
