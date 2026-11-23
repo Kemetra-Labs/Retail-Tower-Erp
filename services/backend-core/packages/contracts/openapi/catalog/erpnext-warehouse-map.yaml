@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Catalog — ERPNext Warehouse Mapping API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Spec 014 (branch-inventory-reconciliation-and-warehouse-mapping) — the
     tenant-admin set/list/retire review surface for the `erpnext_warehouse_map`
@@ -60,6 +60,18 @@ info:
     return 429 `rate_limited` (`TooManyRequests`, with `Retry-After`)
     from the console rate limit (RT-574, RT-619). No other wire change.
 
+
+    **1.2.0-draft (RT-1574, additive).** Three operations for the tenant's
+    ERPNext transit warehouse (`purpose = 'transit'`, migration 0125: no
+    store, at most one active per tenant), which shipment transfers need
+    before they can be switched on (`transit_warehouse_unmapped`):
+    `tenantAdminGetErpnextTransitWarehouseMapping`,
+    `tenantAdminSetErpnextTransitWarehouseMapping` and
+    `tenantAdminRetireErpnextTransitWarehouseMapping`, on their own
+    `ErpnextTransitWarehouseMapping` schema. The three 014 operations and
+    `ErpnextWarehouseMapping` keep their shape: the 014 list never returns
+    the transit row and the 014 retire answers 404 for it.
+
 servers:
   - url: https://api.example.com
 
@@ -76,9 +88,10 @@ paths:
       operationId: tenantAdminListErpnextWarehouseMappings
       tags: [catalog-erpnext-warehouse-map]
       description: >
-        Returns the tenant's active mappings as `ErpnextWarehouseMapping`
+        Returns the tenant's active store mappings as `ErpnextWarehouseMapping`
         projections. Scoped to the session tenant (RLS); cross-tenant rows are
-        never disclosed.
+        never disclosed. The tenant transit warehouse is not listed here
+        (RT-1574): read it with `tenantAdminGetErpnextTransitWarehouseMapping`.
       responses:
         "200":
           description: The tenant's active mappings.
@@ -177,7 +190,9 @@ paths:
         `tenantAdminSetErpnextWarehouseMapping`, never an in-place identity
         rewrite). Carries the expected `version` (§III optimistic concurrency);
         a mismatch is `409 conflict`. Cross-tenant / out-of-scope ids are
-        non-disclosing 404s.
+        non-disclosing 404s, and so is the tenant transit warehouse's id
+        (RT-1574: it is retired with
+        `tenantAdminRetireErpnextTransitWarehouseMapping`).
       parameters:
         - $ref: "#/components/parameters/MappingId"
       requestBody:
@@ -193,6 +208,154 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/ErpnextWarehouseMapping"
+        "400":
+          description: Bad request (invalid path UUID or body).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Caller is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the request is authenticated by the
+            `dp2_session` cookie and its `Origin` header is missing, or is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          description: Not found OR not in scope (non-disclosing, §II/§XII).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            Optimistic-concurrency conflict (stale `version`) OR already retired.
+            `error.code = "conflict"` (§III).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/v1/catalog/erpnext-transit-warehouse-mapping:
+    get:
+      summary: Read the tenant's ERPNext transit warehouse mapping.
+      operationId: tenantAdminGetErpnextTransitWarehouseMapping
+      tags: [catalog-erpnext-warehouse-map]
+      description: >
+        RT-1574. The tenant's active transit warehouse (`purpose = 'transit'`,
+        no store), or `mapping: null` when it has none. Shipment transfers
+        cannot be switched on until it is set (`transit_warehouse_unmapped`).
+        Scoped to the session tenant (RLS).
+      responses:
+        "200":
+          description: The tenant's active transit warehouse mapping, or null.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErpnextTransitWarehouseMappingState"
+        "401":
+          description: Caller is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+    post:
+      summary: Set the tenant's ERPNext transit warehouse mapping.
+      operationId: tenantAdminSetErpnextTransitWarehouseMapping
+      tags: [catalog-erpnext-warehouse-map]
+      description: >
+        RT-1574. Maps the tenant's goods-in-transit ERPNext Warehouse (a
+        Warehouse of type Transit; its type is not checked here, the Connector
+        meets it when it posts). At most ONE active transit mapping per tenant:
+        a second is `409 conflict`; re-point is a retire followed by a fresh
+        set. A Warehouse already held by any active mapping of the tenant is
+        also `409 conflict` (RT-433). `tenant_id` and the actor are
+        server-resolved (§XII).
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/SetErpnextTransitWarehouseMappingRequest"
+      responses:
+        "201":
+          description: Transit warehouse mapping set.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErpnextTransitWarehouseMapping"
+        "400":
+          description: Bad request (validation failure).
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "401":
+          description: Caller is not authenticated.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "403":
+          description: >
+            `origin_rejected` (RT-430): the request is authenticated by the
+            `dp2_session` cookie and its `Origin` header is missing, or is
+            neither the API's own origin nor listed in `ALLOWED_ORIGINS`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "409":
+          description: >
+            The tenant already has an active transit warehouse mapping, or the
+            Warehouse is already held by an active mapping.
+            `error.code = "conflict"`.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+
+  /api/v1/catalog/erpnext-transit-warehouse-mapping/{id}/retire:
+    post:
+      summary: Retire the tenant's ERPNext transit warehouse mapping — append-only.
+      operationId: tenantAdminRetireErpnextTransitWarehouseMapping
+      tags: [catalog-erpnext-warehouse-map]
+      description: >
+        RT-1574. Sets `retired_at` on the tenant's active transit mapping
+        (append-only, §III optimistic `version`). Any other id (a store
+        mapping, another tenant's row, an unknown id) is a non-disclosing 404.
+        While no transit mapping is active, shipment transfers cannot be
+        switched on.
+      parameters:
+        - $ref: "#/components/parameters/MappingId"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/VersionedMutationRequest"
+      responses:
+        "200":
+          description: Transit warehouse mapping retired.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ErpnextTransitWarehouseMapping"
         "400":
           description: Bad request (invalid path UUID or body).
           content:
@@ -348,6 +511,77 @@ components:
         updated_at:
           type: string
           format: date-time
+
+    SetErpnextTransitWarehouseMappingRequest:
+      type: object
+      additionalProperties: false
+      description: >
+        RT-1574 transit set command. Strict (§XII): the tenant, the purpose
+        (`transit`), the version and the actor are server-resolved; there is no
+        store.
+      required:
+        - erpnext_warehouse_ref
+      properties:
+        erpnext_warehouse_ref:
+          type: string
+          minLength: 1
+          maxLength: 180
+          description: >
+            The ERPNext transit Warehouse reference (e.g. the Warehouse name).
+            Opaque string — no FK, version-independent (012 O-6).
+
+    ErpnextTransitWarehouseMapping:
+      type: object
+      additionalProperties: false
+      description: >
+        RT-1574. The `toBody()` projection of the tenant's `purpose = 'transit'`
+        `erpnext_warehouse_map` row. It belongs to the tenant, not a store, so
+        it has no `store_id`. Identity + lifecycle only (OQ-1).
+      required:
+        - id
+        - erpnext_warehouse_ref
+        - version
+        - set_at
+        - created_at
+        - updated_at
+      properties:
+        id:
+          type: string
+          format: uuid
+        erpnext_warehouse_ref:
+          type: string
+        version:
+          type: integer
+          minimum: 1
+          description: Optimistic-concurrency token (§III).
+        set_by:
+          type: [string, "null"]
+          format: uuid
+          description: Tenant Admin that set the mapping.
+        set_at:
+          type: string
+          format: date-time
+        retired_at:
+          type: [string, "null"]
+          format: date-time
+          description: Soft-delete timestamp. Null = active.
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+
+    ErpnextTransitWarehouseMappingState:
+      type: object
+      additionalProperties: false
+      description: RT-1574. The tenant's active transit warehouse mapping, or null when it has none.
+      required: [mapping]
+      properties:
+        mapping:
+          oneOf:
+            - $ref: "#/components/schemas/ErpnextTransitWarehouseMapping"
+            - type: "null"
 
     Error:
       type: object

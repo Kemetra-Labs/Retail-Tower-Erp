@@ -38,6 +38,10 @@ const OPERATION_IDS = [
   "tenantAdminListErpnextWarehouseMappings",
   "tenantAdminSetErpnextWarehouseMapping",
   "tenantAdminRetireErpnextWarehouseMapping",
+  // RT-1574: the tenant transit warehouse (additive; no store, own schema).
+  "tenantAdminGetErpnextTransitWarehouseMapping",
+  "tenantAdminSetErpnextTransitWarehouseMapping",
+  "tenantAdminRetireErpnextTransitWarehouseMapping",
 ] as const;
 
 function openapiSubDir(sub: string): string {
@@ -168,7 +172,7 @@ describe("catalog/erpnext-warehouse-map.yaml — loadability", () => {
 // 2. Operations present + globally unique
 // ===========================================================================
 describe("catalog/erpnext-warehouse-map.yaml — operations", () => {
-  it("declares all three 014 operationIds", () => {
+  it("declares the three 014 operationIds and the three RT-1574 transit operationIds", () => {
     for (const id of OPERATION_IDS) {
       expect(findOp(id)).toBeDefined();
     }
@@ -293,6 +297,13 @@ describe("catalog/erpnext-warehouse-map.yaml — ErpnextWarehouseMapping project
     }
   });
 
+  it("keeps its 014 shape: store_id is a required non-null uuid and purpose stays [stock, returns] (RT-1574 is additive)", () => {
+    const props = proj()?.properties ?? {};
+    expect(proj()?.required).toContain("store_id");
+    expect(props["store_id"]).toEqual({ type: "string", format: "uuid" });
+    expect((props["purpose"] as { enum?: string[] })?.enum).toEqual(["stock", "returns"]);
+  });
+
   it("carries NO Bin-quantity / valuation / cost / on-hand field (OQ-1, no read-down mirror)", () => {
     const props = proj()?.properties ?? {};
     for (const forbidden of [
@@ -307,5 +318,62 @@ describe("catalog/erpnext-warehouse-map.yaml — ErpnextWarehouseMapping project
     ]) {
       expect(props[forbidden]).toBeUndefined();
     }
+  });
+});
+
+// ===========================================================================
+// 7. RT-1574 — the tenant transit warehouse (additive, own schema, no store)
+// ===========================================================================
+describe("catalog/erpnext-warehouse-map.yaml — RT-1574 transit warehouse mapping", () => {
+  const TRANSIT_PATH = "/api/v1/catalog/erpnext-transit-warehouse-mapping";
+
+  it("serves get + set on the transit path and retire on {id}/retire", () => {
+    expect(doc.paths?.[TRANSIT_PATH]?.["get"]?.operationId).toBe(
+      "tenantAdminGetErpnextTransitWarehouseMapping",
+    );
+    expect(doc.paths?.[TRANSIT_PATH]?.["post"]?.operationId).toBe(
+      "tenantAdminSetErpnextTransitWarehouseMapping",
+    );
+    expect(doc.paths?.[`${TRANSIT_PATH}/{id}/retire`]?.["post"]?.operationId).toBe(
+      "tenantAdminRetireErpnextTransitWarehouseMapping",
+    );
+  });
+
+  it("the transit projection is strict and has no store_id or purpose", () => {
+    const s = schema("ErpnextTransitWarehouseMapping");
+    expect(s?.additionalProperties).toBe(false);
+    expect(s?.properties?.["store_id"]).toBeUndefined();
+    expect(s?.properties?.["purpose"]).toBeUndefined();
+    for (const name of ["id", "erpnext_warehouse_ref", "version", "set_by", "set_at", "retired_at"]) {
+      expect(s?.properties?.[name]).toBeDefined();
+    }
+  });
+
+  it("the set request carries ONLY erpnext_warehouse_ref (no store_id, tenant_id, purpose, version, set_by)", () => {
+    const s = schema("SetErpnextTransitWarehouseMappingRequest");
+    expect(s?.additionalProperties).toBe(false);
+    expect(s?.required).toEqual(["erpnext_warehouse_ref"]);
+    expect(Object.keys(s?.properties ?? {})).toEqual(["erpnext_warehouse_ref"]);
+  });
+
+  it("get answers 200 with a nullable mapping (null when the tenant has none)", () => {
+    const s = schema("ErpnextTransitWarehouseMappingState");
+    expect(s?.additionalProperties).toBe(false);
+    expect(s?.required).toEqual(["mapping"]);
+    expect(s?.properties?.["mapping"]).toEqual({
+      oneOf: [{ $ref: "#/components/schemas/ErpnextTransitWarehouseMapping" }, { type: "null" }],
+    });
+  });
+
+  it("set declares 201 and 409; retire declares 200, 404 and 409; both reuse VersionedMutationRequest for retire", () => {
+    const set = findOp("tenantAdminSetErpnextTransitWarehouseMapping")?.responses ?? {};
+    for (const code of ["201", "400", "401", "403", "409", "429"]) expect(set[code]).toBeDefined();
+    const retire = findOp("tenantAdminRetireErpnextTransitWarehouseMapping");
+    for (const code of ["200", "400", "401", "403", "404", "409", "429"]) {
+      expect(retire?.responses?.[code]).toBeDefined();
+    }
+    expect(retire?.requestBody?.content?.["application/json"]?.schema?.$ref).toBe(
+      "#/components/schemas/VersionedMutationRequest",
+    );
   });
 });
