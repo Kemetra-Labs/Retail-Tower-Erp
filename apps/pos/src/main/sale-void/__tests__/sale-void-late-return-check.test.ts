@@ -3,7 +3,8 @@
  * before it answers whether the sale can be voided:
  *   • the check runs with the found sale's id, after the access gate, before the view is built, so a
  *     late commit it raises shows as `has_return` in the same answer;
- *   • the gate runs again after the await (a lock meanwhile refuses);
+ *   • the gates run again after the await for the session that is current then (a lock meanwhile
+ *     refuses; a cashier who signed in meanwhile gets no other operator's sale);
  *   • no check runs for a sale that is not found or not this operator's;
  *   • without the hook the lookup is unchanged.
  */
@@ -24,6 +25,21 @@ const T0 = '2026-06-07T10:30:00.000Z';
 const TENDERS = JSON.stringify([{ tender_type: 'cash', amount_applied_minor: 1500 }]);
 const SALE = 'sale-own';
 
+const cashier: OperatorSessionRecord = {
+  id: 'sess-op-cashier-2',
+  operator_id: 'op-cashier-2',
+  display_name: 'Operator op-cashier-2',
+  role: 'cashier',
+  tenant_id: 'tenant-1',
+  branch_id: 'branch-1',
+  started_at: '2026-06-07T10:30:00.000Z',
+  backend_session_id: 'b-op-cashier-2',
+  last_activity_at: '2026-06-07T10:30:00.000Z',
+  lock_state: 'active',
+  locked_at: null,
+  user_id: '0190f5a2-3b4c-7d8e-9f01-0000000000c2',
+};
+
 const manager: OperatorSessionRecord = {
   id: 'sess-op-lead',
   operator_id: 'op-lead',
@@ -41,6 +57,7 @@ const manager: OperatorSessionRecord = {
 
 let raw: SqlJsDatabase;
 let locked: boolean;
+let current: OperatorSessionRecord;
 let checked: string[];
 let onCheck: () => void;
 
@@ -57,7 +74,7 @@ function compose(checkLateReturns?: (saleId: string) => Promise<void>): Composed
     },
     drawer: { kick: () => Promise.resolve({ ok: true }) },
     getOperatorEnvelope: () => 'envelope',
-    getSession: () => manager,
+    getSession: () => current,
     getTerminalId: () => TERMINAL,
     isSessionLocked: () => locked,
     isEnabled: () => true,
@@ -80,6 +97,7 @@ const hook = (saleId: string): Promise<void> => {
 beforeEach(() => {
   raw = freshGrantDb();
   locked = false;
+  current = manager;
   checked = [];
   onCheck = () => undefined;
   seedSale(raw, {
@@ -138,6 +156,17 @@ describe('RT-1553 — the void lookup checks the sale for a late commit first', 
     await expect(domain.service.lookup({ sale_number: `SN-${SALE}` })).resolves.toEqual({
       kind: 'refused',
       reason: 'session_locked',
+    });
+  });
+
+  it("re-applies the own-sales rule after the check: a cashier signed in meanwhile gets no other operator's sale", async () => {
+    const domain = compose(hook);
+    onCheck = () => {
+      current = cashier;
+    };
+    await expect(domain.service.lookup({ sale_number: `SN-${SALE}` })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'role_denied',
     });
   });
 

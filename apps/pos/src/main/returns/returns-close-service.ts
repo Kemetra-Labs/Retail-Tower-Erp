@@ -257,20 +257,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     op: Operation,
     entry: JournalEntry,
   ): Promise<Fresh | Refused> {
-    this.busy.add(entry.returnId);
-    let outcome: StatusReadOutcome;
-    try {
-      outcome = await this.deps.status.readStatus(
-        {
-          saleRef: entry.serverSaleRef,
-          sourceSystem: RETURN_SOURCE_SYSTEM,
-          externalId: entry.externalId,
-        },
-        actor.envelope,
-      );
-    } finally {
-      this.busy.delete(entry.returnId);
-    }
+    const outcome = await this.requestStatus(actor, entry);
     const lost = latchedRecheck(this.deps, actor);
     if (lost !== null) return this.refuse(actor, op, lost, idsOf(entry));
     this.deps.availability.note(outcome);
@@ -282,6 +269,26 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       return this.refuse(actor, op, 'send_in_flight', idsOf(now), now);
     }
     return { kind: 'read', actor, entry: now, outcome, at };
+  }
+
+  /** The server's answer on one return, single-flight per return (`busy`), with the actor's envelope. */
+  private async requestStatus(
+    actor: AuthSnapshot,
+    entry: JournalEntry,
+  ): Promise<StatusReadOutcome> {
+    this.busy.add(entry.returnId);
+    try {
+      return await this.deps.status.readStatus(
+        {
+          saleRef: entry.serverSaleRef,
+          sourceSystem: RETURN_SOURCE_SYSTEM,
+          externalId: entry.externalId,
+        },
+        actor.envelope,
+      );
+    } finally {
+      this.busy.delete(entry.returnId);
+    }
   }
 
   // ── what each verdict does ─────────────────────────────────────────────────────────────────────
@@ -420,20 +427,9 @@ class ReturnsCloseService implements ReturnsCloseAPI {
 
   async checkClosed(actor: AuthSnapshot, entry: JournalEntry): Promise<ClosedCheck> {
     if (!this.checkable(entry.returnId)) return 'skipped';
-    this.busy.add(entry.returnId);
-    let outcome: StatusReadOutcome;
-    try {
-      outcome = await this.deps.status.readStatus(
-        {
-          saleRef: entry.serverSaleRef,
-          sourceSystem: RETURN_SOURCE_SYSTEM,
-          externalId: entry.externalId,
-        },
-        actor.envelope,
-      );
-    } finally {
-      this.busy.delete(entry.returnId);
-    }
+    // No request on behalf of an actor who signed out, switched or locked since the snapshot.
+    if (latchedRecheck(this.deps, actor) !== null) return 'skipped';
+    const outcome = await this.requestStatus(actor, entry);
     // The stop latch and the actor's re-check first (the DB may be closed once stopped).
     if (latchedRecheck(this.deps, actor) !== null) return 'skipped';
     this.deps.availability.note(outcome);

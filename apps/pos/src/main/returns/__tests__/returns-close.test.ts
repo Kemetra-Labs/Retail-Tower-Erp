@@ -1392,6 +1392,21 @@ describe('automatic late-commit detection (RT-1553)', () => {
       expect(h.dispositions.stateOf(returnId)).toBe('late_commit');
     });
 
+    it('sends no request on behalf of an actor who signed out since the pass began (RT-1553 review)', async () => {
+      const returnId = await closed();
+      elapse(h, QUIET + 1_000);
+      const reads = h.backend.statusCalls().length;
+      const live = h.resolver;
+      // The pass snapshot is taken, then the operator signs out before the read starts.
+      const snapshotThenSignOut = live.tick();
+      h.state.role = null;
+      await snapshotThenSignOut;
+      await h.resolver.tick();
+
+      expect(h.backend.statusCalls()).toHaveLength(reads);
+      expect(h.dispositions.stateOf(returnId)).toBe('closed');
+    });
+
     it('does nothing without an eligible manager signed in', async () => {
       const returnId = await closed();
       elapse(h, QUIET + 1_000);

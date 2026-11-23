@@ -391,9 +391,15 @@ export function createSaleVoidService(deps: SaleVoidServiceDeps): SaleVoidServic
       }
       if (deps.checkLateReturns !== undefined) {
         await deps.checkLateReturns(sale.sale_id);
-        // After the await: the gate again (a sign-out, lock or stop meanwhile wins).
+        // After the await, both gates again for the session that is current NOW: a sign-out, lock or
+        // stop meanwhile refuses, and the own-sales rule holds for whoever receives the view.
         const again = admit();
         if (again.kind !== 'ok') return again;
+        const regate = deps.access.admitSession('saleVoid.lookup');
+        if (!regate.ok) return refuse(regate.reason);
+        if (!deps.access.admitSale('saleVoid.lookup', regate.session, sale)) {
+          return refuse(SALE_OWNERSHIP_REFUSAL);
+        }
       }
       return { kind: 'sale', sale: saleView(sale) };
     },
