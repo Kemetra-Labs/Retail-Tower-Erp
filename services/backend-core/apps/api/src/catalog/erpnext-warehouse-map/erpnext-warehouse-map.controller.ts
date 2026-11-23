@@ -13,6 +13,9 @@
  *   GET  /api/v1/catalog/erpnext-warehouse-mappings            tenantAdminListErpnextWarehouseMappings
  *   POST /api/v1/catalog/erpnext-warehouse-mappings            tenantAdminSetErpnextWarehouseMapping
  *   POST /api/v1/catalog/erpnext-warehouse-mappings/:id/retire tenantAdminRetireErpnextWarehouseMapping
+ *   GET  /api/v1/catalog/erpnext-transit-warehouse-mapping             tenantAdminGetErpnextTransitWarehouseMapping (RT-1574)
+ *   POST /api/v1/catalog/erpnext-transit-warehouse-mapping             tenantAdminSetErpnextTransitWarehouseMapping (RT-1574)
+ *   POST /api/v1/catalog/erpnext-transit-warehouse-mapping/:id/retire  tenantAdminRetireErpnextTransitWarehouseMapping (RT-1574)
  *
  * `tenant_id` + actor are resolved server-side from `request.context`, never
  * the body (§XII; strict Zod DTOs reject smuggled fields with 400). Every
@@ -44,6 +47,12 @@ import { RolesGuard } from "../../auth/roles.guard";
 import { ZodValidationPipe } from "../../common/zod-validation.pipe";
 import { TenantContextGuard } from "../../context/tenant-context.guard";
 import type { TenantContextRequest } from "../../context/types";
+import {
+  SetErpnextTransitWarehouseMappingRequestSchema,
+  toErpnextTransitWarehouseMapping,
+  type ErpnextTransitWarehouseMappingBody,
+  type SetErpnextTransitWarehouseMappingRequestDto,
+} from "./dto/erpnext-transit-warehouse-mapping.dto";
 import {
   toErpnextWarehouseMapping,
   type ErpnextWarehouseMappingBody,
@@ -158,6 +167,73 @@ export class ErpnextWarehouseMapController {
         message:
           "Optimistic-concurrency conflict (stale version) or the mapping is " +
           "already retired (§III).",
+      });
+    }
+    throw new NotFoundException("Not Found");
+  }
+
+  /** RT-1574: GET — the tenant's active transit warehouse mapping, or `mapping: null`. */
+  @Get("api/v1/catalog/erpnext-transit-warehouse-mapping")
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  async getTransit(
+    @Req() request: TenantContextRequest,
+  ): Promise<{ mapping: ErpnextTransitWarehouseMappingBody | null }> {
+    const { tenantId } = this.requireContext(request);
+    const row = await this.service.getTransit({ tenantId });
+    return { mapping: row === null ? null : toErpnextTransitWarehouseMapping(row) };
+  }
+
+  /** RT-1574: POST — set the tenant's transit warehouse (no store; one active per tenant). */
+  @Post("api/v1/catalog/erpnext-transit-warehouse-mapping")
+  @HttpCode(HttpStatus.CREATED)
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  @Auditable("erpnext_warehouse_map.set")
+  async setTransit(
+    @Req() request: TenantContextRequest,
+    @Body(new ZodValidationPipe(SetErpnextTransitWarehouseMappingRequestSchema))
+    body: SetErpnextTransitWarehouseMappingRequestDto,
+  ): Promise<ErpnextTransitWarehouseMappingBody> {
+    const { tenantId, userId } = this.requireContext(request);
+    const result = await this.service.setTransit({
+      tenantId,
+      erpnextWarehouseRef: body.erpnext_warehouse_ref,
+      actorUserId: userId,
+    });
+    if (result.kind === "ok") {
+      return toErpnextTransitWarehouseMapping(result.row);
+    }
+    throw new ConflictException({
+      code: "conflict",
+      message:
+        result.kind === "warehouse_conflict"
+          ? "This ERPNext Warehouse is already mapped by an active mapping (RT-433)."
+          : "The tenant's transit warehouse is already mapped; retire it first (RT-1574).",
+    });
+  }
+
+  /** RT-1574: POST :id/retire — retire the tenant's transit warehouse mapping (optimistic version). */
+  @Post("api/v1/catalog/erpnext-transit-warehouse-mapping/:id/retire")
+  @HttpCode(HttpStatus.OK)
+  @UseGuards(RolesGuard)
+  @Roles("owner", "tenant_admin")
+  @Auditable("erpnext_warehouse_map.retired")
+  async retireTransit(
+    @Req() request: TenantContextRequest,
+    @Param("id", new ZodValidationPipe(z.string().uuid())) id: string,
+    @Body(new ZodValidationPipe(VersionedMutationRequestSchema))
+    body: VersionedMutationRequestDto,
+  ): Promise<ErpnextTransitWarehouseMappingBody> {
+    const { tenantId } = this.requireContext(request);
+    const result = await this.service.retireTransit({ tenantId, id, version: body.version });
+    if (result.kind === "ok") {
+      return toErpnextTransitWarehouseMapping(result.row);
+    }
+    if (result.kind === "conflict") {
+      throw new ConflictException({
+        code: "conflict",
+        message: "Optimistic-concurrency conflict (stale version) or the mapping is already retired (§III).",
       });
     }
     throw new NotFoundException("Not Found");

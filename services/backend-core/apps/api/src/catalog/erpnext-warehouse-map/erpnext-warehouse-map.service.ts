@@ -59,6 +59,7 @@ import {
 } from "../../audit/audit-job.enqueuer";
 import { PG_POOL } from "../../database";
 import { ROOT_LOGGER } from "../../common/logging.interceptor";
+import type { ErpnextTransitWarehouseMapRow } from "./dto/erpnext-transit-warehouse-mapping.dto";
 import type { ErpnextWarehouseMapRow } from "./dto/erpnext-warehouse-mapping.dto";
 
 // ---------------------------------------------------------------------------
@@ -108,6 +109,44 @@ export type SetResult =
 
 export type RetireResult =
   | { kind: "ok"; row: ErpnextWarehouseMapRow }
+  | { kind: "not_found" }
+  | { kind: "conflict" };
+
+// RT-1574: the tenant transit warehouse (`purpose = 'transit'`, `store_id` NULL, at most one active per tenant).
+
+interface TransitDbRow {
+  id: string;
+  erpnext_warehouse_ref: string;
+  version: number;
+  set_by: string | null;
+  set_at: Date;
+  retired_at: Date | null;
+  created_at: Date;
+  updated_at: Date;
+}
+
+const TRANSIT_SELECT_COLS = `id, erpnext_warehouse_ref, version, set_by, set_at, retired_at, created_at, updated_at`;
+
+function toTransitRow(r: TransitDbRow): ErpnextTransitWarehouseMapRow {
+  return {
+    id: r.id,
+    erpnextWarehouseRef: r.erpnext_warehouse_ref,
+    version: r.version,
+    setBy: r.set_by,
+    setAt: r.set_at,
+    retiredAt: r.retired_at,
+    createdAt: r.created_at,
+    updatedAt: r.updated_at,
+  };
+}
+
+export type SetTransitResult =
+  | { kind: "ok"; row: ErpnextTransitWarehouseMapRow }
+  | { kind: "conflict" }
+  | { kind: "warehouse_conflict" };
+
+export type RetireTransitResult =
+  | { kind: "ok"; row: ErpnextTransitWarehouseMapRow }
   | { kind: "not_found" }
   | { kind: "conflict" };
 
@@ -243,6 +282,7 @@ export class ErpnextWarehouseMapService {
             WHERE id          = $1
               AND version     = $2
               AND retired_at IS NULL
+              AND purpose    <> 'transit'
            RETURNING ${SELECT_COLS}`,
           [input.id, input.version],
         );
@@ -263,8 +303,9 @@ export class ErpnextWarehouseMapService {
         }
         // Disambiguate conflict (row exists but wrong version/state) from
         // not_found (no such row in this tenant — RLS-filtered / fabricated id).
+        // The tenant transit row is not a store mapping (RT-1574): not_found here.
         const exists = await client.query<{ id: string }>(
-          `SELECT id FROM erpnext_warehouse_map WHERE id = $1 LIMIT 1`,
+          `SELECT id FROM erpnext_warehouse_map WHERE id = $1 AND purpose <> 'transit' LIMIT 1`,
           [input.id],
         );
         return exists.rows[0] ? { kind: "conflict" } : { kind: "not_found" };
@@ -315,7 +356,7 @@ export class ErpnextWarehouseMapService {
     }
   }
 
-  /** List the tenant's ACTIVE mappings. */
+  /** List the tenant's ACTIVE store mappings (the transit row has its own read, RT-1574). */
   list(input: {
     readonly tenantId: string;
   }): Promise<ErpnextWarehouseMapRow[]> {
@@ -325,10 +366,100 @@ export class ErpnextWarehouseMapService {
       async (client): Promise<ErpnextWarehouseMapRow[]> => {
         const rows = await client.query<DbRow>(
           `SELECT ${SELECT_COLS} FROM erpnext_warehouse_map
-            WHERE retired_at IS NULL
+            WHERE retired_at IS NULL AND purpose <> 'transit'
             ORDER BY set_at DESC, id`,
         );
         return rows.rows.map(toRow);
+      },
+    );
+  }
+
+  /** RT-1574: the tenant's active transit warehouse mapping, or null. */
+  getTransit(input: { readonly tenantId: string }): Promise<ErpnextTransitWarehouseMapRow | null> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client): Promise<ErpnextTransitWarehouseMapRow | null> => {
+        const r = await client.query<TransitDbRow>(
+          `SELECT ${TRANSIT_SELECT_COLS} FROM erpnext_warehouse_map
+            WHERE purpose = 'transit' AND retired_at IS NULL
+            LIMIT 1`,
+        );
+        return r.rows[0] ? toTransitRow(r.rows[0]) : null;
+      },
+    );
+  }
+
+  /**
+   * RT-1574: set the tenant's transit warehouse (`purpose = 'transit'`, no store). A second active one trips
+   * `UQ_idx_erpnext_warehouse_map_transit_active` (0125) → conflict; a Warehouse already held by any active mapping
+   * trips the RT-433 ref index → warehouse_conflict.
+   */
+  setTransit(input: {
+    readonly tenantId: string;
+    readonly erpnextWarehouseRef: string;
+    readonly actorUserId: string;
+  }): Promise<SetTransitResult> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client): Promise<SetTransitResult> => {
+        try {
+          const inserted = await client.query<TransitDbRow>(
+            `INSERT INTO erpnext_warehouse_map
+               (id, tenant_id, store_id, purpose, erpnext_warehouse_ref, set_by, version)
+             VALUES ($1, $2, NULL, 'transit', $3, $4, 1)
+             RETURNING ${TRANSIT_SELECT_COLS}`,
+            [newId(), input.tenantId, input.erpnextWarehouseRef, input.actorUserId],
+          );
+          const row = toTransitRow(inserted.rows[0]!);
+          this.logger?.info(
+            { tenant_id: input.tenantId, mapping_id: row.id, action: "erpnext_warehouse_map.set", purpose: "transit" },
+            "erpnext-warehouse-map: transit set",
+          );
+          return { kind: "ok", row };
+        } catch (err: unknown) {
+          if (isPgCode(err, "23505")) {
+            return violatedConstraint(err) === WAREHOUSE_REF_ACTIVE_INDEX
+              ? { kind: "warehouse_conflict" }
+              : { kind: "conflict" };
+          }
+          throw err;
+        }
+      },
+    );
+  }
+
+  /** RT-1574: retire the tenant's active transit row (optimistic `version`). Any other id is not_found. */
+  retireTransit(input: {
+    readonly tenantId: string;
+    readonly id: string;
+    readonly version: number;
+  }): Promise<RetireTransitResult> {
+    return runWithTenantContext(
+      this.pool,
+      { tenantId: input.tenantId, isPlatformAdmin: false },
+      async (client): Promise<RetireTransitResult> => {
+        const updated = await client.query<TransitDbRow>(
+          `UPDATE erpnext_warehouse_map
+              SET retired_at = now(), version = version + 1, updated_at = now()
+            WHERE id = $1 AND version = $2 AND retired_at IS NULL AND purpose = 'transit'
+           RETURNING ${TRANSIT_SELECT_COLS}`,
+          [input.id, input.version],
+        );
+        if (updated.rows[0]) {
+          const row = toTransitRow(updated.rows[0]);
+          this.logger?.info(
+            { tenant_id: input.tenantId, mapping_id: row.id, action: "erpnext_warehouse_map.retired", purpose: "transit" },
+            "erpnext-warehouse-map: transit retired",
+          );
+          return { kind: "ok", row };
+        }
+        const exists = await client.query<{ id: string }>(
+          `SELECT id FROM erpnext_warehouse_map WHERE id = $1 AND purpose = 'transit' LIMIT 1`,
+          [input.id],
+        );
+        return exists.rows[0] ? { kind: "conflict" } : { kind: "not_found" };
       },
     );
   }
