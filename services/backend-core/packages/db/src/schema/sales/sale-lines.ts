@@ -74,6 +74,12 @@ export const saleLines = pgTable(
     trackingClass: text("tracking_class"),
     /** Row 4 only: tracking_missing | identity_unknown | identity_other_product. */
     trackingUnresolvedReason: text("tracking_unresolved_reason"),
+    // RT-1565 (0133, RT-285 F-1): the line's seller, frozen at capture with the store and role it held then
+    // (Policy §8). All NULL (no seller; every earlier sale) or all set. FKs to users / stores / roles are
+    // declared in SQL (NOT VALID).
+    sellerUserId: uuid("seller_user_id"),
+    sellerStoreId: uuid("seller_store_id"),
+    sellerRoleId: uuid("seller_role_id"),
   },
   (t) => [
     check(
@@ -121,6 +127,11 @@ export const saleLines = pgTable(
     check(
       "sale_lines_tracking_missing_has_no_snapshot",
       sql`(${t.trackingUnresolvedReason} IS NOT DISTINCT FROM 'tracking_missing') = (${t.trackingClass} IS NOT NULL AND ${t.trackingIdentityId} IS NULL)`,
+    ),
+    // RT-1565 (0133, NOT VALID): the seller snapshot is whole or absent.
+    check(
+      "sale_lines_seller_snapshot_whole",
+      sql`(${t.sellerUserId} IS NULL) = (${t.sellerStoreId} IS NULL) AND (${t.sellerUserId} IS NULL) = (${t.sellerRoleId} IS NULL)`,
     ),
     index("idx_sale_lines_sale").on(t.saleId),
     index("idx_sale_lines_tenant_store").on(t.tenantId, t.storeId),

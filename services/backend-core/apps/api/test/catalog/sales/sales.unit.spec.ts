@@ -318,10 +318,12 @@ describe("SalesService — capture branches (unit)", () => {
     expect(params.slice(1, 4)).toEqual([CAPTURE.tenantId, CAPTURE.storeId, "USD"]);
     // RT-360: tenderRef / sequence columns, NULL for a ref-less tender.
     // RT-1114: redemption_id, NULL for every non-voucher tender.
+    // RT-1565: received_by_user_id, NULL (the Transaction Operator) when none was named.
     expect(params.slice(5)).toEqual([
       ["cash", "card_external"],
       ["2.5", "10"],
       [null, "A1B2C3"],
+      [null, null],
       [null, null],
       [null, null],
       [null, null],

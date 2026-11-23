@@ -105,8 +105,8 @@ const SALE_RETURN = {
 // 1. Version and note
 // ===========================================================================
 describe("pos-sales/sales.yaml — RT-1548 return status read: version and note", () => {
-  it("is 1.28.0-draft with a note citing the approval, the spec rules, the additive shape and contract-only", () => {
-    expect(sales.info?.version).toBe("1.28.0-draft");
+  it("was 1.28.0-draft (RT-1565 then moved it to 1.29.0-draft) with a note citing the approval, the spec rules, the additive shape and contract-only", () => {
+    expect(sales.info?.version).toBe("1.29.0-draft");
     const info = flat(sales.info?.description);
     expect(info).toContain("RT-1548 (1.28.0-draft; [GATED: contract] owner approval on RT-1548 comment 18204");
     expect(info).toContain("RT-196 design spec");

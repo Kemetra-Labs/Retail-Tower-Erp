@@ -164,7 +164,7 @@ async function recordNew(
       scope,
       saleRef,
       actorUserId,
-      sellerUserId: facts.sellerUserId,
+      operatorUserId: facts.operatorUserId,
       refundable: allocation.refundable,
       approval: body.approval,
       now: new Date(),

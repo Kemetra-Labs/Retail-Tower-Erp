@@ -708,9 +708,9 @@ describe("pos-sales/sales.yaml — RT-76 sale tender contract", () => {
     expect(schema("SaleTender")?.additionalProperties).toBe(false);
     expect(schema("SaleTender")?.required?.sort()).toEqual(["amount", "method"]);
     // RT-359 adds the optional tender-line identity (tenderRef, sequence);
-    // RT-1114 the voucher tender's redemptionId.
+    // RT-1114 the voucher tender's redemptionId; RT-1565 the optional payment receiver.
     expect(Object.keys(schema("SaleTender")?.properties ?? {}).sort()).toEqual(
-      ["amount", "method", "redemptionId", "reference", "sequence", "tenderRef"],
+      ["amount", "method", "receivedByUserId", "redemptionId", "reference", "sequence", "tenderRef"],
     );
     expect(prop<{ $ref?: string }>("SaleTender", "amount")?.$ref).toBe(
       "#/components/schemas/NonNegativeDecimalAmount",
@@ -2594,8 +2594,8 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | undefined;
 
   it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
-    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft and RT-1548 to 1.28.0-draft; the RT-1114 note still stands.
-    expect(salesDoc.info?.version).toBe("1.28.0-draft");
+    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft and RT-1565 to 1.29.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.29.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2649,8 +2649,8 @@ describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
     CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
 
   it("bumped to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
-    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft and RT-1548 to 1.28.0-draft; the RT-1343 note still stands.
-    expect(salesDoc.info?.version).toBe("1.28.0-draft");
+    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft and RT-1565 to 1.29.0-draft; the RT-1343 note still stands.
+    expect(salesDoc.info?.version).toBe("1.29.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
     expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");

@@ -134,8 +134,8 @@ function withLine(extra: Record<string, unknown>): unknown {
 // 1. Version and note
 // ===========================================================================
 describe("pos-sales/sales.yaml — RT-1544 Return Policy contract", () => {
-  it("was bumped to 1.27.0-draft (RT-1548 then moved it to 1.28.0-draft) with a note citing the approval, the decisions, the additive shape and the rollout order", () => {
-    expect(sales.info?.version).toBe("1.28.0-draft");
+  it("was bumped to 1.27.0-draft (RT-1548 then moved it to 1.28.0-draft, RT-1565 to 1.29.0-draft) with a note citing the approval, the decisions, the additive shape and the rollout order", () => {
+    expect(sales.info?.version).toBe("1.29.0-draft");
     const info = flat(sales.info?.description);
     expect(info).toContain("RT-1544 (1.27.0-draft; [GATED: contract] owner approval on RT-1544, comment 18145");
     expect(info).toContain("specs/045-return-policy");

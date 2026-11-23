@@ -9,6 +9,7 @@ import { newId } from "@data-pulse-2/shared";
 
 import type { CaptureSaleReceiptDto, CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { SALE_SYNC_STATUS } from "./sale-sync-status";
+import type { SellerSnapshot } from "./sale-attribution";
 import type { LineClassification } from "./tracked-lines/capture-tracking.rules";
 import type { CaptureSaleInput } from "./sales.service";
 
@@ -121,6 +122,8 @@ export async function insertSaleLines(
     readonly lines: CaptureSaleRequestDto["lines"];
     /** RT-451 S3: each line's G7-9 class (null when not classified), in line order. */
     readonly classes: ReadonlyArray<LineClassification>;
+    /** RT-1565: each line's checked seller snapshot (null when none), in line order. */
+    readonly sellers?: ReadonlyArray<SellerSnapshot | null>;
   },
 ): Promise<string[]> {
   const ids: string[] = [];
@@ -130,16 +133,19 @@ export async function insertSaleLines(
     ids.push(id);
     const c = sale.classes[index] ?? { trackingClass: null };
     const t = line.tracking;
+    const s = sale.sellers?.[index] ?? null;
     await client.query(
       `INSERT INTO sale_lines
          (id, sale_id, tenant_id, store_id, line_name, unit_price,
           currency_code, quantity, line_amount, tax_amount, unit,
           tenant_product_ref, line_seq,
           tracking_identity_id, tracking_code, tracking_expiry_date, tracking_selection,
-          tracking_validation_id, tracking_class, tracking_unresolved_reason)
+          tracking_validation_id, tracking_class, tracking_unresolved_reason,
+          seller_user_id, seller_store_id, seller_role_id)
        VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric,
                $9::numeric, $10, $11, $12, $13,
-               $14, $15, $16::date, $17, $18, $19, $20)`,
+               $14, $15, $16::date, $17, $18, $19, $20,
+               $21::uuid, $22::uuid, $23::uuid)`,
       [
         id,
         sale.saleId,
@@ -161,6 +167,9 @@ export async function insertSaleLines(
         t?.validationId ?? null,
         c.trackingClass,
         c.trackingClass === "unresolved" ? c.reason : null,
+        s?.userId ?? null,
+        s?.storeId ?? null,
+        s?.roleId ?? null,
       ],
     );
   }

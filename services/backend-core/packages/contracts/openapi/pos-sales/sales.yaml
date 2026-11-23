@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.28.0-draft"
+  version: "1.29.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -702,6 +702,24 @@ info:
     `return-eligibility` after `readSale`; a 404 or an unreachable read is
     `returns_unavailable` and nothing is sent. No runtime, migration, POS or
     Console change.
+
+    RT-1565 (1.29.0-draft; [GATED: contract] owner approval on RT-1565 comments
+    18562 and 18563, "Approved, build it"; RT-285 F-1, owner decisions OQ-1,
+    OQ-2 and OQ-5 in RT-285 comment 18526): SELLER PER LINE AND PAYMENT
+    RECEIVER PER TENDER. Additive. `CaptureSaleLine.sellerUserId` (optional) names
+    the line's seller, a member of the tenant; `SaleTender.receivedByUserId`
+    (optional) names who took the payment, absent meaning the Transaction
+    Operator. Neither is part of the payload hash (like `operatorUserId`), so an
+    old till's body and a new till's body hash the same and a retry naming
+    another seller replays the first capture. On a first capture each named id
+    must be a member of this tenant, not revoked or deleted at `occurredAt`, whose
+    user was not deleted at `occurredAt`, with access to the sale's store, else 422
+    `sale_seller_refused` with one body for every cause and nothing recorded. The
+    read gains `SaleLine.seller` (`SaleLineSeller`: the user, the sale's store and
+    the role held at capture, frozen) and `SaleTender.receivedByUserId`, each
+    present only when recorded. The Transaction Operator (`created_by`), the
+    approver of each action and every existing field are unchanged. Sale history
+    (`sale-history.yaml`) is not changed in this version.
 
     RT-1548 (1.28.0-draft; [GATED: contract] owner approval on RT-1548 comment
     18204, "RT-1548 contract approved", for the RT-196 design spec section 4,
@@ -3052,6 +3070,19 @@ components:
           $ref: "#/components/schemas/CaptureSaleLinePromotion"
         pricingProvenance:
           $ref: "#/components/schemas/PricingProvenance"
+        sellerUserId:
+          type: string
+          format: uuid
+          description: >
+            OPTIONAL (RT-1565, RT-285 F-1): the line's seller, the Backend-Core
+            user id of a member of the tenant (the identity `operatorUserId`
+            uses). Absent = no seller. NOT part of the payload hash. On a first
+            capture the member must not be revoked or deleted at `occurredAt`,
+            the user not deleted at `occurredAt`, and the member must have access
+            to the sale's store, else 422 `sale_seller_refused`. Stored with the
+            sale's store and the member's role at capture (`SaleLine.seller`).
+            Attribution only: it never authenticates anyone and never changes
+            the Transaction Operator.
     CaptureSaleLinePromotion:
       type: object
       additionalProperties: false
@@ -3888,6 +3919,16 @@ components:
             store, and applied for exactly `amount` in the sale's currency, else
             422 `sale_voucher_tender_invalid`. Part of the payload hash. Never
             a voucher code.
+        receivedByUserId:
+          type: string
+          format: uuid
+          description: >
+            OPTIONAL (RT-1565, RT-285 F-1): who took this payment, the
+            Backend-Core user id of a member of the tenant. Absent = the
+            Transaction Operator (the default). NOT part of the payload hash, and
+            not compared on a replay. Checked like `CaptureSaleLine.sellerUserId`
+            (else 422 `sale_seller_refused`). On a read, present only when it was
+            recorded.
 
     PositiveDecimalAmount:
       type: string
@@ -4106,6 +4147,30 @@ components:
           $ref: "#/components/schemas/SaleLineTracking"
         promotion:
           $ref: "#/components/schemas/SaleLinePromotion"
+        seller:
+          $ref: "#/components/schemas/SaleLineSeller"
+    SaleLineSeller:
+      type: object
+      additionalProperties: false
+      required: [userId, storeId, roleId]
+      description: >
+        RT-1565 (RT-285 F-1): the line's seller as frozen at capture (Policy
+        section 8: the employee, the store and the role at sale time). Present
+        only when the capture named a `sellerUserId`. A later change of the
+        member's role or store access never changes it.
+      properties:
+        userId:
+          type: string
+          format: uuid
+          description: The seller's Backend-Core user id.
+        storeId:
+          type: string
+          format: uuid
+          description: The store the sale was rung in.
+        roleId:
+          type: string
+          format: uuid
+          description: The role of the seller's membership at capture.
     SaleLinePromotion:
       type: object
       additionalProperties: false
@@ -5264,12 +5329,17 @@ components:
         `redemptionId` does not name a redemption of this tenant and store that
         is un-reversed, pays no other tender, and was applied for exactly the
         tender's `amount` in the sale's currency, with one body for every
-        cause, never naming which.
+        cause, never naming which; `sale_seller_refused` (RT-1565) — a
+        `lines[].sellerUserId` or `tenders[].receivedByUserId` that is not a
+        member of this tenant who was not revoked or deleted at `occurredAt`,
+        whose user was not deleted at `occurredAt`, and who can access the
+        sale's store, with one body for every cause, never naming which.
         `sale_tender_mismatch` is returned only when `responsibilities` is
         absent; with it, the combined rule replaces the tender-only rule.
         Order: `sale_responsibility_offline_refused` first, then the coverage
         rule (tender or combined), then the voucher tenders, then the line
-        price invariant, then the payers. Deterministic; nothing is recorded.
+        price invariant, then the payers, then the sellers and receivers.
+        Deterministic; nothing is recorded.
       content:
         application/json:
           schema:

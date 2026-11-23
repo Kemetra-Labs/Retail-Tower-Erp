@@ -114,11 +114,13 @@ import {
   ReturnTenderMismatchError,
   SaleAlreadyReversedError,
 } from "./sale-reversal";
+import { splitSaleAttribution } from "./sale-attribution";
 import {
   SalesService,
   SaleLinePricingInvalidError,
   SaleNotFoundError,
   SalePayloadReplayConflictError,
+  SaleSellerRefusedError,
   SaleTenderMismatchError,
   SaleTenderReplayConflictError,
   SaleVoucherTenderInvalidError,
@@ -157,6 +159,13 @@ export function toCaptureHttpError(err: unknown): unknown {
     return new UnprocessableEntityException({
       code: "sale_line_pricing_invalid",
       message: "a sale line's price, amount or quantity breaks the price invariant",
+    });
+  }
+  if (err instanceof SaleSellerRefusedError) {
+    // RT-1565: one body for every cause (other tenant, revoked, deleted, no store access).
+    return new UnprocessableEntityException({
+      code: "sale_seller_refused",
+      message: "a named seller or payment receiver is not an eligible member of this store",
     });
   }
   if (err instanceof SalePayloadReplayConflictError) {
@@ -395,14 +404,17 @@ export class SalesController {
     // RT-451 S3: `safetyRevision` / `safetySyncedAt` are the till's safety
     // provenance (RT-50 G7-7), not sale facts: dropped from the hashed body
     // the same way and stored on their own, first write wins.
+    // RT-1565: `lines[].sellerUserId` and `tenders[].receivedByUserId` are stored facts but not hashed
+    // (owner choice, RT-1565 comment 18562): split out the same way and checked by the service.
     const {
       operatorUserId: _attributionClaim,
       admissionCheckAt: _admissionCheckAt,
       receipt,
       safetyRevision,
       safetySyncedAt,
-      ...saleBody
+      ...withAttribution
     } = body;
+    const { body: saleBody, attribution } = splitSaleAttribution(withAttribution);
     const safety = {
       ...(safetyRevision === undefined ? {} : { safetyRevision }),
       ...(safetySyncedAt === undefined ? {} : { safetySyncedAt }),
@@ -421,6 +433,7 @@ export class SalesController {
         body: saleBody,
         ...(receipt === undefined ? {} : { receipt }),
         safety,
+        attribution,
       });
     } catch (err) {
       if (err instanceof SalePayloadReplayConflictError) this.recordReplayMismatch(request, err);
