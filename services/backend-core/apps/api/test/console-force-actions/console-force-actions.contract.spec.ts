@@ -61,7 +61,9 @@ function op(doc: Node, path: string, method: string): Node {
 }
 
 // RT-1439 and RT-1445 shipped these: the contract-only markers are lifted (the runtime specs cover them).
+// RT-1450 added the tenant-wide summary as a runtime operation from the start.
 const RUNTIME_OPS: Array<[Node, string, string, string]> = [
+  [force, "/api/v1/open-shifts/summary", "get", "consoleGetOpenShiftsSummary"],
   [force, "/api/v1/stores/{store_id}/open-shifts", "get", "consoleListOpenShifts"],
   [force, "/api/v1/shifts/{shift_id}/force-close-preview", "get", "consoleGetForceClosePreview"],
   [force, "/api/v1/shifts/{shift_id}/force-close", "post", "consoleForceCloseShift"],
@@ -72,8 +74,8 @@ const RUNTIME_OPS: Array<[Node, string, string, string]> = [
 const NEW_OPS: Array<[Node, string, string, string]> = RUNTIME_OPS;
 
 describe("console force actions contract (RT-1444)", () => {
-  it("is 1.2.0-draft (RT-1468, platform admin admitted member or not, suspended tenant included); stores moved to 1.5.0-draft", () => {
-    expect(force["info"].version).toBe("1.2.0-draft");
+  it("is 1.3.0-draft (RT-1450, the additive tenant-wide open-shifts summary); stores moved to 1.5.0-draft", () => {
+    expect(force["info"].version).toBe("1.3.0-draft");
     expect(stores["info"].version).toBe("1.5.0-draft");
   });
 
@@ -143,6 +145,7 @@ describe("console force actions contract (RT-1444)", () => {
   it("the contract examples satisfy their schemas", () => {
     const json = (o: Node) => o["content"]["application/json"];
     const cases: Array<[string, string, unknown]> = [
+      [FORCE_ID, "OpenShiftsSummary", json(op(force, "/api/v1/open-shifts/summary", "get").responses["200"]).examples.twoStores.value],
       [FORCE_ID, "OpenShiftList", json(op(force, "/api/v1/stores/{store_id}/open-shifts", "get").responses["200"]).examples.oneBlocked.value],
       [FORCE_ID, "ForceClosePreview", json(op(force, "/api/v1/shifts/{shift_id}/force-close-preview", "get").responses["200"]).examples.eligible.value],
       [FORCE_ID, "ConsoleForceClosedShift", json(op(force, "/api/v1/shifts/{shift_id}/force-close", "post").responses["201"]).examples.console.value],
@@ -156,6 +159,24 @@ describe("console force actions contract (RT-1444)", () => {
       const v = validator(id, schema);
       expect({ schema, ok: v(value), errors: v.errors }).toEqual({ schema, ok: true, errors: null });
     }
+  });
+
+  it("the summary carries counts and store ids only (RT-1450): no shift, cashier, terminal or cash field", () => {
+    const schemas = force["components"].schemas;
+    const summary = schemas.OpenShiftsSummary;
+    const counts = ["openShiftCount", "staleShiftCount", "eligibleShiftCount"];
+    expect([...summary.required].sort()).toEqual(
+      [...counts, "evaluatedAt", "staleThresholdMinutes", "truncated", "stores"].sort(),
+    );
+    expect(summary.additionalProperties).toBe(false);
+    expect(summary.properties.stores.items.$ref).toBe("#/components/schemas/StoreOpenShiftCounts");
+    const store = schemas.StoreOpenShiftCounts;
+    expect([...store.required].sort()).toEqual([...counts, "storeId"].sort());
+    expect(store.additionalProperties).toBe(false);
+    for (const field of counts) expect(store.properties[field]).toEqual({ type: "integer", minimum: 0 });
+    const o = op(force, "/api/v1/open-shifts/summary", "get");
+    expect(o["parameters"]).toBeUndefined();
+    expect(Object.keys(o["responses"]).sort()).toEqual(["200", "401", "403", "404", "429", "5XX"]);
   });
 
   it("rejects a malformed grant", () => {

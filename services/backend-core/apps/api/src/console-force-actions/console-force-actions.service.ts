@@ -2,7 +2,8 @@
  * ConsoleForceActionsService — the Console half of the owner's "force with
  * impact preview" for stuck shifts (RT-1437; RT-1445 = slice B1;
  * `console-force-actions.openapi.yaml`): the open-shifts read, the per-shift
- * impact preview, and the Console force close.
+ * impact preview, the Console force close, and (RT-1450) the tenant-wide
+ * count of open shifts by verdict.
  *
  * Every rule is the POS force close's, over the same `ShiftForceCloseService`
  * and the same repository: one stuck verdict (`readVerdict`) feeds the list,
@@ -19,10 +20,13 @@ import type { Pool, PoolClient } from "pg";
 
 import { PG_POOL } from "../database";
 import { formatMoney } from "../common/money/shift-money";
+import { liveStoreIdsAfter } from "../stores";
 import {
   previewFingerprint,
   readForceCloseFacts,
   readStoreOpenShifts,
+  countStoreOpenShifts,
+  openShiftStoreIds,
   ShiftCashUpError,
   ShiftForceCloseRepository,
   ShiftForceCloseService,
@@ -36,13 +40,20 @@ import { enforceForceActionCap, insertForceActionAudit } from "../console-action
 import {
   buildOpenShiftSummary,
   toOpenShiftListBody,
+  toOpenShiftsSummaryBody,
+  toStoreOpenShiftCounts,
   type ForceClosePreviewBody,
   type OpenShiftListBody,
   type OpenShiftRow,
+  type OpenShiftsSummaryBody,
+  type StoreOpenShiftCountsBody,
 } from "./console-force-actions.projections";
 
 /** `GET /stores/{store_id}/open-shifts` is capped here, as the contract says. */
 const OPEN_SHIFT_LIMIT = 200;
+
+/** `GET /open-shifts/summary` lists at most this many stores, as the contract says. */
+const SUMMARY_STORE_LIMIT = 1000;
 
 /** The tenant, the closing user, the admitted actor (kind, role, on-behalf-of) and the request id of a Console force close. */
 export interface ConsoleForceCloseInput {
@@ -92,6 +103,45 @@ export class ConsoleForceActionsService {
         verdict: r.verdict,
       }));
       return toOpenShiftListBody({ storeId, evaluatedAt: now, thresholdMinutes: this.forceClose.thresholdMinutes, items });
+    });
+  }
+
+  /**
+   * The tenant's open shifts counted by verdict (RT-1450): for each store `listOpenShifts` would
+   * answer, the shifts it lists, with its verdict, all in one transaction, so judged at one `now()`.
+   */
+  async summarizeOpenShifts(tenantId: string): Promise<OpenShiftsSummaryBody> {
+    return runWithTenantContext(this.pool, { tenantId, isPlatformAdmin: false }, async (client) => {
+      // Which stores to count: those with an open shift (the pos-shifts port) that the per-store read
+      // would answer, i.e. live (the stores port; an empty list reads nothing). Ascending by id.
+      const withOpenShifts = await openShiftStoreIds(client, tenantId);
+      // One more than the cap, so a dropped store is known, never silent.
+      const live = await liveStoreIdsAfter(client, tenantId, {
+        after: null,
+        storeIds: withOpenShifts,
+        limit: SUMMARY_STORE_LIMIT + 1,
+      });
+      let truncated = live.length > SUMMARY_STORE_LIMIT;
+      const stores: StoreOpenShiftCountsBody[] = [];
+      for (const storeId of live.slice(0, SUMMARY_STORE_LIMIT)) {
+        // sequential: one pg client runs one statement at a time.
+        // The same port call, with the same cap and threshold, as `listOpenShifts`.
+        const reads = await readStoreOpenShifts(
+          client,
+          { tenantId, storeId },
+          { limit: OPEN_SHIFT_LIMIT, order: "newest_first", thresholdMinutes: this.forceClose.thresholdMinutes },
+        );
+        // A store at the per-store cap may hold more open shifts than the list shows: ask the exact count.
+        if (reads.length >= OPEN_SHIFT_LIMIT && (await countStoreOpenShifts(client, storeId)) > reads.length) truncated = true;
+        stores.push(toStoreOpenShiftCounts(storeId, reads));
+      }
+      const now = await transactionNow(client);
+      return toOpenShiftsSummaryBody({
+        evaluatedAt: now,
+        thresholdMinutes: this.forceClose.thresholdMinutes,
+        truncated,
+        stores,
+      });
     });
   }
 
@@ -181,6 +231,11 @@ export class ConsoleForceActionsService {
   private rule(): { callerTokenId: null; thresholdMinutes: number } {
     return this.forceClose.consoleStuckRule();
   }
+}
+
+/** The transaction's `now()`: the instant every verdict of the transaction is judged at. */
+async function transactionNow(client: PoolClient): Promise<Date> {
+  return (await client.query<{ now: Date }>("SELECT now() AS now")).rows[0]!.now;
 }
 
 async function requireFacts(client: PoolClient, shift: StoreShiftRow): Promise<ForceCloseFacts> {

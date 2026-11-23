@@ -3,5 +3,6 @@
 
 consoleForceCloseShift: write
 consoleGetForceClosePreview: jobOrPreview
+consoleGetOpenShiftsSummary: expensiveRead
 consoleListOpenShifts: expensiveRead
 consoleReauthenticate: write

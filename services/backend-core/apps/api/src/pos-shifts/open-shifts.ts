@@ -14,6 +14,7 @@ import type { PoolClient } from "pg";
 
 import {
   countOpenStoreShifts,
+  listOpenShiftStoreIds,
   listOpenStoreShifts,
   type OpenStoreShiftRecord,
 } from "./shift-force-close.facts";
@@ -65,6 +66,14 @@ export function listStoreOpenShifts(
   options: Pick<ReadStoreOpenShiftsOptions, "limit" | "order">,
 ): Promise<OpenStoreShiftRecord[]> {
   return listOpenStoreShifts(client, scope, options);
+}
+
+/**
+ * The ids of the tenant's stores with at least one open shift, ascending (RT-1450, the Console
+ * open-shifts summary). Deleted stores are included: ask the `stores` module which are live.
+ */
+export function openShiftStoreIds(client: PoolClient, tenantId: string): Promise<string[]> {
+  return listOpenShiftStoreIds(client, tenantId);
 }
 
 /** The exact number of open shifts of the store, with no cap: what a deletion guard decides on. */
