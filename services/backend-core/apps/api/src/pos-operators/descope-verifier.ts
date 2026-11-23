@@ -18,8 +18,11 @@
  *     replay window unnoticed;
  *   - `aud` must be the project id (Descope stamps it), or exactly
  *     `DESCOPE_JWT_AUDIENCE` when set;
- *   - a token marked as a refresh token (`drn: "DSR"`) is refused — only the
- *     session JWT is an operator credential.
+ *   - only a session JWT (`drn` exactly `"DS"`) is an operator credential: a
+ *     refresh token (`DSR`) or a token with no `drn` is refused;
+ *   - a token carrying an impersonation claim (`act` / `dact`) is refused, so a
+ *     support user's impersonated token is never accepted as the impersonated
+ *     operator (RT-1580).
  *
  * Fail closed: any failure (signature, claims, JWKS fetch, malformed input)
  * throws ONE generic error with no cause and no claims attached — jose's claim
@@ -48,7 +51,8 @@ const PROJECT_ID_RE = /^[A-Za-z0-9]{1,64}$/;
 const ALLOWED_ALGORITHMS = ["RS256"];
 const CLOCK_TOLERANCE_SECONDS = 5;
 const JWKS_TIMEOUT_MS = 5_000;
-const REFRESH_TOKEN_DRN = "DSR";
+const SESSION_TOKEN_DRN = "DS";
+const IMPERSONATION_CLAIMS = ["act", "dact"] as const;
 
 /** Agreed session TTL (owner decision 2026-10-29: 8 h) plus a 30 min margin. */
 export const DEFAULT_MAX_TOKEN_AGE_SECONDS = 8 * 60 * 60 + 30 * 60;
@@ -174,9 +178,17 @@ function toVerifyOptions(options: DescopeVerifierOptions): JWTVerifyOptions {
   };
 }
 
-/** The operator subject of a verified session JWT; refresh tokens and empty subjects refuse. */
+/**
+ * The operator subject of a verified session JWT. Refused: anything whose `drn`
+ * is not exactly the session value (refresh tokens, no `drn`), impersonation
+ * tokens (`act`, or `dact` when a JWT template overrides `act`; Descope token
+ * claims docs) and empty subjects. An impersonated token carries the target
+ * user's `sub`, so accepting it would attribute the support user's actions to
+ * that user (RT-1580).
+ */
 function sessionSubject(payload: JWTPayload): string {
-  if (payload["drn"] === REFRESH_TOKEN_DRN) throw rejected();
+  if (payload["drn"] !== SESSION_TOKEN_DRN) throw rejected();
+  if (IMPERSONATION_CLAIMS.some((claim) => claim in payload)) throw rejected();
   const sub: unknown = payload.sub;
   if (typeof sub !== "string" || sub.length === 0) throw rejected();
   return sub;
