@@ -175,7 +175,13 @@ Legitimate deployments never set a role option.
   table, limited to the privileges the entry lists (RT-1520; for example
   `GRANT SELECT (cells) ON catalog_import_rows`); a grant to `PUBLIC` or
   through an inherited role counts. The error names the table and column.
-  `TRUNCATE` matters most: it is not subject to row security.
+  For both the table and the column check, a privilege held by any role the
+  lookup role is a member of counts too, even when the membership is not
+  inherited (a `NOINHERIT` lookup role, or `GRANT … WITH INHERIT FALSE`),
+  because `SET ROLE` still reaches it (RT-1559). The error then adds the role
+  path, for example `sales via role path auth_lookup -> some_role`. The
+  required grants must be held without `SET ROLE`, so they do not follow
+  memberships. `TRUNCATE` matters most: it is not subject to row security.
 
   All three lists are in `apps/api/src/auth/database-pools.ts`, with the
   domain role's column lists (RT-1249).

@@ -230,6 +230,81 @@ describe("production database pool separation", () => {
     }
   });
 
+  it("RT-1559: a forbidden privilege the lookup role reaches through a non-inherited membership fails boot, naming the table and the role path", async () => {
+    if (dockerSkipped) return;
+    const { app, admin } = env!;
+    const lookupPool = lookup!;
+    const holder = "rt1559_holder";
+    const middle = "rt1559_middle";
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+
+    // has_table_privilege / has_column_privilege are false for every case below:
+    // the lookup role does not inherit the holder's privileges, but SET ROLE reaches them.
+    const cases: ReadonlyArray<{ name: string; setup: string; message: RegExp }> = [
+      {
+        name: "WITH INHERIT FALSE, table privilege",
+        setup: `GRANT SELECT ON tenants TO ${holder};
+                GRANT ${holder} TO ${LOOKUP_ROLE} WITH INHERIT FALSE`,
+        message: new RegExp(`forbidden grants on: tenants via role path ${LOOKUP_ROLE} -> ${holder}\\b`),
+      },
+      {
+        name: "WITH INHERIT FALSE, column-only privilege",
+        setup: `GRANT SELECT (cells) ON catalog_import_rows TO ${holder};
+                GRANT ${holder} TO ${LOOKUP_ROLE} WITH INHERIT FALSE`,
+        message: new RegExp(
+          `forbidden column grants: SELECT ON catalog_import_rows\\(cells\\) via role path ${LOOKUP_ROLE} -> ${holder}\\b`,
+        ),
+      },
+      {
+        name: "a NOINHERIT lookup role, table privilege",
+        setup: `ALTER ROLE ${LOOKUP_ROLE} NOINHERIT;
+                GRANT TRUNCATE ON sales TO ${holder};
+                GRANT ${holder} TO ${LOOKUP_ROLE}`,
+        message: new RegExp(`forbidden grants on: sales via role path ${LOOKUP_ROLE} -> ${holder}\\b`),
+      },
+      {
+        name: "a NOINHERIT lookup role, column-only privilege",
+        setup: `ALTER ROLE ${LOOKUP_ROLE} NOINHERIT;
+                GRANT UPDATE (id) ON sales TO ${holder};
+                GRANT ${holder} TO ${LOOKUP_ROLE}`,
+        message: new RegExp(`forbidden column grants: UPDATE ON sales\\(id\\) via role path ${LOOKUP_ROLE} -> ${holder}\\b`),
+      },
+      {
+        name: "two hops, the first not inherited",
+        setup: `CREATE ROLE ${middle} NOLOGIN;
+                GRANT SELECT ON audit_events TO ${holder};
+                GRANT ${holder} TO ${middle} WITH INHERIT FALSE;
+                GRANT ${middle} TO ${LOOKUP_ROLE} WITH INHERIT FALSE`,
+        message: new RegExp(`forbidden grants on: audit_events via role path ${LOOKUP_ROLE} -> ${middle} -> ${holder}\\b`),
+      },
+    ];
+    for (const c of cases) {
+      await admin.query(`CREATE ROLE ${holder} NOLOGIN`);
+      try {
+        await admin.query(c.setup);
+        // c.name labels the case; the regex names its table and role path.
+        await expect(verifyDatabasePoolBoundary(app, lookupPool)).rejects.toThrow(c.message);
+      } finally {
+        await admin.query(`ALTER ROLE ${LOOKUP_ROLE} INHERIT`);
+        await admin.query(`DROP OWNED BY ${holder}; DROP ROLE ${holder}`);
+        await admin.query(`DROP ROLE IF EXISTS ${middle}`);
+      }
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+    }
+
+    // A non-inherited membership that grants nothing forbidden still boots.
+    await admin.query(`CREATE ROLE ${holder} NOLOGIN`);
+    try {
+      await admin.query(`GRANT SELECT ON users, stores TO ${holder};
+                         GRANT SELECT (role_id) ON memberships TO ${holder};
+                         GRANT ${holder} TO ${LOOKUP_ROLE} WITH INHERIT FALSE`);
+      await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+    } finally {
+      await admin.query(`DROP OWNED BY ${holder}; DROP ROLE ${holder}`);
+    }
+    await expect(verifyDatabasePoolBoundary(app, lookupPool)).resolves.toBeUndefined();
+  });
+
   it("RT-212 / RT-213: a domain role missing a cashier-admissions or tenants grant fails boot verification", async () => {
     if (dockerSkipped) return;
     const { app, admin } = env!;
