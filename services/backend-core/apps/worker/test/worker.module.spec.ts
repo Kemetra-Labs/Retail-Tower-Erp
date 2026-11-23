@@ -49,6 +49,9 @@ import {
   AuditRetentionProcessor,
 } from "../src/audit/audit-retention.processor";
 import { AuditRetentionDbPool } from "../src/audit/audit-retention-db-pool";
+import { SyncFailureAlertDbPool } from "../src/sync-failure-alert/sync-failure-alert-db-pool";
+import { SyncFailureAlertProcessor } from "../src/sync-failure-alert/sync-failure-alert.processor";
+import { PgSyncFailureAlertRepository } from "../src/sync-failure-alert/sync-failure-alert.repository";
 import { AuditRetentionWorker } from "../src/audit/audit-retention.worker";
 import { AuditRetentionScheduler } from "../src/audit/audit-retention.scheduler";
 import { DEFAULT_WORKER_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
@@ -578,6 +581,48 @@ describe("WorkerModule — audit retention pool wiring (RT-353)", () => {
     const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] }).compile();
 
     expect(moduleRef.get(AuditRetentionDbPool).pool).toBe(moduleRef.get(AuditDbPool).pool);
+    await moduleRef.close();
+  });
+});
+
+// ---------------------------------------------------------------------------
+// RT-1556 — the sync-failure alert sweep runs on its own pool
+// ---------------------------------------------------------------------------
+
+describe("WorkerModule — sync-failure alert pool wiring (RT-1556)", () => {
+  it("builds the alert repository on SyncFailureAlertDbPool, not the domain pool", async () => {
+    delete process.env["NODE_ENV"];
+    delete process.env["REDIS_URL"];
+    delete process.env["DATABASE_URL"];
+    const domain = { end: jest.fn(async () => undefined) } as unknown as Pool;
+    const alert = { end: jest.fn(async () => undefined) } as unknown as Pool;
+
+    const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] })
+      .overrideProvider(AuditDbPool)
+      .useValue(new AuditDbPool(domain))
+      .overrideProvider(SyncFailureAlertDbPool)
+      .useValue(new SyncFailureAlertDbPool(alert, true))
+      .compile();
+
+    const processor = moduleRef.get(SyncFailureAlertProcessor);
+    const repo = (processor as unknown as { repo: PgSyncFailureAlertRepository }).repo;
+    expect(repo).toBeInstanceOf(PgSyncFailureAlertRepository);
+    expect((repo as unknown as { pool: Pool }).pool).toBe(alert);
+
+    await moduleRef.close();
+    expect(alert.end).toHaveBeenCalledTimes(1);
+    expect(domain.end).toHaveBeenCalledTimes(1);
+  });
+
+  it("borrows the domain pool outside production without SYNC_FAILURE_ALERT_DATABASE_URL", async () => {
+    delete process.env["NODE_ENV"];
+    delete process.env["REDIS_URL"];
+    delete process.env["SYNC_FAILURE_ALERT_DATABASE_URL"];
+    process.env["DATABASE_URL"] = FAKE_DB_URL;
+
+    const moduleRef = await Test.createTestingModule({ imports: [WorkerModule] }).compile();
+
+    expect(moduleRef.get(SyncFailureAlertDbPool).pool).toBe(moduleRef.get(AuditDbPool).pool);
     await moduleRef.close();
   });
 });

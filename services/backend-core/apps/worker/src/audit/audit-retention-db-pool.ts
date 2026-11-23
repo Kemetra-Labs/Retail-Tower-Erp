@@ -15,44 +15,14 @@
  *
  * The role's grants are checked at boot by `AuditRetentionRoleVerifier`.
  */
-import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 
+import { DedicatedDbPool } from "../common/dedicated-db-pool";
 import { InstrumentedPool } from "../observability/instrumented-pool";
 
 @Injectable()
-export class AuditRetentionDbPool implements OnModuleDestroy {
-  private _pool: Pool | null;
-
-  /**
-   * @param pool  the pool the sweep runs on, or `null` on the no-DB path.
-   * @param owned whether this wrapper must end it (false for the borrowed
-   *              domain pool, which `AuditDbPool` ends).
-   */
-  constructor(
-    pool: Pool | null,
-    private readonly owned: boolean,
-  ) {
-    this._pool = pool;
-  }
-
-  get pool(): Pool | null {
-    return this._pool;
-  }
-
-  /** True when the sweep has its own credential, false when it borrows the domain pool. */
-  get dedicated(): boolean {
-    return this.owned;
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    const p = this._pool;
-    this._pool = null;
-    if (p !== null && this.owned) {
-      await p.end();
-    }
-  }
-}
+export class AuditRetentionDbPool extends DedicatedDbPool {}
 
 export function auditRetentionPoolProviderFactory(domainPool: Pool | null): AuditRetentionDbPool {
   const url = process.env["AUDIT_RETENTION_DATABASE_URL"];

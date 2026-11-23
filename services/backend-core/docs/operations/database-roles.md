@@ -1,6 +1,6 @@
 # Database runtime roles
 
-Production uses four independent PostgreSQL credentials.
+Production uses five independent PostgreSQL credentials (the fifth, `SYNC_FAILURE_ALERT_DATABASE_URL`, only once the sync-failure alert is enabled).
 
 | Environment variable | Purpose | Required posture |
 | --- | --- | --- |
@@ -8,6 +8,7 @@ Production uses four independent PostgreSQL credentials.
 | `DATABASE_URL` | Tenant/domain runtime | Non-superuser, `NOBYPASSRLS`; tenant access only inside `runWithTenantContext`; no `UPDATE` or `DELETE` on `audit_events` (the worker's boot check enforces no `UPDATE` on `retention_marked_at`, RT-353); only column grants for `SELECT` and `INSERT` on `users`, never on `password_hash` (the API's boot check enforces it, RT-1249) |
 | `AUTH_LOOKUP_DATABASE_URL` | Pre-tenant authentication/bootstrap | Distinct non-superuser role with only the table operations listed below |
 | `AUDIT_RETENTION_DATABASE_URL` | The worker's audit retention sweep only | `audit_retention_worker`: non-superuser, `NOBYPASSRLS`, only `SELECT` and `UPDATE (retention_marked_at)` on `audit_events`, member of no role (RT-353) |
+| `SYNC_FAILURE_ALERT_DATABASE_URL` | The worker's sync-failure alert sweep only; required in production once `SYNC_FAILURE_ALERT_ENABLED=true` | A role created from `sql/sync-failure-alert-role.sql`: non-superuser, `NOBYPASSRLS`, read-only on the failure state, write only on its own two alert tables and `INSERT` on `audit_events`, member of no role (RT-1556) |
 
 The auth lookup credential exists because a device token, session, or bearer
 token must be resolved before a tenant GUC can be established. It must not be
@@ -249,7 +250,21 @@ Legitimate deployments never set a role option.
   no role (RT-353). Its grants on other tables are not checked: grant it
   nothing else.
 
-  Both worker checks are in `apps/worker/src/database-role-verifier.ts`.
+- **Worker, sync-failure alert role (RT-1556):** when
+  `SYNC_FAILURE_ALERT_DATABASE_URL` is set, the same login, database and
+  distinct-role checks as the retention role, then it must hold exactly the
+  privileges of `SYNC_FAILURE_ALERT_ROLE_GRANTS`: `SELECT` on `tenants`,
+  `stores`, `sales`, `erpnext_posting_status`, `memberships`, `roles`,
+  `store_access` and `audit_events`; `INSERT` on `audit_events`; `SELECT`,
+  `INSERT` and `UPDATE` on `sync_failure_alert_windows` and
+  `sync_failure_alert_deliveries`; and column `SELECT` on `users (id, email,
+  deleted_at)`. Any other privilege on any table, view or sequence outside the
+  system schemas (a write on a posting, reconciliation or sale table, any
+  `DELETE`, `TRUNCATE`, `REFERENCES` or `TRIGGER`, a table-level `SELECT` on
+  `users`) fails boot, as does a role membership. The check runs in production
+  and with `VERIFY_DATABASE_POOL_BOUNDARY=1`, and only when the URL is set.
+
+  The worker checks are in `apps/worker/src/database-role-verifier.ts`.
 
 Provision the lookup login outside migrations because login credentials belong
 to the deployment environment. A template with the exact grants and a verify
@@ -902,6 +917,29 @@ A script without the marker, such as the owner-gated
   no maintenance window and no backfill. Its down migration refuses while any
   request, step-log row, credential, provisioner token or managed registration
   exists. Rollback of the grants: see the script's header.
+
+- **Sync-failure alert role (RT-1556), owner step.** The alert sweep no longer
+  runs on the `DATABASE_URL` role. After `migrate up` has applied 0130 and the
+  step above, and before setting `SYNC_FAILURE_ALERT_ENABLED=true`, a superuser
+  (on managed PostgreSQL, the provider's admin user) creates the role once per
+  database cluster from
+  [`sql/sync-failure-alert-role.sql`](sql/sync-failure-alert-role.sql):
+
+  ```bash
+  psql -X -v alert_role=sync_failure_alert -f docs/operations/sql/sync-failure-alert-role.sql
+  ```
+
+  Connection through libpq environment variables, never a URL argument. The
+  file holds no credential: set the password in a separate step, `\password
+  sync_failure_alert`, which prompts and sends only a hash. Store the resulting
+  `SYNC_FAILURE_ALERT_DATABASE_URL` in the secret manager, like the other
+  database URLs. It is not a routine every-release script, so
+  `deploy/apply-domain-grants.sh` never applies it. Without the URL, the worker
+  in production with the alert enabled refuses to boot; with the alert off it
+  needs no role. Its grants are exactly the list above: grant it nothing else.
+  The `DATABASE_URL` role keeps its `SELECT, INSERT, UPDATE` on the two alert
+  tables for now (the API's boot check still requires them); revoking them from
+  the domain role is a separate follow-up.
 
 - **Migration `0130_sync_failure_alerts` (RT-1034).** Run
   [`sql/sync-failure-alerts-domain-grants.sql`](sql/sync-failure-alerts-domain-grants.sql)

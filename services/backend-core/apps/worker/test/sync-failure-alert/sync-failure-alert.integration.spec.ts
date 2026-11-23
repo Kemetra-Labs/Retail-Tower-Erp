@@ -1,15 +1,17 @@
 /**
  * RT-1034 — sync-failure email alert on real PostgreSQL (every migration applied). The sweep runs as
  * `app_test` (NOSUPERUSER, NOBYPASSRLS) so FORCE RLS applies to every statement, and once more as
- * `alert_probe`, a role granted ONLY what the alert needs (read-only on the failure state, write on
- * its own two tables and `audit_events`), to prove it never writes posting or reconciliation state.
+ * `sync_failure_alert`, the production role created from the repo's own deploy template
+ * (docs/operations/sql/sync-failure-alert-role.sql, RT-1556): read-only on the failure state, write on
+ * its own two tables and `audit_events`. That proves the sweep never writes posting, reconciliation or
+ * sales state, and that the worker's boot check (verifySyncFailureAlertRole) accepts exactly that role.
  *
  *   S1   cross-tenant RLS on the alert tables under the NOBYPASSRLS runtime role
  *   S3   concurrent / redelivered sweeps and a crash after the send produce one notification
  *   S4   a retry storm is one alert per open condition; it re-arms only after the condition clears
  *   S5   provider outage: failed deliveries are retried, no duplicate after recovery
  *   S8   no secret in logs, delivery rows, audit rows or the job error
- *   S13  the alert holds no write grant on posting / reconciliation / sale tables
+ *   S13  the alert holds no write grant on posting / reconciliation / sale tables (RT-1556: the real role)
  *   AC2  100 redeliveries -> exactly one email per recipient
  *   AC3  the alert is delivered within 10 minutes of the failure state appearing (recorded timestamps)
  *   AC4  posting and sale rows are byte-identical after the sweep
@@ -30,6 +32,7 @@ import {
   stopPgEnv,
   type PgTestEnv,
 } from "../../../../packages/db/__tests__/_helpers/postgres-container";
+import { verifySyncFailureAlertRole } from "../../src/database-role-verifier";
 import { RecordingEmailAdapter } from "../../src/email/email.adapter";
 import { MAX_SYNC_FAILURE_ALERT_INTERVAL_MS } from "../../src/sync-failure-alert/sync-failure-alert.config";
 import {
@@ -63,11 +66,41 @@ const T0 = new Date("2026-11-21T10:00:00.000Z");
 const EMAIL = (id: string): string => `u-${id.slice(-2)}@fixture.invalid`;
 
 let env: PgTestEnv | null = null;
-let probe: Pool | null = null;
+let alertPool: Pool | null = null;
 let seq = 0;
 const roleIds = new Map<string, string>();
 
 const admin = (): Pool => env!.admin;
+
+const ALERT_ROLE = "sync_failure_alert";
+const ALERT_ROLE_PASSWORD = "sync_failure_alert_test";
+const ALERT_ROLE_TEMPLATE = resolve(
+  __dirname,
+  "../../../../docs/operations/sql/sync-failure-alert-role.sql",
+);
+
+/**
+ * Creates a role from the production deploy template. The template is a psql script: the one meta-command
+ * (`\set ON_ERROR_STOP on`) is dropped and the psql variable `alert_role` is substituted, which is all psql
+ * does with it. The password is set separately, as in the runbook.
+ */
+async function createAlertRoleFromTemplate(roleName: string): Promise<Pool> {
+  const sql = readFileSync(ALERT_ROLE_TEMPLATE, "utf8")
+    .replace(/\r\n/g, "\n")
+    .split("\n")
+    .filter((line) => !line.startsWith("\\"))
+    .join("\n")
+    .replaceAll(':"alert_role"', `"${roleName}"`)
+    .replaceAll(":'alert_role'", `'${roleName}'`);
+  expect(sql).not.toContain(":alert_role"); // every psql variable was substituted
+  await admin().query(sql);
+  await admin().query(`ALTER ROLE "${roleName}" PASSWORD '${ALERT_ROLE_PASSWORD}'`);
+  return guardPool(
+    new Pool({
+      connectionString: `postgres://${roleName}:${ALERT_ROLE_PASSWORD}@${env!.host}:${env!.port}/test`,
+    }),
+  );
+}
 
 async function seedRoleMembership(
   tenant: string,
@@ -136,25 +169,12 @@ beforeAll(async () => {
   await seedRoleMembership(TENANT_A, U_DELETED, "tenant_admin", "all");
   await seedRoleMembership(TENANT_B, U_B_OWNER, "owner", "all");
 
-  // The least-privilege role: exactly what the alert sweep is allowed to do (S13).
-  await a.query(`CREATE ROLE alert_probe LOGIN PASSWORD 'alert_probe' NOSUPERUSER NOBYPASSRLS`);
-  await a.query(`GRANT USAGE ON SCHEMA public TO alert_probe`);
-  await a.query(
-    `GRANT SELECT ON tenants, stores, sales, erpnext_posting_status, memberships, roles, store_access,
-                     audit_events TO alert_probe`,
-  );
-  await a.query(`GRANT SELECT (id, email, deleted_at) ON users TO alert_probe`);
-  await a.query(`GRANT INSERT ON audit_events TO alert_probe`);
-  await a.query(
-    `GRANT SELECT, INSERT, UPDATE ON sync_failure_alert_windows, sync_failure_alert_deliveries TO alert_probe`,
-  );
-  probe = guardPool(
-    new Pool({ connectionString: `postgres://alert_probe:alert_probe@${env.host}:${env.port}/test` }),
-  );
+  // The production least-privilege role, from the repo's own deploy template (RT-1556, S13).
+  alertPool = await createAlertRoleFromTemplate(ALERT_ROLE);
 }, 180_000);
 
 afterAll(async () => {
-  if (probe) await probe.end().catch(() => undefined);
+  if (alertPool) await alertPool.end().catch(() => undefined);
   if (env) await stopPgEnv(env);
 });
 
@@ -595,7 +615,7 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     expect(updated.rowCount).toBe(0);
   });
 
-  it("S13 + AC4: the whole sweep runs as a role with no write grant on posting, reconciliation or sales", async () => {
+  it("S13 + AC4: the whole sweep runs as the production alert role and still delivers one alert", async () => {
     if (SKIP()) return;
     await seedPosting(TENANT_A, STORE_A1, "permanently_rejected");
     await seedSale(TENANT_A, STORE_A1, "failed-needs-repair");
@@ -606,22 +626,104 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
       ]);
     const before = await snapshot();
 
-    const { processor, adapter } = makeProcessor(probe!);
-    expect(await sweep(processor)).toMatchObject({ fired: 2, failedTenants: 0 });
-    expect(adapter.sent.length).toBeGreaterThan(0);
+    const { processor, adapter } = makeProcessor(alertPool!);
+    const result = await sweep(processor);
+    expect(result).toMatchObject({ fired: 2, failed: 0, failedTenants: 0 });
+    expect(adapter.sent.length).toBeGreaterThan(0); // the alert is still delivered
+    expect(result.delivered).toBe(adapter.sent.length);
     expect(await snapshot()).toBe(before); // AC4: posting and sale state unchanged
 
-    for (const table of ["erpnext_posting_status", "sales", "erpnext_reconciliation_run", "erpnext_warehouse_map"]) {
-      for (const priv of ["INSERT", "UPDATE", "DELETE"]) {
-        const r = await admin().query(`SELECT has_table_privilege('alert_probe', $1, $2) AS ok`, [table, priv]);
+    const who = await alertPool!.query<{ u: string; s: string }>(`SELECT current_user AS u, session_user AS s`);
+    expect(who.rows[0]).toEqual({ u: ALERT_ROLE, s: ALERT_ROLE });
+  });
+
+  it("RT-1556: the alert role cannot write posting, reconciliation or sales tables, nor delete anything", async () => {
+    if (SKIP()) return;
+    await seedPosting(TENANT_A, STORE_A1, "permanently_rejected");
+
+    for (const table of [
+      "erpnext_posting_status",
+      "sales",
+      "erpnext_reconciliation_run",
+      "erpnext_warehouse_map",
+      "sale_lines",
+      "tenants",
+      "stores",
+      "memberships",
+    ]) {
+      for (const priv of ["INSERT", "UPDATE", "DELETE", "TRUNCATE"]) {
+        const r = await admin().query(`SELECT has_table_privilege($1, $2, $3) AS ok`, [ALERT_ROLE, table, priv]);
         expect({ table, priv, ok: r.rows[0].ok }).toEqual({ table, priv, ok: false });
       }
     }
-    await expect(
-      runWithTenantContext(probe!, { tenantId: TENANT_A, isPlatformAdmin: false }, (c) =>
-        c.query(`UPDATE erpnext_posting_status SET status = 'pending'`),
-      ),
-    ).rejects.toMatchObject({ code: "42501" });
+    for (const priv of ["DELETE", "TRUNCATE"]) {
+      for (const table of ["sync_failure_alert_windows", "sync_failure_alert_deliveries", "audit_events"]) {
+        const r = await admin().query(`SELECT has_table_privilege($1, $2, $3) AS ok`, [ALERT_ROLE, table, priv]);
+        expect({ table, priv, ok: r.rows[0].ok }).toEqual({ table, priv, ok: false });
+      }
+    }
+
+    // And a real statement as that role is refused with 42501 (permission denied), not by RLS.
+    for (const statement of [
+      `UPDATE erpnext_posting_status SET status = 'pending'`,
+      `DELETE FROM erpnext_posting_status`,
+      `UPDATE sales SET sync_status = 'synced'`,
+      `DELETE FROM sales`,
+      `UPDATE erpnext_reconciliation_run SET status = 'failed'`,
+      `DELETE FROM sync_failure_alert_windows`,
+      `TRUNCATE sync_failure_alert_deliveries`,
+    ]) {
+      await expect(
+        runWithTenantContext(alertPool!, { tenantId: TENANT_A, isPlatformAdmin: false }, (c) => c.query(statement)),
+      ).rejects.toMatchObject({ code: "42501" });
+    }
+  });
+
+  it("RT-1556: the worker's boot check accepts the role created from the template", async () => {
+    if (SKIP()) return;
+    await expect(verifySyncFailureAlertRole(alertPool!, env!.app)).resolves.toBeUndefined();
+  });
+
+  it.each([
+    ["UPDATE ON erpnext_posting_status", `GRANT UPDATE ON erpnext_posting_status TO`],
+    ["INSERT ON sales", `GRANT INSERT ON sales TO`],
+    ["DELETE ON sync_failure_alert_windows", `GRANT DELETE ON sync_failure_alert_windows TO`],
+    ["SELECT ON users", `GRANT SELECT ON users TO`],
+    ["SELECT ON users (password_hash)", `GRANT SELECT (password_hash) ON users TO`],
+  ])("RT-1556: the worker's boot check refuses an extra grant (%s)", async (label, grant) => {
+    if (SKIP()) return;
+    const roleName = `rt1556_extra_${++seq}`;
+    const pool = await createAlertRoleFromTemplate(roleName);
+    try {
+      await admin().query(`${grant} "${roleName}"`);
+      const err = await verifySyncFailureAlertRole(pool, env!.app).catch((e: unknown) => e as Error);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain("beyond the sync-failure alert grants");
+      expect((err as Error).message).toContain(label);
+    } finally {
+      await pool.end().catch(() => undefined);
+      await admin().query(`DROP OWNED BY "${roleName}"`);
+      await admin().query(`DROP ROLE "${roleName}"`);
+    }
+  });
+
+  it("RT-1556: the worker's boot check refuses a missing grant and a role membership", async () => {
+    if (SKIP()) return;
+    const roleName = `rt1556_short_${++seq}`;
+    const pool = await createAlertRoleFromTemplate(roleName);
+    try {
+      await admin().query(`REVOKE UPDATE ON sync_failure_alert_deliveries FROM "${roleName}"`);
+      await expect(verifySyncFailureAlertRole(pool, env!.app)).rejects.toThrow(
+        /is missing required grants: UPDATE ON sync_failure_alert_deliveries$/,
+      );
+      await admin().query(`GRANT UPDATE ON sync_failure_alert_deliveries TO "${roleName}"`);
+      await admin().query(`GRANT pg_read_all_stats TO "${roleName}"`);
+      await expect(verifySyncFailureAlertRole(pool, env!.app)).rejects.toThrow(/must be a member of no role/);
+    } finally {
+      await pool.end().catch(() => undefined);
+      await admin().query(`DROP OWNED BY "${roleName}"`);
+      await admin().query(`DROP ROLE "${roleName}"`);
+    }
   });
 
   it("S13: the repository SQL names no write on any table but its own two and audit_events", () => {

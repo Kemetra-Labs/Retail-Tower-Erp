@@ -235,6 +235,12 @@ services:
       DATABASE_URL: ${DATABASE_URL:?DATABASE_URL required}
       # The audit retention sweep's own role, audit_retention_worker (RT-353).
       AUDIT_RETENTION_DATABASE_URL: ${AUDIT_RETENTION_DATABASE_URL:?AUDIT_RETENTION_DATABASE_URL required (audit retention role)}
+      # The sync-failure alert sweep's own role (RT-1556). No `:?` on purpose: the alert is off by
+      # default, so a deployment that has not turned it on needs no role. With
+      # SYNC_FAILURE_ALERT_ENABLED=true and this empty the worker refuses to boot.
+      # Compose does not forward SYNC_FAILURE_ALERT_ENABLED yet: the enable switch is a
+      # separate owner step, after the role exists.
+      SYNC_FAILURE_ALERT_DATABASE_URL: ${SYNC_FAILURE_ALERT_DATABASE_URL:-}
       REDIS_URL: ${REDIS_URL:-redis://:${REDIS_PASSWORD:?REDIS_PASSWORD must be set}@redis:6379}
       LOG_LEVEL: ${LOG_LEVEL:-info}
       NODE_ENV: production

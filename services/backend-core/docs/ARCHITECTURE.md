@@ -278,6 +278,12 @@ Required production configuration:
   `audit_events` (RT-353). Production boot rejects a missing credential, a role
   shared with `DATABASE_URL`, any other privilege on that table, or any role
   membership.
+- `SYNC_FAILURE_ALERT_DATABASE_URL` for the worker's sync-failure alert sweep
+  (RT-1556), required once `SYNC_FAILURE_ALERT_ENABLED=true`: a role created from
+  `docs/operations/sql/sync-failure-alert-role.sql` with no write on posting,
+  reconciliation or sale tables. When set, production boot rejects a role shared
+  with `DATABASE_URL`, any privilege beyond the alert grants, or any role
+  membership.
 - `MIGRATION_DATABASE_URL` for the deployment-only migration owner credential.
 - `REDIS_URL` for production API email job enqueueing and worker queue
   consumption.
