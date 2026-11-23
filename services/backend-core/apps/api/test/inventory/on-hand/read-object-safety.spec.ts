@@ -68,6 +68,18 @@ class FakeInventoryService {
         inventoryStatus,
         quantity: "0.0000",
       })),
+      availability: {
+        primaryLocationId: "0a000000-0000-7000-8000-000000000001",
+        primarySellable: "0.0000",
+        expiredTrackedSellable: "0.0000",
+        activeReserved: "0.0000",
+        safetyProtection: "0.0000",
+        availableToSell: "0.0000",
+        inTransitInbound: "0.0000",
+        inTransitOutbound: "0.0000",
+        onOrder: null,
+        asOf: "2026-11-23T10:00:00.000Z",
+      },
     };
   }
   async listStockMovements(): Promise<StockMovementListBody> {
