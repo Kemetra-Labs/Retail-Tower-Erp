@@ -124,7 +124,7 @@ Short quotes are marked; the rest is summary.
 ### 3.4 ERPNext-Connector
 
 - No mapping of `sales_team`, Sales Person, Sales Partner or commission (`git grep` in `integrations/erpnext-connector` finds only DocType `owner` metadata).
-- Each Retail Tower sale posts as **exactly one submitted Sales Invoice** plus Payment Entry (`services/backend-core/specs/011-erpnext-pos-reference-and-integration-foundation/decisions/posting-decision-record.md`, around line 52). This matters: a per-sale Sales Team projection is representable, because there is no consolidation.
+- Each Retail Tower sale posts as **exactly one submitted Sales Invoice that carries its own payments** (`services/backend-core/specs/011-erpnext-pos-reference-and-integration-foundation/decisions/posting-decision-record.md`, around lines 45–52). The record's "Superseded for POS sale settlement" note replaced the earlier target of a Sales Invoice plus a separate Payment Entry. This matters: a per-sale Sales Team projection is representable, because there is no consolidation.
 
 ### 3.5 ERPNext v16 official capabilities (docs.frappe.io, checked 2026-11-23)
 
@@ -153,7 +153,7 @@ Recommendation: **S-a.** A non-login seller is still a member with a store-staff
 | Fact | Recommendation | Storage (proposal for the gated follow-up) |
 |---|---|---|
 | Transaction Operator | Keep `sales.created_by` as is | none |
-| Seller per line | New, required per line when present; inherited from a sale-level primary seller on the till | `sale_lines.seller_user_id` (nullable for pre-feature sales) plus a frozen `seller_store_id`; `CaptureSaleLine.sellerUserId` (optional, additive) |
+| Seller per line | New, required per line when present; inherited from a sale-level primary seller on the till | `sale_lines.seller_user_id` (nullable for pre-feature sales) plus a frozen `seller_store_id` and a frozen role/scope snapshot at transaction time (Policy §8: employee, store and role at sale time); `CaptureSaleLine.sellerUserId` (optional, additive). The snapshot's exact shape is an open point for F-1 |
 | Payment Receiver per tender | New, defaults to the operator; explicit "different receiver" only | `sale_tenders.received_by_user_id` (nullable = operator); `CaptureSaleTender.receivedByUserId` (optional, additive) |
 | Approver | Keep per action (void, credit reversal, discount) | existing |
 | Drawer Custodian | W6 (RT-6), not RT-285 | none here |
@@ -215,7 +215,7 @@ Recommendation: implement modes as **policy entries** under AD-POL-001 rather th
 ## 6. Risks
 
 - **Naming collision.** "Seller" already means the operator in credit-reversal code. Without OQ-5 and a pinning test, adding a real seller can silently change a four-eyes rule.
-- **Contract growth on a hot path.** `captureSale` is idempotent and hashed; new optional fields change the payload hash and the `Idempotency-Key` fingerprint for new sales only. Old tills must keep working (additive only; oasdiff green).
+- **Contract growth on a hot path.** `captureSale` is idempotent and hashed. An absent optional field leaves the hash unchanged, and `operatorUserId` is deliberately excluded from the hash (`sales.yaml`, around line 524). F-1 must decide whether `sellerUserId` and `receivedByUserId` are hashed, with `operatorUserId` as the precedent for excluding them. Old tills must keep working (additive only; oasdiff green).
 - **Offline trust.** A stale staff set can attribute to someone who left. `deny_if_stale` plus server revalidation at sync limits the damage; a refused seller at sync must have a defined quarantine path (re-use `sale-quarantine.yaml` kinds or add one, decided in F-1).
 - **Commission correctness is money.** Reversal on partial returns with net that does not divide evenly (the 2.99 / 3 case in `sales.yaml`) needs exact-decimal rules and tests before any payout.
 - **Policy-engine dependency.** Modes and capability tiers assume AD-POL-001 PE-BC1/PE-BC2. If they slip, the POS work must ship with fixed defaults, not a competing settings store.
@@ -236,7 +236,7 @@ Shaped to the OS §4A contract: one Work Mode, one product directory, bounded sc
 ### F-1 — Backend-Core: seller per line and receiver per tender, contract and migration `[GATED: contract] [GATED: migration]`
 
 - **Work Mode:** Implementation. **Product dir:** `services/backend-core/`.
-- **Scope:** `memberships.seller_code` (tenant-unique among non-deleted rows, format and length decided in the contract); `sale_lines.seller_user_id`, `seller_store_id`; `sale_tenders.received_by_user_id`; optional additive `CaptureSaleLine.sellerUserId` and tender `receivedByUserId` in `pos-sales/sales.yaml`; server validation (tenant, membership active at `occurredAt`, store access); `readSale` / history return the new facts; rename `sellerUserId` to `operatorUserId` in `credit-sale-reversal.*` with a test pinning the four-eyes rule to `created_by`.
+- **Scope:** `memberships.seller_code` (tenant-unique among non-deleted rows, format and length decided in the contract); `sale_lines.seller_user_id`, `seller_store_id` and a frozen role/scope snapshot at transaction time (Policy §8; F-1 decides its exact shape); `sale_tenders.received_by_user_id`; optional additive `CaptureSaleLine.sellerUserId` and tender `receivedByUserId` in `pos-sales/sales.yaml`; server validation (tenant, membership active at `occurredAt`, store access); `readSale` / history return the new facts; rename `sellerUserId` to `operatorUserId` in `credit-sale-reversal.*` with a test pinning the four-eyes rule to `created_by`.
 - **Exclusions:** no POS or Console change; no commission; no correction events (F-2); no Connector change.
 - **Acceptance:** oasdiff additive only; migration round-trip and RLS tests; a sale without the new fields behaves exactly as today; a seller from another tenant, a revoked member or a member without store access is refused with nothing recorded; Jest db-integration tests cover each refusal.
 - **Dependencies:** OQ-1, OQ-2, OQ-5 decided.
@@ -276,7 +276,7 @@ Shaped to the OS §4A contract: one Work Mode, one product directory, bounded sc
 - **Exclusions:** no ERPNext posting (F-6); no payroll; no target or tiered schemes.
 - **Acceptance:** exact-decimal tests including partial returns of uneven nets; rule changes never alter past accruals; requester ≠ approver on period approval; idempotent accrual on capture retry.
 - **Dependencies:** F-1, F-2, OQ-6, OQ-7 and the owner's commission policy.
-- **Official-first:** ERPNext Sales Team incentives reviewed (§3.5): invoice-level, one rate per person, no reversal ledger. Existing: none. Decision: BUILD (justification §3.5 and T5; owner approval required).
+- **Official-first:** ERPNext Sales Team incentives reviewed (§3.5): invoice-level, one rate per person, no reversal ledger. Frappe HR incentive and Additional Salary features were not reviewed here and are deferred to RT-1197; they are NEEDS VERIFICATION before the BUILD is approved. Existing: none. Decision: BUILD (justification §3.5 and T5; owner approval required).
 
 ### F-6 — ERPNext-Connector: commission accounting effect (and optional Sales Team projection)
 
