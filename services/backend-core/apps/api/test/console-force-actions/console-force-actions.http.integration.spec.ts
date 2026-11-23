@@ -253,7 +253,7 @@ async function seedLiveAdmission(w: World, shift: SeededShift): Promise<void> {
 beforeAll(async () => {
   const doc = loadOpenApiContracts().find((c) => c.id === CONTRACT_ID)!.document as object;
   ajv.addSchema(doc, CONTRACT_ID);
-  for (const name of ["OpenShiftList", "ForceClosePreview", "ConsoleForceClosedShift", "Error"]) {
+  for (const name of ["OpenShiftList", "OpenShiftsSummary", "ForceClosePreview", "ConsoleForceClosedShift", "Error"]) {
     const v = ajv.getSchema(`${CONTRACT_ID}#/components/schemas/${name}`);
     if (!v) throw new Error(`ajv cannot resolve ${name}`);
     schemas[name] = v;
@@ -314,6 +314,7 @@ const preview = (session: string, shiftId: string): request.Test =>
   http().get(`/api/v1/shifts/${shiftId}/force-close-preview`).set("x-test-session", session);
 const openShifts = (session: string, storeId: string): request.Test =>
   http().get(`/api/v1/stores/${storeId}/open-shifts`).set("x-test-session", session);
+const summary = (session: string): request.Test => http().get(`/api/v1/open-shifts/summary`).set("x-test-session", session);
 function close(session: string, shiftId: string, body: Record<string, unknown>, idemKey: string | null = key()): request.Test {
   const req = http().post(`/api/v1/shifts/${shiftId}/force-close`).set("x-test-session", session).set("Origin", ORIGIN);
   return (idemKey === null ? req : req.set("Idempotency-Key", idemKey)).send(body);
@@ -857,5 +858,122 @@ describe("consoleListOpenShifts and consoleGetForceClosePreview", () => {
     const legacy = await seedShift(worldA, { legacy: true });
     const l = await preview(worldA.owner, legacy.shiftId);
     expect(l.body.recorded).toMatchObject({ currencyCode: null, openingFloat: null, cashMovementCount: null, lastCashMovementReceivedAt: null });
+  });
+});
+
+describe("consoleGetOpenShiftsSummary: the tenant-wide counts (RT-1450)", () => {
+  interface StoreCounts {
+    storeId: string;
+    openShiftCount: number;
+    staleShiftCount: number;
+    eligibleShiftCount: number;
+  }
+
+  /** What the per-store open-shifts read says about one store, counted the way the summary must count it. */
+  async function countsFromStoreRead(w: World, storeId: string): Promise<StoreCounts> {
+    const res = await openShifts(w.owner, storeId);
+    expect(res.status).toBe(200);
+    const verdicts = res.body.items.map((i: { verdict: { stale: boolean; eligible: boolean } }) => i.verdict);
+    return {
+      storeId,
+      openShiftCount: verdicts.length,
+      staleShiftCount: verdicts.filter((v: { stale: boolean }) => v.stale).length,
+      eligibleShiftCount: verdicts.filter((v: { eligible: boolean }) => v.eligible).length,
+    };
+  }
+
+  it("equals the sum of the per-store reads, stale and not stale, eligible and live; deleted stores and other tenants are left out", async () => {
+    if (skip()) return;
+    const w = await seedWorld(admin(), "rt1450-sum");
+    await seedShift(w, { minutesAgo: 600 }); // stale, eligible
+    const live = await seedShift(w, { minutesAgo: 400 }); // stale, a live operator session
+    await seedOperatorSession(w, live);
+    await seedShift(w, { minutesAgo: 2 }); // not stale
+    await seedShift(w, { store: w.store2, minutesAgo: 120 }); // stale, eligible
+    await seedShift(w, { store: w.store2, minutesAgo: 5 }); // not stale
+    const deleted = id();
+    await admin().query(`INSERT INTO stores (id, tenant_id, code, name) VALUES ($1, $2, 'DEL', 'Del')`, [deleted, w.tenant]);
+    await seedShift(w, { store: deleted, minutesAgo: 600 });
+    await admin().query(`UPDATE stores SET deleted_at = now() WHERE id = $1`, [deleted]);
+    await seedShift(worldB, { minutesAgo: 600 }); // another tenant's stuck shift
+
+    const res = await summary(w.owner);
+    expect(res.status).toBe(200);
+    expect(res.headers["cache-control"]).toBe("no-store");
+    expectValid("OpenShiftsSummary", res.body);
+    expect(res.body.staleThresholdMinutes).toBe(15);
+
+    // The contract orders stores by id (Postgres uuid order, which is the order of the lower-case strings).
+    const expected = [await countsFromStoreRead(w, w.store), await countsFromStoreRead(w, w.store2)].sort((a, b) =>
+      a.storeId < b.storeId ? -1 : 1,
+    );
+    // The per-store reads themselves, pinned, so the equality below cannot hold vacuously.
+    const byStore = new Map(expected.map((c) => [c.storeId, c]));
+    expect(byStore.get(w.store)).toEqual({ storeId: w.store, openShiftCount: 3, staleShiftCount: 2, eligibleShiftCount: 1 });
+    expect(byStore.get(w.store2)).toEqual({ storeId: w.store2, openShiftCount: 2, staleShiftCount: 1, eligibleShiftCount: 1 });
+
+    expect(res.body.stores).toEqual(expected);
+    const total = (field: keyof Omit<StoreCounts, "storeId">): number => expected.reduce((n, c) => n + c[field], 0);
+    expect(res.body).toMatchObject({
+      openShiftCount: total("openShiftCount"),
+      staleShiftCount: total("staleShiftCount"),
+      eligibleShiftCount: total("eligibleShiftCount"),
+    });
+  });
+
+  it("a tenant with no open shift has zero counts and no store row", async () => {
+    if (skip()) return;
+    const w = await seedWorld(admin(), "rt1450-empty");
+    const res = await summary(w.owner);
+    expect(res.status).toBe(200);
+    expectValid("OpenShiftsSummary", res.body);
+    expect(res.body).toMatchObject({ openShiftCount: 0, staleShiftCount: 0, eligibleShiftCount: 0, stores: [] });
+  });
+
+  it("the tenant is the session's: another tenant's caller sees only its own stores", async () => {
+    if (skip()) return;
+    const w = await seedWorld(admin(), "rt1450-own");
+    await seedShift(w, { minutesAgo: 600 });
+    const mine = await summary(w.owner);
+    const theirs = await summary(worldB.owner);
+    expect(mine.status).toBe(200);
+    expect(theirs.status).toBe(200);
+    expect(mine.body.stores.map((s: StoreCounts) => s.storeId)).toEqual([w.store]);
+    for (const s of theirs.body.stores as StoreCounts[]) expect([w.store, w.store2]).not.toContain(s.storeId);
+  });
+
+  it.each([
+    ["a store_manager", () => worldA.manager],
+    ["a tenant_admin with specific-store access", () => worldA.adminSpecific],
+  ])("%s: the same non-disclosing 404 as the per-store read", async (_label, session) => {
+    if (skip()) return;
+    const res = await summary(session());
+    const sibling = await openShifts(session(), worldA.store);
+    expect(res.status).toBe(404);
+    expectValid("Error", res.body);
+    expect({ code: res.body.error.code, message: res.body.error.message }).toEqual({
+      code: sibling.body.error.code,
+      message: sibling.body.error.message,
+    });
+  });
+
+  it("a tenant_admin with all-store access is admitted; a bearer credential is 401", async () => {
+    if (skip()) return;
+    expect((await summary(worldA.admin)).status).toBe(200);
+    expect((await http().get(`/api/v1/open-shifts/summary`).set("Authorization", "Bearer nope")).status).toBe(401);
+  });
+
+  it("a platform admin is admitted as on the per-store read (RT-1462), and one cross-tenant row records the request", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    const requestId = randomUUID();
+    const res = await summary(w.platformBare).set("X-Request-Id", requestId);
+    expect(res.status).toBe(200);
+    expectValid("OpenShiftsSummary", res.body);
+    const rows = await admin().query(
+      `SELECT 1 FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND request_id = $2`,
+      [w.tenant, requestId],
+    );
+    expect(rows.rowCount).toBe(1);
   });
 });

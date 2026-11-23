@@ -4,7 +4,7 @@
  * when another module needs it; a port that touches the database takes the caller's `PoolClient`.
  * `tools/module-boundaries` enforces this.
  */
-export { countStoreOpenShifts, listStoreOpenShifts, readStoreOpenShifts } from "./open-shifts";
+export { countStoreOpenShifts, listStoreOpenShifts, openShiftStoreIds, readStoreOpenShifts } from "./open-shifts";
 export { ShiftCashUpError } from "./shift-cash-up.errors";
 export type { ShiftWriteResult } from "./shift-cash-up.service";
 export { previewFingerprint, readForceCloseFacts } from "./shift-force-close.facts";

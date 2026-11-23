@@ -41,6 +41,24 @@ export interface OpenShiftListBody {
   readonly items: OpenShiftSummaryBody[];
 }
 
+/** One store's open shifts counted by verdict (`StoreOpenShiftCounts`, RT-1450). */
+export interface StoreOpenShiftCountsBody {
+  readonly storeId: string;
+  readonly openShiftCount: number;
+  readonly staleShiftCount: number;
+  readonly eligibleShiftCount: number;
+}
+
+/** `OpenShiftsSummary` (RT-1450): the tenant's open shifts counted by verdict, per store and in total. */
+export interface OpenShiftsSummaryBody {
+  readonly evaluatedAt: string;
+  readonly staleThresholdMinutes: number;
+  readonly openShiftCount: number;
+  readonly staleShiftCount: number;
+  readonly eligibleShiftCount: number;
+  readonly stores: StoreOpenShiftCountsBody[];
+}
+
 export interface ForceClosePreviewBody {
   readonly shift: OpenShiftSummaryBody;
   readonly recorded: {
@@ -134,5 +152,40 @@ export function toOpenShiftListBody(input: {
         evaluatedAt: input.evaluatedAt,
       }),
     ),
+  };
+}
+
+/**
+ * One store's counts, over the very rows the open-shifts read lists and with the very verdict body it
+ * shows (`toVerdictBody`), so a count can never disagree with that read (RT-1450).
+ */
+export function countStoreOpenShifts(
+  storeId: string,
+  rows: readonly Pick<OpenShiftRow, "shift" | "verdict">[],
+): StoreOpenShiftCountsBody {
+  const verdicts = rows.map((row) => toVerdictBody(row.shift, row.verdict));
+  return {
+    storeId,
+    openShiftCount: verdicts.length,
+    staleShiftCount: verdicts.filter((v) => v.stale).length,
+    eligibleShiftCount: verdicts.filter((v) => v.eligible).length,
+  };
+}
+
+/** The tenant summary: each total is the sum of the same count over `stores`. */
+export function toOpenShiftsSummaryBody(input: {
+  readonly evaluatedAt: Date;
+  readonly thresholdMinutes: number;
+  readonly stores: readonly StoreOpenShiftCountsBody[];
+}): OpenShiftsSummaryBody {
+  const total = (field: "openShiftCount" | "staleShiftCount" | "eligibleShiftCount"): number =>
+    input.stores.reduce((n, store) => n + store[field], 0);
+  return {
+    evaluatedAt: input.evaluatedAt.toISOString(),
+    staleThresholdMinutes: input.thresholdMinutes,
+    openShiftCount: total("openShiftCount"),
+    staleShiftCount: total("staleShiftCount"),
+    eligibleShiftCount: total("eligibleShiftCount"),
+    stores: [...input.stores],
   };
 }

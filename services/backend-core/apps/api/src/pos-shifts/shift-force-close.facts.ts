@@ -190,6 +190,20 @@ export async function listOpenStoreShifts(
   }));
 }
 
+/**
+ * The ids of the stores of the tenant that have at least one open shift, ascending (RT-1450). Deleted
+ * stores are not filtered here: the `stores` module decides which of them are live.
+ */
+export async function listOpenShiftStoreIds(client: PoolClient, tenantId: string): Promise<string[]> {
+  const r = await client.query<{ store_id: string }>(
+    `SELECT DISTINCT store_id::text AS store_id FROM shifts
+      WHERE tenant_id = $1 AND lifecycle_state = 'open'
+      ORDER BY store_id`,
+    [tenantId],
+  );
+  return r.rows.map((row) => row.store_id);
+}
+
 /** Every open shift of the store: the exact count a deletion guard decides on (no row limit). */
 export async function countOpenStoreShifts(client: PoolClient, storeId: string): Promise<number> {
   const r = await client.query<{ n: number }>(

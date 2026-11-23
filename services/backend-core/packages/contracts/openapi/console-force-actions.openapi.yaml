@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 Console Force Actions API (shifts and re-authentication)
-  version: "1.2.0-draft"
+  version: "1.3.0-draft"
   description: >
     RT-1444 (C1 of RT-1437; `[GATED: contract]`, owner decisions D1 to D10
     approved 2026-11-16, Confluence RETAIL page 80084994, RT-1437 comment
@@ -75,6 +75,18 @@ info:
     writes the cross-tenant row and has `on_behalf_of` name their live support
     session, and a suspended tenant is no longer read-only for a platform
     admin. No wire change.
+
+
+    **1.3.0-draft (RT-1450, `[GATED: contract]`; RT-1437 A1 "Health",
+    follow-up of RT-1440).** Additive only: one new read,
+    `consoleGetOpenShiftsSummary`, and its two schemas. It counts, per store and
+    for the whole tenant, the open shifts the per-store read
+    `consoleListOpenShifts` lists, with the same verdict judged at one
+    `evaluatedAt`, so the Console Overview can show a ledger row without any
+    client-side rule. No new predicate and no new threshold (open owner
+    decision D-A, left at its recommendation). Access is that of the per-store
+    read, including the RT-1462 platform admin. No existing path, parameter,
+    request body or response changes.
 
 
     **Preview, then confirm, then re-check (principle 2).** The preview is a
@@ -304,6 +316,78 @@ paths:
             is not a member no longer exists (for example it was deleted), so the
             direct-route gate refuses before the handler runs. An unknown or
             foreign resource in a valid active tenant stays 404.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "5XX":
+          $ref: "#/components/responses/SystemFailure"
+  /api/v1/open-shifts/summary:
+    get:
+      summary: Count the tenant's open shifts by verdict, per store and in total.
+      operationId: consoleGetOpenShiftsSummary
+      tags: [console-force-actions]
+      description: >
+        RT-1450 (RT-1437 A1 "Health"). For every store of the session's tenant
+        that is not deleted and has at least one open shift, the number of open
+        shifts, how many of them are `stale` and how many are `eligible` (the
+        verdict fields of `ShiftVerdict`), plus the tenant totals. Each store's
+        counts are taken over exactly the shifts `consoleListOpenShifts` lists
+        for that store (at most 200), with the same verdict, all judged at one
+        `evaluatedAt`; a store's counts therefore always equal what that read
+        shows. `eligibleShiftCount` counts the shifts a Console force close
+        would accept now: stale, with no live operator session and no live
+        cashier admission (the stuck rule). `staleShiftCount` counts every
+        shift opened longer ago than `staleThresholdMinutes`, live or not.
+
+
+        A deleted store is never listed, as `consoleListOpenShifts` answers it
+        404. A store with no open shift has no row. Stores are ordered by
+        `storeId`, at most 1000. The tenant is the session's active tenant,
+        never the request's; there is no parameter.
+
+
+        Owner or `tenant_admin` with all-store access, or a platform admin
+        (RT-1462); every other caller is the non-disclosing 404, the same body
+        as the per-store read's. Read-only: it writes nothing (apart from the
+        platform admin's `platform.cross_tenant.accessed` row) and takes no
+        lock.
+      responses:
+        "200":
+          description: The tenant's open-shift counts, possibly all zero.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/OpenShiftsSummary"
+              examples:
+                twoStores:
+                  summary: One stuck shift in each of two stores, one live and one fresh shift in the first.
+                  value:
+                    evaluatedAt: "2026-11-16T22:40:00Z"
+                    staleThresholdMinutes: 15
+                    openShiftCount: 5
+                    staleShiftCount: 3
+                    eligibleShiftCount: 2
+                    stores:
+                      - storeId: "0198a0c4-0000-7000-8000-000000000a01"
+                        openShiftCount: 3
+                        staleShiftCount: 2
+                        eligibleShiftCount: 1
+                      - storeId: "0198a0c4-0000-7000-8000-000000000a02"
+                        openShiftCount: 2
+                        staleShiftCount: 1
+                        eligibleShiftCount: 1
+        "401":
+          $ref: "#/components/responses/Unauthorized"
+        "403":
+          description: >
+            `support_session_required`: the active tenant of a platform admin who
+            is not a member no longer exists (for example it was deleted), so the
+            direct-route gate refuses before the handler runs.
           content:
             application/json:
               schema:
@@ -893,6 +977,61 @@ components:
           maxItems: 200
           items:
             $ref: "#/components/schemas/OpenShiftSummary"
+    StoreOpenShiftCounts:
+      type: object
+      additionalProperties: false
+      required: [storeId, openShiftCount, staleShiftCount, eligibleShiftCount]
+      description: >
+        One store's open shifts as `consoleListOpenShifts` lists them, counted
+        by verdict (RT-1450).
+      properties:
+        storeId: { type: string, format: uuid }
+        openShiftCount:
+          type: integer
+          minimum: 0
+        staleShiftCount:
+          type: integer
+          minimum: 0
+        eligibleShiftCount:
+          type: integer
+          minimum: 0
+    OpenShiftsSummary:
+      type: object
+      additionalProperties: false
+      required:
+        - evaluatedAt
+        - staleThresholdMinutes
+        - openShiftCount
+        - staleShiftCount
+        - eligibleShiftCount
+        - stores
+      description: >
+        The tenant's open shifts counted by verdict (RT-1450). Each total is the
+        sum of the same count over `stores`.
+      properties:
+        evaluatedAt:
+          type: string
+          format: date-time
+          description: Server time every verdict was computed at.
+        staleThresholdMinutes:
+          type: integer
+          minimum: 1
+          description: The staleness threshold the verdicts used (the same as `OpenShiftList`).
+        openShiftCount:
+          type: integer
+          minimum: 0
+        staleShiftCount:
+          type: integer
+          minimum: 0
+        eligibleShiftCount:
+          type: integer
+          minimum: 0
+        stores:
+          type: array
+          maxItems: 1000
+          description: Stores with at least one open shift, by `storeId`.
+          items:
+            $ref: "#/components/schemas/StoreOpenShiftCounts"
     RecordedFacts:
       type: object
       additionalProperties: false

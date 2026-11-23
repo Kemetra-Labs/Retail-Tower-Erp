@@ -4,6 +4,7 @@
  * Confluence RETAIL page 80084994).
  *
  *   GET  /api/v1/stores/{store_id}/open-shifts          consoleListOpenShifts
+ *   GET  /api/v1/open-shifts/summary                    consoleGetOpenShiftsSummary (RT-1450)
  *   GET  /api/v1/shifts/{shift_id}/force-close-preview  consoleGetForceClosePreview
  *   POST /api/v1/shifts/{shift_id}/force-close          consoleForceCloseShift
  *
@@ -21,8 +22,8 @@
  * The audit row is written by the service in the write's transaction, so no
  * handler carries `@Auditable`. Every 200 and 201 is `Cache-Control: no-store`.
  * Console rate-limit classes (`classes/console-force-actions.rate-limit.yaml`):
- * the open-shifts read is `expensiveRead`, the preview `jobOrPreview`, the close
- * `write`.
+ * the open-shifts read and the summary are `expensiveRead`, the preview
+ * `jobOrPreview`, the close `write`.
  */
 import {
   Body,
@@ -55,7 +56,11 @@ import {
   StoreIdParamSchema,
   type ConsoleForceCloseRequestDto,
 } from "./console-force-actions.dto";
-import type { ForceClosePreviewBody, OpenShiftListBody } from "./console-force-actions.projections";
+import type {
+  ForceClosePreviewBody,
+  OpenShiftListBody,
+  OpenShiftsSummaryBody,
+} from "./console-force-actions.projections";
 import { ConsoleForceActionsService, ConsoleStoreNotFoundError } from "./console-force-actions.service";
 import { ForceActionRateLimitedError } from "../console-action-cap/force-action-cap";
 import { ForceActionAccessGuard, forceActionActor, type ForceActionRequest } from "./force-action-access.guard";
@@ -82,6 +87,13 @@ export class ConsoleForceActionsController {
       if (err instanceof ConsoleStoreNotFoundError) throw new NotFoundException(NOT_FOUND_MESSAGE);
       throw err;
     }
+  }
+
+  @Get("api/v1/open-shifts/summary")
+  @Header("Cache-Control", "no-store")
+  @ConsoleRateLimit("expensiveRead")
+  async getOpenShiftsSummary(@Req() request: ForceActionRequest): Promise<OpenShiftsSummaryBody> {
+    return this.service.summarizeOpenShifts(forceActionActor(request).tenantId);
   }
 
   @Get("api/v1/shifts/:shift_id/force-close-preview")
