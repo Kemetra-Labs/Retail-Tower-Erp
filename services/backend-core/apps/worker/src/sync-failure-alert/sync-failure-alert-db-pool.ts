@@ -15,45 +15,15 @@
  *
  * The role's grants are checked at boot by `SyncFailureAlertRoleVerifier`.
  */
-import { Injectable, type OnModuleDestroy } from "@nestjs/common";
+import { Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 
+import { DedicatedDbPool } from "../dedicated-db-pool";
 import { InstrumentedPool } from "../observability/instrumented-pool";
 import { resolveSyncFailureAlertEnabled } from "./sync-failure-alert.config";
 
 @Injectable()
-export class SyncFailureAlertDbPool implements OnModuleDestroy {
-  private _pool: Pool | null;
-
-  /**
-   * @param pool  the pool the sweep runs on, or `null` on the no-DB path.
-   * @param owned whether this wrapper must end it (false for the borrowed
-   *              domain pool, which `AuditDbPool` ends).
-   */
-  constructor(
-    pool: Pool | null,
-    private readonly owned: boolean,
-  ) {
-    this._pool = pool;
-  }
-
-  get pool(): Pool | null {
-    return this._pool;
-  }
-
-  /** True when the sweep has its own credential, false when it borrows the domain pool. */
-  get dedicated(): boolean {
-    return this.owned;
-  }
-
-  async onModuleDestroy(): Promise<void> {
-    const p = this._pool;
-    this._pool = null;
-    if (p !== null && this.owned) {
-      await p.end();
-    }
-  }
-}
+export class SyncFailureAlertDbPool extends DedicatedDbPool {}
 
 export function syncFailureAlertPoolProviderFactory(domainPool: Pool | null): SyncFailureAlertDbPool {
   const url = process.env["SYNC_FAILURE_ALERT_DATABASE_URL"];

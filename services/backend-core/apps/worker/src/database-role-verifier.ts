@@ -287,6 +287,13 @@ const HELD_PRIVILEGES_SQL = `
      WHERE c.relkind IN ('r', 'p', 'v', 'm', 'f', 'S')
        AND n.nspname NOT IN ('pg_catalog', 'information_schema')
        AND n.nspname NOT LIKE 'pg_toast%'
+       -- A privilege in a schema the role cannot use is unreachable.
+       AND has_schema_privilege(current_user, n.oid, 'USAGE')
+       -- Extension objects (pg_stat_statements and the like grant SELECT to
+       -- PUBLIC) are not the application's tables.
+       AND NOT EXISTS (
+         SELECT 1 FROM pg_depend d
+          WHERE d.classid = 'pg_class'::regclass AND d.objid = c.oid AND d.deptype = 'e')
   )
   SELECT r.tbl, NULL::text AS col, p.priv
     FROM rels r CROSS JOIN privs p
