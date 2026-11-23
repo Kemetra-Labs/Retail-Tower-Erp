@@ -82,7 +82,9 @@ class TestRt419PayerPostingOnBench(unittest.TestCase):
 					"territory": frappe.db.get_value("Territory", {"is_group": 0}),
 					**extra,
 				}
-			).insert(ignore_permissions=True)
+			).insert(
+				ignore_permissions=True, set_name=name
+			)  # the exact name, whatever the site's naming mode
 
 	def _prepare_site(self) -> str:
 		company = self.company
@@ -267,17 +269,18 @@ class TestRt419PayerPostingOnBench(unittest.TestCase):
 
 	def test_an_unknown_disabled_or_frozen_payer_is_rejected_and_posts_nothing(self):
 		for n, payer in enumerate(("RT419 No Such Customer", DISABLED_PAYER, FROZEN_PAYER), start=3):
-			external_id = f"POS-RT419-BAD-{n}"
-			outcome, client = self._post(
-				self._work_item(
-					f"41900000-0000-4000-8000-00000000000{n}", external_id, payer=payer, credit="200.00"
+			with self.subTest(payer=payer):
+				external_id = f"POS-RT419-BAD-{n}"
+				outcome, client = self._post(
+					self._work_item(
+						f"41900000-0000-4000-8000-00000000000{n}", external_id, payer=payer, credit="200.00"
+					)
 				)
-			)
-			self.assertEqual(outcome, "permanently_rejected", client.acks)
-			self.assertEqual(client.acks[-1]["reason"]["category"], "validation")
-			self.assertIn("UnmappedPayer", client.acks[-1]["reason"]["message"])
-			self.assertFalse(
-				frappe.db.exists(
-					"Sales Invoice", {"rt_source_system": "pos-pulse", "rt_external_id": external_id}
+				self.assertEqual(outcome, "permanently_rejected", client.acks)
+				self.assertEqual(client.acks[-1]["reason"]["category"], "validation")
+				self.assertIn("UnmappedPayer", client.acks[-1]["reason"]["message"])
+				self.assertFalse(
+					frappe.db.exists(
+						"Sales Invoice", {"rt_source_system": "pos-pulse", "rt_external_id": external_id}
+					)
 				)
-			)

@@ -53,7 +53,8 @@ For a `sale_post` whose `Sale.responsibilities` names a payer:
    `PayerAccount.externalRef`), so the mapping is the **identity**: no map-row doctype and no Connector
    Settings field (the release stays `image-only`, RT-927). The store's Customer map is not read.
 2. **Fail closed.** A null, blank, unknown, disabled or frozen payer, or a link that names no Customer under
-   exactly that name, is `permanently_rejected` / `validation` for that item only (`UnmappedPayer`). There is
+   exactly that name, is `permanently_rejected` / `validation` for that item only (`UnmappedPayer`; read in the submit stage, where an invoice already
+   submitted under the same provenance is recovered instead of rejected). There is
    no fallback to the store's Customer or any default Customer, and no global pause (payers are not in the
    Compatibility Profile).
 3. **One payer per sale, one Sales Invoice per work item.** The contract caps `responsibilities` at
@@ -67,7 +68,8 @@ For a `sale_post` whose `Sale.responsibilities` names a payer:
    `posTotal`), else `validation` (`CoverageMismatch`). The Connector never adjusts a line or moves an amount
    between payers to force a match. Before submit, ERPNext's computed totals must show `paid_amount == Σ
    tenders`, `outstanding_amount == Σ responsibilities`, `grand_total` their sum, and no change or write-off
-   (`assert_partially_settled`); otherwise the insert is rolled back and the item is rejected.
+   (`assert_partially_settled`; a receivable account in another currency is refused rather than compared across
+   currencies); otherwise the insert is rolled back and the item is rejected.
 6. **Exactly-once is unchanged.** Posting Log plus the `unique_rt_si_provenance` index; the payer path adds no
    second document.
 7. **Replay.** An existing payer invoice is verified against its frozen debtor: the rebuild keeps the tenders

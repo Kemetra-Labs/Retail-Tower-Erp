@@ -741,7 +741,7 @@ def _build_sale_or_reject(
 			customer_for=customers.for_store,
 			posting_stamp=stamp,
 			mode_of_payment_for=tenders.resolve,
-			payer_customer_for=_payer_customer,
+			payer_customer_for=_NotCompared.payer,  # existence is read in the submit stage
 		)
 		return stamp, doc_payload
 
@@ -750,15 +750,23 @@ def _build_sale_or_reject(
 	)
 
 
-def _payer_customer(ref: str) -> str:
-	"""⏳ BENCH-VALIDATION. RT-419: the payer's ERPNext Customer for ``payerExternalRef`` (the link IS the name).
+def _assert_payer_postable(work_item: PostingWorkItem) -> None:
+	"""⏳ BENCH-VALIDATION. RT-419: the payer's Customer must exist under exactly that name, enabled and unfrozen.
 
-	Read inside the build (:func:`_build_sale_or_reject`), so a transient database error acks
-	``failed_transient``; a Customer that does not exist under exactly that name, or is disabled or frozen,
-	is :class:`UnmappedPayer` → ``validation`` for this item only (:func:`payer.resolve_payer_customer`).
+	``payerExternalRef`` IS the Customer name, so the pure build already carries it as the debtor
+	(:meth:`_NotCompared.payer`); this is the one ERPNext read. It runs in the submit stage, before insert
+	(:func:`_on_sale_company`), like the RT-434 warehouse check, so a transient read acks
+	``failed_transient`` and a failure is :class:`UnmappedPayer`, which :func:`_submit_or_reject` recovers
+	(an invoice already submitted under this provenance, e.g. a crash before the Posting Log row, then the
+	payer disabled) or rejects as ``validation`` for this item only. A sale without responsibilities reads
+	nothing.
 	"""
-	row = frappe.db.get_value("Customer", ref, ["name", "disabled", "is_frozen"], as_dict=True)
-	return resolve_payer_customer(ref, row)
+	if work_item.kind != "sale_post":
+		return
+	for responsibility in work_item.sale.responsibilities:
+		ref = responsibility.payer_external_ref  # the builder already refused a null or blank link
+		row = frappe.db.get_value("Customer", ref, ["name", "disabled", "is_frozen"], as_dict=True)
+		resolve_payer_customer(ref, row)
 
 
 def _on_sale_company(work_item: PostingWorkItem, doc_payload: dict) -> dict:
@@ -766,10 +774,12 @@ def _on_sale_company(work_item: PostingWorkItem, doc_payload: dict) -> dict:
 
 	Runs inside the submit stage (:func:`_submit_or_reject`), so a transient DB error is
 	failed_transient and a blank default is validation (SiteCompanyNotConfigured), before insert.
-	RT-434: a feed warehouseRef is checked against that company here, before insert.
+	RT-434: a feed warehouseRef is checked against that company here, before insert. RT-419: so is the
+	payer's Customer.
 	"""
 	company = _sale_company()
 	_assert_frozen_warehouse(work_item, company)
+	_assert_payer_postable(work_item)
 	return {**doc_payload, "company": company}
 
 
@@ -866,7 +876,8 @@ def _submit_or_reject(
 	reversal builder writes the reversal's work_item_ref into rt_external_id (#28 re-key), a reversal
 	does NOT collide with the original SI's slot.
 
-	FrozenWarehouseRejected and SiteCompanyNotConfigured are raised only by the sale's ``prepare``
+	FrozenWarehouseRejected, UnmappedPayer (the payer's Customer read) and SiteCompanyNotConfigured are
+	raised only by the sale's ``prepare``
 	(:func:`_on_sale_company`); on the reversal leg those clauses never match.
 	"""
 	try:
@@ -881,10 +892,12 @@ def _submit_or_reject(
 	except _transient_exceptions() as exc:
 		# T051 — transient (timeout/lock) → failed_transient; DP2 re-offers (no self-retry).
 		return _ack_transient(client, work_item, correlation_id, exc)
-	except FrozenWarehouseRejected as exc:
+	except (FrozenWarehouseRejected, UnmappedPayer) as exc:
 		# RT-434 — the feed warehouseRef is a group / other-company / missing Warehouse: nothing was
 		# inserted. An invoice already submitted under this provenance (a crash before record_posted,
 		# then the Warehouse changed) is recovered, never rejected; otherwise reject as validation.
+		# RT-419 — the same for a payer Customer that was disabled, frozen or removed since the invoice was
+		# submitted: ERPNext must not hold an invoice that Backend-Core is told was rejected.
 		return _recover_or_reject_unsupported(
 			work_item, key, exc, client=client, store=store, correlation_id=correlation_id
 		)
@@ -1260,7 +1273,11 @@ def _assert_settlement(sinv, doc_payload: dict, expected_outstanding: str | None
 	payments = doc_payload.get("payments")
 	if expected_outstanding is not None:
 		assert_partially_settled(
-			totals,
+			{
+				**totals,
+				"currency": sinv.get("currency"),
+				"party_account_currency": sinv.get("party_account_currency"),
+			},
 			expected_paid=payments_total(payments) if payments else "0",
 			expected_outstanding=expected_outstanding,
 		)

@@ -104,6 +104,10 @@ def _fake(customer=_OK_CUSTOMER, **kw):
 	return fake
 
 
+class _Doc(dict):
+	"""A stored Sales Invoice: a mapping with ``get``, like the Frappe document the glue reads."""
+
+
 def _reason(client):
 	return client.acks[0]["ack"]["reason"]
 
@@ -170,6 +174,37 @@ class TestFailsClosed:
 		assert outcome == "failed_transient"
 		assert client.acks[0]["ack"]["outcome"] == "failed_transient"
 		assert store.writes == []
+
+	def test_a_payer_disabled_after_the_invoice_was_submitted_recovers_it_instead_of_rejecting(
+		self, load_glue
+	):
+		# A crash after submit left no Posting Log row, then the payer was disabled: the re-offer must echo
+		# the submitted invoice (a rejection would leave ERPNext holding what Backend-Core is told was refused).
+		work_item = _work_item(responsibilities=_credit())
+		first = _fake()
+		assert _post(load_glue(first), work_item)[0] == "posted"
+		submitted = {**_erp_view(first.payloads[0]), "docstatus": 1}
+		submitted["items"] = [
+			{**row, "rt_line_ref": "aaaaaaaa-aaaa-4aaa-8aaa-aaaaaaaaaaaa"} for row in submitted["items"]
+		]
+
+		fake = _fake(customer={"name": _PAYER, "disabled": 1, "is_frozen": 0})
+		customer_lookup = fake.db.get_value
+
+		def get_value(doctype, filters, fields=None, **kw):
+			if doctype == "Sales Invoice":
+				return "ACC-SINV-RECOVER"
+			return customer_lookup(doctype, filters, fields, **kw)
+
+		fake.db.get_value = get_value
+		fake.get_doc = lambda *args: _Doc(submitted)
+		outcome, client, store = _post(load_glue(fake), work_item)
+		assert outcome == "posted", client.acks
+		assert client.acks[0]["ack"]["documentRef"]["name"] == "ACC-SINV-RECOVER"
+		assert fake.payloads == []  # nothing inserted
+		assert [ref.name for _key, ref in store.writes] == [
+			"ACC-SINV-RECOVER"
+		]  # the Posting Log is back-filled
 
 	def test_a_total_that_does_not_cover_the_lines_is_rejected_before_insert(self, load_glue):
 		fake = _fake()

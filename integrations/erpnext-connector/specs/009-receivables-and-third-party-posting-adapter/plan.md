@@ -23,10 +23,10 @@ The first plan (Payment Entry, claim and remittance posting behind a new 012 set
 | Concern | Where | Rule |
 |---|---|---|
 | Parse | `contracts.py` `SaleResponsibility`, `_parse_responsibilities` | absent = `()`; else exactly one strict entry; `null`, `[]`, a second payer, a non-positive amount or a bad `sequence` = `ValueError` (`validation`) |
-| Resolve payer | `payer.py` (pure), `frappe_glue._payer_customer` (the one read) | exact-name Customer, not disabled, not frozen; else `UnmappedPayer` (`validation`, that item only) |
+| Resolve payer | `payer.py` (pure), `frappe_glue._assert_payer_postable` (the one read, in the submit stage like the RT-434 warehouse check) | exact-name Customer, not disabled, not frozen; else `UnmappedPayer` (`validation`, that item only); an invoice already submitted under the provenance is recovered, never rejected |
 | Build | `builder.build_sales_invoice(payer_customer_for=...)` | a `sale_post` with responsibilities: debtor = payer, store map not read; no resolver = fail closed |
 | Coverage | `tender.build_payments(responsibility_amounts=...)`, `CoverageMismatch` | `Σ tenders + Σ responsibilities == Σ lines`, also for a full-credit sale |
-| Settlement check | `tender.assert_partially_settled`, `frappe_glue._assert_settlement` | paid == Σ tenders, outstanding == Σ responsibilities, grand total their sum, no change or write-off |
+| Settlement check | `tender.assert_partially_settled`, `frappe_glue._assert_settlement` | paid == Σ tenders, outstanding == Σ responsibilities, grand total their sum, no change or write-off; a receivable account in another currency is refused, not compared |
 | Replay | `frappe_glue._replay_expected`, `representation_check.replay_exemptions` | payer sales keep tenders and compare `customer`; no Customer read |
 | Reversal | `reversal_policy.assert_reversal_supported` | refused when the sale has responsibilities |
 | Exactly-once | Posting Log, `unique_rt_si_provenance` | unchanged |

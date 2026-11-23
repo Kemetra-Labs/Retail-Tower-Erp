@@ -211,6 +211,7 @@ def assert_partially_settled(
 	``grand_total`` their exact sum and no change or write-off. So rounding to the currency precision, an
 	ERPNext write-off or a dropped payment row cannot post a different split than the feed asked for.
 	"""
+	_assert_party_currency(totals)
 	values = {f: Decimal(str(totals.get(f) or 0)) for f in SETTLED_FIELDS}
 	paid, outstanding = Decimal(expected_paid), Decimal(expected_outstanding)
 	_assert_requested_total(values["grand_total"], str(paid + outstanding))
@@ -221,6 +222,24 @@ def assert_partially_settled(
 			f"{values['paid_amount']} (requested {paid}), outstanding_amount {values['outstanding_amount']} "
 			f"(requested {outstanding}), residual {residual or 'none'} — rolled back, rejected as "
 			"validation (RT-419)"
+		)
+
+
+def _assert_party_currency(totals: Mapping[str, object]) -> None:
+	"""``outstanding_amount`` is held in the receivable account's currency, the rest in the invoice's.
+
+	With "Allow multi-currency invoices against single party account" ERPNext can book an invoice in a
+	currency other than its party account's, and then ``outstanding_amount`` is not comparable with the
+	invoice-currency share the connector requested. The connector converts nothing (no exchange-rate
+	decision belongs here), so that case is refused as drift instead of being compared across currencies.
+	Absent keys (a document that carries neither) are not checked.
+	"""
+	currency, party_currency = totals.get("currency"), totals.get("party_account_currency")
+	if currency and party_currency and currency != party_currency:
+		raise SettlementDrift(
+			f"the invoice currency {currency} differs from its receivable account currency {party_currency}: "
+			"the payer's outstanding amount cannot be verified without a conversion the connector does not "
+			"make — rolled back, rejected as validation (RT-419)"
 		)
 
 

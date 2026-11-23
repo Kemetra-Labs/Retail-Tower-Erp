@@ -17,7 +17,7 @@ Paths are relative to `integrations/erpnext-connector/retail_tower_erpnext_conne
 - [x] **T001** Parse `Sale.responsibilities` strictly: exactly one entry, positive exact-decimal amount,
   `sequence >= 1`; `null`, `[]` and a second payer are errors (`connector/posting/contracts.py`).
 - [x] **T002** Resolve the payer: the link is the Customer name; exact name, not disabled, not frozen, else
-  `UnmappedPayer` (`connector/posting/payer.py`, `errors.py`, glue read `_payer_customer`).
+  `UnmappedPayer` (`connector/posting/payer.py`, `errors.py`, glue read `_assert_payer_postable`, which recovers an already-submitted invoice instead of rejecting it).
 - [x] **T003** Builder: a `sale_post` with responsibilities debits the payer's Customer, never the store's
   (`connector/posting/builder.py`).
 - [x] **T004** Coverage: `Σ tenders + Σ responsibilities == Σ lines`, also for a full-credit sale
@@ -28,7 +28,7 @@ Paths are relative to `integrations/erpnext-connector/retail_tower_erpnext_conne
   (`frappe_glue._replay_expected`, `representation_check.replay_exemptions`).
 - [x] **T007** Refuse a reversal of a payer-bearing sale (`connector/posting/reversal_policy.py`).
 - [x] **T008** Unit tests `tests/posting/test_payer_posting.py` and `test_payer_posting_glue.py`.
-- [ ] **T009** (written; proven only by a green CI run, RT-419 comment) Bench evidence `tests/test_rt419_payer_posting_db.py` (CI job `connector/bench`, ERPNext v16).
+- [x] **T009** Bench evidence (green `connector/bench` run 45091859797 for the first head; see the RT-419 comment) `tests/test_rt419_payer_posting_db.py` (CI job `connector/bench`, ERPNext v16).
 - [x] **T010** Re-scope this spec folder.
 
 ## Phase 2: Owner rollout (not part of RT-419)

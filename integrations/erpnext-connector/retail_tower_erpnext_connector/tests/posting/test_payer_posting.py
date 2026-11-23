@@ -327,6 +327,22 @@ class TestPartialSettlement:
 				{**self._OK, **drift}, expected_paid="50.00", expected_outstanding="150.00"
 			)
 
+	def test_a_receivable_account_in_another_currency_is_refused_not_compared(self):
+		# outstanding_amount is in the party account's currency: 7500 EGP is not 150 USD, and the
+		# connector converts nothing.
+		totals = {
+			**self._OK,
+			"outstanding_amount": 7500.0,
+			"currency": "USD",
+			"party_account_currency": "EGP",
+		}
+		with pytest.raises(t.SettlementDrift, match="receivable account currency"):
+			t.assert_partially_settled(totals, expected_paid="50.00", expected_outstanding="150.00")
+
+	def test_the_same_currency_on_both_passes(self):
+		totals = {**self._OK, "currency": "EGP", "party_account_currency": "EGP"}
+		t.assert_partially_settled(totals, expected_paid="50.00", expected_outstanding="150.00")
+
 
 def _void_of(*, with_responsibilities: bool):
 	sale = {
