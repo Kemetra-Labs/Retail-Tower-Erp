@@ -55,8 +55,10 @@ TRACKING_MODES: frozenset[str] = frozenset({"none", "batch", "serial"})
 # accepts a trailing "\n" while the contract's ECMA `$` does not, so they end in `\Z` (RT-875, RT-915)
 # and are applied with fullmatch.
 _NON_NEGATIVE_DECIMAL_RE = re.compile(r"^\d{1,15}(\.\d{1,4})?\Z", re.ASCII)
-# 012 PositiveDecimalAmount (RT-417): strictly positive, so "0", "0.00" and "000.0" are refused.
-_POSITIVE_DECIMAL_RE = re.compile(r"^(?!0+(?:\.0+)?\Z)\d{1,15}(\.\d{1,4})?\Z", re.ASCII)
+# 012 PositiveDecimalAmount (RT-417): strictly positive, so "0", "0.00" and "000.0" are refused. The `$` in
+# the lookahead is the contract's own text (contracts/check compares it); the closing `\Z` still refuses a
+# trailing newline, so "0\n" and "5\n" never match.
+_POSITIVE_DECIMAL_RE = re.compile(r"^(?!0+(?:\.0+)?$)\d{1,15}(\.\d{1,4})?\Z", re.ASCII)
 _TENDER_REFERENCE_RE = re.compile(r"^[A-Z0-9]{1,6}\Z")
 # 012 SaleTender.tenderRef (`format: uuid`, RT-359): the canonical hyphenated 8-4-4-4-12 form only.
 # uuid.UUID() would also take braces, a urn:uuid: prefix or no hyphens.

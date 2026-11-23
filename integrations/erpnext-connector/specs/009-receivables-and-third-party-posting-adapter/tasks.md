@@ -28,7 +28,7 @@ Paths are relative to `integrations/erpnext-connector/retail_tower_erpnext_conne
   (`frappe_glue._replay_expected`, `representation_check.replay_exemptions`).
 - [x] **T007** Refuse a reversal of a payer-bearing sale (`connector/posting/reversal_policy.py`).
 - [x] **T008** Unit tests `tests/posting/test_payer_posting.py` and `test_payer_posting_glue.py`.
-- [x] **T009** Bench evidence `tests/test_rt419_payer_posting_db.py` (CI job `connector/bench`, ERPNext v16).
+- [ ] **T009** (written; proven only by a green CI run, RT-419 comment) Bench evidence `tests/test_rt419_payer_posting_db.py` (CI job `connector/bench`, ERPNext v16).
 - [x] **T010** Re-scope this spec folder.
 
 ## Phase 2: Owner rollout (not part of RT-419)

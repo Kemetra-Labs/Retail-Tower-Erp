@@ -51,6 +51,7 @@ connector:
       TENDER_METHODS: SaleTender/properties/method
     patterns:
       _NON_NEGATIVE_DECIMAL_RE: NonNegativeDecimalAmount
+      _POSITIVE_DECIMAL_RE: PositiveDecimalAmount
       _TENDER_REFERENCE_RE: SaleTender/properties/reference
       _RETURN_QUANTITY_RE: ReturnLine/properties/quantity
     local:

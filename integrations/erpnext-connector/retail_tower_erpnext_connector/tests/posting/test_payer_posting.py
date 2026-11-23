@@ -127,6 +127,8 @@ class TestParsing:
 			[_resp("0")],
 			[_resp("-1.00")],
 			[_resp("1.23456")],
+			[_resp("5.00\n")],  # a trailing newline never matches (ECMA `$` does not accept it)
+			[_resp("0.00\n")],
 			[_resp(200)],  # a number, never a float on the wire
 			[_resp(sequence=0)],
 			[_resp(sequence=True)],
