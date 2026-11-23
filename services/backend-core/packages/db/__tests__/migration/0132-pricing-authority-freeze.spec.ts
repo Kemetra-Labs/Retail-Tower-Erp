@@ -343,7 +343,10 @@ describe("0132_pricing_authority_freeze — RLS matrix", () => {
         expect(await asApp(e, TENANT_B, (c) => errorCode(() => c.query(runInsert(TENANT_A))))).toBe("42501");
         // Run rows are never deleted, whatever the role.
         expect(await inRolledBackTx(e.admin, (c) => errorCode(() => c.query(`DELETE FROM ${table}`)))).toBe("42501");
-        expect(await inRolledBackTx(e.admin, (c) => errorCode(() => c.query(`TRUNCATE ${table}`)))).toBe("42501");
+        // tenant_pricing_authority references pricing_cutover_runs, so a lone TRUNCATE of it stops
+        // at the FK check (0A000); truncating both reaches the no-delete trigger.
+        const truncated = table === "pricing_cutover_runs" ? `${table}, tenant_pricing_authority` : table;
+        expect(await inRolledBackTx(e.admin, (c) => errorCode(() => c.query(`TRUNCATE ${truncated}`)))).toBe("42501");
       }
     } finally {
       if (table !== "tenant_pricing_authority") await clearRuns();
