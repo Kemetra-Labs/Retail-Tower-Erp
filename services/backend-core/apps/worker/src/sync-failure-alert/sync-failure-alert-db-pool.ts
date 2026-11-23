@@ -18,7 +18,7 @@
 import { Injectable } from "@nestjs/common";
 import type { Pool } from "pg";
 
-import { DedicatedDbPool } from "../dedicated-db-pool";
+import { DedicatedDbPool } from "../common/dedicated-db-pool";
 import { InstrumentedPool } from "../observability/instrumented-pool";
 import { resolveSyncFailureAlertEnabled } from "./sync-failure-alert.config";
 
