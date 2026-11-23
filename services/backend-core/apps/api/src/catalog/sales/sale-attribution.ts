@@ -56,16 +56,22 @@ export const NO_ATTRIBUTION: SaleAttribution = { lineSellers: [], tenderReceiver
 export function splitSaleAttribution<B extends Pick<CaptureSaleRequestDto, "lines" | "tenders">>(
   body: B,
 ): { readonly body: B; readonly attribution: SaleAttribution } {
+  // The capture pipe guarantees arrays; a caller that skipped it (a unit test driving the controller with
+  // marker values) gets a non-array back unchanged, as `saleFactsOf` does for a quarantined body.
   const lineSellers: Array<string | null> = [];
-  const lines = body.lines.map(({ sellerUserId, ...line }) => {
-    lineSellers.push(sellerUserId ?? null);
-    return line;
-  });
+  const lines = Array.isArray(body.lines)
+    ? body.lines.map(({ sellerUserId, ...line }) => {
+        lineSellers.push(sellerUserId ?? null);
+        return line;
+      })
+    : body.lines;
   const tenderReceivers: Array<string | null> = [];
-  const tenders = body.tenders?.map(({ receivedByUserId, ...tender }) => {
-    tenderReceivers.push(receivedByUserId ?? null);
-    return tender;
-  });
+  const tenders = Array.isArray(body.tenders)
+    ? body.tenders.map(({ receivedByUserId, ...tender }) => {
+        tenderReceivers.push(receivedByUserId ?? null);
+        return tender;
+      })
+    : body.tenders;
   const stripped = { ...body, lines, ...(tenders === undefined ? {} : { tenders }) } as B;
   return { body: stripped, attribution: { lineSellers, tenderReceivers } };
 }

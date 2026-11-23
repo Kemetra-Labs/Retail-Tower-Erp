@@ -286,7 +286,7 @@ describe("RT-1565 — refusals (422 sale_seller_refused, nothing recorded)", () 
     const externalId = `rt1565-refuse-s-${seller.slice(-2)}`;
     const res = await post(captureBody({ externalId, lines: linesWithSellers(SELLER_ALL, seller) }), externalId);
     expect(res.status).toBe(422);
-    expect(res.body.code).toBe("sale_seller_refused");
+    expect(res.body.error?.code ?? res.body.code).toBe("sale_seller_refused");
     expect(await saleCount(externalId)).toBe(0);
   });
 
@@ -301,7 +301,7 @@ describe("RT-1565 — refusals (422 sale_seller_refused, nothing recorded)", () 
       externalId,
     );
     expect(res.status).toBe(422);
-    expect(res.body.code).toBe("sale_seller_refused");
+    expect(res.body.error?.code ?? res.body.code).toBe("sale_seller_refused");
     expect(await saleCount(externalId)).toBe(0);
   });
 });
@@ -345,7 +345,7 @@ describe("RT-1565 — not hashed: a retry replays the first capture", () => {
       "rt1565samekey",
     );
     expect(changed.status).toBe(409);
-    expect(changed.body.code).toBe("idempotency_key_conflict");
+    expect(changed.body.error?.code ?? changed.body.code).toBe("idempotency_key_conflict");
     expect((await storedLines("rt1565-samekey"))[0]!.u).toBe(SELLER_ALL);
   });
 

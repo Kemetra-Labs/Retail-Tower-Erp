@@ -26,6 +26,7 @@ import {
   splitSaleAttribution,
 } from "../../../../src/catalog/sales/sale-attribution";
 import { SaleSellerRefusedError } from "../../../../src/catalog/sales/sale-errors";
+import { saleFactsDigest, saleFactsOf } from "../../../../src/catalog/sales/quarantine/quarantine-facts";
 
 // The two module ports are mocked: this spec covers the orchestration, the db-integration spec the SQL.
 jest.mock("../../../../src/memberships", () => ({ attributableMembersAt: jest.fn() }));
@@ -190,5 +191,22 @@ describe("RT-1565 — resolveSaleAttribution", () => {
     await expect(
       resolveSaleAttribution(CLIENT, SALE, { lineSellers: [SELLER_1], tenderReceivers: [] }),
     ).rejects.toBeInstanceOf(SaleSellerRefusedError);
+  });
+});
+
+describe("RT-1565 — the quarantine same-facts digest matches the capture hash", () => {
+  it("ignores each line's seller and each tender's receiver, like captureSale", () => {
+    const plain = body({ tenders: [{ method: "cash", amount: "10" }] });
+    const named = body({
+      lines: [line("A", { sellerUserId: SELLER_1 }), line("B")],
+      tenders: [{ method: "cash", amount: "10", receivedByUserId: RECEIVER }],
+    });
+    expect(saleFactsDigest(named)).toBe(saleFactsDigest(plain));
+    expect(saleFactsDigest(named)).toBe(sha256CanonicalHex(splitSaleAttribution(parse(named)).body));
+  });
+
+  it("leaves malformed entries as they are (a quarantined body is arbitrary JSON)", () => {
+    const odd = body({ lines: ["x", null, [1]], tenders: "none" });
+    expect(saleFactsOf(odd)).toEqual(odd);
   });
 });
