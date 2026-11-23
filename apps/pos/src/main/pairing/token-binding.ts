@@ -20,6 +20,11 @@
  * and stays usable until the next pairing replaces it, so an upgrade locks no
  * terminal out. A prefixed value that does not parse is `malformed`.
  *
+ * RT-373: the envelope may also carry `expires_at`, the credential's expiry
+ * from the pair or rotate response, so the token and its expiry are one atomic
+ * write. Optional within version 1: an envelope sealed before RT-373, or by a
+ * server that sent no expiry, opens with no `expiresAt` (unknown).
+ *
  * Security: the sealed value holds the token. Nothing here logs, and an
  * unreadable value is reported as `malformed` without its content.
  */
@@ -33,7 +38,13 @@ export interface PairingBinding {
 }
 
 export type OpenedDeviceToken =
-  | { kind: 'bound'; token: string; binding: PairingBinding }
+  | {
+      kind: 'bound';
+      token: string;
+      binding: PairingBinding;
+      /** RT-373: the sealed credential expiry; absent when unknown. */
+      expiresAt?: string;
+    }
   | { kind: 'legacy'; token: string }
   | { kind: 'malformed' };
 
@@ -56,9 +67,18 @@ export function bindingOf(row: PairingBinding): PairingBinding {
  * fails as it did when the SecretStore refused the raw empty value (Codex P2
  * on #582). The error never carries the token.
  */
-export function sealDeviceToken(token: string, binding: PairingBinding): string {
+export function sealDeviceToken(
+  token: string,
+  binding: PairingBinding,
+  expiresAt: string | null = null,
+): string {
   if (!isNonEmptyString(token)) throw new Error('device token must be a non-empty string');
-  const envelope = { v: SEALED_VERSION, token, binding: bindingOf(binding) };
+  const envelope = {
+    v: SEALED_VERSION,
+    token,
+    binding: bindingOf(binding),
+    ...(expiresAt === null ? {} : { expires_at: expiresAt }),
+  };
   return `${SEALED_DEVICE_TOKEN_PREFIX}${JSON.stringify(envelope)}`;
 }
 
@@ -84,6 +104,12 @@ interface SealedEnvelope {
   v: typeof SEALED_VERSION;
   token: string;
   binding: PairingBinding;
+  expires_at?: unknown;
+}
+
+/** RT-373: a readable instant, else unknown (`null`); never throws. */
+function expiryOf(value: unknown): string | null {
+  return isNonEmptyString(value) && !Number.isNaN(Date.parse(value)) ? value : null;
 }
 
 function isSealedEnvelope(value: unknown): value is SealedEnvelope {
@@ -109,7 +135,13 @@ export function openDeviceToken(sealed: string): OpenedDeviceToken {
   if (!sealed.startsWith(SEALED_DEVICE_TOKEN_PREFIX)) return { kind: 'legacy', token: sealed };
   const parsed = parseJson(sealed.slice(SEALED_DEVICE_TOKEN_PREFIX.length));
   if (!isSealedEnvelope(parsed)) return { kind: 'malformed' };
-  return { kind: 'bound', token: parsed.token, binding: bindingOf(parsed.binding) };
+  const expiresAt = expiryOf(parsed.expires_at);
+  return {
+    kind: 'bound',
+    token: parsed.token,
+    binding: bindingOf(parsed.binding),
+    ...(expiresAt === null ? {} : { expiresAt }),
+  };
 }
 
 export function sameBinding(a: PairingBinding, b: PairingBinding): boolean {

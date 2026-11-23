@@ -63,6 +63,9 @@ const STOP_ORDER = [
   // RT-1312 — the device heartbeat (start, 15 min, queue change). Its sale-queue
   // poll reads the sync state, so it stops with the sync workers, before the DB closes.
   'device heartbeat',
+  // RT-373 — the device token rotation (start, hourly, a due RT-639 hint). It writes
+  // the sealed token to the secrets table, so it stops before the DB closes.
+  'device token rotation',
   // RT-603 — the terminal status push (1 s refresh). Its sync read uses the DB,
   // so it stops with the sale-sync drain it reads, before the DB closes.
   'terminal status push',

@@ -867,3 +867,32 @@ export function isRt1498CloseRepinExemptFile(branch: string, file: string): bool
     (RT_1498_CLOSE_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * `rt-373-device-token-rotation` implements Jira RT-373 (RT-287 F12 / RT-138 L4): the POS device token
+ * rotation client. Its owner-authored scope says to "persist `expires_at` from the pair and rotate
+ * responses beside the sealed device token (RT-306 binding preserved)", which is pairing territory:
+ * `token-binding.ts` (the sealed envelope carries the expiry), `store.ts` (read the credential for a
+ * rotation and swap the rotated token in under the same binding) and `service.ts` (pass the pair
+ * response's `expires_at` to the store). The rotation client itself lives outside, in
+ * `src/main/device-token-rotation/`.
+ *
+ * Authority: the RT-373 Jira scope (Implementation), executed at the owner's instruction in chat
+ * (2026-11-23). Exactly THREE files on exactly ONE branch (exact name, no `startsWith`); every other
+ * pairing file and every other forbidden prefix stays blocked. Narrowness is asserted by
+ * `source-scope-guard-rt373.test.ts`.
+ */
+export const RT_373_DEVICE_TOKEN_ROTATION_BRANCH = 'rt-373-device-token-rotation' as const;
+export const RT_373_DEVICE_TOKEN_ROTATION_EXEMPT_FILES = [
+  'src/main/pairing/service.ts',
+  'src/main/pairing/store.ts',
+  'src/main/pairing/token-binding.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is one of the files the RT-373 exemption allows on `branch`. */
+export function isRt373ExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_373_DEVICE_TOKEN_ROTATION_BRANCH &&
+    (RT_373_DEVICE_TOKEN_ROTATION_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

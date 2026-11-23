@@ -80,6 +80,7 @@ import { resolveApiBaseUrl, resolveAuthExchanger, resolveMigrationsDir } from '.
 import { assessRuntimeConfig, initBakedLaneConfig } from './config/lane-config.js';
 import { registerBranding } from './bootstrap/branding.js';
 import { registerDeviceHeartbeat } from './bootstrap/device-heartbeat.js';
+import { registerDeviceTokenRotation } from './bootstrap/device-token-rotation.js';
 import { registerCatalogue } from './bootstrap/catalogue.js';
 import { registerCart, registerPayments } from './bootstrap/payments-cart.js';
 import { registerReturns, returnResolveApprovalResolvers } from './bootstrap/returns.js';
@@ -686,17 +687,10 @@ singleInstanceReady
       },
       logger: mainLogger,
     });
-    // RT-601 (VN-S6 S6-1a) — the connection monitor's passive feeder. Every
-    // Backend-Core device and operator fetch below is built on `backendFetch`,
-    // which only OBSERVES the transport outcome (an HTTP status or a fault) and
-    // passes request and response through untouched. Transitions are logged as
-    // `{ from, to }`. Bridged by RT-603 (S6-2) below.
-    // RT-602 (VN-S6 S6-1b) — the active feeder: a credential-free GET of
-    // Backend-Core's public liveness endpoint, only while the passive feeder is
-    // idle (§2.5 cadence). It uses the UNOBSERVED fetch: the probe reports its
-    // own outcome and must not count as passive traffic. `powerMonitor` resume
-    // → checking; a `net.isOnline()` drop → offline. The worker's stop ends the
-    // probe and removes the resume listener.
+    // RT-601 (S6-1a) — the passive feeder: every Backend-Core fetch below is built on
+    // `backendFetch`, which only OBSERVES the outcome (status or fault), untouched.
+    // RT-602 (S6-1b) — the active feeder: a credential-free liveness GET while the passive
+    // one is idle, on the UNOBSERVED fetch; resume → checking, `net.isOnline()` drop → offline.
     const terminalStatus = composeTerminalStatus({
       logger: mainLogger,
       probe: {
@@ -746,7 +740,14 @@ singleInstanceReady
     registerTerminalStatusHandlers(guardedIpcMain, {
       read: () => terminalStatusPublisher.read(),
     });
-    const backendFetch = terminalStatus.observeFetch(backendBaseFetch);
+    const deviceTokenRotation = registerDeviceTokenRotation({
+      baseUrl: apiBaseUrl,
+      fetch: terminalStatus.observeFetch(backendBaseFetch),
+      store: pairingStore,
+      workerRegistry,
+      logger: mainLogger,
+    });
+    const backendFetch = deviceTokenRotation.fetch; // RT-373: also reads the RT-639 rotate-soon hint
     const operatorBackend = createBackendClient({
       baseUrl: apiBaseUrl,
       fetch: backendFetch,
@@ -773,21 +774,20 @@ singleInstanceReady
       sessionAdmission,
       logger: mainLogger,
     });
-    // RT-215 — the ONE device-401 detector. Every device-bearer client below
-    // (cashier admissions: sign-in, takeover, heartbeat, roster, end; the
-    // catalogue read-down) is built on its observed fetch. Revocation needs two
-    // consecutive device 401s, the second from a roster call min(30 s, TTL/2)
-    // later on an UNOBSERVED client; a device-bearer 2xx in between resets it.
-    // Operator-credential routes are ignored. (This replaces the RT-113 P2
-    // immediate cascade on a single 401.)
+    // RT-215 — the ONE device-401 detector; every device-bearer client below is built on its
+    // observed fetch. Revocation needs two consecutive device 401s, the second from a roster
+    // call min(30 s, TTL/2) later on an UNOBSERVED client; a device 2xx in between resets it.
     const deviceGrantHooks = deviceRevocationGrantHooks(offlineGrants);
     const deviceAuthDetector = createDeviceAuthDetector({
-      probe: createRosterConfirmationProbe(
-        createCashierAdmissionClient({
-          baseUrl: apiBaseUrl,
-          fetch: backendFetch,
-          getDeviceToken: readSendableDeviceToken,
-        }),
+      // RT-373: in the rotate-only grace the confirmation rotates first (an expiry is not a revocation).
+      probe: deviceTokenRotation.recoveryFirst(
+        createRosterConfirmationProbe(
+          createCashierAdmissionClient({
+            baseUrl: apiBaseUrl,
+            fetch: backendFetch,
+            getDeviceToken: readSendableDeviceToken,
+          }),
+        ),
       ),
       confirmDelayMs: () =>
         deviceAuthConfirmDelayMs(operatorSessionManager.getCurrent()?.admission_ttl_seconds),
