@@ -283,3 +283,21 @@ describe('v5 Sale polish — CTA label size', () => {
     expect(rule?.[1]).toMatch(/font-size:\s*inherit/);
   });
 });
+
+// RT-1177: DESIGN.md "The Twelve-Pixel Rule": the Rx and controlled-substance flags are read on
+// every flagged line, so they sit at the 12px meta token, never the 11px keyboard-hint token.
+describe('v5 Sale polish — product flags read at 12px', () => {
+  const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+  const rule = /\.v5-live-flag\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+
+  it('sizes the flags with the meta token, never the 11px keyboard-hint token', () => {
+    expect(rule, 'the .v5-live-flag rule').not.toBe('');
+    expect(rule).toMatch(/font-size:\s*var\(--type-meta\)/);
+    expect(rule).not.toMatch(/--font-size-2xs/);
+  });
+
+  it('keeps the flag weight and padding, so only the text size changes', () => {
+    expect(rule).toMatch(/font-weight:\s*var\(--font-weight-semibold\)/);
+    expect(rule).toMatch(/padding:\s*2px var\(--space-2\)/);
+  });
+});
