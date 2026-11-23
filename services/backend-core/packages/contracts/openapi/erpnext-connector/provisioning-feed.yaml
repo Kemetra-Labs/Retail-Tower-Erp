@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core — ERP Provisioning Feed and Provisioner Credential API
-  version: "1.0.0-draft"
+  version: "1.1.0-draft"
   description: >
     Jira RT-1356 (Epic RT-1332; RT-1352 breakdown item PB-A). The contract
     between Backend-Core and the Connector's tenant provisioner: the feed the
@@ -165,7 +165,23 @@ info:
     stops provisioning and never posting.
 
 
-    **Auth and scope.** The three platform routes accept the HUMAN `cookieAuth`
+    **Adopt an existing registration (platform admin, session only).** Version
+    1.1.0-draft (Jira RT-1557, RT-1433 slice S1) adds one additive operation,
+    `platformAdoptConnectorRegistration`: it sets `managed_by` = `provisioner`
+    on ONE existing connector registration, so a registration that was made by
+    hand (the lab registration) can be managed by the provisioner without
+    re-provisioning its site. The tenant is in the path because the registration
+    table is tenant-scoped and a platform admin acts on any tenant. It is
+    dormant: nothing calls it until the provisioner's rotation (RT-1360,
+    RT-1362) is live, and running it on a live registration is an owner step,
+    because adoption alone only stops tenant admins from rotating, revoking or
+    disabling that registration by hand. It never issues, rotates or revokes a
+    credential and never touches the site. It is reversible by setting
+    `managed_by` back to NULL; there is no un-adopt operation. No existing
+    operation changes.
+
+
+    **Auth and scope.** The four platform routes accept the HUMAN `cookieAuth`
     session only (`SessionOnlyAdminGuard`): a bearer-only request is `401`; a
     cookie write without a trusted `Origin` is `403 origin_rejected` (RT-430); a
     caller who is not a platform admin (`users.is_platform_admin`) is `403
@@ -207,6 +223,10 @@ tags:
     description: >
       Platform-admin issue, rotate and revoke of the provisioner credential, one
       per ERP host.
+  - name: erpnext-registration-adoption
+    description: >
+      Platform-admin adoption of one existing connector registration as
+      provisioner-managed.
 
 paths:
   /api/connector/v1/erpnext/provisioning/requests:
@@ -692,6 +712,88 @@ paths:
         "500":
           $ref: "#/components/responses/SystemFailure"
 
+  /api/v1/platform/tenants/{tenant_id}/connector-instances/{id}/adopt:
+    post:
+      summary: Adopt an existing connector registration as provisioner-managed (platform admin).
+      operationId: platformAdoptConnectorRegistration
+      tags: [erpnext-registration-adoption]
+      security:
+        - cookieAuth: []
+      description: >
+        Sets `managed_by` = `provisioner` on the connector registration `{id}` of
+        tenant `{tenant_id}`, in one transaction that locks the row, decides,
+        writes and records one audit row `connector.registration.adopted`
+        (acting platform admin, tenant, registration id and the request id; ids
+        and labels only, no secret). The tenant is in the path because the
+        registration is tenant-scoped; a registration that does not belong to
+        `{tenant_id}`, and a tenant that does not exist, are the same
+        non-disclosing `404 not_found`.
+          - A registration that is not managed (`managed_by` is null) and is not
+            disabled becomes managed: `200` with `outcome: adopted`.
+          - A repeat by the SAME platform admin for a registration this
+            operation already adopted changes nothing and writes no second
+            audit row: `200` with `outcome: already_adopted`.
+          - A disabled registration is refused: `409 registration_disabled`.
+          - A registration that is already managed, and was not adopted by this
+            caller through this operation (it was provisioned, or another admin
+            adopted it), is refused: `409 already_managed`.
+        Refusals change nothing. After adoption, an owner or tenant admin can no
+        longer rotate, revoke, re-issue or disable the registration (the same
+        non-disclosing `404` as for any managed registration); a platform admin
+        still can. The operation never issues, rotates or revokes a credential
+        and never contacts the ERP site. A platform admin only
+        (`users.is_platform_admin`), session only. No request body.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/ConnectorInstanceId"
+      responses:
+        "200":
+          description: >
+            The registration is managed by the provisioner (adopted now, or a
+            repeat by the same admin).
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AdoptedConnectorRegistration"
+              examples:
+                adopted:
+                  value:
+                    outcome: adopted
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    managedBy: provisioner
+                    environment: pilot
+                    erpnextSiteRef: lab.localhost
+                alreadyAdopted:
+                  value:
+                    outcome: already_adopted
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    managedBy: provisioner
+                    environment: pilot
+                    erpnextSiteRef: lab.localhost
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/AdoptRefused"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
 components:
   securitySchemes:
     connectorProvisionerBearer:
@@ -754,6 +856,22 @@ components:
       description: >
         The ERP host label the credential was issued for. One live credential
         exists per label.
+    TenantId:
+      name: tenant_id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The tenant that owns the connector registration.
+    ConnectorInstanceId:
+      name: id
+      in: path
+      required: true
+      schema:
+        type: string
+        format: uuid
+      description: The connector registration (instance) id.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1246,6 +1364,64 @@ components:
           type: string
           format: date-time
 
+    AdoptedConnectorRegistration:
+      type: object
+      additionalProperties: false
+      required: [outcome, tenantId, instanceId, managedBy, environment, erpnextSiteRef]
+      description: >
+        The state of the registration after `platformAdoptConnectorRegistration`.
+        An explicit projection, never a database row: no credential, no secret.
+      properties:
+        outcome:
+          type: string
+          enum: [adopted, already_adopted]
+          description: >
+            `adopted`: this call set `managed_by`. `already_adopted`: a repeat by
+            the same admin; nothing changed and no audit row was written.
+        tenantId:
+          type: string
+          format: uuid
+        instanceId:
+          type: string
+          format: uuid
+        managedBy:
+          type: string
+          enum: [provisioner]
+        environment:
+          type: string
+          enum: [dev, staging, pilot, prod]
+        erpnextSiteRef:
+          type: string
+          minLength: 1
+          maxLength: 255
+
+    AdoptRefusedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        The 409 envelope of `platformAdoptConnectorRegistration`. Same shape as
+        `Error`, with its own closed code set so the shared `Error` enum does
+        not change.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [registration_disabled, already_managed]
+              description: >
+                `registration_disabled`: the registration is disabled.
+                `already_managed`: it is managed and was not adopted by this
+                caller through this operation.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+
     Error:
       type: object
       required: [error]
@@ -1409,6 +1585,15 @@ components:
                     properties:
                       code:
                         const: conflict
+    AdoptRefused:
+      description: >
+        `registration_disabled` (409): the registration is disabled.
+        `already_managed` (409): it is already managed and was not adopted by
+        this caller through this operation. Deterministic, nothing is changed.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/AdoptRefusedError"
     TooManyRequests:
       description: >
         429 `rate_limited` (RT-574): the caller's per-user budget for this class

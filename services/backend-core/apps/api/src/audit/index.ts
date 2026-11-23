@@ -6,6 +6,11 @@
  * recorded.
  */
 export { Auditable, annotateAudit } from "./auditable.decorator";
+/**
+ * RT-1557: the guard of a platform-admin route (`users.is_platform_admin`, read from the database),
+ * run after `SessionOnlyAdminGuard`. A host module lists it in `providers` and imports `ContextModule`.
+ */
+export { PlatformAdminGuard } from "./platform-admin.guard";
 export { insertAuditRowInTransaction, insertAuditRowsInTransaction, readLatestAuditMetadataWithKey } from "./audit-row.writer";
 export type { TransactionalAuditRow } from "./audit-row.writer";
 /**

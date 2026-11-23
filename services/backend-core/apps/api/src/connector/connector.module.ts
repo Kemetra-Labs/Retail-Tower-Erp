@@ -23,16 +23,21 @@
  */
 import { Module } from "@nestjs/common";
 
+import { PlatformAdminGuard } from "../audit";
 import { AuditModule } from "../audit/audit.module";
 import { AuthModule } from "../auth/auth.module";
 import { ContextModule } from "../context/context.module";
+import { ConnectorAdoptionController } from "./connector-adoption.controller";
+import { ConnectorAdoptionService } from "./connector-adoption.service";
 import { ConnectorRegistrationController } from "./connector-registration.controller";
 import { ConnectorRegistrationService } from "./connector-registration.service";
 
+// RT-1557: `ConnectorAdoptionController` is the platform-admin adopt route (path tenant, not behind
+// `TenantContextGuard`); `PlatformAdminGuard` needs `MembershipRepository` from `ContextModule`.
 @Module({
   imports: [AuthModule, AuditModule, ContextModule],
-  controllers: [ConnectorRegistrationController],
-  providers: [ConnectorRegistrationService],
+  controllers: [ConnectorRegistrationController, ConnectorAdoptionController],
+  providers: [ConnectorRegistrationService, ConnectorAdoptionService, PlatformAdminGuard],
   exports: [ConnectorRegistrationService],
 })
 export class ConnectorModule {}
