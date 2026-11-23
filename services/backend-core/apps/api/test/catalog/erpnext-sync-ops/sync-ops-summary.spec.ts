@@ -376,3 +376,150 @@ describe("RT-563 — connector_health derived from the 020 read model", () => {
     expect((await get(TENANT_EMPTY)).status).toBe("not_available");
   });
 });
+
+describe("RT-1404 — reconciliation.latestRun (structured latest run)", () => {
+  // Each case gets its own store and reads the summary filtered to it, so the
+  // tenant-wide latest run (other tests insert runs at now()) never interferes.
+  const STORE = (n: number): string => `0a000000-0000-7000-8000-00000e1404a${n}`;
+  const RUN = (n: number): string => `0a000000-0000-7000-8000-00000e1404b${n}`;
+
+  const seedStore = async (storeId: string): Promise<void> => {
+    await env!.admin.query(
+      `INSERT INTO stores (id, tenant_id, code, name)
+       VALUES ($1, $2, $3, $3) ON CONFLICT DO NOTHING`,
+      [storeId, TENANT_A, `RT1404-${storeId.slice(-2)}`],
+    );
+  };
+  const seedRun = async (
+    runId: string,
+    storeId: string,
+    status: "running" | "completed" | "failed",
+    startedAt: string,
+  ): Promise<void> => {
+    await env!.admin.query(
+      `INSERT INTO erpnext_reconciliation_run
+         (id, tenant_id, store_id, kind, trigger, status, started_at, finished_at)
+       VALUES ($1, $2, $3, 'stock', 'on_demand', $4, $5::timestamptz,
+               CASE WHEN $4 = 'running' THEN NULL ELSE $5::timestamptz END)
+       ON CONFLICT DO NOTHING`,
+      [runId, TENANT_A, storeId, status, startedAt],
+    );
+  };
+  const reconFor = async (storeId: string): Promise<Record<string, unknown>> => {
+    const res = await http().get(BASE).query({ store_id: storeId }).expect(200);
+    return (res.body.domains as Array<Record<string, unknown>>).find(
+      (d) => d["domain"] === "reconciliation",
+    )!;
+  };
+
+  it("no run in scope -> latestRun is null (present, not omitted)", async () => {
+    if (skip()) return;
+    await seedStore(STORE(1));
+    const r = await reconFor(STORE(1));
+    expect(r).toHaveProperty("latestRun");
+    expect(r["latestRun"]).toBeNull();
+    expect(r["detail"]).toBe("No reconciliation runs yet");
+  });
+
+  it.each([
+    ["running", 2, "2026-11-20T08:00:00.123Z", "ok"],
+    ["completed", 3, "2026-11-20T09:00:00.000Z", "ok"],
+    ["failed", 4, "2026-11-20T10:30:00.500Z", "attention"],
+  ] as const)("a %s latest run -> { status, at = started_at }", async (status, n, startedAt, tile) => {
+    if (skip()) return;
+    await seedStore(STORE(n));
+    await seedRun(RUN(n), STORE(n), status, startedAt);
+    const r = await reconFor(STORE(n));
+    expect(r["latestRun"]).toEqual({ status, at: startedAt });
+    expect(r["status"]).toBe(tile);
+    expect(r["detail"]).toBe(`Latest run ${status}`);
+  });
+
+  it("picks the newest run by started_at within the filtered store", async () => {
+    if (skip()) return;
+    await seedStore(STORE(5));
+    await seedRun(RUN(5), STORE(5), "failed", "2026-11-19T10:00:00.000Z");
+    await seedRun(RUN(6), STORE(5), "completed", "2026-11-21T10:00:00.000Z");
+    const r = await reconFor(STORE(5));
+    expect(r["latestRun"]).toEqual({ status: "completed", at: "2026-11-21T10:00:00.000Z" });
+  });
+
+  it("latestRun appears only on the reconciliation tile; instances only on connector_health", async () => {
+    if (skip()) return;
+    const res = await http().get(BASE).expect(200);
+    for (const d of res.body.domains as Array<Record<string, unknown>>) {
+      if (d["domain"] !== "reconciliation") expect(d).not.toHaveProperty("latestRun");
+      if (d["domain"] !== "connector_health") expect(d).not.toHaveProperty("instances");
+    }
+  });
+});
+
+describe("RT-1404 — connector_health.instances over HTTP", () => {
+  const T_MIX = "0c000000-0000-7000-8000-00000e1404c1";
+  const T_DIS = "0c000000-0000-7000-8000-00000e1404c2";
+  const REG = (n: number): string => `0c000000-0000-7000-8000-00000e1404d${n}`;
+
+  const seed = async (
+    tenant: string,
+    regs: ReadonlyArray<{ id: string; lastSeenSql: string | null; disabled?: boolean }>,
+  ): Promise<void> => {
+    const a = env!.admin;
+    await a.query(
+      `INSERT INTO tenants (id, slug, name, default_currency_code)
+       VALUES ($1, $2, $2, 'USD') ON CONFLICT (id) DO NOTHING`,
+      [tenant, `rt1404-${tenant.slice(-2)}`],
+    );
+    for (const r of regs) {
+      await a.query(
+        `INSERT INTO connector_registration
+           (id, tenant_id, display_name, erpnext_site_ref, environment, created_by)
+         VALUES ($1, $2, $3, $4, 'pilot', $5) ON CONFLICT (id) DO NOTHING`,
+        [r.id, tenant, `C ${r.id.slice(-2)}`, `erp-${r.id.slice(-4)}.rt1404`, ACTOR_A],
+      );
+      if (r.disabled) {
+        await a.query(
+          `UPDATE connector_registration SET disabled_at = now(), disabled_by = $2 WHERE id = $1`,
+          [r.id, ACTOR_A],
+        );
+      }
+      if (r.lastSeenSql !== null) {
+        await a.query(
+          `INSERT INTO connector_health (id, tenant_id, connector_registration_id, last_seen_at)
+           VALUES (gen_random_uuid(), $1, $2, ${r.lastSeenSql})
+           ON CONFLICT (connector_registration_id) DO NOTHING`,
+          [tenant, r.id],
+        );
+      }
+    }
+  };
+  const connFor = async (tenant: string): Promise<Record<string, unknown>> => {
+    contextGuard.tenantId = tenant;
+    const res = await http().get(BASE).expect(200);
+    return (res.body.domains as Array<Record<string, unknown>>).find(
+      (d) => d["domain"] === "connector_health",
+    )!;
+  };
+
+  it("counts active instances: healthy, stale, never_seen; disabled excluded", async () => {
+    if (skip()) return;
+    await seed(T_MIX, [
+      { id: REG(1), lastSeenSql: "now()" },
+      { id: REG(2), lastSeenSql: "now() - interval '1 hour'" },
+      { id: REG(3), lastSeenSql: null },
+      { id: REG(4), lastSeenSql: "now()", disabled: true },
+    ]);
+    const c = await connFor(T_MIX);
+    expect(c["status"]).toBe("attention");
+    expect(c["headlineCount"]).toBe(2);
+    expect(c["instances"]).toEqual({ total: 3, stale: 1, neverSeen: 1 });
+  });
+
+  it("not_available (no instances, or disabled only) omits instances", async () => {
+    if (skip()) return;
+    expect(await connFor(TENANT_EMPTY)).not.toHaveProperty("instances");
+    await seed(T_DIS, [{ id: REG(5), lastSeenSql: "now()", disabled: true }]);
+    const c = await connFor(T_DIS);
+    expect(c["status"]).toBe("not_available");
+    expect(c).not.toHaveProperty("instances");
+  });
+});

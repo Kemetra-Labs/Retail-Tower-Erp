@@ -46,7 +46,23 @@ export interface DomainSummary {
     | "product_master";
   readonly status: "ok" | "attention" | "not_available";
   readonly headlineCount: number | null;
+  /** Diagnostic English text, not operator copy (RT-1404). */
   readonly detail: string | null;
+  /**
+   * RT-1404: `reconciliation` only — the latest run in scope (`status` = the 0020
+   * `erpnext_reconciliation_run_status_valid` CHECK values, `at` = its
+   * `started_at`), or null when there is none.
+   */
+  readonly latestRun?: {
+    readonly status: "running" | "completed" | "failed";
+    readonly at: string;
+  } | null;
+  /** RT-1404: `connector_health` only, and only when not `not_available`. */
+  readonly instances?: {
+    readonly total: number;
+    readonly stale: number;
+    readonly neverSeen: number;
+  };
 }
 
 export interface SyncOpsSummaryBody {
@@ -197,14 +213,14 @@ export class ErpnextSyncOpsReadModelService {
         const openMismatchCount = Number(openMismatches.rows[0]?.count ?? "0");
 
         const latestRun = await client.query<{
-          status: string;
-          started_at: string;
+          status: NonNullable<DomainSummary["latestRun"]>["status"];
+          started_at: Date;
         }>(
           `SELECT status, started_at
              FROM erpnext_reconciliation_run
             WHERE ($1::uuid IS NULL OR store_id = $1::uuid)
               AND ($2::uuid[] IS NULL OR store_id = ANY($2::uuid[]))
-            ORDER BY started_at DESC
+            ORDER BY started_at DESC, id DESC -- RT-1404: same order as the run list
             LIMIT 1`,
           [storeId, scoped],
         );
@@ -255,6 +271,11 @@ export class ErpnextSyncOpsReadModelService {
             detail: latest
               ? `Latest run ${latest.status}`
               : "No reconciliation runs yet",
+            // RT-1404: the same row as `detail`; `at` = `started_at`, as in
+            // ReconciliationRunView.startedAt. null = no run in scope.
+            latestRun: latest
+              ? { status: latest.status, at: new Date(latest.started_at).toISOString() }
+              : null,
           },
           // 020 connector health (RT-563), derived from the 020 read model.
           rollupConnectorHealth(connectorVerdicts),
