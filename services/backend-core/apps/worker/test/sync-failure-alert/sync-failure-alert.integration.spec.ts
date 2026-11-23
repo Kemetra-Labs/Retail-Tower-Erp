@@ -696,9 +696,10 @@ describe("RT-1034 sync-failure alert (PostgreSQL)", () => {
     const pool = await createAlertRoleFromTemplate(roleName);
     try {
       await admin().query(`${grant} "${roleName}"`);
-      await expect(verifySyncFailureAlertRole(pool, env!.app)).rejects.toThrow(
-        new RegExp(`beyond the sync-failure alert grants: .*${label.replace(/[()]/g, "\\$&")}`),
-      );
+      const err = await verifySyncFailureAlertRole(pool, env!.app).catch((e: unknown) => e as Error);
+      expect(err).toBeInstanceOf(Error);
+      expect((err as Error).message).toContain("beyond the sync-failure alert grants");
+      expect((err as Error).message).toContain(label);
     } finally {
       await pool.end().catch(() => undefined);
       await admin().query(`DROP OWNED BY "${roleName}"`);

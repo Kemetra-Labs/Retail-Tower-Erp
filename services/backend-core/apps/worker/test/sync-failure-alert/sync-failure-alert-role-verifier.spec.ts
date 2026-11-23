@@ -175,9 +175,13 @@ describe("verifySyncFailureAlertRole", () => {
     ["UPDATE ON audit_events", { tbl: "audit_events", col: null, priv: "UPDATE" }],
     ["USAGE ON some_sequence", { tbl: "some_sequence", col: null, priv: "USAGE" }],
   ])("refuses an extra grant: %s", async (label, extra) => {
-    await expect(
-      verifySyncFailureAlertRole(alertPool({ held: [...REQUIRED, extra] }), domainPool()),
-    ).rejects.toThrow(new RegExp(`holds privileges beyond the sync-failure alert grants: .*${label.replace(/[()]/g, "\\$&")}`));
+    const err = await verifySyncFailureAlertRole(
+      alertPool({ held: [...REQUIRED, extra] }),
+      domainPool(),
+    ).catch((e: unknown) => e as Error);
+    expect(err).toBeInstanceOf(Error);
+    expect((err as Error).message).toContain("holds privileges beyond the sync-failure alert grants");
+    expect((err as Error).message).toContain(label);
   });
 
   it("rejects a role that is a member of any role", async () => {
