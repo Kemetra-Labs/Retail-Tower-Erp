@@ -37,6 +37,8 @@ const PATHS = {
   signup: "apps/api/src/signups/signups.service.ts",
   provisioner_lookup: "apps/api/src/erp-provisioning/provisioner-auth.guard.ts",
   provisioning_sweep: "packages/db/src/helpers/erp-provisioning-sweep.ts",
+  // RT-1485 (0123 residual 2, RT-1151 c17827): the legacy price import CLI is its one call site.
+  pricing_legacy_import: "apps/api/src/cli/pricing-legacy-import.ts",
 } as const;
 
 /** RT-1457: the request bootstrap callers of the shared `membership_bootstrap` privilege (migration 0120). */

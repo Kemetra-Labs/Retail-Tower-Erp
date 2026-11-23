@@ -4,7 +4,7 @@
  * lookups its structure reads need, a live Store's time zone for price inquiry, and the live
  * (and named) Stores with their time zones for Change Set validation from here.
  */
-export { isLiveStore, liveAndNamedStores, liveStoreIdsAfter, liveStoreTimezone } from "./store-lookups";
+export { allStoreZones, isLiveStore, liveAndNamedStores, liveStoreIdsAfter, liveStoreTimezone } from "./store-lookups";
 export { isIanaTimezoneShape } from "./timezone";
 // RT-1525: the inverted port Store lifecycle writes need from Pricing (Pricing implements it).
 export {

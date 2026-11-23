@@ -14,8 +14,9 @@
 --
 -- tenant_pricing_authority: SELECT only. Never INSERT, UPDATE, DELETE or
 -- TRUNCATE: a runtime role that could change the row could unfreeze its own
--- legacy prices (spec 044 §6.2). pricing_import_runs and pricing_cutover_runs:
--- nothing yet. The domain role must never be a member of
+-- legacy prices (spec 044 §6.2). pricing_import_runs: SELECT and INSERT for the
+-- legacy import CLI's watermark rows (PR-16a-2a); never UPDATE or DELETE.
+-- pricing_cutover_runs: nothing yet (PR-16b). The domain role must never be a member of
 -- pricing_projection_writer, and never holds EXECUTE on pricing_reverse_project.
 --
 -- The auth lookup role must hold NO privilege on the three tables
@@ -30,8 +31,11 @@
 \endif
 
 GRANT SELECT ON tenant_pricing_authority TO :"domain_role";
+GRANT SELECT, INSERT ON pricing_import_runs TO :"domain_role";
 
-SELECT has_table_privilege(:'domain_role', 'tenant_pricing_authority', 'SELECT') AS domain_ok \gset
+SELECT has_table_privilege(:'domain_role', 'tenant_pricing_authority', 'SELECT')
+   AND has_table_privilege(:'domain_role', 'pricing_import_runs', 'SELECT')
+   AND has_table_privilege(:'domain_role', 'pricing_import_runs', 'INSERT') AS domain_ok \gset
 
 \if :domain_ok
   \echo 'OK: domain role holds the required pricing authority grant.'

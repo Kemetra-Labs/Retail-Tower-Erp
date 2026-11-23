@@ -111,6 +111,18 @@ function firstInstantAtOrAfter(localMs: number, offsets: ReadonlyArray<number>, 
   return hi;
 }
 
+/**
+ * RT-1485 (spec 044 MC-1): the wall-clock time of `instant` in `zone`, in the
+ * `timestamp without time zone` convention (a `Date` whose UTC fields are the
+ * local date-time). Read back with {@link localWallClockToInstant} it gives
+ * `instant`, except in the repeated hour of a fall-back, where Q-2 picks the
+ * earlier occurrence (at most one overlap before `instant`).
+ */
+export function instantToWallClock(instant: Date, zone: string): Date {
+  const ms = assertValid(instant);
+  return new Date(ms + offsetAt(ms, zone));
+}
+
 const pad = (n: number, width = 2): string => String(n).padStart(width, "0");
 
 /**
