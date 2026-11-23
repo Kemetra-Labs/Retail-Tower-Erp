@@ -58,11 +58,13 @@ interface TokenOptions {
   readonly sub?: string | null;
   readonly audience?: string;
   readonly expiresIn?: string | number | null;
-  readonly drn?: string;
+  readonly drn?: string | null;
+  readonly extraClaims?: Record<string, unknown>;
 }
 
 async function token(opts: TokenOptions = {}): Promise<string> {
-  let jwt = new SignJWT({ drn: opts.drn ?? "DS" })
+  const drnClaim = opts.drn === null ? {} : { drn: opts.drn ?? "DS" };
+  let jwt = new SignJWT({ ...drnClaim, ...opts.extraClaims })
     .setProtectedHeader({ alg: opts.alg ?? "RS256", kid: opts.kid ?? KID })
     .setIssuedAt()
     .setIssuer(opts.issuer ?? ISSUER);
@@ -153,6 +155,18 @@ describe("DescopeJwksVerifier — refuses", () => {
     ["a wrong audience", () => token({ audience: "other-aud" }), PROJECT_ID],
     ["a missing audience when one is configured", () => token(), PROJECT_ID],
     ["a Descope refresh token (drn=DSR)", () => token({ drn: "DSR" }), undefined],
+    ["a token with no drn", () => token({ drn: null }), undefined],
+    ["a token with an unknown drn", () => token({ drn: "DSX" }), undefined],
+    [
+      "an impersonation token (act)",
+      () => token({ extraClaims: { act: { sub: "U2supportUser0001" } } }),
+      undefined,
+    ],
+    [
+      "an impersonation token (dact)",
+      () => token({ extraClaims: { dact: { sub: "U2supportUser0001" } } }),
+      undefined,
+    ],
   ];
 
   it.each(cases)("%s", async (_label, make, audience) => {
@@ -215,6 +229,36 @@ describe("DescopeJwksVerifier — refuses", () => {
     // Only jose's fixed error code is kept, for outage-vs-forgery triage.
     expect(e.message).toBe("descope verifier: token rejected (ERR_JWT_CLAIM_VALIDATION_FAILED)");
   });
+
+  it("accepts drn=DS with no impersonation claim (RT-1580)", async () => {
+    await expect(localVerifier().verify(await token({ drn: "DS" }))).resolves.toEqual({
+      providerKey: "descope",
+      sub: SUB,
+    });
+  });
+
+  it.each([
+    ["no drn", { drn: null }],
+    ["act", { extraClaims: { act: { sub: "U2supportUser0001" } } }],
+    ["dact", { extraClaims: { dact: { sub: "U2supportUser0001" } } }],
+  ] as Array<[string, TokenOptions]>)(
+    "the %s refusal carries no claims, cause or token (RT-1580)",
+    async (_label, opts) => {
+      const t = await token(opts);
+      const err = await localVerifier()
+        .verify(t)
+        .then(() => null, (e: unknown) => e);
+      expect(err).toBeInstanceOf(Error);
+      const e = err as Error & { cause?: unknown; payload?: unknown };
+      expect(e.message).toBe("descope verifier: token rejected");
+      expect(e.cause).toBeUndefined();
+      expect(e.payload).toBeUndefined();
+      const serialized = JSON.stringify({ ...e, message: e.message, stack: e.stack });
+      expect(serialized).not.toContain(SUB);
+      expect(serialized).not.toContain("U2supportUser0001");
+      expect(serialized).not.toContain(t);
+    },
+  );
 
   it("keeps a JWKS outage distinguishable by code only", async () => {
     const outage = Object.assign(new Error("connect ECONNREFUSED 10.0.0.1"), { code: "ERR_JWKS_TIMEOUT" });
