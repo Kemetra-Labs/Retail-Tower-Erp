@@ -46,6 +46,7 @@ import { reverseVoucher } from '../../../src/main/payments/voucher-authority-cli
 import { runLivenessProbe } from '../../../src/main/terminal-status/liveness-probe.js';
 import { createBackendTransport } from '../../../src/main/http/transport.js';
 import { createTelemetryConfigClient } from '../../../src/main/observability/telemetry-config.js';
+import { createAvailabilityClient } from '../../../src/main/availability/availability-client.js';
 import { createHeartbeatClient } from '../../../src/main/device-health/heartbeat-client.js';
 import { createBackendRotationClient } from '../../../src/main/device-token-rotation/rotation-client.js';
 import { createUnknownItemCaptureClient } from '../../../src/main/unknown-items/capture-client.js';
@@ -209,6 +210,13 @@ async function eachSaleHistoryCredential(
 const brandingClient = (fetch: FetchLike): ReturnType<typeof createBrandingClient> =>
   createBrandingClient({ baseUrl: BASE_URL, fetch });
 const BRANDING_MODULE = 'src/main/branding/branding-client.ts';
+const availabilityClient = (fetch: FetchLike): ReturnType<typeof createAvailabilityClient> =>
+  createAvailabilityClient({
+    baseUrl: BASE_URL,
+    fetch,
+    readToken: () => Promise.resolve(SENTINEL.device),
+  });
+const AVAILABILITY_MODULE = 'src/main/availability/availability-client.ts';
 const policyClient = (fetch: FetchLike): ReturnType<typeof createPolicyClient> =>
   createPolicyClient({ baseUrl: BASE_URL, fetch });
 const POLICY_MODULE = 'src/main/cash-variance-policy/policy-client.ts';
@@ -355,6 +363,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   // RT-475: the tenant branding read-down (device token, on the shared transport).
   { module: BRANDING_MODULE, fetchCallSites: 0, surface: brandingClient },
+  // RT-1578: the store-availability snapshot read (device token, on the shared transport; GET only).
+  { module: AVAILABILITY_MODULE, fetchCallSites: 0, surface: availabilityClient },
   // RT-388: the shift variance policy read (device token, ETag / 304, on the shared transport).
   { module: POLICY_MODULE, fetchCallSites: 0, surface: policyClient },
   // RT-1339: the store's Offer Pack read-down (device token, ETag / 304, on the shared transport).
@@ -726,6 +736,15 @@ export const CLIENT_CALLS: readonly ClientCall[] = [
     wiring:
       'bootstrap/branding.ts worker: `readDeviceToken` = createSendableDeviceTokenReader (paired only; never once revoked, RT-215)',
     invoke: (fetch) => brandingClient(fetch).read(SENTINEL.device, null),
+  },
+  {
+    id: 'availabilityClient.fetchPage',
+    module: AVAILABILITY_MODULE,
+    method: 'get',
+    pathTemplate: '/api/pos/v1/inventory/availability',
+    wiring:
+      'bootstrap/availability.ts worker: `readToken` = readSendableDeviceToken (paired only; never once revoked, RT-215), on the shared backendFetch; not observed by the device-401 detector (like branding)',
+    invoke: (fetch) => availabilityClient(fetch).fetchPage(UUID, null),
   },
   {
     id: 'policyClient.read',
