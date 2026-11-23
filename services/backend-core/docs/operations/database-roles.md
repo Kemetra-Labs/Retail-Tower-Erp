@@ -1,6 +1,6 @@
 # Database runtime roles
 
-Production uses four independent PostgreSQL credentials.
+Production uses five independent PostgreSQL credentials (the fifth, `SYNC_FAILURE_ALERT_DATABASE_URL`, only once the sync-failure alert is enabled).
 
 | Environment variable | Purpose | Required posture |
 | --- | --- | --- |

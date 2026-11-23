@@ -70,7 +70,8 @@ compose stack. Redis is containerized by default.
    and set `SYNC_FAILURE_ALERT_DATABASE_URL` (RT-1556): the sweep then runs without
    any write grant on posting, reconciliation or sale tables. With the alert off
    the variable stays empty. With the alert on and the variable empty, the worker
-   refuses to boot in production.
+   refuses to boot in production. (`docker-compose.prod.yml` does not forward
+   `SYNC_FAILURE_ALERT_ENABLED` yet, so the enable switch is a separate owner step.)
 8. An Admin Console releases directory on `<app-host>` (for example
    `/opt/dp2-console`), set as `CONSOLE_RELEASES_DIR` in `deploy/prod.env`. Compose
    refuses to start without it. It must hold at least one verified release and a

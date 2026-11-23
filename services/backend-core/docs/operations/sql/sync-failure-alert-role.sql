@@ -45,8 +45,9 @@ GRANT SELECT ON tenants, stores, sales, erpnext_posting_status,
                 memberships, roles, store_access TO :"alert_role";
 GRANT SELECT (id, email, deleted_at) ON users TO :"alert_role";
 
--- audit_events: INSERT (the alert's own audit rows) and SELECT (INSERT ... RETURNING
--- and the dedup reads). The table is append-only for every role.
+-- audit_events: INSERT (the alert's own audit rows, `ON CONFLICT (id) DO NOTHING`)
+-- and SELECT (the conflict arbiter and row security need it). The table is
+-- append-only for every role.
 GRANT SELECT, INSERT ON audit_events TO :"alert_role";
 
 -- Its own tables: windows are opened and closed, deliveries are claimed and
