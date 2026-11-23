@@ -918,6 +918,7 @@ describe("consoleGetOpenShiftsSummary: the tenant-wide counts (RT-1450)", () => 
       openShiftCount: total("openShiftCount"),
       staleShiftCount: total("staleShiftCount"),
       eligibleShiftCount: total("eligibleShiftCount"),
+      truncated: false,
     });
   });
 
@@ -927,19 +928,24 @@ describe("consoleGetOpenShiftsSummary: the tenant-wide counts (RT-1450)", () => 
     const res = await summary(w.owner);
     expect(res.status).toBe(200);
     expectValid("OpenShiftsSummary", res.body);
-    expect(res.body).toMatchObject({ openShiftCount: 0, staleShiftCount: 0, eligibleShiftCount: 0, stores: [] });
+    expect(res.body).toMatchObject({ openShiftCount: 0, staleShiftCount: 0, eligibleShiftCount: 0, truncated: false, stores: [] });
   });
 
   it("the tenant is the session's: another tenant's caller sees only its own stores", async () => {
     if (skip()) return;
     const w = await seedWorld(admin(), "rt1450-own");
+    const other = await seedWorld(admin(), "rt1450-other");
     await seedShift(w, { minutesAgo: 600 });
+    await seedShift(other, { store: other.store2, minutesAgo: 600 });
     const mine = await summary(w.owner);
-    const theirs = await summary(worldB.owner);
+    const theirs = await summary(other.owner);
     expect(mine.status).toBe(200);
     expect(theirs.status).toBe(200);
+    // Each sees exactly its own store, never the other's: both lists are non-empty, so this cannot pass vacuously.
     expect(mine.body.stores.map((s: StoreCounts) => s.storeId)).toEqual([w.store]);
-    for (const s of theirs.body.stores as StoreCounts[]) expect([w.store, w.store2]).not.toContain(s.storeId);
+    expect(theirs.body.stores.map((s: StoreCounts) => s.storeId)).toEqual([other.store2]);
+    expect(mine.body.eligibleShiftCount).toBe(1);
+    expect(theirs.body.eligibleShiftCount).toBe(1);
   });
 
   it.each([

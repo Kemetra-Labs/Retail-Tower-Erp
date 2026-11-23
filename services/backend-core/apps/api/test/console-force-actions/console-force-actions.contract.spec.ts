@@ -166,7 +166,7 @@ describe("console force actions contract (RT-1444)", () => {
     const summary = schemas.OpenShiftsSummary;
     const counts = ["openShiftCount", "staleShiftCount", "eligibleShiftCount"];
     expect([...summary.required].sort()).toEqual(
-      [...counts, "evaluatedAt", "staleThresholdMinutes", "stores"].sort(),
+      [...counts, "evaluatedAt", "staleThresholdMinutes", "truncated", "stores"].sort(),
     );
     expect(summary.additionalProperties).toBe(false);
     expect(summary.properties.stores.items.$ref).toBe("#/components/schemas/StoreOpenShiftCounts");

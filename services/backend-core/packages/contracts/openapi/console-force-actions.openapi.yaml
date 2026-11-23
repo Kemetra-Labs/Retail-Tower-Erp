@@ -351,6 +351,15 @@ paths:
         never the request's; there is no parameter.
 
 
+        **Caps.** `truncated` is true when a cap left something out: the tenant
+        has more than 1000 such stores, or a store has more open shifts than the
+        200 its per-store read lists (that read is newest first, so the oldest,
+        most likely stale, shifts are the ones left out). The counts are then
+        lower bounds. At most one shift is open per device, so in practice
+        neither cap is reached. The work is one verdict per counted shift, in
+        one read-only transaction.
+
+
         Owner or `tenant_admin` with all-store access, or a platform admin
         (RT-1462); every other caller is the non-disclosing 404, the same body
         as the per-store read's. Read-only: it writes nothing (apart from the
@@ -372,6 +381,7 @@ paths:
                     openShiftCount: 5
                     staleShiftCount: 3
                     eligibleShiftCount: 2
+                    truncated: false
                     stores:
                       - storeId: "0198a0c4-0000-7000-8000-000000000a01"
                         openShiftCount: 3
@@ -1004,6 +1014,7 @@ components:
         - openShiftCount
         - staleShiftCount
         - eligibleShiftCount
+        - truncated
         - stores
       description: >
         The tenant's open shifts counted by verdict (RT-1450). Each total is the
@@ -1026,6 +1037,12 @@ components:
         eligibleShiftCount:
           type: integer
           minimum: 0
+        truncated:
+          type: boolean
+          description: >
+            True when a cap left a store or a shift out (more than 1000 stores
+            with an open shift, or a store with more than 200 open shifts); the
+            counts are then lower bounds.
         stores:
           type: array
           maxItems: 1000

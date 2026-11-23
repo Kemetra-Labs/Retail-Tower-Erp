@@ -25,6 +25,7 @@ import {
   previewFingerprint,
   readForceCloseFacts,
   readStoreOpenShifts,
+  countStoreOpenShifts,
   openShiftStoreIds,
   ShiftCashUpError,
   ShiftForceCloseRepository,
@@ -38,9 +39,9 @@ import type { ForceActionAuditActor } from "../common/force-action-actor";
 import { enforceForceActionCap, insertForceActionAudit } from "../console-action-cap/force-action-cap";
 import {
   buildOpenShiftSummary,
-  countStoreOpenShifts,
   toOpenShiftListBody,
   toOpenShiftsSummaryBody,
+  toStoreOpenShiftCounts,
   type ForceClosePreviewBody,
   type OpenShiftListBody,
   type OpenShiftRow,
@@ -114,13 +115,15 @@ export class ConsoleForceActionsService {
       // Which stores to count: those with an open shift (the pos-shifts port) that the per-store read
       // would answer, i.e. live (the stores port; an empty list reads nothing). Ascending by id.
       const withOpenShifts = await openShiftStoreIds(client, tenantId);
-      const storeIds = await liveStoreIdsAfter(client, tenantId, {
+      // One more than the cap, so a dropped store is known, never silent.
+      const live = await liveStoreIdsAfter(client, tenantId, {
         after: null,
         storeIds: withOpenShifts,
-        limit: SUMMARY_STORE_LIMIT,
+        limit: SUMMARY_STORE_LIMIT + 1,
       });
+      let truncated = live.length > SUMMARY_STORE_LIMIT;
       const stores: StoreOpenShiftCountsBody[] = [];
-      for (const storeId of storeIds) {
+      for (const storeId of live.slice(0, SUMMARY_STORE_LIMIT)) {
         // sequential: one pg client runs one statement at a time.
         // The same port call, with the same cap and threshold, as `listOpenShifts`.
         const reads = await readStoreOpenShifts(
@@ -128,10 +131,17 @@ export class ConsoleForceActionsService {
           { tenantId, storeId },
           { limit: OPEN_SHIFT_LIMIT, order: "newest_first", thresholdMinutes: this.forceClose.thresholdMinutes },
         );
-        stores.push(countStoreOpenShifts(storeId, reads));
+        // A store at the per-store cap may hold more open shifts than the list shows: ask the exact count.
+        if (reads.length >= OPEN_SHIFT_LIMIT && (await countStoreOpenShifts(client, storeId)) > reads.length) truncated = true;
+        stores.push(toStoreOpenShiftCounts(storeId, reads));
       }
       const now = await transactionNow(client);
-      return toOpenShiftsSummaryBody({ evaluatedAt: now, thresholdMinutes: this.forceClose.thresholdMinutes, stores });
+      return toOpenShiftsSummaryBody({
+        evaluatedAt: now,
+        thresholdMinutes: this.forceClose.thresholdMinutes,
+        truncated,
+        stores,
+      });
     });
   }
 

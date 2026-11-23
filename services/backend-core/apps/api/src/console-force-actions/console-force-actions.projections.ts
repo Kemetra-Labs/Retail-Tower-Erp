@@ -56,6 +56,7 @@ export interface OpenShiftsSummaryBody {
   readonly openShiftCount: number;
   readonly staleShiftCount: number;
   readonly eligibleShiftCount: number;
+  readonly truncated: boolean;
   readonly stores: StoreOpenShiftCountsBody[];
 }
 
@@ -159,7 +160,7 @@ export function toOpenShiftListBody(input: {
  * One store's counts, over the very rows the open-shifts read lists and with the very verdict body it
  * shows (`toVerdictBody`), so a count can never disagree with that read (RT-1450).
  */
-export function countStoreOpenShifts(
+export function toStoreOpenShiftCounts(
   storeId: string,
   rows: readonly Pick<OpenShiftRow, "shift" | "verdict">[],
 ): StoreOpenShiftCountsBody {
@@ -176,6 +177,7 @@ export function countStoreOpenShifts(
 export function toOpenShiftsSummaryBody(input: {
   readonly evaluatedAt: Date;
   readonly thresholdMinutes: number;
+  readonly truncated: boolean;
   readonly stores: readonly StoreOpenShiftCountsBody[];
 }): OpenShiftsSummaryBody {
   const total = (field: "openShiftCount" | "staleShiftCount" | "eligibleShiftCount"): number =>
@@ -186,6 +188,7 @@ export function toOpenShiftsSummaryBody(input: {
     openShiftCount: total("openShiftCount"),
     staleShiftCount: total("staleShiftCount"),
     eligibleShiftCount: total("eligibleShiftCount"),
+    truncated: input.truncated,
     stores: [...input.stores],
   };
 }
