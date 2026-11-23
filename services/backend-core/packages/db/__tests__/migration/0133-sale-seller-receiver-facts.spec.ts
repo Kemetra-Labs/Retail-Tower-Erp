@@ -9,11 +9,13 @@
  *     within a tenant among non-deleted memberships, reusable in another tenant and after a soft delete; the
  *     new CHECKs and foreign keys are NOT VALID (no scan of the hot sale tables under the lock);
  *   - DOWN, as a NOSUPERUSER migration owner under FORCE RLS: refuses while any seller, receiver or Seller
- *     Code is recorded (the guard must see the rows, so it reads under app.is_platform_admin), and once they
- *     are cleared it drops every column; the up re-applies cleanly.
+ *     Code is recorded, in any tenant (sale_lines and sale_tenders have tenant-only policies, so the guard
+ *     reads tenant by tenant under each one's GUC, never lifting FORCE), and once they are cleared it drops
+ *     every column; FORCE RLS stays on all three tables; the up re-applies cleanly.
  *
  * Fixtures are inserted on one superuser connection with `session_replication_role = replica` (foreign keys
- * and triggers off; CHECK and UNIQUE constraints still apply), so no tenant, store or user rows are needed.
+ * and triggers off; CHECK and UNIQUE constraints still apply), so no store, user or sale rows are needed;
+ * three tenant rows are, because the down guard lists the tenants.
  *
  * Docker policy: missing Docker is a HARD failure unless MIGRATION_TEST_ALLOW_SKIP=1 (CI MUST NOT set it).
  */
@@ -31,6 +33,11 @@ const UP = "0133_sale_seller_receiver_facts.sql";
 const DOWN = "0133_sale_seller_receiver_facts.down.sql";
 const sql = (name: string): string => readFileSync(resolve(DRIZZLE_DIR, name), "utf8");
 const OWNER_ROLE = "rt1565_mig_owner";
+// Real tenants: the down guard reads each tenant under its own GUC (sale_lines and sale_tenders have
+// tenant-only policies), so every fact row must belong to a tenant that exists.
+const TENANT_A = "0a000000-0000-7000-8000-000000156551";
+const TENANT_B = "0b000000-0000-7000-8000-000000156552";
+const TENANT_C = "0c000000-0000-7000-8000-000000156553";
 
 let env: PgTestEnv | null = null;
 const skip = (): boolean => env === null;
@@ -76,11 +83,11 @@ const NO_SELLER: Seller = { userId: null, storeId: null, roleId: null };
 const aSeller = (): Seller => ({ userId: randomUUID(), storeId: randomUUID(), roleId: randomUUID() });
 
 /** A sale line (no parent sale: FKs are off), with or without the seller columns. */
-async function insertLine(seller: Seller | undefined): Promise<string> {
+async function insertLine(seller: Seller | undefined, tenantId: string = TENANT_A): Promise<string> {
   const id = randomUUID();
   const cols = seller === undefined ? "" : ", seller_user_id, seller_store_id, seller_role_id";
   const vals = seller === undefined ? "" : ", $5, $6, $7";
-  const params: unknown[] = [id, randomUUID(), randomUUID(), randomUUID()];
+  const params: unknown[] = [id, randomUUID(), tenantId, randomUUID()];
   if (seller !== undefined) params.push(seller.userId, seller.storeId, seller.roleId);
   await fixture((c) =>
     c.query(
@@ -94,7 +101,7 @@ async function insertLine(seller: Seller | undefined): Promise<string> {
 }
 
 /** A cash tender (no parent sale), with or without a receiver. */
-async function insertTender(receiver: string | null | undefined): Promise<string> {
+async function insertTender(receiver: string | null | undefined, tenantId: string = TENANT_B): Promise<string> {
   const id = randomUUID();
   const withReceiver = receiver !== undefined;
   await fixture((c) =>
@@ -102,7 +109,7 @@ async function insertTender(receiver: string | null | undefined): Promise<string
       `INSERT INTO sale_tenders (id, sale_id, tenant_id, store_id, method, amount, currency_code
                                  ${withReceiver ? ", received_by_user_id" : ""})
        VALUES ($1, $2, $3, $4, 'cash', 5, 'EGP'${withReceiver ? ", $5" : ""})`,
-      withReceiver ? [id, randomUUID(), randomUUID(), randomUUID(), receiver] : [id, randomUUID(), randomUUID(), randomUUID()],
+      withReceiver ? [id, randomUUID(), tenantId, randomUUID(), receiver] : [id, randomUUID(), tenantId, randomUUID()],
     ),
   );
   return id;
@@ -132,9 +139,20 @@ async function newColumnCount(): Promise<number> {
   return Number(r.rows[0]!.n);
 }
 
+/** Whether each of the three tables still forces row level security (the down must never lift it). */
+async function forcedRls(): Promise<Record<string, boolean>> {
+  const r = await pg().admin.query<{ relname: string; forced: boolean }>(
+    `SELECT relname, relforcerowsecurity AS forced FROM pg_class
+      WHERE relnamespace = 'public'::regnamespace AND relname IN ('memberships', 'sale_lines', 'sale_tenders')
+      ORDER BY relname`,
+  );
+  return Object.fromEntries(r.rows.map((row) => [row.relname, row.forced]));
+}
+const ALL_FORCED = { memberships: true, sale_lines: true, sale_tenders: true };
+
 /** Run a migration file as the NOSUPERUSER owner of the three tables, tenant GUC pre-set to ''. */
 async function runAsOwner(file: string): Promise<{ code: string | null; message: string }> {
-  const owner = { role: OWNER_ROLE, tables: ["memberships", "sale_lines", "sale_tenders"], functions: [] };
+  const owner = { role: OWNER_ROLE, tables: ["tenants", "memberships", "sale_lines", "sale_tenders"], functions: [] };
   return asMigrationOwner(pg(), owner, async () => {
     const c = await pg().admin.connect();
     try {
@@ -165,6 +183,13 @@ beforeAll(async () => {
   }
   env = started.env;
   await applyMigrationsBefore(env, DRIZZLE_DIR, UP);
+  await fixture((c) =>
+    c.query(
+      `INSERT INTO tenants (id, slug, name, default_currency_code)
+       VALUES ($1, 'rt1565-a', 'RT1565 A', 'EGP'), ($2, 'rt1565-b', 'RT1565 B', 'EGP'), ($3, 'rt1565-c', 'RT1565 C', 'EGP')`,
+      [TENANT_A, TENANT_B, TENANT_C],
+    ),
+  );
   preExistingLine = await insertLine(undefined);
 }, 240_000);
 
@@ -201,7 +226,7 @@ describe("0133 — up", () => {
     expect(await violated(() => insertLine(undefined))).toBeNull();
     expect(await violated(() => insertLine(NO_SELLER))).toBeNull();
     const seller = aSeller();
-    const id = await insertLine(seller);
+    const id = await insertLine(seller, TENANT_B);
     const r = await pg().admin.query(
       `SELECT seller_user_id::text AS u, seller_store_id::text AS s, seller_role_id::text AS r FROM sale_lines WHERE id = $1`,
       [id],
@@ -233,17 +258,17 @@ describe("0133 — up", () => {
     "refuses the Seller Code %p",
     async (code) => {
       if (skip()) return;
-      expect(await violated(() => insertMembership(randomUUID(), code))).toBe("memberships_seller_code_format");
+      expect(await violated(() => insertMembership(TENANT_A, code))).toBe("memberships_seller_code_format");
     },
   );
 
   it("keeps a Seller Code unique within a tenant, reusable in another tenant and after a soft delete", async () => {
     if (skip()) return;
-    const tenant = randomUUID();
+    const tenant = TENANT_A;
     await insertMembership(tenant, "S100");
     expect(await violated(() => insertMembership(tenant, "S100"))).toBe("uq_memberships_tenant_seller_code");
-    expect(await violated(() => insertMembership(randomUUID(), "S100"))).toBeNull();
-    const reused = randomUUID();
+    expect(await violated(() => insertMembership(TENANT_B, "S100"))).toBeNull();
+    const reused = TENANT_C;
     await insertMembership(reused, "S200", true);
     expect(await violated(() => insertMembership(reused, "S200"))).toBeNull();
     expect(await violated(() => insertMembership(tenant, null))).toBeNull();
@@ -271,6 +296,7 @@ describe("0133 — down, as the NOSUPERUSER migration owner under FORCE RLS", ()
     expect(refused.code).toBe("P0001");
     expect(refused.message).toContain("0133 down refused");
     expect(await newColumnCount()).toBe(5);
+    expect(await forcedRls()).toEqual(ALL_FORCED);
   });
 
   it("drops every column once the facts are cleared, and the up re-applies", async () => {
@@ -282,6 +308,7 @@ describe("0133 — down, as the NOSUPERUSER migration owner under FORCE RLS", ()
     });
     expect((await runAsOwner(DOWN)).code).toBeNull();
     expect(await newColumnCount()).toBe(0);
+    expect(await forcedRls()).toEqual(ALL_FORCED);
     expect((await runAsOwner(DOWN)).code).toBeNull();
 
     await pg().admin.query(sql(UP));

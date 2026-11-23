@@ -10,8 +10,10 @@
  *   - a seller or receiver from another tenant, revoked before the sale, soft-deleted, a deleted user, a
  *     member without access to the store, or an unknown id is 422 `sale_seller_refused`, nothing recorded;
  *   - a member revoked AFTER the sale is still accepted (an offline sale syncs late);
- *   - the attribution is not hashed: a retry of the same provenance naming another seller replays (200)
- *     and keeps the first capture's facts; a sale first sent without a seller replays the same way;
+ *   - the attribution is not hashed: a retry of the same provenance under a NEW Idempotency-Key naming
+ *     another seller or receiver replays (200) and keeps the first capture's facts; a sale first sent
+ *     without a seller replays the same way; the SAME Idempotency-Key with another seller is still the
+ *     idempotency layer's 409 (it fingerprints the raw body), as for every other field;
  *   - RLS: another tenant cannot read the stored seller facts.
  */
 import { resolve } from "node:path";
@@ -319,6 +321,32 @@ describe("RT-1565 — not hashed: a retry replays the first capture", () => {
     expect(retry.status).toBe(200);
     expect(retry.body.saleRef).toBe(first.body.saleRef);
     expect((await storedLines("rt1565-retry"))[0]!.u).toBe(SELLER_ALL);
+  });
+
+  it("a retry naming another payment receiver is a replay too (the tender compare ignores it)", async () => {
+    if (skip()) return;
+    const tender = (receiver: string) => [{ method: "cash", amount: "12.5", receivedByUserId: receiver }];
+    const first = await post(captureBody({ externalId: "rt1565-rcv", tenders: tender(RECEIVER) }), "rt1565rcv1");
+    expect(first.status).toBe(201);
+    const retry = await post(captureBody({ externalId: "rt1565-rcv", tenders: tender(SELLER_ALL) }), "rt1565rcv2");
+    expect(retry.status).toBe(200);
+    expect(await storedReceivers("rt1565-rcv")).toEqual([RECEIVER]);
+  });
+
+  it("the SAME Idempotency-Key with another seller is a 409 from the idempotency layer, as for any field", async () => {
+    if (skip()) return;
+    const first = await post(
+      captureBody({ externalId: "rt1565-samekey", lines: linesWithSellers(SELLER_ALL, null) }),
+      "rt1565samekey",
+    );
+    expect(first.status).toBe(201);
+    const changed = await post(
+      captureBody({ externalId: "rt1565-samekey", lines: linesWithSellers(SELLER_X, null) }),
+      "rt1565samekey",
+    );
+    expect(changed.status).toBe(409);
+    expect(changed.body.code).toBe("idempotency_key_conflict");
+    expect((await storedLines("rt1565-samekey"))[0]!.u).toBe(SELLER_ALL);
   });
 
   it("a sale first sent by an old till (no seller) replays when re-sent with one", async () => {

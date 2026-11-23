@@ -7,10 +7,13 @@
 -- receiver, or a membership with a Seller Code. These are immutable sale facts (and the codes the tills
 -- resolve), so dropping them is not something this file does silently: back up and decide first.
 --
--- The three tables are FORCE ROW LEVEL SECURITY and the production migration owner is not a superuser, so
--- the guard reads under app.is_platform_admin with app.current_tenant pinned to the nil UUID (an unset or
--- empty GUC would fail the policy's uuid cast); a bare SELECT would see no rows and let the rollback through.
--- The tables are locked ACCESS EXCLUSIVE first, so no row can be committed between the guard and the DROPs.
+-- The three tables are FORCE ROW LEVEL SECURITY and the production migration owner is not a superuser, and
+-- sale_lines and sale_tenders have tenant-only read policies (0012, 0033: no platform-admin branch). So the
+-- guard reads under each tenant's app.current_tenant, with an explicit tenant_id predicate, listing the
+-- tenants as platform admin (with the GUC pinned to the nil UUID first: an unset or empty GUC would fail a
+-- policy's uuid cast); a bare SELECT would see no rows and let the rollback through. FORCE is never lifted.
+-- The three tables are locked ACCESS EXCLUSIVE first, so no row can be committed between the guard and the
+-- DROPs. Every fact row has a tenant (each table's tenant_id references tenants).
 --
 -- Rerunnable: every DROP is IF EXISTS, and the guard reads the columns only while they exist.
 -- Supports the UP -> DOWN -> UP round trip exercised by
@@ -25,26 +28,39 @@ LOCK TABLE memberships, sale_lines, sale_tenders IN ACCESS EXCLUSIVE MODE;
 
 DO $$
 DECLARE
+  t uuid;
   n bigint := 0;
   m bigint;
+  has_lines boolean;
+  has_tenders boolean;
+  has_codes boolean;
 BEGIN
+  SELECT EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'sale_lines' AND column_name = 'seller_user_id'),
+         EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'sale_tenders' AND column_name = 'received_by_user_id'),
+         EXISTS (SELECT 1 FROM information_schema.columns
+                  WHERE table_schema = 'public' AND table_name = 'memberships' AND column_name = 'seller_code')
+    INTO has_lines, has_tenders, has_codes;
   PERFORM set_config('app.is_platform_admin', 'true', true);
   PERFORM set_config('app.current_tenant', '00000000-0000-0000-0000-000000000000', true);
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'sale_lines' AND column_name = 'seller_user_id') THEN
-    EXECUTE 'SELECT count(*) FROM sale_lines WHERE seller_user_id IS NOT NULL' INTO m;
-    n := n + m;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'sale_tenders' AND column_name = 'received_by_user_id') THEN
-    EXECUTE 'SELECT count(*) FROM sale_tenders WHERE received_by_user_id IS NOT NULL' INTO m;
-    n := n + m;
-  END IF;
-  IF EXISTS (SELECT 1 FROM information_schema.columns
-              WHERE table_schema = 'public' AND table_name = 'memberships' AND column_name = 'seller_code') THEN
-    EXECUTE 'SELECT count(*) FROM memberships WHERE seller_code IS NOT NULL' INTO m;
-    n := n + m;
-  END IF;
+  FOR t IN SELECT id FROM tenants LOOP
+    PERFORM set_config('app.current_tenant', t::text, true);
+    IF has_lines THEN
+      EXECUTE 'SELECT count(*) FROM sale_lines WHERE tenant_id = $1 AND seller_user_id IS NOT NULL' INTO m USING t;
+      n := n + m;
+    END IF;
+    IF has_tenders THEN
+      EXECUTE 'SELECT count(*) FROM sale_tenders WHERE tenant_id = $1 AND received_by_user_id IS NOT NULL' INTO m USING t;
+      n := n + m;
+    END IF;
+    IF has_codes THEN
+      EXECUTE 'SELECT count(*) FROM memberships WHERE tenant_id = $1 AND seller_code IS NOT NULL' INTO m USING t;
+      n := n + m;
+    END IF;
+  END LOOP;
+  PERFORM set_config('app.is_platform_admin', '', true);
+  PERFORM set_config('app.current_tenant', '', true);
   IF n > 0 THEN
     RAISE EXCEPTION '0133 down refused: % row(s) carry a seller, a payment receiver or a Seller Code; the facts would be lost', n
       USING HINT = 'Back up the rows, then decide; this rollback never drops recorded sale facts.';

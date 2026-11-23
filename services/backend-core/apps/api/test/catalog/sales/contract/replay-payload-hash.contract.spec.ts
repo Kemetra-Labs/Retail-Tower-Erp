@@ -56,7 +56,10 @@ describe("RT-1206 — captureSale provenance replay with a different payload (co
 
   it("the description states the byte-exact compare, the excluded fields and the store-scope order", () => {
     const d = flat(capture.description);
-    expect(d).toContain("without `operatorUserId`, `admissionCheckAt` and `receipt`");
+    // RT-1565 names every field the controller drops: the two safety fields and the new seller / receiver.
+    expect(d).toContain(
+      "without `operatorUserId`, `admissionCheckAt`, `receipt`, `safetyRevision`, `safetySyncedAt` and (RT-1565) every `lines[].sellerUserId` and `tenders[].receivedByUserId`",
+    );
     expect(d).toContain("so reordered arrays or a differently written decimal differ");
     expect(d).toContain("The store scope is decided first");
     expect(d).toContain("so is a provenance replay under another key with different tracking (RT-1206)");
