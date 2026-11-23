@@ -194,6 +194,9 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       "psql_client bash deploy/apply-domain-grants.sh",
       "erpnext-posting-resolution-catchup.sql",
       "inventory-effect-integration-catchup.sql",
+      "erp-provisioning-host-label-catchup.sql",
+      "price-change-set-rollback-from-catchup.sql",
+      'run_catchups || stop "catch-up-failed"',
       '"$DC" up -d </dev/null || stop "compose-up-failed"',
       'running_matches api "$API_REF"',
       "GATE=G-Ready",
@@ -426,7 +429,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   });
 
   it("orders migrate, grants, catch-up, up, catch-up, readiness, cancel revert", () => {
-    const catchups = [...b.matchAll(/psql_client sh -c 'psql -X -v ON_ERROR_STOP=1 -f docs\/operations\/sql\/erpnext-posting-resolution-catchup\.sql/g)].map((m) => m.index ?? -1);
+    const catchups = [...b.matchAll(/^\s*run_catchups \|\| stop "/gm)].map((m) => m.index ?? -1);
     expect(catchups).toHaveLength(2);
     const steps = [
       b.indexOf('"$DC" run --rm migrate </dev/null'),
@@ -451,11 +454,104 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   });
 
   it("runs the catch-up scripts before and again after the start, as README Deploy step 4 does", () => {
-    const runs = [...b.matchAll(/-f docs\/operations\/sql\/erpnext-posting-resolution-catchup\.sql/g)].map((m) => m.index ?? -1);
-    expect(runs).toHaveLength(2);
-    expect(runs[0]).toBeLessThan(b.indexOf('"$DC" up -d </dev/null ||'));
-    expect(runs[1]).toBeGreaterThan(b.indexOf("pass start"));
-    expect(runs[1]).toBeLessThan(b.indexOf("GATE=G-Ready"));
+    // one definition holds the scripts; it is called once before the start and once after it
+    expect([...b.matchAll(/-f docs\/operations\/sql\/erpnext-posting-resolution-catchup\.sql/g)]).toHaveLength(1);
+    const runs = [...b.matchAll(/^\s*run_catchups \|\| stop "([a-z-]+)"$/gm)];
+    expect(runs.map((m) => m[1])).toEqual(["catch-up-failed", "post-start-catch-up-failed"]);
+    expect(b.indexOf("run_catchups() {")).toBeLessThan(runs[0]?.index ?? -1);
+    expect(runs[0]?.index ?? -1).toBeLessThan(b.indexOf('"$DC" up -d </dev/null ||'));
+    expect(runs[1]?.index ?? -1).toBeGreaterThan(b.indexOf("pass start"));
+    expect(runs[1]?.index ?? -1).toBeLessThan(b.indexOf("GATE=G-Ready"));
+  });
+
+  // RT-1560: the document runs every catch-up README Deploy step 4 lists (0038, 0043, 0113, 0128), in that order.
+  const catchupDef = b.slice(b.indexOf("run_catchups() {"), b.indexOf("\n}\n", b.indexOf("run_catchups() {")) + 2);
+
+  it("runs exactly README Deploy step 4's catch-up scripts, in its order, each stopping on the first SQL error (RT-1560)", () => {
+    const readme = read("deploy/README.md");
+    const step4 = readme.slice(readme.indexOf("# 4. Freeze"), readme.indexOf("```", readme.indexOf("# 4. Freeze")));
+    const files = (text: string): string[] => [...text.matchAll(/-f (docs\/operations\/sql\/[a-z0-9-]+\.sql)/g)].map((m) => m[1] ?? "");
+    expect(files(step4)).toEqual([
+      "docs/operations/sql/erpnext-posting-resolution-catchup.sql",
+      "docs/operations/sql/inventory-effect-integration-catchup.sql",
+      "docs/operations/sql/erp-provisioning-host-label-catchup.sql",
+      "docs/operations/sql/price-change-set-rollback-from-catchup.sql",
+    ]);
+    expect(files(catchupDef)).toEqual(files(step4));
+    // every psql call stops on its first SQL error, and the chain stops at the first failing script
+    const calls = [...catchupDef.matchAll(/psql -X[^\n]*-f docs\/operations\/sql\/[a-z0-9-]+\.sql[^\n]*/g)].map((m) => m[0]);
+    expect(calls).toHaveLength(4);
+    for (const call of calls.slice(0, 3)) expect(call).toMatch(/-v ON_ERROR_STOP=1 .*&&$/);
+    expect(calls[3]).toMatch(/-v ON_ERROR_STOP=1 -f [^ ]+\.sql'\)" \|\| return 1$/);
+    // the release bundle ships every one of them
+    const bundle = read("deploy/release-bundle.sh");
+    for (const file of files(step4)) expect(bundle).toContain(`  ${file}\n`);
+  });
+
+  it("reports the counts the 0113 and 0128 catch-ups return on their own gate line, and nothing else from psql (RT-1560)", () => {
+    // the pass lines keep their 3-token form; the counts follow on a separate 3-token gate line
+    expectInOrder(b, [
+      'run_catchups || stop "catch-up-failed"\npass catch-up\nsay "RT_GATE catch-up-rows $CATCHUP_COUNTS"\n',
+      'run_catchups || stop "post-start-catch-up-failed"\npass post-start-catch-up\nsay "RT_GATE post-start-catch-up-rows $CATCHUP_COUNTS"\n',
+    ]);
+    // digits only between fixed keys, so the line always matches the workflows' RESULT_RE
+    expect(catchupDef).toContain('[[ "$counts" =~ ^([0-9]+)\\ ([0-9]+)\\ $ ]] || return 1');
+    expect(catchupDef).toContain('CATCHUP_COUNTS="host_labels_moved=${BASH_REMATCH[1]}:rollback_sets_filled=${BASH_REMATCH[2]}"');
+    // the ledgers (system_ledger.py gate_of, deploy-lab.yml jq) read `RT_GATE <gate> <result>`: exactly 3 tokens
+    const resultRe = new RegExp(/RESULT_RE='([^']+)'/.exec(read("../../.github/workflows/deploy-lab.yml"))?.[1] ?? "^$");
+    for (const gate of ["catch-up-rows", "post-start-catch-up-rows"]) {
+      const line = `RT_GATE ${gate} host_labels_moved=12:rollback_sets_filled=0`;
+      expect(resultRe.test(line)).toBe(true);
+      expect(line.split(" ")).toHaveLength(3);
+    }
+    // the connection comes from the env file only
+    expect(catchupDef).not.toMatch(/postgres(ql)?:\/\/|-d |--dbname|PGPASSWORD/);
+  });
+
+  itBash("runs the four scripts in order, records both counts, and stops at the first failing script (RT-1560)", () => {
+    const run = (failOn: string, hostLabelOut = "2\\nOK: host labels"): { status: number | null; out: string } => {
+      const dir = mkdtempSync(join(tmpdir(), "rt-catchup-")).replace(/\\/g, "/");
+      // A fake psql: records the file it ran, prints what the real scripts print with -qAt, fails on request.
+      writeFileSync(
+        join(dir, "psql"),
+        [
+          "#!/bin/bash",
+          'f="${@: -1}"; echo "${f##*/}" >> "$CALLS"',
+          'case "$f" in *"$FAIL_ON"*) [ -n "$FAIL_ON" ] && exit 3 ;; esac',
+          'case "$f" in',
+          `  *host-label*) printf '${hostLabelOut}\\n' ;;`,
+          "  *rollback-from*) printf '5\\nOK: rollback start\\n' ;;",
+          "  *) echo 'UPDATE 0' ;;",
+          "esac",
+          "",
+        ].join("\n"),
+        { mode: 0o755 },
+      );
+      // PATH is `:`-separated, so Git Bash needs /c/... rather than C:/... (a no-op on Linux)
+      const bashDir = dir.replace(/^([A-Za-z]):/, (_m, drive: string) => `/${drive.toLowerCase()}`);
+      const script = [
+        "set -euo pipefail",
+        `export PATH="${bashDir}:$PATH" CALLS="${bashDir}/calls" FAIL_ON='${failOn}'`,
+        // the real client runs the command in a container; here it runs it directly
+        'psql_client() { "$@"; }',
+        catchupDef,
+        'if run_catchups >/dev/null 2>&1; then echo "OK $CATCHUP_COUNTS"; else echo FAILED; fi',
+        'tr "\\n" " " < "$CALLS"',
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      rmSync(dir, { recursive: true, force: true });
+      return { status: r.status, out: r.stdout.trim() };
+    };
+    const all = "erpnext-posting-resolution-catchup.sql inventory-effect-integration-catchup.sql erp-provisioning-host-label-catchup.sql price-change-set-rollback-from-catchup.sql";
+    expect(run("")).toEqual({ status: 0, out: `OK host_labels_moved=2:rollback_sets_filled=5\n${all}` });
+    // a failing script stops the chain: the later ones never run
+    expect(run("inventory-effect")).toEqual({
+      status: 0,
+      out: "FAILED\nerpnext-posting-resolution-catchup.sql inventory-effect-integration-catchup.sql",
+    });
+    expect(run("rollback-from").out.split("\n")[0]).toBe("FAILED");
+    // output without a count (an older function, a changed script) is a failure, not a silent pass
+    expect(run("", "OK: host labels").out.split("\n")[0]).toBe("FAILED");
   });
 
   it("extracts a fetched bundle world-readable (no secrets in it; containers bind-mount its files)", () => {
