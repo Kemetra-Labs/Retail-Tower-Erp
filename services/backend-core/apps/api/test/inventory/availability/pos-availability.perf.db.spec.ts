@@ -81,7 +81,7 @@ async function seed(pool: Pool): Promise<void> {
     const pid = `('0a000000-0000-7000-8000-' || lpad(to_hex(${BASE}::bigint + g), 12, '0'))::uuid`;
     await client.query(
       `INSERT INTO tenant_products (id, tenant_id, name, tax_category, default_price, default_currency_code, created_by, updated_by, tracking_mode)
-       SELECT ${pid}, $1, 'perf ' || g, 'standard', 10.00, 'EGP', $2, $2, CASE WHEN g % 20 = 0 THEN 'batch' ELSE 'none' END
+       SELECT ${pid}, $1::uuid, 'perf ' || g, 'standard', 10.00, 'EGP', $2::uuid, $2::uuid, CASE WHEN g % 20 = 0 THEN 'batch' ELSE 'none' END
          FROM generate_series(1, ${SKUS}) g`,
       [TENANT_A, ACTOR_A],
     );
@@ -90,8 +90,8 @@ async function seed(pool: Pool): Promise<void> {
       `INSERT INTO stock_movements
          (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at,
           created_by, stock_location_id, inventory_status)
-       SELECT gen_random_uuid(), $1, $3, CASE WHEN q > 0 THEN 'inbound' ELSE 'adjustment' END, q, 'ea', p.pid, 'rt1577 perf seed',
-              now() - (m || ' hours')::interval, $2, ${loc(STORE_A_X)},
+       SELECT gen_random_uuid(), $1::uuid, $3::uuid, CASE WHEN q > 0 THEN 'inbound' ELSE 'adjustment' END, q, 'ea', p.pid, 'rt1577 perf seed',
+              now() - (m || ' hours')::interval, $2::uuid, ${loc(STORE_A_X)},
               CASE WHEN m = 2 AND p.g % 10 = 0 THEN 'quality_hold' ELSE 'sellable' END
          FROM (SELECT g, ${pid} AS pid FROM generate_series(1, ${SKUS}) g WHERE g % 20 <> 0) p
          CROSS JOIN generate_series(1, 12) m
@@ -103,7 +103,7 @@ async function seed(pool: Pool): Promise<void> {
       `INSERT INTO stock_movements
          (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, reason, occurred_at,
           created_by, stock_location_id, inventory_status)
-       SELECT gen_random_uuid(), $1, $3, 'inbound', 77, 'ea', ${pid}, 'rt1577 perf seed', now(), $2, ${loc(STORE_A_Y)}, 'sellable'
+       SELECT gen_random_uuid(), $1::uuid, $3::uuid, 'inbound', 77, 'ea', ${pid}, 'rt1577 perf seed', now(), $2::uuid, ${loc(STORE_A_Y)}, 'sellable'
          FROM generate_series(1, ${SKUS}) g`,
       [TENANT_A, ACTOR_A, STORE_A_Y],
     );
@@ -113,8 +113,8 @@ async function seed(pool: Pool): Promise<void> {
          FROM generate_series(1, ${SKUS}) g WHERE g % 20 = 0`);
     await client.query(
       `INSERT INTO tracking_identities (id, tenant_id, tenant_product_ref, kind, code, expiry_date)
-       SELECT expired_id, $1, pid, 'batch', 'PERF-E-' || g, '2000-01-01' FROM perf_lots
-       UNION ALL SELECT valid_id, $1, pid, 'batch', 'PERF-V-' || g, '2099-01-01' FROM perf_lots`,
+       SELECT expired_id, $1::uuid, pid, 'batch', 'PERF-E-' || g, '2000-01-01'::date FROM perf_lots
+       UNION ALL SELECT valid_id, $1::uuid, pid, 'batch', 'PERF-V-' || g, '2099-01-01'::date FROM perf_lots`,
       [TENANT_A],
     );
     await client.query(`CREATE TEMP TABLE perf_lot_moves AS
@@ -124,14 +124,14 @@ async function seed(pool: Pool): Promise<void> {
       `INSERT INTO stock_movements
          (id, tenant_id, store_id, movement_type, quantity, stocking_unit, tenant_product_ref, occurred_at, received_at,
           created_by, origin, event_type, event_ref_id, stock_location_id, inventory_status, tracking_identity_id)
-       SELECT id, $1, $3, 'inbound', q, 'each', pid, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z', $2, 'erp_external',
+       SELECT id, $1::uuid, $3::uuid, 'inbound', q, 'each', pid, '2020-01-01T00:00:00Z', '2020-01-01T00:00:00Z', $2::uuid, 'erp_external',
               'erp_procurement_receipt', id, ${loc(STORE_A_X)}, 'sellable', lot
          FROM perf_lot_moves`,
       [TENANT_A, ACTOR_A, STORE_A_X],
     );
     await client.query(
       `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state, erp_confirmed_at)
-       SELECT id, $1, 'external', '2020-01-01T00:00:00Z' FROM perf_lot_moves`,
+       SELECT id, $1::uuid, 'external', '2020-01-01T00:00:00Z' FROM perf_lot_moves`,
       [TENANT_A],
     );
     // Reservations on every fifth untracked product: two thirds of them active, one third lapsed (never swept).
@@ -139,21 +139,21 @@ async function seed(pool: Pool): Promise<void> {
       `INSERT INTO inventory_reservations
          (id, tenant_id, store_id, stock_location_id, tenant_product_ref, quantity, expires_at, source_type, source_id,
           source_line_id, created_by)
-       SELECT gen_random_uuid(), $1, $3, ${loc(STORE_A_X)}, ${pid}, 2,
+       SELECT gen_random_uuid(), $1::uuid, $3::uuid, ${loc(STORE_A_X)}, ${pid}, 2,
               CASE WHEN g % 3 = 0 THEN '2020-01-01T00:00:00Z'::timestamptz ELSE '2099-01-01T00:00:00Z'::timestamptz END,
-              'transfer', gen_random_uuid(), gen_random_uuid(), $2
+              'transfer', gen_random_uuid(), gen_random_uuid(), $2::uuid
          FROM generate_series(1, ${SKUS}) g WHERE g % 5 = 0 AND g % 20 <> 0`,
       [TENANT_A, ACTOR_A, STORE_A_X],
     );
     // Low-stock levels: a tenant default for a third of the products, a store level for every tenth.
     await client.query(
       `INSERT INTO product_stock_levels (id, tenant_id, product_id, store_id, reorder_level, created_by, updated_by)
-       SELECT gen_random_uuid(), $1, ${pid}, NULL, 50, $2, $2 FROM generate_series(1, ${SKUS}) g WHERE g % 3 = 0`,
+       SELECT gen_random_uuid(), $1::uuid, ${pid}, NULL, 50, $2::uuid, $2::uuid FROM generate_series(1, ${SKUS}) g WHERE g % 3 = 0`,
       [TENANT_A, ACTOR_A],
     );
     await client.query(
       `INSERT INTO product_stock_levels (id, tenant_id, product_id, store_id, reorder_level, created_by, updated_by)
-       SELECT gen_random_uuid(), $1, ${pid}, $3, 400, $2, $2 FROM generate_series(1, ${SKUS}) g WHERE g % 10 = 0`,
+       SELECT gen_random_uuid(), $1::uuid, ${pid}, $3::uuid, 400, $2::uuid, $2::uuid FROM generate_series(1, ${SKUS}) g WHERE g % 10 = 0`,
       [TENANT_A, ACTOR_A, STORE_A_X],
     );
     await client.query(
