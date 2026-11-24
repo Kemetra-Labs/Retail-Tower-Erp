@@ -457,10 +457,21 @@
   min-block-size: 56px;
 }
 
+/*
+ * RT-1179: the commit is 60px at comfortable density and 56px at compact (DESIGN.md), the same
+ * split as Checkout's ledger slot. The compact rule sits in its own container block below, after
+ * this base rule, so it wins on equal specificity.
+ */
 .v5-live-sale .v5-sale-checkout.v5-btn {
   justify-content: space-between;
   gap: var(--space-3);
-  min-block-size: 56px;
+  min-block-size: 60px;
+}
+
+@container v5-screen (max-width: 1120px) or style(--v5-screen-height: compact) {
+  .v5-live-sale .v5-sale-checkout.v5-btn {
+    min-block-size: 56px;
+  }
 }
 
 /*
