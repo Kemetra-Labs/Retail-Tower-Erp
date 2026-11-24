@@ -203,6 +203,37 @@ describe('row badges (search results and cart lines)', () => {
     expect(document.querySelector('.v5-live-flag--availability')).toBeNull();
   });
 
+  it('a pairing change drops the old store badge, asks again, and stops listening on unmount', async () => {
+    let push: (() => void) | undefined;
+    const off = vi.fn();
+    (window as unknown as { api: unknown }).api = {
+      availability: api,
+      pairing: {
+        onStatusChanged: (cb: () => void) => {
+          push = cb;
+          return off;
+        },
+      },
+    };
+    const view = rail();
+    await waitFor(() => {
+      expect(optionBadge()).toHaveTextContent('متوفر');
+    });
+    // The new pairing's store cannot answer: store A's band must not stay on screen.
+    api.bands.mockResolvedValue({ kind: 'refused', reason: 'no_session' });
+    api.bands.mockClear();
+    act(() => {
+      push?.();
+    });
+    expect(document.querySelector('.v5-live-flag--availability')).toBeNull();
+    await waitFor(() => {
+      expect(api.bands).toHaveBeenCalledWith({ product_ids: ['p-1'] });
+    });
+    expect(document.querySelector('.v5-live-flag--availability')).toBeNull();
+    view.unmount();
+    expect(off).toHaveBeenCalledTimes(1);
+  });
+
   it('a refused or failing bridge shows no badge and no error', async () => {
     api.bands.mockResolvedValue({ kind: 'refused', reason: 'no_session' });
     api.status.mockRejectedValue(new Error('down'));

@@ -31,7 +31,13 @@ interface AvailabilityStoreState {
   reload: () => Promise<void>;
   /** The manual «تحديث التوفر»: one out-of-cycle pull, then a re-read. */
   refresh: () => Promise<void>;
+  /** Forget everything: the state, the tracked products and every reply still on its way. */
   reset: () => void;
+  /**
+   * The pairing changed (a store change or a re-pair): drop what the old store showed at once, ignore every
+   * reply asked for before, and ask again for the products still on screen.
+   */
+  invalidate: () => void;
 }
 
 function bridge(): AvailabilityBridgeAPI | null {
@@ -42,17 +48,20 @@ function bridge(): AvailabilityBridgeAPI | null {
 let tracked: string[] = [];
 let queued: string[] = [];
 let flushScheduled = false;
+/** Bumped by every reset and invalidation: a reply asked for under an older generation is never shown. */
+let generation = 0;
 
 export const useAvailabilityStore = create<AvailabilityStoreState>((set, get) => {
   /** Ask main about `ids`; a refusal or a fault leaves what is shown as it was. */
   async function load(ids: readonly string[]): Promise<void> {
     const api = bridge();
     if (api === null) return;
+    const mine = generation;
     // Chunks of BATCH, so no id queued in one tick is dropped (main refuses a longer list).
     for (let start = 0; start < ids.length; start += BATCH) {
       try {
         const answer = await api.bands({ product_ids: ids.slice(start, start + BATCH) });
-        if (answer.kind !== 'ok') return;
+        if (mine !== generation || answer.kind !== 'ok') return;
         set((s) => ({
           freshness: { state: answer.state, as_of: answer.as_of },
           states: { ...s.states, ...answer.states },
@@ -74,9 +83,12 @@ export const useAvailabilityStore = create<AvailabilityStoreState>((set, get) =>
   async function readStatus(): Promise<void> {
     const api = bridge();
     if (api === null) return;
+    const mine = generation;
     try {
       const answer = await api.status({});
-      if (answer.kind === 'ok') set({ freshness: { state: answer.state, as_of: answer.as_of } });
+      if (mine === generation && answer.kind === 'ok') {
+        set({ freshness: { state: answer.state, as_of: answer.as_of } });
+      }
     } catch {
       // see `load`
     }
@@ -101,6 +113,7 @@ export const useAvailabilityStore = create<AvailabilityStoreState>((set, get) =>
     },
     async refresh() {
       if (get().refreshing) return;
+      const mine = generation;
       set({ refreshing: true });
       try {
         await bridge()?.refresh({});
@@ -108,12 +121,24 @@ export const useAvailabilityStore = create<AvailabilityStoreState>((set, get) =>
         // The outcome is read back from the cache itself, which stays as it was on a failure.
       }
       await get().reload();
-      set({ refreshing: false });
+      // A run that started before a reset must not clear the flag of the one that started after it.
+      if (mine === generation) set({ refreshing: false });
     },
     reset() {
+      generation += 1;
       tracked = [];
       queued = [];
       set({ freshness: null, states: {}, refreshing: false });
+    },
+    invalidate() {
+      generation += 1;
+      queued = tracked;
+      set({ freshness: null, states: {}, refreshing: false });
+      if (queued.length > 0 && !flushScheduled) {
+        flushScheduled = true;
+        queueMicrotask(flush);
+      }
+      void readStatus();
     },
   };
 });

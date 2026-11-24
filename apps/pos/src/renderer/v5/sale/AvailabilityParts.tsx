@@ -5,6 +5,7 @@ import {
   availabilityBadge,
   availabilityStatus,
 } from '../../availability/availability-copy';
+import type { PairingBridgeAPI } from '../../../shared/bridge-api';
 import { focusScanOwner } from '../../scan/scan-anchor';
 import {
   AVAILABILITY_REREAD_INTERVAL_MS,
@@ -50,6 +51,17 @@ export function AvailabilityBar(): JSX.Element {
   const refreshing = useAvailabilityStore((s) => s.refreshing);
   const reload = useAvailabilityStore((s) => s.reload);
   const refresh = useAvailabilityStore((s) => s.refresh);
+  const invalidate = useAvailabilityStore((s) => s.invalidate);
+  // A store change or a re-pair: main has purged its cache, so what the old store showed goes at once.
+  useEffect(() => {
+    // An older preload (or a test) may have no pairing bridge: then there is nothing to listen to.
+    const api = (
+      window as unknown as { api?: { pairing?: Pick<PairingBridgeAPI, 'onStatusChanged'> } }
+    ).api;
+    return api?.pairing?.onStatusChanged?.(() => {
+      invalidate();
+    });
+  }, [invalidate]);
   useEffect(() => {
     void reload();
     const timer = setInterval(() => {

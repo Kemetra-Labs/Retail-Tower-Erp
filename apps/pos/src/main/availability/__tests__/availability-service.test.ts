@@ -240,6 +240,48 @@ describe('row states', () => {
     expect(after.freshness.state).toBe('fresh');
   });
 
+  it('a refresh that commits while a read is under way never mixes its bands with the older freshness', async () => {
+    // The commit lands between the freshness check and the band read (a microtask queued by the stored-state
+    // read); a read that awaits in between would pair the new bands with the old, still-fresh stamp.
+    const realRepo = createAvailabilityRepo(handleFor(db));
+    const key = 'tenant-1|' + STORE + '|1000';
+    realRepo.replaceAll({
+      scopeKey: key,
+      oldestAsOf: T0.toISOString(),
+      refreshedAt: T0.toISOString(),
+      items: [item(P1, 'in_stock')],
+    });
+    let armed = true;
+    const repo = {
+      ...realRepo,
+      readState: () => {
+        const stored = realRepo.readState();
+        if (armed) {
+          armed = false;
+          queueMicrotask(() => {
+            realRepo.replaceAll({
+              scopeKey: key,
+              oldestAsOf: new Date(T0.getTime() - 2 * 60 * 60_000).toISOString(),
+              refreshedAt: T0.toISOString(),
+              items: [item(P1, 'out')],
+            });
+          });
+        }
+        return stored;
+      },
+    };
+    const service = createAvailabilityService({
+      client: { fetchPage: () => Promise.resolve({ kind: 'failed' }) },
+      repo,
+      config: CONFIG,
+      readScope: () => Promise.resolve(scope),
+      now: () => now,
+    });
+    const answer = await service.states([P1]);
+    expect(answer.freshness).toEqual({ state: 'fresh', as_of: T0.toISOString() });
+    expect(answer.states[P1]).toBe('in_stock');
+  });
+
   it('the answer never carries the Available-to-Sell number', async () => {
     const { service } = build();
     pages = [page({ items: [item(P1, 'in_stock', '123.5000')] })];

@@ -151,7 +151,9 @@ export function createAvailabilityService(deps: AvailabilityServiceDeps): Availa
     refresh,
     freshness,
     async states(productIds) {
-      const fresh = await freshness();
+      // Classify freshness and read the bands in one synchronous step: a refresh that commits in between
+      // would pair its bands with the older snapshot's freshness.
+      const fresh = freshnessUnder(await deps.readScope());
       const bands =
         fresh.state === 'fresh' ? repo.readBands(productIds) : new Map<string, WireBand>();
       const unseen: AvailabilityRowState = fresh.state === 'stale' ? 'uncertain' : 'unknown';
