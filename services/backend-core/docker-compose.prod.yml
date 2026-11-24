@@ -124,6 +124,11 @@ services:
       # tender map is deployed, and SAME_METHOD only after RT-361.
       POS_SALE_TENDERS_ENABLED: ${POS_SALE_TENDERS_ENABLED:-false}
       POS_SALE_TENDERS_SAME_METHOD_ENABLED: ${POS_SALE_TENDERS_SAME_METHOD_ENABLED:-false}
+      # RT-1114 / RT-1593: the voucher-tender capture gate. Off by default; turn it on
+      # only after RT-1330 is in place (the Connector's Voucher Mode of Payment with a
+      # company account and the tender-map row voucher -> Voucher), and only with
+      # POS_SALE_TENDERS_ENABLED on too.
+      POS_SALE_VOUCHER_TENDER_ENABLED: ${POS_SALE_VOUCHER_TENDER_ENABLED:-false}
       # RT-451: the tracked-selling (batch/expiry) deployment gate. Off by default;
       # it also needs the per-tenant switch and the RT-50 Q13 preconditions.
       POS_TRACKED_SELLING_ENABLED: ${POS_TRACKED_SELLING_ENABLED:-false}
