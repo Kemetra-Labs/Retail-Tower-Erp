@@ -28,6 +28,13 @@
  */
 import 'reflect-metadata';
 
+// RT-1584: observe the source-position signal (the OTel instrument is no-op
+// without a registered reader — the metrics test idiom). Hoisted by jest.
+jest.mock('../../../src/inventory/position-events/position-events.metrics', () => {
+  const actual = jest.requireActual('../../../src/inventory/position-events/position-events.metrics');
+  return { ...actual, recordInventoryPositionNegative: jest.fn() };
+});
+
 import {
   BadRequestException,
   ConflictException,
@@ -54,6 +61,7 @@ import {
   TENANT_A,
   TENANT_B,
 } from '../../catalog/__support__/isolation-harness';
+import { recordInventoryPositionNegative } from '../../../src/inventory/position-events/position-events.metrics';
 import { MembershipRepository } from '../../../src/context/membership.repository';
 import { InventoryService } from '../../../src/inventory/inventory.service';
 import {
@@ -531,5 +539,89 @@ describe('RT-435 return landing policy (Q6)', () => {
     expect(after[after.length - 1]!.metadata).toEqual({ old: 'sellable', new: 'return_inspection' });
     // Leave tenant B on the default for the other tests.
     await service.setReturnLandingPolicy({ tenantId: TENANT_B, userId: ADMIN_A, returnLandingStatus: 'sellable' });
+  });
+});
+
+/**
+ * RT-1584 (RT-1125 R-30, R-31): allow-and-flag (009 FR-024) for the source
+ * POSITION. A move never changes the store on-hand, so the per-product flag
+ * cannot see it; the source position is probed instead. Never refused.
+ */
+describe('RT-1584 negative source position signal', () => {
+  const recordPositionNegative = recordInventoryPositionNegative as jest.MockedFunction<
+    typeof recordInventoryPositionNegative
+  >;
+
+  beforeEach(() => recordPositionNegative.mockClear());
+
+  async function auditOf(eventId: string): Promise<Record<string, unknown>> {
+    const r = await env!.admin.query<{ metadata: Record<string, unknown> }>(
+      `SELECT metadata FROM audit_events WHERE target_type = 'inventory_position_event' AND target_id = $1`,
+      [eventId],
+    );
+    expect(r.rows).toHaveLength(1);
+    return r.rows[0]!.metadata;
+  }
+
+  /** `n` ea more than the position holds (it must hold zero or more), as a quantity string. */
+  async function moreThanHeld(locationId: string, status: string, n: bigint): Promise<string> {
+    const held = BigInt((await quantityAt(locationId, status)).replace('.', ''));
+    expect(held).toBeGreaterThanOrEqual(0n);
+    const q = held + n * 10000n;
+    return `${q / 10000n}.${String(q % 10000n).padStart(4, '0')}`;
+  }
+
+  it('a status move that takes the source below zero is recorded, counted once and audited', async () => {
+    if (maybeSkip()) return;
+    const quantity = await moreThanHeld(BACKROOM_A_X, 'sellable', 4n);
+    const before = await onHand();
+
+    const event = await service.createStatusMove(statusMove({ quantity, stockLocationId: BACKROOM_A_X }));
+
+    expect(await quantityAt(BACKROOM_A_X, 'sellable')).toBe('-4.0000');
+    expect((await onHand()).physical).toBe(before.physical);
+    expect(recordPositionNegative).toHaveBeenCalledTimes(1);
+    expect(await auditOf(event.id)).toMatchObject({ sourcePositionNegative: true });
+  });
+
+  it('a relocation that takes the source below zero is recorded, counted once and audited', async () => {
+    if (maybeSkip()) return;
+    const quantity = await moreThanHeld(BACKROOM_A_X, 'damaged', 3n);
+
+    const event = await service.createRelocation(
+      relocation({ quantity, fromLocationId: BACKROOM_A_X, toLocationId: primaryAX, inventoryStatus: 'damaged' }),
+    );
+
+    expect(await quantityAt(BACKROOM_A_X, 'damaged')).toBe('-3.0000');
+    expect(recordPositionNegative).toHaveBeenCalledTimes(1);
+    expect(await auditOf(event.id)).toMatchObject({ sourcePositionNegative: true });
+  });
+
+  it('a move that leaves the source at zero or above is not counted and not flagged', async () => {
+    if (maybeSkip()) return;
+    const held = await quantityAt(primaryAX, 'damaged');
+    expect(BigInt(held.replace('.', ''))).toBeGreaterThan(0n);
+
+    const event = await service.createRelocation(
+      relocation({ quantity: held, fromLocationId: primaryAX, toLocationId: BACKROOM_A_X, inventoryStatus: 'damaged' }),
+    );
+
+    expect(await quantityAt(primaryAX, 'damaged')).toBe('0.0000');
+    expect(recordPositionNegative).not.toHaveBeenCalled();
+    expect(await auditOf(event.id)).toMatchObject({ sourcePositionNegative: false });
+  });
+
+  it('a replay of a move that went negative records one event and one signal', async () => {
+    if (maybeSkip()) return;
+    const quantity = await moreThanHeld(primaryAX, 'sellable', 1n);
+    const cmd = statusMove({ quantity, stockLocationId: primaryAX });
+
+    const first = await service.createStatusMove(cmd);
+    const before = await counts();
+    const again = await service.createStatusMove(cmd);
+
+    expect(again.id).toBe(first.id);
+    expect(await counts()).toEqual(before);
+    expect(recordPositionNegative).toHaveBeenCalledTimes(1);
   });
 });
