@@ -39,7 +39,7 @@ interface Props {
   bridges: RecoveryBridges;
   onDismiss: () => void;
   /** The action succeeded; the message says what happened. */
-  onDone: (message: string) => void;
+  onDone: (message: string, tone?: 'warning') => void;
 }
 
 /**
@@ -110,8 +110,11 @@ function useRecoverySubmit(props: Props): {
           granted.approval_id,
           extras,
         );
-        if (result.ok) props.onDone(result.message);
-        else setError(recoveryRefusalMessage(result.reason));
+        if (result.ok) {
+          // The tone travels only when there is one: every other outcome keeps its one-argument call.
+          if (result.tone === undefined) props.onDone(result.message);
+          else props.onDone(result.message, result.tone);
+        } else setError(recoveryRefusalMessage(result.reason));
       } catch {
         setError(RECOVERY_COPY.unavailable);
       }

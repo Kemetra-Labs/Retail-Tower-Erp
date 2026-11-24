@@ -297,6 +297,19 @@ interface Batch {
   session_id: string;
   created_ms: number;
   carts: BatchCart[];
+  /** The sum of the carts, checked (`Number.isSafeInteger`) when the snapshot was taken. */
+  total_minor: number;
+}
+
+/** The sum of the carts' totals, or null when any amount or the running total is not a safe integer. */
+function checkedTotal(carts: readonly BatchCart[]): number | null {
+  let total = 0;
+  for (const cart of carts) {
+    if (!Number.isSafeInteger(cart.total_minor) || cart.total_minor < 0) return null;
+    total += cart.total_minor;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+  return total;
 }
 
 /** RT-1563: only a PARKED draft joins a bulk cancel; a handed-off cart stays one by one. */
@@ -507,7 +520,7 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
       .map((c) => `${c.cart_id}|${c.version}`);
     return {
       version: `batch:${createHash('sha256').update(lines.join('\n')).digest('hex')}`,
-      amountMinor: batch.carts.reduce((n, c) => n + c.total_minor, 0),
+      amountMinor: batch.total_minor,
     };
   }
 
@@ -531,6 +544,8 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
     session: OperatorSessionRecord;
     approver_user_id: string;
     payload: Record<string, unknown>;
+    /** RT-1563: rethrow a failed write, so the caller's transaction rolls back (bulk cancel). */
+    strict?: boolean;
   }): void {
     try {
       deps.auditEmitter.emit({
@@ -547,6 +562,7 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
         payload: input.payload,
       });
     } catch (err) {
+      if (input.strict === true) throw err;
       deps.logger?.error({ err, category: input.category }, 'recovery.audit_failed');
     }
   }
@@ -746,7 +762,8 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
    * RT-1563: the approval and every cancel commit together. A cart that changed or left parking
    * since the snapshot is skipped and reported, never cancelled; any other failure rolls the whole
    * batch back, the approval included. The audit rows are written after the last cancel, so a
-   * failure part-way leaves no audit row for a sale that was rolled back.
+   * failure part-way leaves no audit row for a sale that was rolled back, and a failed audit write
+   * rolls the cancels back too (`strict`): a bulk cancel never commits without its audit rows.
    */
   function cancelBatchInTransaction(
     batch: Batch,
@@ -793,6 +810,7 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
           kind: 'draft',
           parked: true,
         },
+        strict: true,
       });
     }
   }
@@ -856,6 +874,10 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
         } else excluded.push(cart_id);
       }
       if (carts.length === 0) return refused('not_found');
+      // Money is integer minor units, safe-integer guarded: an unsafe total makes no batch (an
+      // approval is bound to this total, so it must be exact).
+      const total = checkedTotal(carts);
+      if (total === null) return refused('invalid_input');
       for (const [id] of batches) if (openBatch(admitted.session, id) === null) batches.delete(id);
       while (batches.size >= BATCH_MAX_OPEN) {
         const oldest = batches.keys().next();
@@ -867,12 +889,13 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
         session_id: admitted.session.id,
         created_ms: Date.parse(now()),
         carts,
+        total_minor: total,
       });
       return {
         kind: 'prepared',
         batch_id,
         count: carts.length,
-        total_minor: carts.reduce((n, c) => n + c.total_minor, 0),
+        total_minor: total,
         excluded_cart_ids: excluded,
       };
     },

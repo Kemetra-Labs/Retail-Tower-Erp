@@ -1253,3 +1253,54 @@ describe('recovery.cancelHeldCarts (RT-1563)', () => {
     });
   });
 });
+
+describe('recovery batch — integrity guards (RT-1563 review)', () => {
+  it('a failed audit write rolls the whole batch back: no cancel without its audit rows', async () => {
+    insertParked('p1');
+    insertParked('p2');
+    let writes = 0;
+    recovery = buildRecovery({
+      auditEmitter: {
+        emit: (event) => {
+          writes += 1;
+          if (writes === 2) throw new Error('audit store unavailable');
+          audit.push(event);
+        },
+      },
+    });
+    const { batch_id } = prepared(['p1', 'p2']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    writes = 0;
+    audit = [];
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'refused',
+      reason: 'recovery_unavailable',
+    });
+    expect(value(PARKED_COUNT_SQL)).toBe(2);
+    expect(
+      value(`SELECT consumed_at FROM manager_approvals WHERE approval_id = ?`, [id]),
+    ).toBeNull();
+    expect(value(`SELECT COUNT(*) FROM cart_action_outbox WHERE action_kind = 'cart.void'`)).toBe(
+      0,
+    );
+  });
+
+  it('refuses a batch whose total is not a safe integer, and makes no batch', () => {
+    insertParked('big-1');
+    insertParked('big-2');
+    insertParked('big-3');
+    for (const id of ['big-1', 'big-2', 'big-3']) {
+      raw.run(`UPDATE carts SET cart_subtotal_minor = ? WHERE cart_id = ?`, [
+        id === 'big-1' ? Number.MAX_SAFE_INTEGER : 1,
+        id,
+      ]);
+    }
+    // Each amount is a safe integer, the sum is not: 2^53 - 1 + 1 + 1.
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['big-1', 'big-2', 'big-3'] })).toEqual({
+      kind: 'refused',
+      reason: 'invalid_input',
+    });
+    // A smaller, safe selection from the same list still prepares.
+    expect(prepared(['big-2', 'big-3']).total_minor).toBe(2);
+  });
+});

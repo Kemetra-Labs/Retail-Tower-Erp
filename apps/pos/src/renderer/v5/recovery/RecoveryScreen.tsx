@@ -16,7 +16,7 @@ import { ScreenSection } from '../foundation/ScreenSection';
 import { Icon } from '../../icons/Icon';
 import { RECOVERY_COPY, recoveryRefusalMessage } from './recovery-copy';
 import { RecoveryActionDialog, type RecoveryAction } from './RecoveryActionDialog';
-import { RECOVERY_ACTION_KIND } from './recovery-actions';
+import { RECOVERY_ACTION_KIND, recoverySubjectOf } from './recovery-actions';
 import { RecoveryAlert } from './RecoveryAlert';
 import '../foundation/ledger.css';
 import './recovery.css';
@@ -201,7 +201,10 @@ function useBulkCancel(
     toggle: (cart_id) => {
       setPicked((now) => {
         const next = new Set(now);
-        if (!next.delete(cart_id)) next.add(cart_id);
+        if (next.delete(cart_id)) return next;
+        // One batch holds at most RECOVERY_BATCH_MAX sales: unticking is always possible, adding is not.
+        if (selectable.filter((id) => now.has(id)).length >= RECOVERY_BATCH_MAX) return now;
+        next.add(cart_id);
         return next;
       });
     },
@@ -223,10 +226,14 @@ export function RecoveryScreen({ bridges }: Readonly<{ bridges: RecoveryBridges 
   const canCancelSale = useCanCancelSale(bridges.approval);
   const names = useRosterNames(bridges.listRoster);
   const [action, setAction] = useState<RecoveryAction | null>(null);
-  const [outcome, setOutcome] = useState<string | null>(null);
+  const [outcome, setOutcome] = useState<{ message: string; tone: 'success' | 'warning' } | null>(
+    null,
+  );
+  // A late bulk prepare never replaces an action the manager already opened: the PIN, the approver
+  // and any pending submission stay bound to the action whose scope was reviewed.
   const bulk = useBulkCancel(bridges.recovery, held, reload, (next) => {
     setOutcome(null);
-    setAction(next);
+    setAction((current) => current ?? next);
   });
   const nameOf = (id: string): string => names.get(id) ?? RECOVERY_COPY.someoneElse;
 
@@ -239,8 +246,8 @@ export function RecoveryScreen({ bridges }: Readonly<{ bridges: RecoveryBridges 
     <ScreenSection title={RECOVERY_COPY.title}>
       <div className="v5-recovery" dir="rtl" lang="ar">
         {outcome !== null && (
-          <Notice tone="success">
-            <Outcome message={outcome} />
+          <Notice tone={outcome.tone}>
+            <Outcome message={outcome.message} />
           </Notice>
         )}
         <HeldBody
@@ -253,6 +260,8 @@ export function RecoveryScreen({ bridges }: Readonly<{ bridges: RecoveryBridges 
       </div>
       {action !== null && (
         <RecoveryActionDialog
+          // One dialog per action: its PIN, approver, extras and submission never carry over.
+          key={`${action.kind}:${recoverySubjectOf(action)}`}
           action={action}
           bridges={bridges}
           onDismiss={() => {
@@ -260,9 +269,9 @@ export function RecoveryScreen({ bridges }: Readonly<{ bridges: RecoveryBridges 
             // A bulk approval may have been spent on a snapshot that went stale: show the list as it is.
             if (action.kind === 'cancel_parked_batch') reload();
           }}
-          onDone={(message) => {
+          onDone={(message, tone) => {
             setAction(null);
-            setOutcome(message);
+            setOutcome({ message, tone: tone ?? 'success' });
             bulk.clear();
             reload();
           }}

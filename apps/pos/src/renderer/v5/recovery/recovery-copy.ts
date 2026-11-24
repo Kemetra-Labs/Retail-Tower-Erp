@@ -61,6 +61,8 @@ export const RECOVERY_COPY = Object.freeze({
   // Dense metadata, noun-first (UX-12): a count follows the colon.
   excludedLabel: 'مبيعات لن تُلغى لأنها لم تعد معلّقة أو تغيّرت',
   skippedLabel: 'لم تُلغَ لأنها تغيّرت أو لم تعد معلّقة',
+  // Every selected sale had changed since the snapshot: nothing was cancelled, the list is re-read.
+  batchNoneCancelled: 'لم يُلغَ أي بيع: تغيّرت المبيعات المحددة أو لم تعد معلّقة. حُدّثت القائمة.',
   batchNoneEligible: 'لا توجد مبيعات معلّقة قابلة للإلغاء الجماعي الآن. حُدّثت القائمة.',
 });
 
@@ -86,13 +88,6 @@ export function batchCancelled(count: number): string {
   });
 }
 
-/** Extra refusal copy that is not a bridge reason code. */
-const EXTRA_REFUSALS: Readonly<Record<string, string>> = {
-  // The approval was spent but every selected sale had changed: nothing was cancelled.
-  batch_none_cancelled:
-    'لم يُلغَ أي بيع: تغيّرت المبيعات المحددة أو لم تعد معلّقة. حُدّثت القائمة.',
-};
-
 const REFUSALS: Readonly<Record<RecoveryRefusalReason | ManagerApprovalRefusalReason, string>> = {
   no_session: 'سجّل الدخول للمتابعة.',
   session_locked: 'الجهاز مقفل.',
@@ -114,9 +109,5 @@ const REFUSALS: Readonly<Record<RecoveryRefusalReason | ManagerApprovalRefusalRe
 };
 
 export function recoveryRefusalMessage(reason: string): string {
-  return (
-    EXTRA_REFUSALS[reason] ??
-    (REFUSALS as Record<string, string | undefined>)[reason] ??
-    RECOVERY_COPY.unavailable
-  );
+  return (REFUSALS as Record<string, string | undefined>)[reason] ?? RECOVERY_COPY.unavailable;
 }

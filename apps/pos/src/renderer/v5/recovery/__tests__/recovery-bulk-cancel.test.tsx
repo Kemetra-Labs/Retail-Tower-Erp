@@ -255,7 +255,7 @@ describe('RecoveryScreen — bulk cancel: claims only what main proved', () => {
     expect(notice).not.toHaveTextContent(batchCancelled(3));
   });
 
-  it('when nothing was cancelled the dialog says so, as an alert, not a success', async () => {
+  it('when nothing was cancelled the dialog closes, the list is re-read, and a WARNING says so', async () => {
     const { bridges, user } = await bulkScreen();
     bridges.recovery.cancelHeldCarts.mockResolvedValue({
       kind: 'cancelled_batch',
@@ -266,10 +266,15 @@ describe('RecoveryScreen — bulk cancel: claims only what main proved', () => {
         { cart_id: 'p3', reason: 'changed' },
       ],
     });
-    const { dialog } = await approveBatch(bridges, user);
-    expect(await within(dialog).findByRole('alert')).toHaveTextContent(
-      recoveryRefusalMessage('batch_none_cancelled'),
-    );
+    await approveBatch(bridges, user);
+    // The consumed batch is not offered again: the dialog is gone, and the list was read again.
+    const notice = await screen.findByText(RECOVERY_COPY.batchNoneCancelled);
+    expect(notice.closest('[data-tone]')).toHaveAttribute('data-tone', 'warning');
+    expect(screen.queryByRole('dialog')).toBeNull();
+    await waitFor(() => {
+      expect(bridges.recovery.listHeld).toHaveBeenCalledTimes(2);
+    });
+    expect(bridges.recovery.cancelHeldCarts).toHaveBeenCalledTimes(1);
     expect(screen.queryByText(new RegExp(RECOVERY_COPY.skippedLabel))).toBeNull();
   });
 
@@ -335,5 +340,74 @@ describe('bulk cancel copy and plumbing', () => {
     expect(batchCancelled(2)).toBe('أُلغي بيعان معلّقان.');
     for (const n of [3, 11, 100]) expect(batchCancelled(n)).toMatch(/[0-9]/);
     expect(batchWillCancel(3)).not.toMatch(/[٠-٩]/);
+  });
+});
+
+describe('RecoveryScreen — bulk cancel: review findings', () => {
+  it('a LATE prepare never replaces an action the manager already opened', async () => {
+    const bridges = fakeBridges(heldView({ held: [parked('p1'), parked('p2'), parked('p3')] }));
+    let release: (
+      answer: Awaited<ReturnType<typeof bridges.recovery.prepareCancelHeldCarts>>,
+    ) => void = () => undefined;
+    bridges.recovery.prepareCancelHeldCarts.mockReturnValue(
+      new Promise((resolve) => {
+        release = resolve;
+      }),
+    );
+    show(bridges);
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('checkbox', { name: RECOVERY_COPY.selectAllParked }));
+    await user.click(cancelSelected());
+    // While the prepare is still in flight, the manager opens ONE sale's cancel instead.
+    await user.click(
+      screen.getAllByRole('button', { name: RECOVERY_COPY.cancelSale })[0] as HTMLElement,
+    );
+    const single = await screen.findByRole('dialog', { name: RECOVERY_COPY.cancelSale });
+    await user.type(await within(single).findByLabelText(new RegExp(RECOVERY_COPY.pinLabel)), '24');
+    release({
+      kind: 'prepared',
+      batch_id: 'late-batch',
+      count: 3,
+      total_minor: 6_000,
+      excluded_cart_ids: [],
+    });
+    await waitFor(() => {
+      expect(bridges.recovery.prepareCancelHeldCarts).toHaveBeenCalledTimes(1);
+    });
+    // Still the single-sale dialog, with the PIN the manager typed for IT; the batch never replaced it.
+    expect(screen.getByRole('dialog', { name: RECOVERY_COPY.cancelSale })).toBe(single);
+    expect(screen.queryByRole('dialog', { name: RECOVERY_COPY.cancelParkedTitle })).toBeNull();
+    expect(within(single).getByLabelText(new RegExp(RECOVERY_COPY.pinLabel))).toHaveValue('24');
+    expect(bridges.approval.request).not.toHaveBeenCalled();
+    expect(bridges.recovery.cancelHeldCarts).not.toHaveBeenCalled();
+  });
+
+  it('a batch can hold at most 500 sales: select all stops there and a single tick cannot pass it', async () => {
+    const many = Array.from({ length: 501 }, (_, i) => parked(`m${String(i)}`));
+    const bridges = show(fakeBridges(heldView({ held: many })));
+    const user = userEvent.setup();
+    await user.click(await screen.findByRole('checkbox', { name: RECOVERY_COPY.selectAllParked }));
+    expect(screen.getByText(new RegExp(`^${RECOVERY_COPY.selectedLabel}:`))).toHaveTextContent(
+      '500',
+    );
+    const boxes = rowBoxes();
+    expect(boxes).toHaveLength(501);
+    const last = boxes[500] as HTMLElement;
+    expect(last).not.toBeChecked();
+    await user.click(last);
+    expect(last).not.toBeChecked();
+    expect(screen.getByText(new RegExp(`^${RECOVERY_COPY.selectedLabel}:`))).toHaveTextContent(
+      '500',
+    );
+    // Unticking is always possible, and then another can be added.
+    await user.click(boxes[0] as HTMLElement);
+    await user.click(last);
+    expect(last).toBeChecked();
+    await user.click(cancelSelected());
+    await waitFor(() => {
+      expect(bridges.recovery.prepareCancelHeldCarts).toHaveBeenCalledTimes(1);
+    });
+    const sent = bridges.recovery.prepareCancelHeldCarts.mock.calls[0]?.[0].cart_ids ?? [];
+    expect(sent).toHaveLength(500);
   });
 });

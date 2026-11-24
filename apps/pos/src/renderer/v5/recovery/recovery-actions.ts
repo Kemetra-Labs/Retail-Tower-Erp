@@ -88,7 +88,10 @@ export function recoveryExtrasReady(action: RecoveryAction, extras: RecoveryExtr
   return true;
 }
 
-export type RecoveryOutcome = { ok: true; message: string } | { ok: false; reason: string };
+/** `tone: 'warning'`: it ran and changed nothing (a bulk cancel whose carts had all changed). */
+export type RecoveryOutcome =
+  | { ok: true; message: string; tone?: 'warning' }
+  | { ok: false; reason: string };
 
 function changeNote(changeDueMinor: number): string {
   return changeDueMinor > 0
@@ -150,7 +153,9 @@ async function cancelParkedBatch(
   const answer = await bridge.cancelHeldCarts({ batch_id: batch.batch_id, approval_id });
   if (answer.kind !== 'cancelled_batch') return { ok: false, reason: answer.reason };
   // Only what main reports cancelled is claimed; a sale that changed in between is named, not hidden.
-  if (answer.cancelled_cart_ids.length === 0) return { ok: false, reason: 'batch_none_cancelled' };
+  if (answer.cancelled_cart_ids.length === 0) {
+    return { ok: true, message: RECOVERY_COPY.batchNoneCancelled, tone: 'warning' };
+  }
   const left = answer.skipped.length;
   const note = left === 0 ? '' : ` ${RECOVERY_COPY.skippedLabel}: ${String(left)}.`;
   return { ok: true, message: `${batchCancelled(answer.cancelled_cart_ids.length)}${note}` };
