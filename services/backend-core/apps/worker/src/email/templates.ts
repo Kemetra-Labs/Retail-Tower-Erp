@@ -80,9 +80,10 @@ function invitationAcceptUrl(consoleBaseUrl: string, rawToken: string): string {
 }
 
 /**
- * Invitation email, Arabic first then English (RT-1280; wording is a draft
- * pending owner approval). "7 days" mirrors `INVITATION_TTL_MS` in
- * `apps/api/src/memberships/invitations.service.ts`; change both together.
+ * Invitation email, Arabic first then English (RT-1280; expiry wording per
+ * RT-1494: the 7 days count from creation, not from sending). "7 days" mirrors
+ * `INVITATION_TTL_MS` in `apps/api/src/memberships/invitations.service.ts`;
+ * change both together.
  *
  * `consoleBaseUrl` is required in production (`resolveEmailConfig`). Only a
  * non-production worker with no Console URL falls back to the bare token.
@@ -105,24 +106,24 @@ export function renderInvitationEmail(
   const textBody =
     "تمت دعوتك للانضمام إلى فريق على Retail Tower OS.\n\n" +
     `${leadAr}\n${action}\n\n` +
-    "يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إرسالها.\n" +
+    "يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إنشائها.\n" +
     "إذا لم تكن تتوقع هذه الدعوة، يمكنك تجاهل هذه الرسالة.\n\n" +
     "----\n\n" +
     "You have been invited to join a team on Retail Tower OS.\n\n" +
     `${leadEn}\n${action}\n\n` +
-    "The invitation can be used once and expires 7 days after it was sent.\n" +
+    "The invitation can be used once and expires 7 days after it was created.\n" +
     "If you did not expect this invitation, you can ignore this email.";
   const htmlBody =
     '<div dir="rtl" lang="ar">' +
     "<p>تمت دعوتك للانضمام إلى فريق على Retail Tower OS.</p>" +
     `<p>${leadAr}<br>${actionHtml}</p>` +
-    "<p>يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إرسالها.</p>" +
+    "<p>يمكن استخدام الدعوة مرة واحدة فقط، وتنتهي صلاحيتها بعد 7 أيام من إنشائها.</p>" +
     "<p>إذا لم تكن تتوقع هذه الدعوة، يمكنك تجاهل هذه الرسالة.</p>" +
     "</div><hr>" +
     '<div dir="ltr" lang="en">' +
     "<p>You have been invited to join a team on Retail Tower OS.</p>" +
     `<p>${leadEn}<br>${actionHtml}</p>` +
-    "<p>The invitation can be used once and expires 7 days after it was sent.</p>" +
+    "<p>The invitation can be used once and expires 7 days after it was created.</p>" +
     "<p>If you did not expect this invitation, you can ignore this email.</p>" +
     "</div>";
 
