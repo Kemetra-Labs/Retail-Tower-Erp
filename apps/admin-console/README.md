@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="package.json"><img alt="Node.js 22+" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="../../.nvmrc"><img alt="Node.js 24" src="https://img.shields.io/badge/node-24-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="package.json"><img alt="pnpm 9.15" src="https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="tsconfig.json"><img alt="TypeScript strict" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="package.json"><img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black&labelColor=0a0f24&style=flat-square"></a>

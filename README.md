@@ -127,7 +127,7 @@ npm run package:dir  # Windows unpacked build (pos/package-windows runs on windo
 
 ### Admin-Console
 
-`apps/admin-console/` · pnpm · CI uses Node 24 (from `.nvmrc`).
+`apps/admin-console/` · pnpm · CI uses Node 24 (from the root `.nvmrc`).
 
 ```bash
 pnpm install --frozen-lockfile
@@ -139,7 +139,7 @@ pnpm dev
 
 ### Backend-Core
 
-`services/backend-core/` · pnpm workspace · CI uses Node 24 (from `.nvmrc`) and Postgres 16 for the database suites.
+`services/backend-core/` · pnpm workspace · CI uses Node 24 (from the root `.nvmrc`) and Postgres 16 for the database suites.
 
 ```bash
 pnpm install --frozen-lockfile
