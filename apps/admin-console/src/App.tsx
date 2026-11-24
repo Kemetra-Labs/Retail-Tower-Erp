@@ -44,6 +44,7 @@ import { rf5Routes } from "@/shell/rf5Routes";
 import { rf6Routes } from "@/shell/rf6Routes";
 import { saleRoutes } from "@/shell/saleRoutes";
 import { saleSyncRoutes } from "@/shell/saleSyncRoutes";
+import { settingsRoutes } from "@/shell/settingsRoutes";
 import { shiftCloseRoutes } from "@/shell/shiftCloseRoutes";
 import { stockDiscrepancyRoutes } from "@/shell/stockDiscrepancyRoutes";
 import { trackingRoutes } from "@/shell/trackingRoutes";
@@ -111,6 +112,7 @@ const router = createBrowserRouter(
           {forceActionRoutes}
           {saleRoutes}
           {saleSyncRoutes}
+          {settingsRoutes}
           {accountRoutes}
         </Route>
       </Route>

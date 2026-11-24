@@ -91,6 +91,7 @@ describe("production navigation", () => {
       "Payer accounts",
       "Vouchers",
       "Offers",
+      "Settings",
       "Sign out",
     ]);
     expect(Array.from(nav.querySelectorAll(".nav-section"), (h) => h.textContent)).toEqual([
@@ -269,6 +270,22 @@ describe("production navigation", () => {
     (role) => {
       const nav = renderShell(role);
       expect(entryLabels(nav)).not.toContain("Vouchers");
+    },
+  );
+
+  // RF-7 (spec 016): Settings, for owner / tenant_admin only, last in Management.
+  test.each(["owner", "tenant_admin"])("RF-7: %s sees Settings in Management", (role) => {
+    const nav = renderShell(role);
+    expect(within(nav).getByRole("link", { name: "Settings" }).getAttribute("href")).toBe(
+      "/settings",
+    );
+    expect(groupOf(nav, "Settings")).toBe("Management");
+  });
+
+  test.each(["store_manager", "store_staff", "cashier", "auditor"])(
+    "RF-7: %s has no Settings entry",
+    (role) => {
+      expect(entryLabels(renderShell(role))).not.toContain("Settings");
     },
   );
 
