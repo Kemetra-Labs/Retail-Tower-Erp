@@ -134,6 +134,7 @@ function seed(view: RecoveryProofParams['view']): RecoveryHeldView {
 /** In-memory recovery + approval bridges: a completed or cancelled subject leaves the list. */
 export function makeRecoveryProofBridges(params: RecoveryProofParams): RecoveryBridges {
   let view = seed(params.view);
+  let proofBatch: string[] = [];
   const listHeld = (): RecoveryListHeldResponse =>
     params.view === 'refused' ? { kind: 'refused', reason: 'role_mismatch' } : view;
   const clearStuck = (): void => {
@@ -154,6 +155,29 @@ export function makeRecoveryProofBridges(params: RecoveryProofParams): RecoveryB
     cancelHeldCart: (req) => {
       view = { ...view, held: view.held.filter((c) => c.cart_id !== req.cart_id) };
       return Promise.resolve({ kind: 'cancelled' });
+    },
+    // RT-1563: a snapshot of the parked drafts among the named carts, then their cancellation.
+    prepareCancelHeldCarts: (req) => {
+      const eligible = view.held.filter(
+        (c) => req.cart_ids.includes(c.cart_id) && c.parked && c.kind === 'draft',
+      );
+      proofBatch = eligible.map((c) => c.cart_id);
+      return Promise.resolve(
+        eligible.length === 0
+          ? { kind: 'refused', reason: 'not_found' }
+          : {
+              kind: 'prepared',
+              batch_id: 'proof-batch',
+              count: eligible.length,
+              total_minor: eligible.reduce((n, c) => n + c.total_minor, 0),
+              excluded_cart_ids: req.cart_ids.filter((id) => !proofBatch.includes(id)),
+            },
+      );
+    },
+    cancelHeldCarts: () => {
+      const gone = proofBatch;
+      view = { ...view, held: view.held.filter((c) => !gone.includes(c.cart_id)) };
+      return Promise.resolve({ kind: 'cancelled_batch', cancelled_cart_ids: gone, skipped: [] });
     },
   };
   const approvers = (): ManagerApproversResponse => {

@@ -27,20 +27,25 @@
  * one transaction. A recovery-mode session ends once its stuck attempt is
  * resolved (§5.1).
  */
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 
 import type { Logger } from 'pino';
 
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type {
+  RecoveryBatchSkipped,
   RecoveryCancelAttemptRequest,
   RecoveryCancelAttemptResponse,
   RecoveryCancelHeldCartRequest,
   RecoveryCancelHeldCartResponse,
+  RecoveryCancelHeldCartsRequest,
+  RecoveryCancelHeldCartsResponse,
   RecoveryCompleteAttemptRequest,
   RecoveryCompleteAttemptResponse,
   RecoveryHeldCartView,
   RecoveryListHeldResponse,
+  RecoveryPrepareCancelHeldCartsRequest,
+  RecoveryPrepareCancelHeldCartsResponse,
   RecoveryRefusal,
   RecoveryRefusalReason,
   RecoveryStuckAttemptView,
@@ -128,11 +133,39 @@ export interface ManagerRecovery {
   completeAttempt(req: RecoveryCompleteAttemptRequest): Promise<RecoveryCompleteAttemptResponse>;
   cancelAttempt(req: RecoveryCancelAttemptRequest): Promise<RecoveryCancelAttemptResponse>;
   cancelHeldCart(req: RecoveryCancelHeldCartRequest): RecoveryCancelHeldCartResponse;
-  /** The approval subjects of the three recovery kinds (MA-2 resolvers). */
+  /** RT-1563: snapshot the parked drafts a bulk cancel would cancel. Changes nothing. */
+  prepareCancelHeldCarts(
+    req: RecoveryPrepareCancelHeldCartsRequest,
+  ): RecoveryPrepareCancelHeldCartsResponse;
+  /** RT-1563: cancel the snapshot's parked drafts with ONE approval (one audit row per sale). */
+  cancelHeldCarts(req: RecoveryCancelHeldCartsRequest): RecoveryCancelHeldCartsResponse;
+  /** The approval subjects of the four recovery kinds (MA-2 resolvers). */
   resolvers: {
     completeAttempt: ApprovalSubjectResolver;
     cancelAttempt: ApprovalSubjectResolver;
     cancelHeldCart: ApprovalSubjectResolver;
+    cancelHeldCarts: ApprovalSubjectResolver;
+  };
+}
+
+/**
+ * The recovery kinds' approval resolvers, bound once the recovery service exists (`ref.current`):
+ * the wiring in `index.ts` spreads this, so a new recovery kind adds no line there (RT-893 ratchet).
+ */
+export function recoveryApprovalResolvers(ref: {
+  readonly current: Pick<ManagerRecovery, 'resolvers'> | null;
+}): Record<
+  | 'recovery.complete_attempt'
+  | 'recovery.cancel_attempt'
+  | 'recovery.cancel_held_cart'
+  | 'recovery.cancel_held_carts',
+  ApprovalSubjectResolver
+> {
+  return {
+    'recovery.complete_attempt': (input) => ref.current?.resolvers.completeAttempt(input) ?? null,
+    'recovery.cancel_attempt': (input) => ref.current?.resolvers.cancelAttempt(input) ?? null,
+    'recovery.cancel_held_cart': (input) => ref.current?.resolvers.cancelHeldCart(input) ?? null,
+    'recovery.cancel_held_carts': (input) => ref.current?.resolvers.cancelHeldCarts(input) ?? null,
   };
 }
 
@@ -248,10 +281,46 @@ function heldCancellation(
   ];
 }
 
+/** RT-1563: how long a prepared batch stays valid, and how many may be open at once. */
+const BATCH_TTL_MS = 10 * 60 * 1000;
+const BATCH_MAX_OPEN = 8;
+
+/** One cart of a batch snapshot: the version it was read at, which the approval binds. */
+interface BatchCart {
+  cart_id: string;
+  version: string;
+  total_minor: number;
+}
+
+/** A batch snapshot, kept in main only; the renderer holds just its reference. */
+interface Batch {
+  session_id: string;
+  created_ms: number;
+  carts: BatchCart[];
+  /** The sum of the carts, checked (`Number.isSafeInteger`) when the snapshot was taken. */
+  total_minor: number;
+}
+
+/** The sum of the carts' totals, or null when any amount or the running total is not a safe integer. */
+function checkedTotal(carts: readonly BatchCart[]): number | null {
+  let total = 0;
+  for (const cart of carts) {
+    if (!Number.isSafeInteger(cart.total_minor) || cart.total_minor < 0) return null;
+    total += cart.total_minor;
+    if (!Number.isSafeInteger(total)) return null;
+  }
+  return total;
+}
+
+/** RT-1563: only a PARKED draft joins a bulk cancel; a handed-off cart stays one by one. */
+const isParkedDraft = (row: HeldRow): boolean => row.parked === 1 && row.state === 'editing';
+
 export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecovery {
   const { db } = deps;
   const now = (): string => (deps.clock?.() ?? new Date()).toISOString();
   let busy = false;
+  /** RT-1563: the open bulk-cancel snapshots, by batch reference. */
+  const batches = new Map<string, Batch>();
 
   /** A live, unlocked manager / admin session on a paired terminal. */
   function manager(): Admitted | RecoveryRefusal {
@@ -416,9 +485,42 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
     const row = at === null ? null : heldCartOfOtherSession(at, input.subjectRef);
     if (row === null) return null;
     return {
-      version: `cart:${row.last_action_id ?? row.updated_at}`,
+      version: cartVersion(row),
       amountMinor: row.cart_subtotal_minor,
       requesterOperatorId: row.owning_operator_id,
+    };
+  }
+
+  /** What an approval of this cart binds: it changes when the cart does (an edit, a resume). */
+  const cartVersion = (row: HeldRow): string => `cart:${row.last_action_id ?? row.updated_at}`;
+
+  /** An open (unexpired) batch of THIS session, or null. An expired one is dropped. */
+  function openBatch(session: OperatorSessionRecord, batch_id: string): Batch | null {
+    const batch = batches.get(batch_id);
+    if (batch === undefined) return null;
+    if (Date.parse(now()) - batch.created_ms > BATCH_TTL_MS) {
+      batches.delete(batch_id);
+      return null;
+    }
+    return batch.session_id === session.id ? batch : null;
+  }
+
+  /**
+   * RT-1563: the approval subject of a batch: a digest of every cart and the version it was
+   * snapshotted at, and their total. The snapshot never changes, so the subject read when the PIN is
+   * entered and the one read when the approval is consumed are the same; the renderer cannot swap a
+   * cart in between. No `requesterOperatorId`: the batch spans several owners, so the manager is the
+   * requester (the per-sale audit rows keep each original operator).
+   */
+  function batchSubject(input: SubjectInput): ApprovalSubject | null {
+    const batch = openBatch(input.session, input.subjectRef);
+    if (batch === null || admittedFor(input.session) === null) return null;
+    const lines = [...batch.carts]
+      .sort((a, b) => (a.cart_id < b.cart_id ? -1 : 1))
+      .map((c) => `${c.cart_id}|${c.version}`);
+    return {
+      version: `batch:${createHash('sha256').update(lines.join('\n')).digest('hex')}`,
+      amountMinor: batch.total_minor,
     };
   }
 
@@ -427,6 +529,7 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
       attemptSubject(input, (row) => row.envelope_subtotal_minor),
     cancelAttempt: (input: SubjectInput) => attemptSubject(input, liveTotal),
     cancelHeldCart: (input: SubjectInput) => cartSubject(input),
+    cancelHeldCarts: (input: SubjectInput) => batchSubject(input),
   };
 
   // ── Shared steps ─────────────────────────────────────────────────────────
@@ -441,6 +544,8 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
     session: OperatorSessionRecord;
     approver_user_id: string;
     payload: Record<string, unknown>;
+    /** RT-1563: rethrow a failed write, so the caller's transaction rolls back (bulk cancel). */
+    strict?: boolean;
   }): void {
     try {
       deps.auditEmitter.emit({
@@ -457,6 +562,7 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
         payload: input.payload,
       });
     } catch (err) {
+      if (input.strict === true) throw err;
       deps.logger?.error({ err, category: input.category }, 'recovery.audit_failed');
     }
   }
@@ -652,6 +758,63 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
     });
   }
 
+  /**
+   * RT-1563: the approval and every cancel commit together. A cart that changed or left parking
+   * since the snapshot is skipped and reported, never cancelled; any other failure rolls the whole
+   * batch back, the approval included. The audit rows are written after the last cancel, so a
+   * failure part-way leaves no audit row for a sale that was rolled back, and a failed audit write
+   * rolls the cancels back too (`strict`): a bulk cancel never commits without its audit rows.
+   */
+  function cancelBatchInTransaction(
+    batch: Batch,
+    at: Admitted,
+    req: RecoveryCancelHeldCartsRequest,
+    cancelled: string[],
+    skipped: RecoveryBatchSkipped[],
+  ): void {
+    const { session } = at;
+    const subject = batchSubject({ subjectRef: req.batch_id, session });
+    if (subject === null) throw new RecoveryRefused('not_found');
+    const consumed = deps.approvals.consume({
+      approvalId: req.approval_id,
+      actionKind: 'recovery.cancel_held_carts',
+      subjectRef: req.batch_id,
+      subject,
+      session,
+    });
+    if (consumed.kind === 'refused') throw new RecoveryRefused(consumed.reason);
+    const done: HeldRow[] = [];
+    for (const snap of batch.carts) {
+      const row = heldCartOfOtherSession(at, snap.cart_id);
+      if (row === null) {
+        skipped.push({ cart_id: snap.cart_id, reason: 'no_longer_held' });
+      } else if (!isParkedDraft(row) || cartVersion(row) !== snap.version) {
+        skipped.push({ cart_id: snap.cart_id, reason: 'changed' });
+      } else {
+        const stamp = { approval_id: req.approval_id, at: now(), action_id: randomUUID() };
+        deps.cartStore.cancelCartAndOutbox(...heldCancellation(row, session, stamp));
+        done.push(row);
+        cancelled.push(snap.cart_id);
+      }
+    }
+    for (const row of done) {
+      audit({
+        category: 'cart.held_cancelled_by_manager',
+        scope: row,
+        original_operator_id: row.owning_operator_id,
+        session,
+        approver_user_id: consumed.approverUserId,
+        payload: {
+          cart_id: row.cart_id,
+          approval_id: req.approval_id,
+          kind: 'draft',
+          parked: true,
+        },
+        strict: true,
+      });
+    }
+  }
+
   return {
     resolvers,
 
@@ -694,6 +857,65 @@ export function createManagerRecovery(deps: ManagerRecoveryDeps): ManagerRecover
         return refusalOf(err, 'recovery.cancel_held_cart_failed');
       }
       return { kind: 'cancelled' };
+    },
+
+    prepareCancelHeldCarts(req) {
+      const admitted = manager();
+      if ('kind' in admitted) return admitted;
+      const seen = new Set<string>();
+      const carts: BatchCart[] = [];
+      const excluded: string[] = [];
+      for (const cart_id of req.cart_ids) {
+        if (seen.has(cart_id)) continue;
+        seen.add(cart_id);
+        const row = heldCartOfOtherSession(admitted, cart_id);
+        if (row !== null && isParkedDraft(row)) {
+          carts.push({ cart_id, version: cartVersion(row), total_minor: row.cart_subtotal_minor });
+        } else excluded.push(cart_id);
+      }
+      if (carts.length === 0) return refused('not_found');
+      // Money is integer minor units, safe-integer guarded: an unsafe total makes no batch (an
+      // approval is bound to this total, so it must be exact).
+      const total = checkedTotal(carts);
+      if (total === null) return refused('invalid_input');
+      for (const [id] of batches) if (openBatch(admitted.session, id) === null) batches.delete(id);
+      while (batches.size >= BATCH_MAX_OPEN) {
+        const oldest = batches.keys().next();
+        if (oldest.done === true) break;
+        batches.delete(oldest.value);
+      }
+      const batch_id = randomUUID();
+      batches.set(batch_id, {
+        session_id: admitted.session.id,
+        created_ms: Date.parse(now()),
+        carts,
+        total_minor: total,
+      });
+      return {
+        kind: 'prepared',
+        batch_id,
+        count: carts.length,
+        total_minor: total,
+        excluded_cart_ids: excluded,
+      };
+    },
+
+    cancelHeldCarts(req) {
+      const admitted = manager();
+      if ('kind' in admitted) return admitted;
+      const batch = openBatch(admitted.session, req.batch_id);
+      if (batch === null) return refused('not_found');
+      const cancelled: string[] = [];
+      const skipped: RecoveryBatchSkipped[] = [];
+      try {
+        db.transaction(() => {
+          cancelBatchInTransaction(batch, admitted, req, cancelled, skipped);
+        })();
+      } catch (err) {
+        return refusalOf(err, 'recovery.cancel_held_carts_failed');
+      }
+      batches.delete(req.batch_id);
+      return { kind: 'cancelled_batch', cancelled_cart_ids: cancelled, skipped };
     },
   };
 }

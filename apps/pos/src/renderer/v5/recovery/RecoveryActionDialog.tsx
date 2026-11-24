@@ -23,10 +23,11 @@ import {
   performRecoveryAction,
   recoveryExtrasReady,
   recoverySubjectOf,
+  type ParkedBatch,
   type RecoveryAction,
   type RecoveryExtras,
 } from './recovery-actions';
-import { RECOVERY_COPY, recoveryRefusalMessage } from './recovery-copy';
+import { RECOVERY_COPY, batchWillCancel, recoveryRefusalMessage } from './recovery-copy';
 import { RecoveryAlert } from './RecoveryAlert';
 import type { RecoveryBridges } from './RecoveryScreen';
 import './recovery.css';
@@ -38,7 +39,7 @@ interface Props {
   bridges: RecoveryBridges;
   onDismiss: () => void;
   /** The action succeeded; the message says what happened. */
-  onDone: (message: string) => void;
+  onDone: (message: string, tone?: 'warning') => void;
 }
 
 /**
@@ -109,8 +110,11 @@ function useRecoverySubmit(props: Props): {
           granted.approval_id,
           extras,
         );
-        if (result.ok) props.onDone(result.message);
-        else setError(recoveryRefusalMessage(result.reason));
+        if (result.ok) {
+          // The tone travels only when there is one: every other outcome keeps its one-argument call.
+          if (result.tone === undefined) props.onDone(result.message);
+          else props.onDone(result.message, result.tone);
+        } else setError(recoveryRefusalMessage(result.reason));
       } catch {
         setError(RECOVERY_COPY.unavailable);
       }
@@ -206,6 +210,28 @@ function TenderConfirms(
   );
 }
 
+/**
+ * RT-1563 — scope before consequence (UX-05.23, UX-05.28): how many parked sales, their total, that
+ * it cannot be undone, and any selected sale main left out. All from main's snapshot, not the screen.
+ */
+function BatchScope({ batch }: Readonly<{ batch: ParkedBatch }>): JSX.Element {
+  return (
+    <div className="v5-recovery-fields">
+      <p>{batchWillCancel(batch.count)}</p>
+      <p>
+        {RECOVERY_COPY.total}:{' '}
+        <bdi className="v5-recovery-money">{formatCheckoutMoney(batch.total_minor)}</bdi>
+      </p>
+      <p>{RECOVERY_COPY.cannotUndo}</p>
+      {batch.excluded > 0 && (
+        <p>
+          {RECOVERY_COPY.excludedLabel}: <bdi className="v5-recovery-money">{batch.excluded}</bdi>
+        </p>
+      )}
+    </div>
+  );
+}
+
 function ActionExtras(
   props: Readonly<{
     action: RecoveryAction;
@@ -228,6 +254,7 @@ function ActionExtras(
   if (action.kind === 'cancel_attempt') {
     return <TenderConfirms stuck={action.stuck} extras={extras} onChange={props.onChange} />;
   }
+  if (action.kind === 'cancel_parked_batch') return <BatchScope batch={action.batch} />;
   return null;
 }
 

@@ -1,4 +1,5 @@
 import type { ManagerApprovalRefusalReason } from '../../../shared/operator/manager-approval';
+import { pluralAr } from '../../../shared/formatters/arabic-plural';
 import type { RecoveryRefusalReason } from '../../../shared/operator/recovery';
 
 /**
@@ -50,7 +51,42 @@ export const RECOVERY_COPY = Object.freeze({
   cancelledPayment: 'أُلغي الدفع وسُجّل الإرجاع.',
   cancelledSale: 'أُلغي البيع المحفوظ.',
   unavailable: 'تعذّر تنفيذ الإجراء. حاول مرة أخرى.',
+  // RT-1563 — a manager cancels several PARKED sales with one confirmation.
+  selectAllParked: 'تحديد كل المبيعات المعلّقة',
+  selectedLabel: 'المحدد',
+  selectRow: 'تحديد البيع المعلّق',
+  cancelSelected: 'إلغاء المحدد',
+  cancelParkedTitle: 'إلغاء المبيعات المعلّقة المحددة',
+  cannotUndo: 'لا يمكن التراجع عن الإلغاء.',
+  // Dense metadata, noun-first (UX-12): a count follows the colon.
+  excludedLabel: 'مبيعات لن تُلغى لأنها لم تعد معلّقة أو تغيّرت',
+  skippedLabel: 'لم تُلغَ لأنها تغيّرت أو لم تعد معلّقة',
+  // Every selected sale had changed since the snapshot: nothing was cancelled, the list is re-read.
+  batchNoneCancelled: 'لم يُلغَ أي بيع: تغيّرت المبيعات المحددة أو لم تعد معلّقة. حُدّثت القائمة.',
+  batchNoneEligible: 'لا توجد مبيعات معلّقة قابلة للإلغاء الجماعي الآن. حُدّثت القائمة.',
 });
+
+/** «سيُلغى …»: what the confirmation will do, a full sentence per plural category (UX-12). */
+export function batchWillCancel(count: number): string {
+  return pluralAr(count, {
+    one: 'سيُلغى بيع معلّق واحد.',
+    two: 'سيُلغى بيعان معلّقان.',
+    few: 'سيُلغى {n} مبيعات معلّقة.',
+    many: 'سيُلغى {n} بيعًا معلّقًا.',
+    other: 'سيُلغى {n} بيع معلّق.',
+  });
+}
+
+/** What was cancelled: only what main reports it cancelled (UX-12.12, proof before celebration). */
+export function batchCancelled(count: number): string {
+  return pluralAr(count, {
+    one: 'أُلغي بيع معلّق واحد.',
+    two: 'أُلغي بيعان معلّقان.',
+    few: 'أُلغيت {n} مبيعات معلّقة.',
+    many: 'أُلغي {n} بيعًا معلّقًا.',
+    other: 'أُلغي {n} بيع معلّق.',
+  });
+}
 
 const REFUSALS: Readonly<Record<RecoveryRefusalReason | ManagerApprovalRefusalReason, string>> = {
   no_session: 'سجّل الدخول للمتابعة.',

@@ -30,6 +30,10 @@ export const MANAGER_ACTION_KINDS = [
   'recovery.complete_attempt',
   'recovery.cancel_attempt',
   'recovery.cancel_held_cart',
+  // RT-1563 — a manager cancels many PARKED drafts with one approval. The subject is a batch snapshot
+  // main took (`recovery.prepareCancelHeldCarts`): its digest binds the carts and their versions, so
+  // the renderer cannot change which carts the PIN covers.
+  'recovery.cancel_held_carts',
   'session.self_unlock',
 ] as const;
 

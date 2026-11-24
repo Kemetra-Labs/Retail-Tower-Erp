@@ -32,6 +32,8 @@ describe('recovery action kinds and subjects', () => {
       complete: 'recovery.complete_attempt',
       cancel_attempt: 'recovery.cancel_attempt',
       cancel_cart: 'recovery.cancel_held_cart',
+      // RT-1563 — one approval for a batch snapshot of parked drafts.
+      cancel_parked_batch: 'recovery.cancel_held_carts',
     });
   });
 

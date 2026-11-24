@@ -5,8 +5,10 @@ import {
   type RecoveryBridgeAPI,
   type RecoveryCancelAttemptResponse,
   type RecoveryCancelHeldCartResponse,
+  type RecoveryCancelHeldCartsResponse,
   type RecoveryCompleteAttemptResponse,
   type RecoveryListHeldResponse,
+  type RecoveryPrepareCancelHeldCartsResponse,
 } from '../shared/operator/recovery.js';
 
 /**
@@ -31,4 +33,14 @@ export const recovery: RecoveryBridgeAPI = {
       RECOVERY_IPC_CHANNELS.CANCEL_HELD_CART,
       req,
     ) as Promise<RecoveryCancelHeldCartResponse>,
+  prepareCancelHeldCarts: (req) =>
+    ipcRenderer.invoke(
+      RECOVERY_IPC_CHANNELS.PREPARE_CANCEL_HELD_CARTS,
+      req,
+    ) as Promise<RecoveryPrepareCancelHeldCartsResponse>,
+  cancelHeldCarts: (req) =>
+    ipcRenderer.invoke(
+      RECOVERY_IPC_CHANNELS.CANCEL_HELD_CARTS,
+      req,
+    ) as Promise<RecoveryCancelHeldCartsResponse>,
 };

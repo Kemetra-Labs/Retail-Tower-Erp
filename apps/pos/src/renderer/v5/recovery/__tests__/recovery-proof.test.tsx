@@ -96,6 +96,36 @@ describe('RT-441 RecoveryProof — the in-memory bridges', () => {
     ).resolves.toEqual({ kind: 'completed', change_due_minor: 0 });
   });
 
+  it('snapshots then cancels the parked drafts among the named carts (RT-1563)', async () => {
+    const { recovery } = makeRecoveryProofBridges({ ...DEFAULTS, view: 'long' });
+    // Two parked drafts; a parked HANDED-OFF cart and an unparked draft are left out.
+    const named = ['proof-long-1', 'proof-held-3', 'proof-long-4', 'proof-held-1'];
+    await expect(recovery.prepareCancelHeldCarts({ cart_ids: named })).resolves.toEqual({
+      kind: 'prepared',
+      batch_id: 'proof-batch',
+      count: 2,
+      total_minor: 128_450 + 1_200,
+      excluded_cart_ids: ['proof-long-4', 'proof-held-1'],
+    });
+    await expect(
+      recovery.cancelHeldCarts({ batch_id: 'proof-batch', approval_id: 'a' }),
+    ).resolves.toEqual({
+      kind: 'cancelled_batch',
+      cancelled_cart_ids: ['proof-long-1', 'proof-held-3'],
+      skipped: [],
+    });
+    const after = await recovery.listHeld();
+    const left = after.kind === 'held' ? after.held.map((c) => c.cart_id) : [];
+    expect(left).not.toContain('proof-long-1');
+    expect(left).not.toContain('proof-held-3');
+    expect(left).toEqual(expect.arrayContaining(['proof-long-4', 'proof-held-1']));
+    // Nothing eligible: the same refusal main gives.
+    await expect(recovery.prepareCancelHeldCarts({ cart_ids: ['proof-held-1'] })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+  });
+
   it.each([
     ['ok', 'approvers', 1],
     ['none', 'approvers', 0],

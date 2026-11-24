@@ -279,6 +279,7 @@ function wireApprovals(): void {
       'recovery.complete_attempt': via((r) => r.resolvers.completeAttempt),
       'recovery.cancel_attempt': via((r) => r.resolvers.cancelAttempt),
       'recovery.cancel_held_cart': via((r) => r.resolvers.cancelHeldCart),
+      'recovery.cancel_held_carts': via((r) => r.resolvers.cancelHeldCarts),
     },
     auditEmitter: { emit: (e) => audit.push(e) },
     now: () => approvalClock,
@@ -950,5 +951,371 @@ describe('recovery.cancelHeldCart — failures', () => {
       expect.anything(),
       'recovery.cancel_held_cart_failed',
     );
+  });
+});
+
+/**
+ * RT-1563 — a manager cancels many parked drafts with ONE approval. The batch is a snapshot main
+ * takes (`prepareCancelHeldCarts`); the approval is bound to that snapshot, so the renderer cannot
+ * change which carts a PIN covers. One audit row and one outbox row per cancelled sale.
+ */
+const PARKED_COUNT_SQL = `SELECT COUNT(*) FROM carts WHERE terminal_id = '${TERMINAL}'
+  AND parked_at IS NOT NULL AND state = 'editing'`;
+
+function insertParked(cart_id: string, owner = CASHIER_OP, session_id = DEAD_SESSION): void {
+  insertCart(cart_id, 'editing', session_id, owner);
+  raw.run(`UPDATE carts SET parked_at = ? WHERE cart_id = ?`, [NOW, cart_id]);
+}
+
+function prepared(ids: string[]): {
+  batch_id: string;
+  count: number;
+  total_minor: number;
+  excluded_cart_ids: string[];
+} {
+  const out = recovery.prepareCancelHeldCarts({ cart_ids: ids });
+  if (out.kind !== 'prepared') throw new Error(`not prepared: ${out.reason}`);
+  return out;
+}
+
+describe('recovery.prepareCancelHeldCarts (RT-1563)', () => {
+  it('snapshots only parked drafts: not unparked, handed-off, unknown or payment-bound carts', async () => {
+    insertParked('p1');
+    insertParked('p2', 'op-other');
+    insertCart('c-unparked', 'editing');
+    insertCart('c-frozen', 'frozen_handed_off');
+    insertParked('p-paid');
+    const asCashier = stack.build(() => cashierScope);
+    const started = await asCashier.start({
+      envelope_handoff_action_id: 'h-p-paid',
+      envelope_cart_id: 'p-paid',
+      envelope_subtotal_minor: TOTAL,
+      envelope_version: 'v1',
+      idempotency_key: 'k-start-paid',
+    });
+    expect(started.kind).toBe('ok');
+    const out = prepared([
+      'p1',
+      'p2',
+      'p1',
+      'c-unparked',
+      'c-frozen',
+      'cart-stuck',
+      'p-paid',
+      'ghost',
+    ]);
+    expect(out.count).toBe(2);
+    expect(out.total_minor).toBe(2 * TOTAL);
+    expect([...out.excluded_cart_ids].sort()).toEqual([
+      'c-frozen',
+      'c-unparked',
+      'cart-stuck',
+      'ghost',
+      'p-paid',
+    ]);
+    expect(out.batch_id).toMatch(/^[0-9a-f-]{36}$/);
+    // Preparing changes nothing.
+    expect(value(PARKED_COUNT_SQL)).toBe(3);
+    expect(categories()).toEqual([]);
+  });
+
+  it('refuses when nothing is eligible, and for a cashier or a locked session', () => {
+    insertCart('c-unparked', 'editing');
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['c-unparked'] })).toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+    insertParked('p1');
+    current = manager({ role: 'cashier' });
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['p1'] })).toEqual({
+      kind: 'refused',
+      reason: 'role_mismatch',
+    });
+    current = manager({ lock_state: 'locked' });
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['p1'] })).toEqual({
+      kind: 'refused',
+      reason: 'session_locked',
+    });
+    current = null;
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['p1'] })).toEqual({
+      kind: 'refused',
+      reason: 'no_session',
+    });
+  });
+
+  it('includes the manager’s own parked draft from an earlier session (RT-837)', () => {
+    insertParked('p-own', 'op-mgr', 'sess-mgr-earlier');
+    expect(prepared(['p-own']).count).toBe(1);
+  });
+
+  it('the approval service accepts a batch reference only for this session', async () => {
+    insertParked('p1');
+    const { batch_id } = prepared(['p1']);
+    await expect(approve('recovery.cancel_held_carts', batch_id)).resolves.toMatch(
+      /^[0-9a-f-]{36}$/,
+    );
+    current = manager({ id: 'sess-mgr-2' });
+    await expect(approve('recovery.cancel_held_carts', batch_id)).rejects.toThrow(
+      /approval_invalid/,
+    );
+    await expect(approve('recovery.cancel_held_carts', 'no-such-batch')).rejects.toThrow(
+      /approval_invalid/,
+    );
+  });
+});
+
+describe('recovery.cancelHeldCarts (RT-1563)', () => {
+  it('cancels every parked draft with one approval: one audit row and one outbox row per sale', async () => {
+    insertParked('p1');
+    insertParked('p2', 'op-other');
+    insertParked('p3');
+    const { batch_id } = prepared(['p1', 'p2', 'p3']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    audit = [];
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'cancelled_batch',
+      cancelled_cart_ids: ['p1', 'p2', 'p3'],
+      skipped: [],
+    });
+    expect(
+      value(
+        `SELECT COUNT(*) FROM carts WHERE state = 'cancelled' AND cancellation_reason = 'manager_cancelled_held'`,
+      ),
+    ).toBe(3);
+    expect(
+      value(
+        `SELECT COUNT(*) FROM cart_action_outbox WHERE action_kind = 'cart.void' AND attribution_operator_id = 'op-mgr'`,
+      ),
+    ).toBe(3);
+    expect(value(`SELECT acting_operator_id FROM cart_action_outbox WHERE cart_id = 'p2'`)).toBe(
+      'op-other',
+    );
+    expect(categories()).toEqual([
+      'cart.held_cancelled_by_manager',
+      'cart.held_cancelled_by_manager',
+      'cart.held_cancelled_by_manager',
+    ]);
+    expect(audit.map((e) => e.acting_operator_id).sort()).toEqual([
+      CASHIER_OP,
+      CASHIER_OP,
+      'op-other',
+    ]);
+    expect(audit.every((e) => e.approving_supervisor_id === MANAGER.userId)).toBe(true);
+    expect(audit.every((e) => (e.payload as { parked?: boolean }).parked === true)).toBe(true);
+    // ONE approval, consumed once; the shift-close count no longer sees these sales.
+    expect(value(`SELECT COUNT(*) FROM manager_approvals WHERE consumed_at IS NOT NULL`)).toBe(1);
+    expect(value(PARKED_COUNT_SQL)).toBe(0);
+    expect(endRecoverySession).not.toHaveBeenCalled();
+  });
+
+  it('is single use: the same approval and batch cannot be replayed', async () => {
+    insertParked('p1');
+    const { batch_id } = prepared(['p1']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id }).kind).toBe('cancelled_batch');
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+  });
+
+  it('needs a valid approval of ITS kind and batch; a refusal cancels nothing and spends nothing', async () => {
+    insertParked('p1');
+    insertParked('p2');
+    const { batch_id } = prepared(['p1', 'p2']);
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: UNKNOWN_APPROVAL })).toEqual({
+      kind: 'refused',
+      reason: 'approval_invalid',
+    });
+    // A single-cart approval is for a different kind.
+    const single = await approve('recovery.cancel_held_cart', 'p1');
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: single })).toEqual({
+      kind: 'refused',
+      reason: 'approval_invalid',
+    });
+    // An approval of another batch is for a different subject.
+    const other = prepared(['p1']);
+    const otherId = await approve('recovery.cancel_held_carts', other.batch_id);
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: otherId })).toEqual({
+      kind: 'refused',
+      reason: 'approval_invalid',
+    });
+    expect(value(PARKED_COUNT_SQL)).toBe(2);
+    expect(value(`SELECT COUNT(*) FROM manager_approvals WHERE consumed_at IS NOT NULL`)).toBe(0);
+  });
+
+  it('only the signed-in manager’s own approval is usable (RT-441 recovery rule)', async () => {
+    insertParked('p1');
+    const { batch_id } = prepared(['p1']);
+    const id = await approve('recovery.cancel_held_carts', batch_id, OTHER_MANAGER).catch(
+      () => null,
+    );
+    // The approver must be the signed-in manager (MANAGER): a different manager's PIN is refused at the request.
+    expect(id).toBeNull();
+  });
+
+  it('skips a cart that changed or left parking since the snapshot, and cancels the rest', async () => {
+    insertParked('p-ok');
+    insertParked('p-edited');
+    insertParked('p-resumed');
+    insertParked('p-gone');
+    const { batch_id } = prepared(['p-ok', 'p-edited', 'p-resumed', 'p-gone']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    raw.run(`UPDATE carts SET last_action_id = 'a-new' WHERE cart_id = 'p-edited'`);
+    raw.run(`UPDATE carts SET parked_at = NULL WHERE cart_id = 'p-resumed'`);
+    raw.run(`UPDATE carts SET state = 'cancelled' WHERE cart_id = 'p-gone'`);
+    audit = [];
+    const out = recovery.cancelHeldCarts({ batch_id, approval_id: id });
+    expect(out).toEqual({
+      kind: 'cancelled_batch',
+      cancelled_cart_ids: ['p-ok'],
+      skipped: expect.arrayContaining<{ cart_id: string; reason: string }>([
+        { cart_id: 'p-edited', reason: 'changed' },
+        { cart_id: 'p-resumed', reason: 'changed' },
+        { cart_id: 'p-gone', reason: 'no_longer_held' },
+      ]) as unknown,
+    });
+    expect(out.kind === 'cancelled_batch' && out.skipped).toHaveLength(3);
+    expect(value(`SELECT state FROM carts WHERE cart_id = 'p-edited'`)).toBe('editing');
+    expect(value(`SELECT state FROM carts WHERE cart_id = 'p-resumed'`)).toBe('editing');
+    expect(categories()).toEqual(['cart.held_cancelled_by_manager']);
+  });
+
+  it('rolls everything back, approval included, when a write fails part-way, and the batch can then be retried', async () => {
+    insertParked('p1');
+    insertParked('p2');
+    const real = bindCartStore(handle);
+    let calls = 0;
+    let failing = true;
+    recovery = buildRecovery({
+      cartStore: {
+        cancelCartAndOutbox: (...args) => {
+          calls += 1;
+          if (failing && calls === 2) throw new Error('disk full');
+          real.cancelCartAndOutbox(...args);
+        },
+      },
+    });
+    const { batch_id } = prepared(['p1', 'p2']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'refused',
+      reason: 'recovery_unavailable',
+    });
+    const voidRows = `SELECT COUNT(*) FROM cart_action_outbox WHERE action_kind = 'cart.void' AND cart_id IN ('p1', 'p2')`;
+    // The first cart's cancel completed before the second threw: none of it may remain.
+    expect(value(PARKED_COUNT_SQL)).toBe(2);
+    expect(value(voidRows)).toBe(0);
+    expect(
+      value(`SELECT consumed_at FROM manager_approvals WHERE approval_id = ?`, [id]),
+    ).toBeNull();
+    expect(categories().filter((c) => c === 'cart.held_cancelled_by_manager')).toEqual([]);
+
+    // The failure was rolled back whole, so the same batch and approval still work once it is gone.
+    failing = false;
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'cancelled_batch',
+      cancelled_cart_ids: ['p1', 'p2'],
+      skipped: [],
+    });
+    expect(value(voidRows)).toBe(2);
+    expect(value(PARKED_COUNT_SQL)).toBe(0);
+    expect(categories().filter((c) => c === 'cart.held_cancelled_by_manager')).toHaveLength(2);
+  });
+
+  it('a batch expires: a snapshot older than ten minutes is gone', async () => {
+    insertParked('p1');
+    let clock = NOW;
+    recovery = buildRecovery({ clock: () => new Date(clock) });
+    const { batch_id } = prepared(['p1']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    clock = '2026-10-13T09:10:01.000Z';
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+    expect(value(PARKED_COUNT_SQL)).toBe(1);
+  });
+
+  it('keeps at most eight open batches: the oldest is dropped', () => {
+    insertParked('p1');
+    const first = prepared(['p1']);
+    for (let i = 0; i < 8; i += 1) prepared(['p1']);
+    expect(
+      recovery.cancelHeldCarts({ batch_id: first.batch_id, approval_id: UNKNOWN_APPROVAL }),
+    ).toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+  });
+
+  it('refuses for a cashier session and for an unknown batch', () => {
+    insertParked('p1');
+    const { batch_id } = prepared(['p1']);
+    expect(
+      recovery.cancelHeldCarts({
+        batch_id: 'f'.repeat(8) + '-0000-4000-8000-000000000000',
+        approval_id: UNKNOWN_APPROVAL,
+      }),
+    ).toEqual({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+    current = manager({ role: 'cashier' });
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: UNKNOWN_APPROVAL })).toEqual({
+      kind: 'refused',
+      reason: 'role_mismatch',
+    });
+  });
+});
+
+describe('recovery batch — integrity guards (RT-1563 review)', () => {
+  it('a failed audit write rolls the whole batch back: no cancel without its audit rows', async () => {
+    insertParked('p1');
+    insertParked('p2');
+    let writes = 0;
+    recovery = buildRecovery({
+      auditEmitter: {
+        emit: (event) => {
+          writes += 1;
+          if (writes === 2) throw new Error('audit store unavailable');
+          audit.push(event);
+        },
+      },
+    });
+    const { batch_id } = prepared(['p1', 'p2']);
+    const id = await approve('recovery.cancel_held_carts', batch_id);
+    writes = 0;
+    audit = [];
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'refused',
+      reason: 'recovery_unavailable',
+    });
+    expect(value(PARKED_COUNT_SQL)).toBe(2);
+    expect(
+      value(`SELECT consumed_at FROM manager_approvals WHERE approval_id = ?`, [id]),
+    ).toBeNull();
+    expect(value(`SELECT COUNT(*) FROM cart_action_outbox WHERE action_kind = 'cart.void'`)).toBe(
+      0,
+    );
+  });
+
+  it('refuses a batch whose total is not a safe integer, and makes no batch', () => {
+    insertParked('big-1');
+    insertParked('big-2');
+    insertParked('big-3');
+    for (const id of ['big-1', 'big-2', 'big-3']) {
+      raw.run(`UPDATE carts SET cart_subtotal_minor = ? WHERE cart_id = ?`, [
+        id === 'big-1' ? Number.MAX_SAFE_INTEGER : 1,
+        id,
+      ]);
+    }
+    // Each amount is a safe integer, the sum is not: 2^53 - 1 + 1 + 1.
+    expect(recovery.prepareCancelHeldCarts({ cart_ids: ['big-1', 'big-2', 'big-3'] })).toEqual({
+      kind: 'refused',
+      reason: 'invalid_input',
+    });
+    // A smaller, safe selection from the same list still prepares.
+    expect(prepared(['big-2', 'big-3']).total_minor).toBe(2);
   });
 });
