@@ -34,6 +34,7 @@ import {
   type StockMovementBody,
 } from '../inventory.service';
 import { netsToZeroPerBucket, v1MappingBucket } from './position-event.rules';
+import { flagIfSourcePositionNegative } from './source-position.signal';
 
 /** Q10: the integration state of an effect whose event nets to zero per bucket. */
 const ERP_NEUTRAL = 'erp_neutral';
@@ -164,7 +165,15 @@ export async function recordPositionEvent(
 
   const fromEffect = await insertEffect(client, cmd, event, 'from', fromQuantity);
   const toEffect = await insertEffect(client, cmd, event, 'to', cmd.quantity);
-  await recordEffectsWritten(client, cmd, event, [fromEffect.id, toEffect.id]);
+  // RT-1584: allow-and-flag (FR-024) for the source position; never refuses.
+  const sourcePositionNegative = await flagIfSourcePositionNegative(client, {
+    storeId: cmd.storeId,
+    tenantProductRef: cmd.tenantProductRef,
+    fromLocationId: cmd.fromLocationId,
+    fromStatus: cmd.fromStatus,
+    trackingIdentityId: event.tracking_identity_id,
+  });
+  await recordEffectsWritten(client, cmd, event, [fromEffect.id, toEffect.id], sourcePositionNegative);
   return toEventBody(event, fromEffect, toEffect);
 }
 
@@ -209,6 +218,8 @@ async function recordEffectsWritten(
   cmd: PositionCommand,
   event: EventRow,
   effectIds: readonly string[],
+  /** null: the probe failed, so the source position is unknown (RT-1584). */
+  sourcePositionNegative: boolean | null,
 ): Promise<void> {
   await client.query(
     `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state)
@@ -221,7 +232,7 @@ async function recordEffectsWritten(
     action: AUDIT_ACTION[cmd.kind],
     targetType: AUDIT_TARGET_TYPE_EVENT,
     targetId: event.id,
-    metadata: { storeId: cmd.storeId, effectIds },
+    metadata: { storeId: cmd.storeId, effectIds, sourcePositionNegative },
   });
   await emit(client, {
     eventType: OUTBOX_EVENT_TYPES.INVENTORY_MOVEMENT_CREATED,
