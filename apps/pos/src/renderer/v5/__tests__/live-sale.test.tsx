@@ -167,6 +167,29 @@ describe('live v5 Sale adapter', () => {
     expect(usePaymentStore.getState().envelope).toEqual(ENVELOPE);
   });
 
+  // RT-1176 / UX-11: Enter on the handoff commit never leaves keyboard focus on BODY.
+  it('moves focus to «المتابعة إلى الدفع» after Enter on the handoff, never BODY (RT-1176)', async () => {
+    signIn();
+    const bridges = makeBridges();
+    renderSale(bridges, vi.fn());
+    const user = userEvent.setup();
+    await addOneLine(user);
+    const handoff = await screen.findByRole('button', { name: /تسليم السلة للدفع/ });
+    await waitFor(() => {
+      expect(handoff).toBeEnabled();
+    });
+    act(() => {
+      handoff.focus();
+    });
+    await user.keyboard('{Enter}');
+    const next = await screen.findByRole('button', { name: /المتابعة إلى الدفع/ });
+    await waitFor(() => {
+      expect(document.activeElement).toBe(next);
+    });
+    expect(document.activeElement).not.toBe(document.body);
+    expect(bridges.fns.handoff).toHaveBeenCalledOnce();
+  });
+
   // RT-258 / UX-12: a noun-first dense counter, so no noun inflection to get wrong.
   it('shows the cart counter noun-first with Western digits (RT-258)', async () => {
     signIn();
