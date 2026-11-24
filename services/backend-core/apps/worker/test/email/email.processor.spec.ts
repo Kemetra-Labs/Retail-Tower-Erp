@@ -409,6 +409,25 @@ describe("EmailProcessor — invitation accept link (RT-1280)", () => {
     expect(message.htmlBody).toContain('dir="rtl"');
   });
 
+  it("says expiry counts from creation, not from sending (RT-1494), in both languages and both bodies", async () => {
+    const linked = new EmailProcessor(adapter, BASE);
+    await linked.process(EMAIL_JOB_NAMES.invitation, {
+      email: EMAIL,
+      rawToken: RAW_TOKEN,
+      tenantId: TENANT_ID,
+    });
+    const message = adapter.sent[0]!;
+    const ar = "وتنتهي صلاحيتها بعد 7 أيام من إنشائها.";
+    const en = "expires 7 days after it was created.";
+    for (const body of [message.textBody, message.htmlBody ?? ""]) {
+      expect(body).toContain(ar);
+      expect(body).toContain(en);
+      // The old claim ("after it was sent") must be gone.
+      expect(body).not.toContain("إرسالها");
+      expect(body).not.toContain("was sent");
+    }
+  });
+
   it("puts nothing but the link's token in the message (no tenantId)", async () => {
     const linked = new EmailProcessor(adapter, BASE);
     await linked.process(EMAIL_JOB_NAMES.invitation, {
