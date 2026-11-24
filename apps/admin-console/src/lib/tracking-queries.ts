@@ -46,7 +46,6 @@ export type RecallSummary = Schemas["InventoryRecallSummary"];
 export type RecallSummaryList = Schemas["InventoryRecallSummaryList"];
 export type InventoryRecall = Schemas["InventoryRecall"];
 export type TrackingIdentityPositions = Schemas["TrackingIdentityPositions"];
-export type IdentityStorePosition = Schemas["TrackingIdentityStorePosition"];
 export type ExpiryCorrection = Schemas["TrackingIdentityExpiryCorrection"];
 export type ExpiryCorrectionList = Schemas["TrackingIdentityExpiryCorrectionList"];
 export type SafetyReasonCodeInput = Schemas["SafetyReasonCodeInput"];
