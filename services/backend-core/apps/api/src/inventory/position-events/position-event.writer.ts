@@ -218,7 +218,8 @@ async function recordEffectsWritten(
   cmd: PositionCommand,
   event: EventRow,
   effectIds: readonly string[],
-  sourcePositionNegative: boolean,
+  /** null: the probe failed, so the source position is unknown (RT-1584). */
+  sourcePositionNegative: boolean | null,
 ): Promise<void> {
   await client.query(
     `INSERT INTO inventory_effect_integration (effect_id, tenant_id, state)

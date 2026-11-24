@@ -599,6 +599,18 @@ describe('RT-1584 negative source position signal', () => {
 
   it('a move that leaves the source at zero or above is not counted and not flagged', async () => {
     if (maybeSkip()) return;
+    // Seed damaged stock here, so the case does not depend on earlier tests.
+    await inventory.createStockMovement({
+      tenantId: TENANT_A,
+      storeId: STORE_A_X,
+      userId: ACTOR_A,
+      movementType: 'inbound',
+      quantity: '2.0000',
+      stockingUnit: 'ea',
+      tenantProductRef: PRODUCT_A_ACTIVE,
+      stockLocationId: primaryAX,
+      inventoryStatus: 'damaged',
+    });
     const held = await quantityAt(primaryAX, 'damaged');
     expect(BigInt(held.replace('.', ''))).toBeGreaterThan(0n);
 
