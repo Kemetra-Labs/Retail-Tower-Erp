@@ -25,11 +25,13 @@ import re
 
 import yaml
 
+from .astutil import MAX_HELPER_DEPTH, aliases as _aliases, params as _params, resolve as _resolve
+from . import wire_facts
 from .findings import DRIFT, FAIL, OK, Finding
 
 _VERSION = re.compile(r"\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)")
 _SCHEMA_REF = "#/components/schemas/"
-_MAX_HELPER_DEPTH = 4
+_MAX_HELPER_DEPTH = MAX_HELPER_DEPTH
 
 
 class ModelError(ValueError):
@@ -139,45 +141,6 @@ class Module:
 # ---------------------------------------------------------------- field reads / writes
 
 
-def _resolve(node, bound):
-    if isinstance(node, ast.Constant) and isinstance(node.value, str):
-        return node.value
-    if isinstance(node, ast.Name):
-        return bound.get(node.id)
-    return None
-
-
-def _wire_name_outside_access(node, wire):
-    """True when a wire name occurs in `node` other than as `wire[...]` or `wire.get(...)`:
-    the assignment target then aliases the wire mapping (`w = _require_object(wire, ...)`)."""
-    if isinstance(node, ast.Name):
-        return node.id in wire
-    if isinstance(node, ast.Subscript) and isinstance(node.value, ast.Name) and node.value.id in wire:
-        return False
-    if (isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute) and node.func.attr == "get"
-            and isinstance(node.func.value, ast.Name) and node.func.value.id in wire):
-        return False
-    return any(_wire_name_outside_access(child, wire) for child in ast.iter_child_nodes(node))
-
-
-def _aliases(func, wire):
-    wire = set(wire)
-    changed = True
-    while changed:
-        changed = False
-        for node in ast.walk(func):
-            if isinstance(node, ast.Assign) and _wire_name_outside_access(node.value, wire):
-                for target in node.targets:
-                    if isinstance(target, ast.Name) and target.id not in wire:
-                        wire.add(target.id)
-                        changed = True
-    return wire
-
-
-def _params(func):
-    return [a.arg for a in func.args.posonlyargs + func.args.args]
-
-
 def collect_reads(func, wire, module_functions, bound=None, top=True, depth=0, hard=None, soft=None,
                   unresolved=None):
     """(hard, soft, unresolved) for the wire mapping. Hard: bare `wire["x"]` in the top-level
@@ -224,33 +187,7 @@ def collect_reads(func, wire, module_functions, bound=None, top=True, depth=0, h
 def collect_writes(func):
     """Top-level keys of the mapping `to_wire` returns: a returned dict literal, or a name
     returned as the result whose dict literal and `name["k"] = ...` assignments add keys."""
-    keys, returned = set(), set()
-    for node in ast.walk(func):
-        if isinstance(node, ast.Return) and node.value is not None:
-            if isinstance(node.value, ast.Dict):
-                keys |= _dict_keys(node.value)
-            elif isinstance(node.value, ast.Name):
-                returned.add(node.value.id)
-    for node in ast.walk(func):
-        if isinstance(node, ast.Assign):
-            targets, value = node.targets, node.value
-        elif isinstance(node, ast.AnnAssign) and node.value is not None:
-            targets, value = [node.target], node.value
-        else:
-            continue
-        for target in targets:
-            if isinstance(target, ast.Name) and target.id in returned and isinstance(value, ast.Dict):
-                keys |= _dict_keys(value)
-            elif (isinstance(target, ast.Subscript) and isinstance(target.value, ast.Name)
-                  and target.value.id in returned):
-                key = _resolve(target.slice, {})
-                if key is not None:
-                    keys.add(key)
-    return keys
-
-
-def _dict_keys(node):
-    return {k.value for k in node.keys if isinstance(k, ast.Constant) and isinstance(k.value, str)}
+    return set(wire_facts.write_values(func))
 
 
 # ---------------------------------------------------------------- schema side
@@ -292,6 +229,84 @@ def object_shape(schemas, name):
             props |= set(member.get("properties") or {})
             required |= set(member.get("required") or [])
     return props, required
+
+
+_JSON_TYPE_OF = ((bool, "boolean"), (int, "integer"), (float, "number"), (str, "string"),
+                 (list, "array"), (dict, "object"))
+
+
+def _value_type(value):
+    return next((name for cls, name in _JSON_TYPE_OF if isinstance(value, cls)), "null")
+
+
+def schema_kinds(schemas, node, depth=0):
+    """The JSON types a schema admits (never "null"), or None when they cannot be told.
+
+    Follows local `$ref`, `anyOf`/`oneOf` (every member must be typed) and `allOf`; falls back
+    to the types of `enum`/`const` values, `properties` (object) and `items` (array)."""
+    if depth > 6:
+        return None
+    try:
+        node = _follow(schemas, node)
+    except ModelError:
+        return None
+    if not isinstance(node, dict):
+        return None
+    kinds = None
+    if isinstance(node.get("type"), str):
+        kinds = {node["type"]}
+    elif isinstance(node.get("type"), list):
+        kinds = set(node["type"])
+    for union in ("anyOf", "oneOf"):
+        if kinds is None and isinstance(node.get(union), list):
+            members = [schema_kinds_with_null(schemas, m, depth + 1) for m in node[union]]
+            kinds = None if any(m is None for m in members) else set().union(*members)
+    if kinds is None and isinstance(node.get("allOf"), list):
+        members = [schema_kinds_with_null(schemas, m, depth + 1) for m in node["allOf"]]
+        members = [m for m in members if m is not None]
+        kinds = set().union(*members) if members else None
+    if kinds is None and "enum" in node and isinstance(node["enum"], list):
+        kinds = {_value_type(v) for v in node["enum"]}
+    if kinds is None and "const" in node:
+        kinds = {_value_type(node["const"])}
+    if kinds is None and ("properties" in node or "additionalProperties" in node):
+        kinds = {"object"}
+    if kinds is None and "items" in node:
+        kinds = {"array"}
+    return kinds
+
+
+def schema_kinds_with_null(schemas, node, depth=0):
+    kinds = schema_kinds(schemas, node, depth)
+    if kinds is None:
+        try:
+            followed = _follow(schemas, node)
+        except ModelError:
+            return None
+        if isinstance(followed, dict) and followed.get("type") == "null":
+            return {"null"}
+    return kinds
+
+
+def _kinds_compatible(have, want):
+    """Whether what the Connector requires of a field can hold what the contract allows for it.
+    Lenient on purpose: an integer and a number are interchangeable, a lone `boolean` next to a
+    number is a guard against `bool` being an `int` and not the field's type, and a conversion
+    (`str(x)`, `int(x)`) only rules out the types it cannot convert."""
+    want = set(want) - {"null"}
+    have = set(have)
+    if "boolean" in have and have & {"integer", "number"}:
+        have.discard("boolean")
+    coercions = {
+        "coerce:any-scalar": {"string", "integer", "number", "boolean"},
+        "coerce:numeric": {"string", "integer", "number"},
+    }
+    for kind in have:
+        if kind in coercions and want & coercions[kind]:
+            return True
+        if kind in want or (kind == "integer" and "number" in want) or (kind == "number" and "integer" in want):
+            return True
+    return not have
 
 
 def normalise_pattern(pattern, ascii_digits):
@@ -341,6 +356,49 @@ def _fmt(values):
 
 
 # ---------------------------------------------------------------- the check
+
+
+def _type_problems(schemas, cls, props, kinds, verb):
+    """Fields the Connector uses as a JSON type the contract does not allow for them."""
+    wrong = []
+    for key, have in sorted(kinds.items()):
+        if key not in props:
+            continue
+        try:
+            want = schema_kinds(schemas, schema_node(schemas, f"{cls}/properties/{key}"))
+        except ModelError:
+            continue
+        if want is not None and not _kinds_compatible(have, want):
+            shown = {k.replace("coerce:any-scalar", "a scalar via str()").replace("coerce:numeric", "a number")
+                     for k in have}
+            wrong.append(f"{key} ({verb} {_fmt(shown)}, contract {_fmt(set(want) - {'null'})})")
+    return [f"field type differs from the contract: {', '.join(wrong)}"] if wrong else []
+
+
+def _read_problems(schemas, cls, props, facts):
+    problems = _type_problems(schemas, cls, props, facts.kinds, "reads")
+    wrong = []
+    for key, accepted_sets in sorted(facts.literals.items()):
+        if key not in props:
+            continue
+        try:
+            node = schema_node(schemas, f"{cls}/properties/{key}")
+        except ModelError:
+            continue
+        if "enum" in node:
+            allowed = frozenset(node["enum"])
+        elif "const" in node:
+            allowed = frozenset({node["const"]})
+        else:
+            continue
+        for accepted in accepted_sets:
+            if accepted != allowed:
+                wrong.append(f"{key} (connector accepts {_fmt(accepted)}, contract {_fmt(map(str, allowed))})")
+    if wrong:
+        problems.append(f"inline literal differs from the contract: {', '.join(wrong)}")
+    return problems
+
+
 
 
 def check_module(repo, entry, contracts_root):
@@ -465,6 +523,8 @@ def check_module(repo, entry, contracts_root):
                 add(cls, FAIL, "from_wire takes no wire argument")
                 continue
             hard, soft, unresolved = collect_reads(func, {params[1]}, module.functions)
+            facts = wire_facts.collect(func, {params[1]}, module.functions, set(module.classes))
+            hard = hard | facts.rejects            # refused when absent: the contract must require it
             reads = hard | soft
             if unresolved:
                 problems.append(f"read(s) with a key that cannot be resolved: {_fmt(unresolved)}")
@@ -472,9 +532,12 @@ def check_module(repo, entry, contracts_root):
                 problems.append(f"reads field(s) not in the contract: {_fmt(reads - props)}")
             if hard - required:
                 problems.append(f"cannot parse without field(s) the contract marks optional: {_fmt(hard - required)}")
+            problems += _read_problems(schemas, cls, props, facts)
             counted.append(f"reads {len(reads)}")
         if "to_wire" in methods:
             emitted = collect_writes(methods["to_wire"])
+            problems += _type_problems(schemas, cls, props, wire_facts.written_kinds(methods["to_wire"]),
+                                       "emits")
             if emitted - props:
                 problems.append(f"emits field(s) not in the contract: {_fmt(emitted - props)}")
             if required - emitted:
