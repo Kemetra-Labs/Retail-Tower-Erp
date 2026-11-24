@@ -1,0 +1,12 @@
+{
+  "schema": 1,
+  "holds": [
+    {
+      "id": "park-limit",
+      "reason": "the no-default-limit parked-sales behavior (RT-1561, #836) is on main; the capabilities that make it safe to ship are not done (RT-838, D4)",
+      "products": ["pos", "pos-pilot"],
+      "status": "open",
+      "lifted_by": ["RT-1562", "RT-1563"]
+    }
+  ]
+}
