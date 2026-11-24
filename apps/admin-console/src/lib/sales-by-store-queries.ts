@@ -40,9 +40,6 @@ export type SalesByStoreQuery =
   ConsoleSalesByStoreSchema.operations["consoleGetSalesByStore"]["parameters"]["query"];
 export type SalesByStoreCompare = NonNullable<SalesByStoreQuery["compare"]>;
 
-/** The most stores the server ranks in one read; above it the read is refused. */
-export const SALES_BY_STORE_MAX_STORES = 500;
-
 // --- Typed operation wrapper --------------------------------------------------
 
 /** GET /api/v1/sales-by-store: always every store of the caller's scope; no store filter, no paging. */

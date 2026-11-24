@@ -138,7 +138,7 @@ Not verified by this README: that the unit and e2e suites currently pass, and th
 | `specs` | Spec Kit artifacts, `001`–`020`: foundation and scaffold (`001`–`002`), RF-1/2/5/6 slices (`003`–`006`), RF-4a (`007`), provider login draft (`008`), vision stubs (`009`–`016`), settlement children (`017`–`019`), observability draft (`020`). Design records, not the authority for current behavior; see [Current implementation status](#current-implementation-status) |
 | `.specify/memory/constitution.md` | Binding project boundary and implementation rules |
 | `docs/product` | Product charter and cross-repo boundaries |
-| `docs/design` · `DESIGN.md` · `PRODUCT.md` · `design_handoff_retail_tower_console` | Design system, vision screens and handoff reference |
+| `docs/design` · `DESIGN.md` · `PRODUCT.md` | Design system and vision screens. The old design handoff bundle was removed by RT-1204; it is in git history up to `e533a33e4` |
 | `docs/agent-os` | Historical Agent OS material (Maestro playbook, slice schema, older standing rules written in planning-first mode). Current work rules are in [`CLAUDE.md`](CLAUDE.md) |
 | `docs/architecture` | Sync overview, live control map and topology data |
 | `docs/assets` | Brand, architecture previews and route-family icons used in this README |

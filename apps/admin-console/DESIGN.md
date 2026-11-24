@@ -125,7 +125,7 @@ spacing:
 | `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
 | `DESIGN.md` v3.0 visual layer ("Daylight Commerce": light sidebar, one KPI ledger strip, shadowless panels, Dubai-only type) | **Superseded as target** by v4.0 §12 (owner decision 2026-10-30). Still the shipped look on `main` until the §10 v4.0 slices land. The v3.0 structure stays. |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
-| `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
+| `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. Removed from the tree by RT-1204; read it from git history up to `e533a33e4`. |
 | `docs/design/_vision/`, `docs/design/rf1-auth-shell/`, `docs/design/rf6-audit-search/` mockups and their `tokens.css` | Historical slice references. They are not the target identity. |
 
 ## 2. Product character (UX-01, UX-09)
