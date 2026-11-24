@@ -1181,16 +1181,17 @@ describe('recovery.cancelHeldCarts (RT-1563)', () => {
     expect(categories()).toEqual(['cart.held_cancelled_by_manager']);
   });
 
-  it('rolls everything back, approval included, when a write fails part-way', async () => {
+  it('rolls everything back, approval included, when a write fails part-way, and the batch can then be retried', async () => {
     insertParked('p1');
     insertParked('p2');
     const real = bindCartStore(handle);
     let calls = 0;
+    let failing = true;
     recovery = buildRecovery({
       cartStore: {
         cancelCartAndOutbox: (...args) => {
           calls += 1;
-          if (calls === 2) throw new Error('disk full');
+          if (failing && calls === 2) throw new Error('disk full');
           real.cancelCartAndOutbox(...args);
         },
       },
@@ -1201,11 +1202,25 @@ describe('recovery.cancelHeldCarts (RT-1563)', () => {
       kind: 'refused',
       reason: 'recovery_unavailable',
     });
+    const voidRows = `SELECT COUNT(*) FROM cart_action_outbox WHERE action_kind = 'cart.void' AND cart_id IN ('p1', 'p2')`;
+    // The first cart's cancel completed before the second threw: none of it may remain.
     expect(value(PARKED_COUNT_SQL)).toBe(2);
+    expect(value(voidRows)).toBe(0);
     expect(
       value(`SELECT consumed_at FROM manager_approvals WHERE approval_id = ?`, [id]),
     ).toBeNull();
     expect(categories().filter((c) => c === 'cart.held_cancelled_by_manager')).toEqual([]);
+
+    // The failure was rolled back whole, so the same batch and approval still work once it is gone.
+    failing = false;
+    expect(recovery.cancelHeldCarts({ batch_id, approval_id: id })).toEqual({
+      kind: 'cancelled_batch',
+      cancelled_cart_ids: ['p1', 'p2'],
+      skipped: [],
+    });
+    expect(value(voidRows)).toBe(2);
+    expect(value(PARKED_COUNT_SQL)).toBe(0);
+    expect(categories().filter((c) => c === 'cart.held_cancelled_by_manager')).toHaveLength(2);
   });
 
   it('a batch expires: a snapshot older than ten minutes is gone', async () => {
