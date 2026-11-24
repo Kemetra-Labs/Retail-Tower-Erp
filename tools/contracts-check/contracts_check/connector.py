@@ -25,13 +25,15 @@ import re
 
 import yaml
 
-from .astutil import MAX_HELPER_DEPTH, aliases as _aliases, params as _params, resolve as _resolve
 from . import wire_facts
+from .astutil import MAX_HELPER_DEPTH as _MAX_HELPER_DEPTH
+from .astutil import aliases as _aliases
+from .astutil import params as _params
+from .astutil import resolve as _resolve
 from .findings import DRIFT, FAIL, OK, Finding
 
 _VERSION = re.compile(r"\b(\d+\.\d+\.\d+(?:-[0-9A-Za-z]+(?:\.[0-9A-Za-z]+)*)?)")
 _SCHEMA_REF = "#/components/schemas/"
-_MAX_HELPER_DEPTH = MAX_HELPER_DEPTH
 
 
 class ModelError(ValueError):
