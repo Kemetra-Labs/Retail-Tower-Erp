@@ -158,6 +158,19 @@ function useBulkCancel(
     held.kind === 'held'
       ? held.held.filter((c) => c.parked && c.kind === 'draft').map((c) => c.cart_id)
       : [];
+  // Ticks follow the list: when the eligible sales change (a reload dropped some, or brought one back),
+  // a tick for a sale that is no longer eligible is forgotten, so it can never return later as a tick
+  // the manager did not just make (and push a batch past RECOVERY_BATCH_MAX). Adjusting state while
+  // rendering, keyed by the list of eligible ids, as the React docs describe.
+  const selectableKey = selectable.join('\n');
+  const [seenKey, setSeenKey] = useState(selectableKey);
+  if (seenKey !== selectableKey) {
+    setSeenKey(selectableKey);
+    setPicked((now) => {
+      const keep = new Set(selectable.filter((id) => now.has(id)));
+      return keep.size === now.size ? now : keep;
+    });
+  }
   const selected = new Set(selectable.filter((id) => picked.has(id)));
   const cap = Math.min(selectable.length, RECOVERY_BATCH_MAX);
 

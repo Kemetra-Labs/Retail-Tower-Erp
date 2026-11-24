@@ -411,3 +411,47 @@ describe('RecoveryScreen — bulk cancel: review findings', () => {
     expect(sent).toHaveLength(500);
   });
 });
+
+describe('RecoveryScreen — bulk cancel: follow-up to the review (RT-1563)', () => {
+  it('a tick for a sale that left the list is forgotten, and does not come back when the sale does', async () => {
+    const full = heldView({ held: [parked('p1'), parked('p2'), parked('p3')] });
+    const withoutP1 = heldView({ held: [parked('p2'), parked('p3')] });
+    const bridges = fakeBridges(full);
+    bridges.recovery.listHeld
+      .mockResolvedValueOnce(full) // the first read
+      .mockResolvedValueOnce(withoutP1) // after the first refused prepare: p1 is gone
+      .mockResolvedValue(full); // after the second: p1 is back
+    bridges.recovery.prepareCancelHeldCarts.mockResolvedValue({
+      kind: 'refused',
+      reason: 'not_found',
+    });
+    show(bridges);
+    const user = userEvent.setup();
+    const boxFor = (n: number) => rowBoxes()[n] as HTMLElement;
+    await screen.findByRole('checkbox', { name: RECOVERY_COPY.selectAllParked });
+    await user.click(boxFor(0)); // p1
+    await user.click(boxFor(1)); // p2
+    await user.click(cancelSelected());
+    await waitFor(() => {
+      expect(rowBoxes()).toHaveLength(2); // p1 left the list
+    });
+    // p2 is still ticked, and the count says so.
+    expect(boxFor(0)).toBeChecked();
+    expect(screen.getByText(new RegExp(`^${RECOVERY_COPY.selectedLabel}:`))).toHaveTextContent('1');
+    await user.click(cancelSelected());
+    await waitFor(() => {
+      expect(rowBoxes()).toHaveLength(3); // p1 is back
+    });
+    // p1 is back, but its old tick is not: only p2 is selected.
+    expect(boxFor(0)).not.toBeChecked();
+    expect(boxFor(1)).toBeChecked();
+    expect(screen.getByText(new RegExp(`^${RECOVERY_COPY.selectedLabel}:`))).toHaveTextContent('1');
+  });
+
+  it('no message claims the list was refreshed before the read has finished', () => {
+    for (const text of [RECOVERY_COPY.batchNoneCancelled, RECOVERY_COPY.batchNoneEligible]) {
+      expect(text).not.toContain('حُدّثت');
+      expect(text).not.toMatch(/تحديث|حدّث/);
+    }
+  });
+});

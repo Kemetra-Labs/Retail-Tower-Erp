@@ -61,9 +61,10 @@ export const RECOVERY_COPY = Object.freeze({
   // Dense metadata, noun-first (UX-12): a count follows the colon.
   excludedLabel: 'مبيعات لن تُلغى لأنها لم تعد معلّقة أو تغيّرت',
   skippedLabel: 'لم تُلغَ لأنها تغيّرت أو لم تعد معلّقة',
-  // Every selected sale had changed since the snapshot: nothing was cancelled, the list is re-read.
-  batchNoneCancelled: 'لم يُلغَ أي بيع: تغيّرت المبيعات المحددة أو لم تعد معلّقة. حُدّثت القائمة.',
-  batchNoneEligible: 'لا توجد مبيعات معلّقة قابلة للإلغاء الجماعي الآن. حُدّثت القائمة.',
+  // Every selected sale had changed since the snapshot: nothing was cancelled. These say only what is
+  // known; the list is re-read, but no message claims it was refreshed before that read has finished.
+  batchNoneCancelled: 'لم يُلغَ أي بيع: تغيّرت المبيعات المحددة أو لم تعد معلّقة.',
+  batchNoneEligible: 'لا توجد مبيعات معلّقة قابلة للإلغاء الجماعي الآن.',
 });
 
 /** «سيُلغى …»: what the confirmation will do, a full sentence per plural category (UX-12). */
