@@ -133,7 +133,7 @@ function useCanCancelSale(approval: ManagerApprovalBridgeAPI): 'loading' | 'yes'
  * step) and the approval is bound to that snapshot, not to this selection. Nothing is selected by
  * default, and a reload drops ticks for sales that are no longer listed.
  */
-export interface BulkCancel {
+interface BulkCancel {
   /** The parked drafts that can join a bulk cancel, in list order. */
   selectable: string[];
   selected: ReadonlySet<string>;

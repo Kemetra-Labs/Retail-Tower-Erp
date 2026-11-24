@@ -98,7 +98,7 @@ export interface RecoveryCancelHeldCartsRequest {
 }
 
 /** Why one cart of the batch was left alone: it changed, or is no longer held, since the snapshot. */
-export type RecoveryBatchSkipReason = 'changed' | 'no_longer_held';
+type RecoveryBatchSkipReason = 'changed' | 'no_longer_held';
 
 export interface RecoveryBatchSkipped {
   cart_id: string;
