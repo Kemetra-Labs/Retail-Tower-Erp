@@ -8,6 +8,7 @@ export const overview: MessagesOf<typeof ar> = {
 
   // --- Attention ledger (P-1…P-4) --------------------------------------------
   "overview.attention.title": "Needs your attention",
+  "overview.attention.viewAll": "View all alerts",
   "overview.attention.nothingForRole": "No attention items are available to your role here.",
   "overview.count.exact": "{noun}: {count}",
   "overview.count.atLeast": "{noun}: {count} or more",

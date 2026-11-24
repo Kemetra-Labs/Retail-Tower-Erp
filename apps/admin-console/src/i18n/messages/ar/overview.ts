@@ -13,6 +13,7 @@ export const overview = {
 
   // --- Attention ledger (P-1…P-4) --------------------------------------------
   "overview.attention.title": "ما يحتاج إلى متابعتك",
+  "overview.attention.viewAll": "اعرض كل التنبيهات",
   "overview.attention.nothingForRole": "لا توجد عناصر متابعة متاحة لدورك في هذا النطاق.",
   "overview.count.exact": "{noun}: {count}",
   "overview.count.atLeast": "{noun}: {count} أو أكثر",

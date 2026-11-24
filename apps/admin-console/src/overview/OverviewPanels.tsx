@@ -45,7 +45,9 @@ import "./overview.css";
  * (`aria-disabled`, not `disabled`, which would drop keyboard focus) and ignores
  * presses; a polite status line announces it.
  */
-function RefreshButton({ onRefresh }: Readonly<{ onRefresh: () => void }>): React.JSX.Element {
+export function OverviewRefreshButton({
+  onRefresh,
+}: Readonly<{ onRefresh: () => void }>): React.JSX.Element {
   const t = useT();
   const fetching = useIsFetching({ queryKey: OVERVIEW_KEY }) > 0;
   const refresh = () => {
@@ -71,8 +73,10 @@ function RefreshButton({ onRefresh }: Readonly<{ onRefresh: () => void }>): Reac
  * Refresh. The re-read runs after the new time commits, so a query whose key
  * moved (a new day's window) fetches once on its own, and an in-flight read is
  * joined rather than repeated; the old day's window is never re-read.
+ *
+ * Shared with the alerts screen: it reads the same panels under the same key.
  */
-function useRefresh(): { value: number; refresh: () => void } {
+export function useOverviewRefresh(): { value: number; refresh: () => void } {
   const qc = useQueryClient();
   const [state, setState] = useState(() => ({ value: Date.now(), tick: 0 }));
   useEffect(() => {
@@ -119,7 +123,7 @@ function Panels({
         </div>
         <SideColumn
           session={session}
-          attention={<AttentionLedger session={session} nowMs={nowMs} />}
+          attention={<AttentionLedger session={session} nowMs={nowMs} allHref="/alerts" />}
         />
       </div>
       {/* RT-1541: default-OFF Manager Sales Ask/Explain; renders nothing unless flag and role allow. */}
@@ -144,14 +148,14 @@ export function OverviewPanels({
 }: Readonly<OverviewPanelsProps>): React.JSX.Element {
   const t = useT();
   const session = useOverviewSession();
-  const clock = useRefresh();
+  const clock = useOverviewRefresh();
   const active = session.tenantId !== null;
   const header = (rail: React.ReactNode) => (
     <PageHeader
       title={title}
       documentTitle={t("shell.overview.title")}
       subtitle={subtitle}
-      actions={active ? <RefreshButton onRefresh={clock.refresh} /> : null}
+      actions={active ? <OverviewRefreshButton onRefresh={clock.refresh} /> : null}
     >
       {rail}
     </PageHeader>

@@ -1,0 +1,35 @@
+.search__form {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-3);
+  align-items: end;
+  margin-top: var(--space-4);
+}
+
+.search__field {
+  flex: 1 1 20rem;
+}
+
+.search__error {
+  flex-basis: 100%;
+  margin: 0;
+  color: var(--color-danger);
+}
+
+.search__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.search__more {
+  margin: var(--space-3) 0 0;
+}
+
+.search__intro-list {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+.search-surface .section-panel {
+  margin-top: var(--space-4);
+}

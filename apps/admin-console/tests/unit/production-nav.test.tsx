@@ -71,6 +71,8 @@ describe("production navigation", () => {
     // RT-969: grouped as on the owner-approved canvas.
     expect(entryLabels(nav)).toEqual([
       "Overview",
+      "Alerts",
+      "Search",
       "Sales",
       "Shift closes",
       "Reports",

@@ -176,7 +176,7 @@ describe("what it offers", () => {
     fireEvent.click(trigger());
     await screen.findByRole("option", { name: /New Cairo Mall/ });
     const names = optionNames();
-    expect(names.slice(0, 3)).toEqual(["Overview", "Sales", "Shift closes"]);
+    expect(names.slice(0, 3)).toEqual(["Overview", "Alerts", "Search"]);
     expect(names).toContain("Connection & sync");
     expect(names.slice(-3)).toEqual([
       "All stores(current)",
