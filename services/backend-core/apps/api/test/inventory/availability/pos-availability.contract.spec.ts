@@ -145,6 +145,7 @@ describe('pos-availability — schemas', () => {
     ['an unknown page field', { ...PAGE, tenantId: ITEM.productId }],
     ['a missing asOf', (({ asOf: _, ...rest }) => rest)(PAGE)],
     ['a missing nextCursor', (({ nextCursor: _, ...rest }) => rest)(PAGE)],
+    ['an empty nextCursor (a continuation token is never empty; null ends the chain)', { ...PAGE, nextCursor: '' }],
     ['an item with an unknown band', { ...PAGE, items: [{ ...ITEM, band: 'critical' }] }],
     ['an item with a float quantity', { ...PAGE, items: [{ ...ITEM, availableToSell: 12 }] }],
     ['an item with an over-precise quantity', { ...PAGE, items: [{ ...ITEM, availableToSell: '1.23456' }] }],
@@ -152,6 +153,16 @@ describe('pos-availability — schemas', () => {
     ['a non-uuid product', { ...PAGE, items: [{ ...ITEM, productId: 'x' }] }],
   ])('refuses a page with %s', (_label, payload) => {
     expect(validator('StoreAvailabilityPage')(payload)).toBe(false);
+  });
+
+  it('says which responses are closed: the success schemas are, and the error envelope stays the canonical one', () => {
+    // RT-1587: the description used to claim "the responses are additionalProperties: false", which the open Error does not honour.
+    const description = String((doc.info as { description?: string }).description);
+    expect(description).toMatch(/success responses are `additionalProperties: false`/);
+    expect(description).not.toMatch(/The responses are `additionalProperties: false`/);
+    expect(schema('StoreAvailabilityPage')['additionalProperties']).toBe(false);
+    expect(schema('StoreAvailabilityItem')['additionalProperties']).toBe(false);
+    expect(schema('Error')['additionalProperties']).toBeUndefined();
   });
 
   it('accepts the canonical error envelope', () => {

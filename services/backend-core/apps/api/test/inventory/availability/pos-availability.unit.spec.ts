@@ -68,6 +68,12 @@ describe('availability cursor', () => {
     expect(decodeAvailabilityCursor(token, T, S)).toBe(P);
   });
 
+  it('never issues an empty cursor, and refuses an empty one on decode (RT-1587)', () => {
+    const token = encodeAvailabilityCursor({ tenantId: T, storeId: S, afterProductId: P });
+    expect(token.length).toBeGreaterThan(0);
+    expect(() => decodeAvailabilityCursor('', T, S)).toThrow(AvailabilityCursorError);
+  });
+
   it('refuses a cursor issued to another tenant or store', () => {
     const token = encodeAvailabilityCursor({ tenantId: T, storeId: S, afterProductId: P });
     expect(() => decodeAvailabilityCursor(token, T, '0a000000-0000-7000-8000-00000000a5a2')).toThrow(AvailabilityCursorError);
