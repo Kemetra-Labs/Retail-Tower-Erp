@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="package.json"><img alt="Node.js 22+" src="https://img.shields.io/badge/node-%E2%89%A522-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
+  <a href="../../.nvmrc"><img alt="Node.js 24" src="https://img.shields.io/badge/node-24-339933?logo=nodedotjs&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="package.json"><img alt="pnpm 9.15" src="https://img.shields.io/badge/pnpm-9.15-f69220?logo=pnpm&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="tsconfig.json"><img alt="TypeScript strict" src="https://img.shields.io/badge/TypeScript-strict-3178c6?logo=typescript&logoColor=white&labelColor=0a0f24&style=flat-square"></a>
   <a href="package.json"><img alt="React 19" src="https://img.shields.io/badge/React-19-61dafb?logo=react&logoColor=black&labelColor=0a0f24&style=flat-square"></a>
@@ -122,7 +122,7 @@ Wiring, boundaries and tooling, with the repo-backed evidence for each:
 | Approval gates | Package, lockfile, dependency, and CI changes remain approval-gated | [Constitution principle 9](.specify/memory/constitution.md) |
 | Secrets and deployment | No secrets or deployment assumptions belong here | [Constitution principle 10](.specify/memory/constitution.md) |
 | Tests | 53 Vitest unit test files and 18 Playwright e2e spec files under `tests/` | [`tests/unit`](tests/unit) · [`tests/e2e`](tests/e2e) |
-| CI | The monorepo's root workflow `admin-console.yml`, jobs `admin/build-test` (`pnpm install --frozen-lockfile`, `build`, `lint`, unit tests) and `admin/e2e`, selected by the project graph, on Node 22 | [`.github/workflows/admin-console.yml`](../../.github/workflows/admin-console.yml) |
+| CI | The monorepo's root workflow `admin-console.yml`, jobs `admin/build-test` (`pnpm install --frozen-lockfile`, `build`, `lint`, unit tests) and `admin/e2e`, selected by the project graph, on Node 24 (from the root `.nvmrc`) | [`.github/workflows/admin-console.yml`](../../.github/workflows/admin-console.yml) |
 | AI review | CodeRabbit is the primary AI reviewer, capped at about one included review per hour, so incremental review is off. High-tier PRs (RT-582 tiers; the Admin-Console path mapping is not defined yet, so until it is the PR author names the tier, and PRs touching paths that carry `path_instructions` in `.coderabbit.yaml` are the working candidates) get a manual `@coderabbitai full review` after the last push, because a plain `review` only covers commits since the previous review; the `skip-coderabbit` label opts a trivial PR out | [`.coderabbit.yaml`](.coderabbit.yaml) |
 
 Not verified by this README: that the unit and e2e suites currently pass, and the live behavior of any screen against a running Backend-Core. Re-verify against `main` and CI before relying on this table.

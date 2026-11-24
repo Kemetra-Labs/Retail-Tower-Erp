@@ -41,8 +41,8 @@ POS is the cashier terminal. Admin-Console is the desk operators run. Backend-Co
 | | Product | Job | Code | Stack |
 | --- | --- | --- | --- | --- |
 | <img src="services/backend-core/docs/assets/brand/icons/pos-core.svg" width="28" height="28" alt=""> | [POS](apps/pos/README.md) | Windows cashier terminal. Offline sales, receipts, and sync. | [`apps/pos`](apps/pos/) | Electron · npm · Node 24 |
-| <img src="services/backend-core/docs/assets/brand/icons/dashboard.svg" width="28" height="28" alt=""> | [Admin-Console](apps/admin-console/README.md) | Operator desk for tenants, stores, catalog, inventory, and sales. | [`apps/admin-console`](apps/admin-console/) | Vite · pnpm · Node 22 |
-| <img src="services/backend-core/docs/assets/brand/icons/security.svg" width="28" height="28" alt=""> | [Backend-Core](services/backend-core/README.md) | API, workers, and database. The contract and the system of record. | [`services/backend-core`](services/backend-core/) | NestJS · pnpm · Node 22 |
+| <img src="services/backend-core/docs/assets/brand/icons/dashboard.svg" width="28" height="28" alt=""> | [Admin-Console](apps/admin-console/README.md) | Operator desk for tenants, stores, catalog, inventory, and sales. | [`apps/admin-console`](apps/admin-console/) | Vite · pnpm · Node 24 |
+| <img src="services/backend-core/docs/assets/brand/icons/security.svg" width="28" height="28" alt=""> | [Backend-Core](services/backend-core/README.md) | API, workers, and database. The contract and the system of record. | [`services/backend-core`](services/backend-core/) | NestJS · pnpm · Node 24 |
 | <img src="services/backend-core/docs/assets/brand/icons/integrations.svg" width="28" height="28" alt=""> | [ERPNext-Connector](integrations/erpnext-connector/README.md) | The only ERPNext and Frappe adapter. Mapping, posting, acknowledgements. | [`integrations/erpnext-connector`](integrations/erpnext-connector/) | Python · uv · Frappe v16 |
 
 Each product keeps its own toolchain, lockfile, version, and release tag. Setup, and what is already implemented, live in that product's README.
@@ -127,7 +127,7 @@ npm run package:dir  # Windows unpacked build (pos/package-windows runs on windo
 
 ### Admin-Console
 
-`apps/admin-console/` · pnpm · CI uses Node 22.
+`apps/admin-console/` · pnpm · CI uses Node 24 (from the root `.nvmrc`).
 
 ```bash
 pnpm install --frozen-lockfile
@@ -139,7 +139,7 @@ pnpm dev
 
 ### Backend-Core
 
-`services/backend-core/` · pnpm workspace · CI uses Node 22 and Postgres 16 for the database suites.
+`services/backend-core/` · pnpm workspace · CI uses Node 24 (from the root `.nvmrc`) and Postgres 16 for the database suites.
 
 ```bash
 pnpm install --frozen-lockfile
