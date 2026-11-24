@@ -87,16 +87,21 @@ test("an open hold that does not apply to the product does not refuse it", () =>
   assert.ok(result.notes.some((n) => n.includes("no hold applies to pos-pilot")));
 });
 
-test("the committed manifest is well formed and holds the park-limit hold open for both products", () => {
+test("the committed manifest is well formed and still carries the park-limit hold for both products (deleting it fails here)", () => {
   const manifest = JSON.parse(fs.readFileSync(MANIFEST_FILE, "utf8"));
   assert.equal(hold.manifestProblem(manifest), null);
-  assert.equal(manifest.holds.length, 1);
-  assert.deepEqual(
-    { id: manifest.holds[0].id, status: manifest.holds[0].status, products: manifest.holds[0].products, lifted_by: manifest.holds[0].lifted_by },
-    { id: "park-limit", status: "open", products: ["pos", "pos-pilot"], lifted_by: ["RT-1562", "RT-1563"] },
-  );
-  for (const product of ["pos", "pos-pilot"]) {
-    refusedWith(hold.evaluateHold({ manifest, sha: RELEASE, product, guardVerdict: "PASS", git: fakeGit() }), "hold 'park-limit' is open");
+  const entry = manifest.holds.find((h) => h.id === "park-limit");
+  assert.ok(entry, "the park-limit hold must stay in the manifest: lift it by setting status to cleared with evidence, never by deleting it");
+  assert.deepEqual(entry.products, ["pos", "pos-pilot"]);
+  // Open today: it refuses both products, with the whole message (the line cap must not cut the closing sentence).
+  // After the clearing PR this branch is skipped and the cleared-hold specs above and the real-git specs below cover it.
+  if (entry.status === "open") {
+    for (const product of ["pos", "pos-pilot"]) {
+      const result = hold.evaluateHold({ manifest, sha: RELEASE, product, guardVerdict: "PASS", git: fakeGit() });
+      refusedWith(result, "hold 'park-limit' is open");
+      refusedWith(result, "RT-1562 and RT-1563");
+      refusedWith(result, "it never clears itself.");
+    }
   }
 });
 
@@ -376,6 +381,44 @@ test("the real git adapter works in a shallow clone only as far as history reach
     const result = cli(clone, manifestFor(clone, repo.base), repo.release);
     assert.equal(result.status, 1, result.stdout);
     assert.doesNotMatch(result.stdout, /Release hold: PASS/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+    fs.rmSync(clone, { recursive: true, force: true });
+  }
+});
+
+test("evidence paths are repository-root relative whatever directory the check runs from", () => {
+  const repo = makeRepo();
+  try {
+    const sub = path.join(repo.dir, "apps", "pos");
+    const ok = cli(sub, manifestFor(repo.dir, repo.clearing), repo.release);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    const relative = cli(sub, manifestFor(repo.dir, repo.clearing, { entry_points: ["a.ts"] }), repo.release);
+    assert.equal(relative.status, 1, "a path relative to the current directory is not an evidence path");
+    assert.match(relative.stdout, /production entry point a\.ts is missing/);
+  } finally {
+    fs.rmSync(repo.dir, { recursive: true, force: true });
+  }
+});
+
+test("the real git adapter works in a sparse, blob-filtered clone with the promisor remote gone (the workflow's checkout)", () => {
+  const repo = makeRepo();
+  const clone = fs.mkdtempSync(path.join(os.tmpdir(), "release-hold-partial-"));
+  try {
+    git(repo.dir, "config", "uploadpack.allowFilter", "true");
+    git(repo.dir, "config", "uploadpack.allowAnySHA1InWant", "true");
+    const cloned = spawnSync("git", ["clone", "-q", "--filter=blob:none", "--no-checkout", `file://${repo.dir}`, clone], { encoding: "utf8" });
+    assert.equal(cloned.status, 0, cloned.stderr);
+    const blobs = spawnSync("git", ["rev-list", "--objects", "--missing=print", "HEAD"], { cwd: clone, encoding: "utf8" }).stdout;
+    assert.match(blobs, /^\?[0-9a-f]{40}/m, "the clone really is missing blobs");
+    // Cut the promisor remote: any attempt to lazily fetch a blob now fails, so the check may read commits and trees only.
+    git(clone, "remote", "set-url", "origin", "file:///nonexistent/promisor");
+    const ok = cli(clone, manifestFor(clone, repo.clearing), repo.release);
+    assert.equal(ok.status, 0, ok.stdout + ok.stderr);
+    assert.match(ok.stdout, /Release hold: PASS/);
+    const missing = cli(clone, manifestFor(clone, repo.clearing, { tests: ["apps/pos/nope.test.ts"] }), repo.release);
+    assert.equal(missing.status, 1);
+    assert.match(missing.stdout, /evidence test file apps\/pos\/nope\.test\.ts is missing/);
   } finally {
     fs.rmSync(repo.dir, { recursive: true, force: true });
     fs.rmSync(clone, { recursive: true, force: true });

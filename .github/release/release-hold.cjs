@@ -193,7 +193,7 @@ function realGit() {
     },
     // ls-tree reads tree entries only, so it needs no blob from a partial (sparse, blob-filtered) clone.
     isFile(release, file) {
-      const out = run(["ls-tree", "-z", release, "--", file]);
+      const out = run(["ls-tree", "-z", "--full-tree", release, "--", file]);
       return out.split("\0").some((entry) => /^100(644|755) blob [0-9a-f]{40}\t/.test(entry) && entry.slice(entry.indexOf("\t") + 1) === file);
     },
   };
