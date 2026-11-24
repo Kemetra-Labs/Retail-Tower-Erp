@@ -240,6 +240,9 @@
   margin: 0;
   padding: 0;
   overflow-y: auto;
+  /* RT-1562: a focused row scrolls into view with its focus ring (about 4px outside the button) fully
+     inside this scroller, whichever edge it arrives at (UX-11.5: focus is never obscured). */
+  scroll-padding-block: var(--space-2);
   list-style: none;
 }
 
