@@ -1,3 +1,6 @@
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react';
 import userEvent from '@testing-library/user-event';
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
@@ -432,5 +435,47 @@ describe('scanner on the review (RT-239)', () => {
     fireEvent.keyDown(accept, { key: 'Enter' });
     expect(await screen.findByTestId('scan-notice')).toHaveTextContent(SCAN_PAUSED_DIALOG_STATUS);
     expect(resume).not.toHaveBeenCalled();
+  });
+});
+
+/**
+ * RT-1562 (owner-approved reference, comment 18739/18747): the cashier's list was only ever drawn with a few
+ * sales. These pin that it renders every sale of a long list, and that its scroller keeps a focused row's
+ * ring inside it (the real-browser measurement is on the issue).
+ */
+describe('the parked list at scale (RT-1562)', () => {
+  const many = (n: number): ParkedSaleView[] =>
+    Array.from({ length: n }, (_, i) => ({
+      cart_id: `m${String(i)}`,
+      label: i % 3 === 0 ? null : `عميل ${String(i)}`,
+      line_count: 1 + (i % 7),
+      total_minor: 4500 + i * 1337,
+      parked_at: at(5 + i),
+      stale: i % 9 === 4,
+    }));
+
+  it.each([20, 100])(
+    'renders %i parked sales, each with its own resume button, and says how many',
+    async (n) => {
+      setup({ items: many(n) });
+      const items = await screen.findAllByRole('listitem');
+      expect(items).toHaveLength(n);
+      expect(screen.getAllByRole('button', { name: PARK_COPY.resume })).toHaveLength(n);
+      expect(screen.getByText(`${String(n)} من مبيعاتك`)).toBeInTheDocument();
+      // The back button is outside the scrolling list, so it stays reachable however long the list is.
+      expect(screen.getByRole('button', { name: PARK_COPY.backToSale })).toBeInTheDocument();
+      expect(
+        within(items[0] as HTMLElement).getByRole('button', { name: PARK_COPY.resume }),
+      ).toBeInTheDocument();
+    },
+  );
+
+  it('keeps the list scroller on the focus ring: the list has block scroll padding (UX-11.5)', () => {
+    const css = readFileSync(join(process.cwd(), 'src/renderer/v5/park/park.css'), 'utf8');
+    const rule = /\.v5-park-list\s*\{([^}]*)\}/.exec(css);
+    expect(rule, 'the .v5-park-list rule').not.toBeNull();
+    // Logical (block), not a physical top/bottom, and at least the 4px a focus ring extends (outline 2px + offset 2px).
+    expect(rule?.[1]).toMatch(/scroll-padding-block\s*:\s*var\(--space-2\)/);
+    expect(rule?.[1]).toMatch(/overflow-y\s*:\s*auto/);
   });
 });
