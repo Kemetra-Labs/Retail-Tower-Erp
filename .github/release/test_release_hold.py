@@ -25,7 +25,6 @@ from test_pos_release_workflow import job_if, needs_of, step  # noqa: E402
 RELEASE_DIR = ROOT / ".github" / "release"
 HOLD = RELEASE_DIR / "release-hold.cjs"
 HOLD_SPEC = RELEASE_DIR / "release-hold.test.cjs"
-MANIFEST = RELEASE_DIR / "release-holds.json"
 WORKFLOW_PRODUCTS = {"release-pos.yml": "pos", "release-pos-pilot.yml": "pos-pilot"}
 TEXTS = {name: read(WORKFLOWS / name) for name in WORKFLOW_PRODUCTS}
 HOLD_STEP = "Release hold"
@@ -149,7 +148,10 @@ class HoldStepEndToEnd(unittest.TestCase):
                 mutate(manifest)
             (work / ".github" / "release" / "release-holds.json").write_text(json.dumps(manifest), encoding="utf-8")
         else:
-            shutil.copy(MANIFEST, work / ".github" / "release" / "release-holds.json")
+            # An explicit open hold, so these cases keep testing the open path after the clearing PR sets the committed one to cleared.
+            open_hold = {"schema": 1, "holds": [{"id": "park-limit", "reason": "r", "products": ["pos", "pos-pilot"],
+                                                  "status": "open", "lifted_by": ["RT-1562", "RT-1563"]}]}
+            (work / ".github" / "release" / "release-holds.json").write_text(json.dumps(open_hold), encoding="utf-8")
         git(work, "add", ".github")
         git(work, "commit", "-q", "-m", "chore: the hold")
         return work, git(work, "rev-parse", "HEAD")

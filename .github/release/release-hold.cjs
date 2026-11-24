@@ -68,6 +68,9 @@ function manifestProblem(manifest) {
       return `hold '${hold.id}' must list its products, each one of ${PRODUCTS.join("/")}`;
     }
     if (!STATUSES.includes(hold.status)) return `hold '${hold.id}' has unknown status '${String(hold.status)}'`;
+    if (hold.status === "open" && !(isNonEmptyArray(hold.lifted_by) && hold.lifted_by.every(isText))) {
+      return `hold '${hold.id}' is open and must name what lifts it: lifted_by is a non-empty list of non-empty strings`;
+    }
     if (hold.status === "cleared") {
       const why = capabilitiesProblem(hold);
       if (why) return why;
@@ -110,7 +113,7 @@ function evaluateHold({ manifest, sha, product, guardVerdict, git }) {
   if (holds.length === 0) notes.push(`no hold applies to ${product}`);
   for (const hold of holds) {
     if (hold.status === "open") {
-      const lifted = Array.isArray(hold.lifted_by) ? ` Lifted by ${hold.lifted_by.map(String).join(" and ")}.` : "";
+      const lifted = ` Lifted by ${hold.lifted_by.join(" and ")}.`;
       problems.push(`hold '${hold.id}' is open: ${hold.reason}${lifted} A reviewed PR sets it to cleared once the work is done; it never clears itself.`);
       notes.push(`hold '${hold.id}': open`);
       continue;

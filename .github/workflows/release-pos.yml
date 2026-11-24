@@ -200,7 +200,7 @@ jobs:
           [ "$status" -eq 0 ] || { echo "::error::release CI guard refused $SHA (mandatory pos/* checks)"; exit 1; }
 
   hold:
-    name: release/hold (pilot release hold, RT-1592)
+    name: release/hold (POS release hold, RT-1592)
     needs: [resolve, guard]
     # !cancelled() and no `needs.guard.result` test: a refused or skipped guard must not hide the hold verdict, which is
     # printed on every run, a dry-run included. Only a release-mode run fails here, so sign-release and publish (which

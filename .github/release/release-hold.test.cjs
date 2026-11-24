@@ -172,6 +172,11 @@ test("an unknown status, a missing reason, bad products, a bad id or a duplicate
     "bad id": (m) => (m.holds[0].id = "Park Limit"),
     "duplicate id": (m) => m.holds.push({ ...m.holds[0] }),
     "hold is not an object": (m) => (m.holds[0] = "park-limit"),
+    "open hold without lifted_by": (m) => delete m.holds[0].lifted_by,
+    "lifted_by is a string": (m) => (m.holds[0].lifted_by = "RT-1562"),
+    "lifted_by is empty": (m) => (m.holds[0].lifted_by = []),
+    "lifted_by holds a non-string": (m) => (m.holds[0].lifted_by = ["RT-1562", { key: "RT-1563" }]),
+    "lifted_by holds an empty string": (m) => (m.holds[0].lifted_by = ["RT-1562", ""]),
   };
   for (const [name, mutate] of Object.entries(cases)) {
     const manifest = openManifest();
@@ -291,13 +296,15 @@ function cli(dir, manifest, sha, product = "pos-pilot", guard = "PASS") {
   return spawnSync(process.execPath, [SCRIPT, "--manifest", manifest, "--sha", sha, "--product", product, "--guard-verdict", guard], { cwd: dir, encoding: "utf8" });
 }
 
-test("the CLI passes a cleared hold whose evidence is real, and refuses the same hold on the open committed manifest", () => {
+test("the CLI passes a cleared hold whose evidence is real, and refuses an open hold (an explicit fixture, not the committed manifest)", () => {
   const repo = makeRepo();
   try {
     const ok = cli(repo.dir, manifestFor(repo.dir, repo.clearing), repo.release);
     assert.equal(ok.status, 0, ok.stdout + ok.stderr);
     assert.match(ok.stdout, /Release hold: PASS/);
-    const open = cli(repo.dir, MANIFEST_FILE, repo.release);
+    const openFile = path.join(repo.dir, "open-holds.json");
+    fs.writeFileSync(openFile, JSON.stringify(openManifest()));
+    const open = cli(repo.dir, openFile, repo.release);
     assert.equal(open.status, 1, open.stdout);
     assert.match(open.stdout, /::error::hold 'park-limit' is open/);
     assert.match(open.stdout, /Release hold: REFUSED/);
