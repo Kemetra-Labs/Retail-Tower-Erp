@@ -218,7 +218,7 @@ class ReleasePos(unittest.TestCase):
         for name, mode in (("sign-dry-run", "dry-run"), ("sign-release", "release")):
             sign = job(self.text, name)
             self.assertRegex(sign, r"(?m)^    runs-on: windows-2025-vs2026$")
-            self.assertIn("needs: [resolve, build]" if name == "sign-dry-run" else "needs: [resolve, guard, build]", sign)
+            self.assertIn("needs: [resolve, build]" if name == "sign-dry-run" else "needs: [resolve, guard, hold, build]", sign)
             self.assertIn(f"name: pos-unpacked-{mode}-${{{{ github.run_id }}}}", sign)
             self.assertIn(f"name: pos-installer-{mode}-${{{{ github.run_id }}}}", sign)
             self.assertIn("node-version-file: .nvmrc", sign)
@@ -340,7 +340,7 @@ class ReleasePos(unittest.TestCase):
     def test_publish_is_protected_and_runs_no_repository_code(self):
         publish = job(self.text, "publish")
         self.assertRegex(publish, r"(?m)^    environment: release-pos$")
-        self.assertIn("needs: [resolve, guard, sign-release, manifest]", publish)
+        self.assertIn("needs: [resolve, guard, hold, sign-release, manifest]", publish)
         # !cancelled() plus explicit results: sign-dry-run is skipped in release mode and is an ancestor through
         # manifest, so the implicit success() would skip publish on every real release. Not always(): cancelling
         # the run must stop an approved publish.
@@ -348,8 +348,8 @@ class ReleasePos(unittest.TestCase):
         self.assertTrue(condition.startswith("!cancelled() && "), condition)
         self.assertNotIn("always()", condition)
         for part in ("needs.resolve.outputs.mode == 'release'", "needs.resolve.result == 'success'",
-                     "needs.guard.result == 'success'", "needs.sign-release.result == 'success'",
-                     "needs.manifest.result == 'success'"):
+                     "needs.guard.result == 'success'", "needs.hold.result == 'success'",
+                     "needs.sign-release.result == 'success'", "needs.manifest.result == 'success'"):
             self.assertIn(part, condition)
         # RT-1471: the only repository file publish runs is the CI guard script (a one-file sparse checkout, see
         # test_release_ci_guard.py); no build, signing or release script comes from the repository.

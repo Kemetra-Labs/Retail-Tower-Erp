@@ -199,6 +199,81 @@ jobs:
           echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
           [ "$status" -eq 0 ] || { echo "::error::release CI guard refused $SHA (mandatory pos/* checks)"; exit 1; }
 
+  hold:
+    name: release/hold (pilot release hold, RT-1592)
+    needs: [resolve, guard]
+    # !cancelled() and no `needs.guard.result` test: a refused or skipped guard must not hide the hold verdict, which is
+    # printed on every run, a dry-run included. Only a release-mode run fails here, so sign-release and publish (which
+    # need this job) stop, while resolve, guard, build, sign-dry-run and the dry-run manifest are untouched by it.
+    if: >-
+      !cancelled() && needs.resolve.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    # Read-only: it reads the hold manifest and git history of the release SHA. No network call, no Jira call, no
+    # write scope, no secret, no environment.
+    permissions:
+      contents: read
+    env:
+      SHA: ${{ needs.resolve.outputs.sha }}
+      MODE: ${{ needs.resolve.outputs.mode }}
+      GUARD_VERDICT: ${{ needs.guard.outputs.verdict }}
+    outputs:
+      verdict: ${{ steps.hold.outputs.verdict }}
+    steps:
+      # Full history (clearing SHAs, reverts and the tree of the release SHA), but only the hold check and its manifest
+      # are checked out. The manifest is read as of the release SHA itself; the checkout is the release SHA.
+      - name: Checkout the hold check and manifest (full history, only those files)
+        uses: actions/checkout@fbc6f3992d24b796d5a048ff273f7fcc4a7b6c09 # v5.1.0
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+          sparse-checkout: |
+            /.github/release/release-hold.cjs
+            /.github/release/release-holds.json
+            /.nvmrc
+          sparse-checkout-cone-mode: false
+
+      - name: Setup Node (.nvmrc)
+        uses: actions/setup-node@249970729cb0ef3589644e2896645e5dc5ba9c38 # v6.5.0
+        with:
+          node-version-file: .nvmrc
+          package-manager-cache: false # nothing is installed here, and a release job restores no cache
+
+      # The hold judges the SHA resolve proved is on main. The checkout of this run is that SHA; make it explicit.
+      - name: Check the checkout is the release SHA
+        run: |
+          set -euo pipefail
+          [ "$(git rev-parse HEAD)" = "$SHA" ] || { echo "::error::the checkout is not the release SHA $SHA"; exit 1; }
+
+      # RT-1592 (owner decision D4, RT-838): while the park-limit hold is open, no release can be signed or published.
+      # When it is cleared by a reviewed PR, every clearing SHA must be an ancestor of the release SHA and not reverted,
+      # every recorded evidence test and production entry point must exist in its tree, and the release CI guard above
+      # (which covers pos/test on this exact SHA) must have passed. Anything missing or ambiguous refuses.
+      - name: Release hold
+        id: hold
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/release-hold.txt"
+          status=0
+          node .github/release/release-hold.cjs --manifest .github/release/release-holds.json --sha "$SHA" --product pos --guard-verdict "$GUARD_VERDICT" > "$out" || status=$?
+          # A dry-run reports the refusal as a warning and succeeds; a release prints it as an error.
+          if [ "$MODE" = release ]; then cat "$out"; else sed 's/^::error::/::warning::/' "$out"; fi
+          {
+            echo "### Release hold (RT-1592), $MODE"
+            echo
+            sed 's/^::error:://; s/^/- /' "$out"
+          } >> "$GITHUB_STEP_SUMMARY"
+          if [ "$status" -eq 0 ]; then verdict=PASS; else verdict=REFUSED; fi
+          echo "verdict=$verdict" >> "$GITHUB_OUTPUT"
+          [ "$status" -ne 2 ] || { echo "::error::the release hold check was called wrongly (usage error)"; exit 1; }
+          if [ "$status" -ne 0 ] && [ "$MODE" = release ]; then
+            echo "::error::release hold refused $SHA: it must not be signed or published"
+            exit 1
+          fi
+          if [ "$status" -ne 0 ]; then
+            echo "::warning::dry-run: the release hold would refuse a release of $SHA (build, dry-run signing and the dry-run manifest are not blocked)"
+          fi
+
   build:
     name: release/build (Windows package, unsigned)
     needs: resolve
@@ -335,7 +410,7 @@ jobs:
 
   sign-release:
     name: release/sign (lab certificate, release-pos-sign environment)
-    needs: [resolve, guard, build]
+    needs: [resolve, guard, hold, build]
     if: needs.resolve.outputs.mode == 'release'
     runs-on: windows-2025-vs2026
     timeout-minutes: 30
@@ -477,14 +552,14 @@ jobs:
 
   publish:
     name: release/publish (attestation + GitHub release)
-    needs: [resolve, guard, sign-release, manifest]
+    needs: [resolve, guard, hold, sign-release, manifest]
     # !cancelled(): sign-dry-run is skipped in release mode and is an ancestor through manifest, which would
     # skip this job under the implicit success(). Every need is checked explicitly instead. Unlike always(),
     # cancelling the run stops an approved publish.
     if: >-
       !cancelled() && needs.resolve.result == 'success' && needs.resolve.outputs.mode == 'release'
-      && needs.guard.result == 'success' && needs.sign-release.result == 'success'
-      && needs.manifest.result == 'success'
+      && needs.guard.result == 'success' && needs.hold.result == 'success'
+      && needs.sign-release.result == 'success' && needs.manifest.result == 'success'
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     environment: release-pos

@@ -109,7 +109,7 @@ class ReleasePosPilot(unittest.TestCase):
         self.assertIn("needs.resolve.outputs.mode == 'dry-run'", job_if(job(self.text, "sign-dry-run")))
         self.assertIn("needs.resolve.outputs.mode == 'release'", job_if(job(self.text, "sign-release")))
         pub = job(self.text, "publish")
-        self.assertEqual(sorted(needs_of(pub)), ["guard", "manifest", "resolve", "sign-release"])
+        self.assertEqual(sorted(needs_of(pub)), ["guard", "hold", "manifest", "resolve", "sign-release"])
         self.assertIn("mode == 'release'", job_if(pub))
 
     def test_the_build_job_is_secret_free_and_unsigned(self):
@@ -211,7 +211,7 @@ class ReleasePosPilot(unittest.TestCase):
             self.assertIsNotNone(block, name)
             return [re.sub(r"\s+#.*$", "", line.strip()) for line in block.group(1).splitlines()]
 
-        for name in ("resolve", "build", "sign-dry-run", "sign-release", "manifest"):
+        for name in ("resolve", "hold", "build", "sign-dry-run", "sign-release", "manifest"):
             self.assertEqual(permissions(name), ["contents: read"], name)
         self.assertEqual(permissions("guard"), ["contents: read", "checks: read", "actions: read"])
         self.assertEqual(
@@ -221,8 +221,8 @@ class ReleasePosPilot(unittest.TestCase):
 
     def test_every_checkout_drops_the_token(self):
         checkouts = re.findall(r"uses: actions/checkout@", self.text)
-        # resolve, guard, build, sign-dry-run, sign-release, manifest, and the one-file guard checkout in publish.
-        self.assertEqual(len(checkouts), 7)
+        # resolve, guard, hold (RT-1592), build, sign-dry-run, sign-release, manifest, and the one-file guard checkout in publish.
+        self.assertEqual(len(checkouts), 8)
         self.assertEqual(len(re.findall(r"persist-credentials: false", self.text)), len(checkouts))
 
     def test_manifest_and_publish_run_only_when_every_gate_succeeded(self):

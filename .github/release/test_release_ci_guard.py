@@ -217,9 +217,9 @@ class ReleaseCiGuardWiring(unittest.TestCase):
         # build); everything that signs for real, records or publishes needs a green guard.
         self.assertEqual(needs_of(job(text, "build")), ["resolve"])
         self.assertEqual(needs_of(job(text, "sign-dry-run")), ["resolve", "build"])
-        self.assertEqual(sorted(needs_of(job(text, "sign-release"))), ["build", "guard", "resolve"])
+        self.assertEqual(sorted(needs_of(job(text, "sign-release"))), ["build", "guard", "hold", "resolve"])
         self.assertEqual(sorted(needs_of(job(text, "manifest"))), ["build", "guard", "resolve", "sign-dry-run", "sign-release"])
-        self.assertEqual(sorted(needs_of(job(text, "publish"))), ["guard", "manifest", "resolve", "sign-release"])
+        self.assertEqual(sorted(needs_of(job(text, "publish"))), ["guard", "hold", "manifest", "resolve", "sign-release"])
         for name in ("manifest", "publish"):
             condition = " ".join(job_if(job(text, name)).split())
             self.assertTrue(condition.startswith("!cancelled() && "), name)

@@ -80,6 +80,8 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
 
 ## 3. Releasing a pilot installer
 
+**Release hold (RT-1592).** While the `park-limit` hold in `.github/release/release-holds.json` is `open`, `pilot/sign` and `pilot/publish` refuse a release (the same hold guards `release-pos.yml`); a dry run still builds, signs with the ephemeral certificate and writes the manifest, and prints the verdict in the `pilot/hold` summary. It clears only through a reviewed PR that sets it to `cleared` with the clearing SHAs and evidence, after RT-1562 and RT-1563 are Done; it never clears itself.
+
 1. On `main`, `apps/pos/package.json` carries the version to release.
 2. The owner authorizes the tag (RT-717 per-tag authorization), then pushes `pos-pilot/vX.Y.Z` on that `main`
    SHA. The tag must equal the `package.json` version and its SHA must be on `main`, or `resolve` refuses.
