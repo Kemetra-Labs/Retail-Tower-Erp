@@ -293,6 +293,175 @@ export namespace CatalogReadDown {
     }
 }
 
+/** Generated from contracts/backend-core/openapi/inventory/pos-availability.yaml. */
+export namespace InventoryPosAvailability {
+    export interface paths {
+        "/api/pos/v1/inventory/availability": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * Get the store's Available To Sell, one page of its sellable products.
+             * @description One page of the store's sellable catalogue with each product's Available To Sell and band, ordered by product id and cursor-paginated via `nextCursor`. Scope comes from the device row only; a supplied `branch_id` that is not the device's store is a non-disclosing 404, and so is a `cursor` that is malformed or was issued to another device scope. The snapshot is read-only and computed on read.
+             */
+            get: operations["posGetStoreAvailability"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /**
+             * @description `out` when `availableToSell` is 0 or less; `low` when it is above 0 and at most the product's active low-stock level (the store's level, otherwise the tenant default); `in_stock` otherwise, including when no level is set.
+             * @enum {string}
+             */
+            AvailabilityBand: "in_stock" | "low" | "out";
+            /** @description Exact-decimal quantity as a STRING (`numeric(19,4)` at rest); no float on the wire. May be negative: a negative Available To Sell is reported as computed, never clamped (RT-1511 A-4). There is NO money, currency or tender field anywhere in this contract. */
+            DecimalQuantity: string;
+            /** @description Canonical error envelope (`auth.openapi.yaml`). Out-of-scope refusals are non-disclosing; they never name the cause. A 400 may carry `details` (the failed query checks). */
+            Error: {
+                error: {
+                    /** @description Closed set on this surface: validation_error | unauthorized | not_found | internal_error. */
+                    code: string;
+                    /** @description Validation detail of a 400 only. */
+                    details?: unknown;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id.
+                     */
+                    request_id?: string;
+                };
+            };
+            /** @description One sellable product's availability at the store's primary location. */
+            StoreAvailabilityItem: {
+                availableToSell: components["schemas"]["DecimalQuantity"];
+                band: components["schemas"]["AvailabilityBand"];
+                /**
+                 * Format: uuid
+                 * @description The product, the catalogue read-down's `product_id`.
+                 */
+                productId: string;
+            };
+            StoreAvailabilityPage: {
+                /**
+                 * Format: date-time
+                 * @description The server instant this page was computed. The till keeps the oldest `asOf` of a refresh as its freshness.
+                 */
+                asOf: string;
+                items: components["schemas"]["StoreAvailabilityItem"][];
+                /** @description The next page's cursor; null on the last page. Continue until it is null, even after an empty page. */
+                nextCursor: string | null;
+                /**
+                 * Format: uuid
+                 * @description The device's store (the scope the page was computed for).
+                 */
+                storeId: string;
+            };
+        };
+        responses: {
+            /** @description 404 `not_found`: a `branch_id` that is not the device's store, or a malformed or foreign `cursor`. Indistinguishable from an absent scope (non-disclosing). */
+            NotFound: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 500 `internal_error`: an unexpected server error. The cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 401 `unauthorized`. A missing, invalid or revoked device token, or a non-device credential (non-disclosing). Also a device with no resolved store (message `store_context_required`). */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400 `validation_error`: a malformed `branch_id`, `cursor` or `limit`. */
+            ValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description The device's store (POS wire term for `store_id`). When supplied it must equal the device's store; a mismatch is a non-disclosing 404. Callers SHOULD send it to catch branch drift early. */
+            BranchId: string;
+            /** @description The previous page's `nextCursor`. Opaque: clients MUST NOT decode or construct it. It is bound to the device's scope; a malformed or foreign cursor is a non-disclosing 404. Omit it for the first page. */
+            Cursor: string;
+            /** @description The number of products SCANNED per page (the page holds at most that many items, fewer when some scanned products are not sellable). The server MAY return fewer. */
+            Limit: number;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description RT-639. Present only when this device credential has 15 days or less left: the ISO-8601 instant `expires_at - 15 days`. The terminal rotates at or after it. Never carries token material. See `pos-terminal-pairing.openapi.yaml`, "Credential rotation". */
+            DeviceTokenRotateAfter: string;
+            /** @description RT-639. Sent with `X-Device-Token-Rotate-After`: `notice` (15 days or less left), `warning` (10 or less), `urgent` (3 or less, or already past `expires_at`). */
+            DeviceTokenRotateStage: "notice" | "warning" | "urgent";
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        posGetStoreAvailability: {
+            parameters: {
+                query?: {
+                    /** @description The device's store (POS wire term for `store_id`). When supplied it must equal the device's store; a mismatch is a non-disclosing 404. Callers SHOULD send it to catch branch drift early. */
+                    branch_id?: components["parameters"]["BranchId"];
+                    /** @description The previous page's `nextCursor`. Opaque: clients MUST NOT decode or construct it. It is bound to the device's scope; a malformed or foreign cursor is a non-disclosing 404. Omit it for the first page. */
+                    cursor?: components["parameters"]["Cursor"];
+                    /** @description The number of products SCANNED per page (the page holds at most that many items, fewer when some scanned products are not sellable). The server MAY return fewer. */
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description One page of the store's availability, with the instant it was computed. */
+                200: {
+                    headers: {
+                        "X-Device-Token-Rotate-After": components["headers"]["DeviceTokenRotateAfter"];
+                        "X-Device-Token-Rotate-Stage": components["headers"]["DeviceTokenRotateStage"];
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["StoreAvailabilityPage"];
+                    };
+                };
+                400: components["responses"]["ValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFound"];
+                500: components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
 /** Generated from contracts/backend-core/openapi/offers.openapi.yaml. */
 export namespace Offers {
     export interface paths {
@@ -4592,7 +4761,7 @@ export namespace PosSalesSales {
             /**
              * Capture a completed POS sale as an immutable fact.
              * @description Create the immutable `sales` header + frozen `sale_lines` snapshot from a completed POS sale. The authenticated principal supplies `tenant_id` and `store_id` (spec 002); body-supplied tenant / store / created_by / received_at / business_date / processed_at / mismatch_flag are rejected (FR-061). POS-reported totals are preserved verbatim (FR-030); the SaaS computes a per-line / half-up comparison total for an ADVISORY mismatch flag only — it never rewrites the POS total. Line snapshots (`line_name` / `unit_price` / `tax_amount` / `unit`) are frozen at capture and are unaffected by later catalog edits (FR-003). A line that resolves to no tenant product is still snapshotted; no tenant product is auto-created (FR-004).
-             *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply. A provenance replay must carry the same sale facts (RT-1206): when the re-sent body, without `operatorUserId`, `admissionCheckAt` and `receipt`, hashes differently from the stored `payload_hash` (byte-exact, so reordered arrays or a differently written decimal differ), the answer is 409 `idempotency_key_conflict` and nothing is recorded. The store scope is decided first, so a replay never reveals another store's sale.
+             *     Idempotency: the `Idempotency-Key` header is REQUIRED. Dedup is on `(tenant, sourceSystem, externalId)` (FR-050) — replays return the same stable sale reference deterministically (FR-100), with no double-apply. A provenance replay must carry the same sale facts (RT-1206): when the re-sent body, without `operatorUserId`, `admissionCheckAt`, `receipt`, `safetyRevision`, `safetySyncedAt` and (RT-1565) every `lines[].sellerUserId` and `tenders[].receivedByUserId`, hashes differently from the stored `payload_hash` (byte-exact, so reordered arrays or a differently written decimal differ), the answer is 409 `idempotency_key_conflict` and nothing is recorded. The store scope is decided first, so a replay never reveals another store's sale. RT-1565: a seller or receiver is stored with the FIRST capture only; a provenance replay under a new `Idempotency-Key` that names other sellers or receivers is still 200 with the stored sale (the replay's tender compare ignores `receivedByUserId`), while the SAME `Idempotency-Key` with any changed body byte, these fields included, is 409 `idempotency_key_conflict` from the idempotency layer, as for every other field.
              *     Tender (RT-10 D1, from RT-77): the optional `tenders` list records how the sale was paid. Each `amount` is NET of change (cash = tendered − change), each entry is one tender line (RT-359: `tenderRef` / `sequence`; see the `tenders` field for the per-sale rules). When `responsibilities` is absent, the amounts MUST sum to `posTotal` exactly (else 422 `sale_tender_mismatch`); nothing is recorded on either failure. When it is present, the combined coverage rule replaces this one (RT-417, see Payer responsibilities below): the tenders cover only the part paid at the till. The tender list is hashed into the payload, so a replay that adds, drops or changes tenders is a different payload (409). An absent list is a tender-unknown sale (RT-10 D8): it is captured exactly as before, and the server NEVER derives tender from `posTotal`.
              *     Voucher tender (RT-1114, RT-1098 decision 4A): a `voucher` tender names the redemption that paid it (`redemptionId`). After the coverage rule, each must name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly its `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`; nothing is recorded. Accepted only while the deployment flag `POS_SALE_VOUCHER_TENDER_ENABLED` is on (default OFF until RT-1330 is deployed); while it is off a `voucher` tender is a 400.
              *     Line pricing (RT-105): every line must satisfy the `CaptureSaleLine` price invariant, else 422 `sale_line_pricing_invalid`; nothing is recorded. A line with a manual `discount` (RT-740) satisfies it with its net: `lineAmount = unitPrice × quantity − discount.amount`, and the discount's own arithmetic must hold (see `CaptureSaleLineDiscount`). A line with an automatic offer `promotion` (RT-1335, from the RT-1337 runtime) satisfies it with `lineAmount = unitPrice × quantity − promotion.discountAmount` (see `CaptureSaleLinePromotion`). The coverage rule (tender-only or combined) is checked first, so a body that breaks both answers `sale_tender_mismatch` (or, with `responsibilities`, `sale_responsibility_mismatch`). The invariant applies to a first capture only: a replay of a sale captured before RT-105 is never re-checked, and an identical one still returns 200 with the stored projection.
@@ -5022,6 +5191,11 @@ export namespace PosSalesSales {
                 promotion?: components["schemas"]["CaptureSaleLinePromotion"];
                 /** @description Line quantity as reported (exact-decimal string, no float). Bound is numeric(19,6): at most 13 integer digits and 6 fractional digits. */
                 quantity: string;
+                /**
+                 * Format: uuid
+                 * @description OPTIONAL (RT-1565, RT-285 F-1): the line's seller, the Backend-Core user id of a member of the tenant (the identity `operatorUserId` uses). Absent = no seller. NOT part of the payload hash. On a first capture the member must not be revoked or deleted at `occurredAt`, the user not deleted at `occurredAt`, and the member must have access to the sale's store, else 422 `sale_seller_refused`. Stored with the sale's store and the member's role at capture (`SaleLine.seller`). Attribution only: it never authenticates anyone and never changes the Transaction Operator.
+                 */
+                sellerUserId?: string;
                 taxAmount?: components["schemas"]["NonNegativeDecimalAmount"];
                 /**
                  * Format: uuid
@@ -5731,6 +5905,7 @@ export namespace PosSalesSales {
                 returnableQuantity: string;
                 /** @description Cumulative quantity returned on this line across all returns ("0" when none). */
                 returnedQuantity: string;
+                seller?: components["schemas"]["SaleLineSeller"];
                 /** @description Single per-line snapshot tax amount (gate A.2); null when not reported. */
                 taxAmount?: components["schemas"]["DecimalAmount"] | null;
                 /** @description Optional lineage to a tenant product; null for ad-hoc lines (FR-004). */
@@ -5746,6 +5921,24 @@ export namespace PosSalesSales {
                 offerId: string;
                 offerVersion: number;
                 packRevision: number;
+            };
+            /** @description RT-1565 (RT-285 F-1): the line's seller as frozen at capture (Policy section 8: the employee, the store and the role at sale time). Present only when the capture named a `sellerUserId`. A later change of the member's role or store access never changes it. */
+            SaleLineSeller: {
+                /**
+                 * Format: uuid
+                 * @description The role of the seller's membership at capture.
+                 */
+                roleId: string;
+                /**
+                 * Format: uuid
+                 * @description The store the sale was rung in.
+                 */
+                storeId: string;
+                /**
+                 * Format: uuid
+                 * @description The seller's Backend-Core user id.
+                 */
+                userId: string;
             };
             /** @description RT-450 (RT-50 G7-9): the tracking snapshot a line was captured with, echoed as recorded (`CaptureSaleLineTracking`). Absent on a line captured without it and from a Backend-Core that predates RT-451; optional, never in `SaleLine.required`. The identity fields are the Backend-Core Inventory tracking identity as the till reported it: the line freezes the snapshot, and a later change of the identity record does not rewrite it. A return takes the identity from this line through `lineRef`; a client never supplies it (G7-10). */
             SaleLineTracking: {
@@ -5845,6 +6038,11 @@ export namespace PosSalesSales {
                 method: "cash" | "card_external" | "voucher";
                 /**
                  * Format: uuid
+                 * @description OPTIONAL (RT-1565, RT-285 F-1): who took this payment, the Backend-Core user id of a member of the tenant. Absent = the Transaction Operator (the default). NOT part of the payload hash, and not compared on a replay. Checked like `CaptureSaleLine.sellerUserId` (else 422 `sale_seller_refused`). On a read, present only when it was recorded.
+                 */
+                receivedByUserId?: string;
+                /**
+                 * Format: uuid
                  * @description RT-1114 — REQUIRED on a `voucher` tender and accepted on no other method (else 400): the `redemption_id` that `posRedeemVoucher` (`pos-payments/vouchers.yaml`) returned for this voucher. Unique within the sale (else 400); one redemption pays at most one tender, ever. On a first capture it must be un-reversed, of this tenant and store, and applied for exactly `amount` in the sale's currency, else 422 `sale_voucher_tender_invalid`. Part of the payload hash. Never a voucher code.
                  */
                 redemptionId?: string;
@@ -5939,7 +6137,7 @@ export namespace PosSalesSales {
                     "application/json": components["schemas"]["Error"];
                 };
             };
-            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`; with a RT-1335 `promotion`: the net condition, or the arithmetic in `CaptureSaleLinePromotion`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path); `sale_voucher_tender_invalid` (RT-1114) — a `voucher` tender whose `redemptionId` does not name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly the tender's `amount` in the sale's currency, with one body for every cause, never naming which. `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the voucher tenders, then the line price invariant, then the payers. Deterministic; nothing is recorded. */
+            /** @description 422 on `captureSale`. `error.code` is one of: `sale_tender_mismatch` (RT-10 D1) — the capture's `tenders` amounts do not sum to `posTotal` exactly; `sale_line_pricing_invalid` (RT-105) — a line breaks the `CaptureSaleLine` price invariant (with a RT-740 `discount`: the net condition, or the discount's own arithmetic in `CaptureSaleLineDiscount`; with a RT-1335 `promotion`: the net condition, or the arithmetic in `CaptureSaleLinePromotion`); `sale_responsibility_mismatch` (RT-417) — `responsibilities` is present and `sum(tenders) + sum(responsibilities)` does not equal `posTotal` exactly; `sale_responsibility_payer_invalid` (RT-417) — a `payerRef` that does not exist, belongs to another tenant, is scoped to another store, is `suspended`, or has no `externalRef` (no ERPNext Customer link: null or blank), with one body for every cause, never naming which; `sale_responsibility_offline_refused` (RT-417, owner decision 2026-10-16) — `responsibilities` sent on the `device` path (credit is accepted only on the `operatorAuthorization` path); `sale_voucher_tender_invalid` (RT-1114) — a `voucher` tender whose `redemptionId` does not name a redemption of this tenant and store that is un-reversed, pays no other tender, and was applied for exactly the tender's `amount` in the sale's currency, with one body for every cause, never naming which; `sale_seller_refused` (RT-1565) — a `lines[].sellerUserId` or `tenders[].receivedByUserId` that is not a member of this tenant who was not revoked or deleted at `occurredAt`, whose user was not deleted at `occurredAt`, and who can access the sale's store, with one body for every cause, never naming which. `sale_tender_mismatch` is returned only when `responsibilities` is absent; with it, the combined rule replaces the tender-only rule. Order: `sale_responsibility_offline_refused` first, then the coverage rule (tender or combined), then the voucher tenders, then the line price invariant, then the payers, then the sellers and receivers. Deterministic; nothing is recorded. */
             CaptureUnprocessable: {
                 headers: {
                     [name: string]: unknown;

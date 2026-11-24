@@ -896,3 +896,25 @@ export function isRt373ExemptFile(branch: string, file: string): boolean {
     (RT_373_DEVICE_TOKEN_ROTATION_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * RT-1578 (RT-1511 slice S3, POS availability cache): the repin of the POS contract PIN to the `main` commit
+ * that carries RT-1577 (`inventory/pos-availability.yaml`, `posGetStoreAvailability`) regenerates
+ * `src/shared/api-types.ts`.
+ *
+ * Authority: the owner-authored RT-1578 scope ("The POS contract PIN is repinned ... with its source-scope
+ * guard exemption"). Exactly ONE file on exactly ONE branch (exact name, no `startsWith`). Narrowness is
+ * asserted by `source-scope-guard-rt1578-repin.test.ts`.
+ */
+export const RT_1578_AVAILABILITY_REPIN_BRANCH = 'claude/rt-1578-s3-ats-2e2482' as const;
+export const RT_1578_AVAILABILITY_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1578 repin exemption allows on `branch`. */
+export function isRt1578AvailabilityRepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1578_AVAILABILITY_REPIN_BRANCH &&
+    (RT_1578_AVAILABILITY_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

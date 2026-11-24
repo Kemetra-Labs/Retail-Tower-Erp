@@ -523,3 +523,43 @@
 .v5-live-dialog .v5-live-dialog-secondary {
   text-align: end;
 }
+
+/*
+ * RT-1578 (RT-1511 S3, spec 013) — availability badges, in the `.v5-live-flag` shape after the Rx and
+ * controlled flags. Band only; neutral «متوفر», warning tones, never danger red (the badge never blocks).
+ * The text carries the meaning. A transparent border makes the shape visible in forced-colours mode.
+ */
+.v5-live-flag--availability {
+  border: 1px solid transparent;
+  background: var(--color-surface-muted);
+  color: var(--color-neutral-emphasis);
+}
+
+.v5-live-flag--availability[data-tone='warning'] {
+  background: var(--color-warning-soft);
+  color: var(--color-warning-emphasis);
+}
+
+.v5-live-flag--availability[data-tone='warning-strong'] {
+  border-color: var(--color-warning);
+  background: var(--color-warning-soft);
+  color: var(--color-warning-emphasis);
+}
+
+.v5-live-availability {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2);
+  color: var(--color-text-muted);
+  font-size: var(--font-size-xs);
+}
+
+.v5-live-availability[data-tone='warning'] {
+  color: var(--color-warning-emphasis);
+  font-weight: var(--font-weight-semibold);
+}
+
+.v5-live-availability-refresh {
+  min-block-size: 44px;
+}

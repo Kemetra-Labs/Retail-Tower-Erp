@@ -43,6 +43,8 @@ interface LineProps {
   onRemoveDiscount?: ((placeholderId: string) => void) | undefined;
   /** RT-242 (M-S9): the add-time product flags, shown as a badge beside the name. */
   flags?: LineFlags | undefined;
+  /** RT-1578: the catalogue product this line was added from, for its availability badge (display only). */
+  productId?: string | undefined;
   index: number;
   /** RT-242: the line the last add landed on (marked until the next add). */
   lastAdded?: boolean;
@@ -95,7 +97,7 @@ export function CartLineRow(props: Readonly<LineProps>): JSX.Element {
       </span>
       <div className="v5-sale-line-product">
         <strong>{line.displayName}</strong>
-        {props.flags && <SaleProductFlags product={props.flags} />}
+        <SaleProductFlags product={props.flags} productId={props.productId} />
         {line.note && <span className="v5-sale-line-meta">ملاحظة: {line.note}</span>}
       </div>
       <QuantityControl

@@ -55,6 +55,8 @@ vi.mock('../../pairing/device-auth-detector.js', () => ({
 vi.mock('../env.js', () => ({ resolveApiBaseUrl: m.resolveApiBaseUrl }));
 // RT-1339: the Offer Pack read-down rides this wiring; it has its own test (`offers.test.ts`).
 vi.mock('../offers.js', () => ({ registerOffers: vi.fn() }));
+// RT-1578: the store-availability cache rides this wiring too; it has its own test (`availability.test.ts`).
+vi.mock('../availability.js', () => ({ registerAvailability: vi.fn() }));
 // RT-1490: the unknown-item capture has its own test (`unknown-item-capture.test.ts`).
 const reportUnknown = vi.hoisted(() => vi.fn());
 const registerUnknownItemCapture = vi.hoisted(() => vi.fn());
