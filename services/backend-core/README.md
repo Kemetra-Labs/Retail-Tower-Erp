@@ -102,7 +102,19 @@ The backend is well past the foundation slices. As of the baseline below it ship
 
 Not yet owned or deferred here: tax and fiscal rules for Egypt, and any payment-card capture. See [`docs/production-readiness`](docs/production-readiness) for what was exercised and the documented partials.
 
-**Baseline for this table:** 36 SQL migrations (`packages/db/drizzle`, numbered `0000`–`0036`), 29 OpenAPI contract files, an API with 33 controller files, and a worker with outbox, ERP posting, ERP reconciliation, sale processing, audit, email and cleanup processors. Re-verify against `main` before relying on it.
+**Baseline for this table**, counted at `main` `3f17bed05` (2026-11-24):
+- 130 up SQL migrations in `packages/db/drizzle`, numbered `0000`–`0133`, with historical gaps at `0049`, `0052`, `0053` and `0069`.
+- 39 `*.openapi.yaml` contract files in `packages/contracts/openapi`.
+- An API with 103 `*.controller.ts` files.
+- A worker with outbox, ERP posting, ERP reconciliation, sale processing, audit, email and cleanup processors.
+
+These numbers drift. Recount before relying on them:
+
+```bash
+ls packages/db/drizzle | grep -E '^[0-9]{4}_.*\.sql$' | grep -vc '\.down\.sql$'
+git ls-files 'packages/contracts/openapi/**' | grep -c '\.openapi\.yaml$'
+git ls-files 'apps/api/src/**/*.controller.ts' | wc -l
+```
 
 ---
 

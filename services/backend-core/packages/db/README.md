@@ -41,7 +41,7 @@ CI (`bc/db-package`, spec `__tests__/cli/migration-numbers.spec.ts`) rejects:
 If it fails because `main` moved, renumber your migration (and its down file, registry
 fragment, spec and probe) to the new next number; do not rename any migration already on `main`.
 
-Do not back-fill the historical gaps (`0015`, `0049`, `0052`, `0053`, `0069`): a
+Do not back-fill the historical gaps (`0049`, `0052`, `0053`, `0069`): a
 late file there would be pending on a database that already applied the later ones,
 and `up` would apply it out of order. The check allows the gaps that exist and
 rejects any new file below the tip.

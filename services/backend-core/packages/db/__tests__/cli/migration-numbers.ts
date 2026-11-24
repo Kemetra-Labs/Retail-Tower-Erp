@@ -5,7 +5,7 @@
  * different slugs with one four-digit number are both accepted and applied in
  * lexical slug order. These checks close that: no number is used twice, and
  * on a pull request the new migrations are exactly the next numbers after the
- * base branch's tip. Historical gaps (0015, 0049, 0052, 0053, 0069) are fine:
+ * base branch's tip. Historical gaps (0049, 0052, 0053, 0069) are fine:
  * only numbers above the base tip are constrained.
  */
 import { execFileSync } from "node:child_process";
