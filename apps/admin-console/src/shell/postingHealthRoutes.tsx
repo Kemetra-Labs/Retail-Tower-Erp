@@ -1,8 +1,6 @@
 import { lazyPage } from "@/shell/lazyPage";
+import { Route } from "react-router";
 
-const LazyPostingHealth = lazyPage(
-  () => import("@/posting-health/PostingHealth").then((m) => ({ default: m.PostingHealth })),
-  "postingHealth",
-);
+const PostingHealth = lazyPage(() => import("@/posting-health/PostingHealth"), "PostingHealth");
 
-export const postingHealthRoutes = <LazyPostingHealth path="/posting-health" />;
+export const postingHealthRoutes = <Route path="posting-health" element={<PostingHealth />} />;

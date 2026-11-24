@@ -9,7 +9,9 @@
  * Sales-by-hour stays proposed: no contract serves hourly buckets, and
  * deriving hours client-side would stitch paged reads (RT-751 AC 4).
  */
-import { BackArrow, Banner, GatedButton, ListHeaderBand } from "@/components";
+import { BackArrow } from "@/components/BackArrow";
+import { Banner } from "@/components/Banner";
+import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { useT } from "@/i18n";
 import type { SalesSummaryErrorRender } from "@/lib/sales-summary-queries";
@@ -79,11 +81,15 @@ function Failure({
     );
   }
   return (
-    <Banner kind="danger" title={t("postingHealth.failed")}>
-      <GatedButton type="button" onClick={retry}>
-        {t("postingHealth.retry")}
-      </GatedButton>
-    </Banner>
+    <Banner
+      variant="danger"
+      message={t("postingHealth.failed")}
+      action={
+        <button type="button" className="btn-secondary" onClick={retry}>
+          {t("postingHealth.retry")}
+        </button>
+      }
+    />
   );
 }
 
