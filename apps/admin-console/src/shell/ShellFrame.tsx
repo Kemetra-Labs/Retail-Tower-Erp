@@ -114,6 +114,8 @@ export interface ShellTopBarProps {
   menuId: string;
   navigator: ShellNavigator;
   groups: readonly NavGroup[];
+  /** Ctrl K's groups; defaults to `groups` (the sidebar's). The tenant shell passes the navigator groups, which add the navigator-only destinations. */
+  navigatorGroups?: readonly NavGroup[];
   withStores: boolean;
   user: UserMenuProps["user"] | undefined;
   roleLabel?: string;
@@ -126,6 +128,7 @@ export function ShellTopBar({
   menuId,
   navigator,
   groups,
+  navigatorGroups = groups,
   withStores,
   user,
   roleLabel,
@@ -138,7 +141,7 @@ export function ShellTopBar({
       <span className="topbar__brand">
         <TowerMark className="tower-mark" />
       </span>
-      <ShellNavigatorControl navigator={navigator} groups={groups} withStores={withStores} />
+      <ShellNavigatorControl navigator={navigator} groups={navigatorGroups} withStores={withStores} />
       <div className="topbar__spacer" />
       {user ? <UserMenu user={user} roleLabel={roleLabel} accountLink={accountLink} /> : null}
     </header>

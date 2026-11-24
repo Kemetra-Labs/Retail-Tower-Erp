@@ -25,7 +25,7 @@ import { useShellNavigator } from "./Navigator";
 import { ScopeHeader } from "./ScopeHeader";
 import { NavEntries, ShellContent, ShellSidebar, ShellTopBar, SkipLink } from "./ShellFrame";
 import { ShellMenuDrawer, useShellMenu, useShellMenuId } from "./ShellMenu";
-import { tenantNav } from "./nav-model";
+import { navigatorNav, tenantNav } from "./nav-model";
 
 export interface AppShellProps {
   onSignOut: () => void | Promise<void>;
@@ -63,6 +63,13 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
     hasTrackedProducts,
     trackedSellingOn: trackedSellingOn(trackedSelling.data),
   });
+  // The Ctrl K navigator lists the same groups plus the navigator-only
+  // destinations the sidebar deliberately omits (nav-model.ts).
+  const navigatorGroups = navigatorNav(roleCode, {
+    platformAdmin: user?.is_platform_admin === true,
+    hasTrackedProducts,
+    trackedSellingOn: trackedSellingOn(trackedSelling.data),
+  });
   const menu = useShellMenu();
   const menuId = useShellMenuId();
   const navigator = useShellNavigator();
@@ -75,6 +82,7 @@ export function AppShell({ onSignOut, children }: Readonly<AppShellProps>): Reac
         menuId={menuId}
         navigator={navigator}
         groups={groups}
+        navigatorGroups={navigatorGroups}
         withStores
         user={user}
         roleLabel={roleLabel}
