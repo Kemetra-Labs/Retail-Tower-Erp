@@ -68,7 +68,7 @@ describe('availability cursor', () => {
     expect(decodeAvailabilityCursor(token, T, S)).toBe(P);
   });
 
-  it('never issues an empty cursor, which the contract refuses and the request schema rejects (RT-1587)', () => {
+  it('never issues an empty cursor, and refuses an empty one on decode (RT-1587)', () => {
     const token = encodeAvailabilityCursor({ tenantId: T, storeId: S, afterProductId: P });
     expect(token.length).toBeGreaterThan(0);
     expect(() => decodeAvailabilityCursor('', T, S)).toThrow(AvailabilityCursorError);
