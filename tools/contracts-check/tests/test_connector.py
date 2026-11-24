@@ -293,8 +293,11 @@ class ConnectorCase(unittest.TestCase):
         self.assertIn("emits field(s) not in the contract: {nom}", f.message)
 
     def test_nested_dict_keys_are_not_top_level(self):
+        # `name` is an object here so that the nested literal is a legal value; if its keys were
+        # collected as top-level keys, `inner` would be reported as an emitted field.
         module = MODULE.replace('out = {"doctype": "Item"}', 'out = {"doctype": "Item", "name": {"inner": 1}}')
-        self.assertEqual(self.by_subject(self.check(module=module), "Ref").status, OK)
+        spec = SPEC.replace("name: {type: string}", "name: {type: object}")
+        self.assertEqual(self.by_subject(self.check(module=module, spec=spec), "Ref").status, OK)
 
     def test_class_without_schema_fails(self):
         module = MODULE + "\n\nclass Orphan:\n    def to_wire(self):\n        return {}\n"
