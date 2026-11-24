@@ -282,6 +282,8 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'recovery:complete-attempt',
   'recovery:cancel-attempt',
   'recovery:cancel-held-cart',
+  'recovery:prepare-cancel-held-carts',
+  'recovery:cancel-held-carts',
   'printer:list',
   'printer:get',
   'printer:set',

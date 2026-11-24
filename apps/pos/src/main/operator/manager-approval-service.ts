@@ -239,6 +239,7 @@ const RECOVERY_KINDS: ReadonlySet<ManagerActionKind> = new Set([
   'recovery.complete_attempt',
   'recovery.cancel_attempt',
   'recovery.cancel_held_cart',
+  'recovery.cancel_held_carts', // RT-1563
 ]);
 
 export function isRecoveryKind(kind: ManagerActionKind): boolean {

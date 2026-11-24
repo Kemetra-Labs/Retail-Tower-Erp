@@ -7,7 +7,7 @@ import type {
 import { formatCheckoutMoney } from '../../ui/payments/format-checkout-money';
 import { parseCurrencyToMinor } from '../../ui/payments/parse-currency-to-minor';
 import { normalizeDigits } from '../shift/shift-format';
-import { RECOVERY_COPY } from './recovery-copy';
+import { RECOVERY_COPY, batchCancelled } from './recovery-copy';
 
 /**
  * RT-441 (RT-116 §5.2) — the three manager recovery actions, without React:
@@ -15,16 +15,27 @@ import { RECOVERY_COPY } from './recovery-copy';
  * bridge call that spends the approval.
  */
 
+/** RT-1563: a snapshot main took of the parked drafts the manager selected (the approval binds it). */
+export interface ParkedBatch {
+  batch_id: string;
+  count: number;
+  total_minor: number;
+  /** Selected carts main left out (no longer a parked draft); they are not cancelled. */
+  excluded: number;
+}
+
 export type RecoveryAction =
   | { kind: 'complete'; stuck: RecoveryStuckAttemptView }
   | { kind: 'cancel_attempt'; stuck: RecoveryStuckAttemptView }
-  | { kind: 'cancel_cart'; cart: RecoveryHeldCartView };
+  | { kind: 'cancel_cart'; cart: RecoveryHeldCartView }
+  | { kind: 'cancel_parked_batch'; batch: ParkedBatch };
 
 export const RECOVERY_ACTION_KIND: Readonly<Record<RecoveryAction['kind'], ManagerActionKind>> =
   Object.freeze({
     complete: 'recovery.complete_attempt',
     cancel_attempt: 'recovery.cancel_attempt',
     cancel_cart: 'recovery.cancel_held_cart',
+    cancel_parked_batch: 'recovery.cancel_held_carts',
   });
 
 export const RECOVERY_ACTION_TITLE: Readonly<Record<RecoveryAction['kind'], string>> =
@@ -32,10 +43,12 @@ export const RECOVERY_ACTION_TITLE: Readonly<Record<RecoveryAction['kind'], stri
     complete: RECOVERY_COPY.complete,
     cancel_attempt: RECOVERY_COPY.cancelPayment,
     cancel_cart: RECOVERY_COPY.cancelSale,
+    cancel_parked_batch: RECOVERY_COPY.cancelParkedTitle,
   });
 
-/** The approval's subject: the held cart, or the stuck payment attempt. */
+/** The approval's subject: the held cart, the batch snapshot, or the stuck payment attempt. */
 export function recoverySubjectOf(action: RecoveryAction): string {
+  if (action.kind === 'cancel_parked_batch') return action.batch.batch_id;
   return action.kind === 'cancel_cart' ? action.cart.cart_id : action.stuck.payment_attempt_id;
 }
 
@@ -129,6 +142,20 @@ async function cancelHeldCart(
     : { ok: false, reason: answer.reason };
 }
 
+async function cancelParkedBatch(
+  bridge: RecoveryBridgeAPI,
+  batch: ParkedBatch,
+  approval_id: string,
+): Promise<RecoveryOutcome> {
+  const answer = await bridge.cancelHeldCarts({ batch_id: batch.batch_id, approval_id });
+  if (answer.kind !== 'cancelled_batch') return { ok: false, reason: answer.reason };
+  // Only what main reports cancelled is claimed; a sale that changed in between is named, not hidden.
+  if (answer.cancelled_cart_ids.length === 0) return { ok: false, reason: 'batch_none_cancelled' };
+  const left = answer.skipped.length;
+  const note = left === 0 ? '' : ` ${RECOVERY_COPY.skippedLabel}: ${String(left)}.`;
+  return { ok: true, message: `${batchCancelled(answer.cancelled_cart_ids.length)}${note}` };
+}
+
 /** Spend `approval_id` on the action. */
 export function performRecoveryAction(
   bridge: RecoveryBridgeAPI,
@@ -139,6 +166,9 @@ export function performRecoveryAction(
   if (action.kind === 'complete') return completeAttempt(bridge, action.stuck, approval_id, extras);
   if (action.kind === 'cancel_attempt') {
     return cancelAttempt(bridge, action.stuck, approval_id, extras);
+  }
+  if (action.kind === 'cancel_parked_batch') {
+    return cancelParkedBatch(bridge, action.batch, approval_id);
   }
   return cancelHeldCart(bridge, action.cart, approval_id);
 }

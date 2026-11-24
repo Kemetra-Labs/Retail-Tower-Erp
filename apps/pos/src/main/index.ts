@@ -18,7 +18,7 @@ import { registerPrinterHandlers } from './ipc/printer.js';
 import { bindPrinterSettingRepository } from './printer/printer-setting-repository.js';
 import { createPrinterService } from './printer/printer-service.js';
 import { saleVoidApprovalResolvers, type ComposedSaleVoid } from './sale-void/compose-sale-void.js';
-import { type ManagerRecovery } from './recovery/manager-recovery.js';
+import { recoveryApprovalResolvers, type ManagerRecovery } from './recovery/manager-recovery.js';
 import { createSaleBoundaryIpcMain } from './ipc/sale-boundary-guard.js';
 import { registerSessionLockHandlers } from './ipc/session-lock.js';
 import { registerResumeStateHandler } from './ipc/resume-state.js';
@@ -936,13 +936,7 @@ singleInstanceReady
         'cart.discount.manual': manualDiscountApprovalResolver(bindCartStore(db)),
         ...saleVoidApprovalResolvers(saleVoidRef), // RT-530 sale.void; RT-1403 S2 sale.void_cash_exception
         ...returnResolveApprovalResolvers(db, pairingStore), // RT-1498 return.resolve_unknown
-        // RT-441 — manager recovery (bound below, once the payment path exists).
-        'recovery.complete_attempt': (input) =>
-          recoveryRef.current?.resolvers.completeAttempt(input) ?? null,
-        'recovery.cancel_attempt': (input) =>
-          recoveryRef.current?.resolvers.cancelAttempt(input) ?? null,
-        'recovery.cancel_held_cart': (input) =>
-          recoveryRef.current?.resolvers.cancelHeldCart(input) ?? null,
+        ...recoveryApprovalResolvers(recoveryRef), // RT-441 manager recovery; RT-1563 bulk cancel
       },
       auditEmitter,
       now: () => new Date().toISOString(),

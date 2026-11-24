@@ -407,3 +407,36 @@
     border: 2px solid Highlight;
   }
 }
+
+/* ── RT-1563: bulk cancel of parked sales ───────────────────────── */
+.v5-recovery-bulk {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-3);
+  padding: var(--space-2) var(--space-4);
+  border-block-end: 1px solid var(--color-border-soft);
+}
+
+/* The alert takes its own line under the controls. */
+.v5-recovery-bulk > :last-child:not(button):not(label):not(span) {
+  flex-basis: 100%;
+}
+
+/* A leading tick column on every row while selection is on, so the rows still line up. */
+.v5-recovery-rows--select .v5-recovery-row {
+  grid-template-columns: var(--recovery-check, 44px) auto minmax(0, 1fr) auto auto;
+}
+
+/* POS target floor: 44px, the box centred in it (UX-11.21). */
+.v5-recovery-check {
+  inline-size: 24px;
+  block-size: 24px;
+  margin: 10px;
+  accent-color: var(--color-primary);
+}
+
+.v5-recovery-check:focus-visible {
+  outline: 3px solid var(--color-focus-ring);
+  outline-offset: 2px;
+}

@@ -40,6 +40,16 @@ describe('preload recovery bridge', () => {
     const held = { cart_id: 'c-1', approval_id: 'ap-3' };
     await recovery.cancelHeldCart(held);
     expect(ipcRendererInvoke).toHaveBeenCalledWith(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CART, held);
+    // RT-1563 — the bulk cancel of parked drafts: a snapshot step, then the approved cancel.
+    const prepare = { cart_ids: ['c-1', 'c-2'] };
+    await recovery.prepareCancelHeldCarts(prepare);
+    expect(ipcRendererInvoke).toHaveBeenCalledWith(
+      RECOVERY_IPC_CHANNELS.PREPARE_CANCEL_HELD_CARTS,
+      prepare,
+    );
+    const batch = { batch_id: 'b-1', approval_id: 'ap-4' };
+    await recovery.cancelHeldCarts(batch);
+    expect(ipcRendererInvoke).toHaveBeenCalledWith(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CARTS, batch);
   });
 
   it('is exposed on window.api.recovery', async () => {
@@ -51,8 +61,10 @@ describe('preload recovery bridge', () => {
     expect(Object.keys(api.recovery ?? {}).sort()).toEqual([
       'cancelAttempt',
       'cancelHeldCart',
+      'cancelHeldCarts',
       'completeAttempt',
       'listHeld',
+      'prepareCancelHeldCarts',
     ]);
   });
 });

@@ -10,10 +10,13 @@ import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 
 import {
+  RECOVERY_BATCH_MAX,
   RECOVERY_IPC_CHANNELS,
   type RecoveryCancelAttemptRequest,
   type RecoveryCancelHeldCartRequest,
+  type RecoveryCancelHeldCartsRequest,
   type RecoveryCompleteAttemptRequest,
+  type RecoveryPrepareCancelHeldCartsRequest,
   type RecoveryRefusal,
 } from '../../shared/operator/recovery.js';
 import type { ManagerRecovery } from '../recovery/manager-recovery.js';
@@ -85,10 +88,34 @@ export function readCancelHeldCart(value: unknown): RecoveryCancelHeldCartReques
   return isId(cart_id) && isApprovalId(approval_id) ? { cart_id, approval_id } : null;
 }
 
+/** RT-1563: the cart ids to snapshot; each a plain id, none repeated, at most `RECOVERY_BATCH_MAX`. */
+export function readPrepareCancelHeldCarts(
+  value: unknown,
+): RecoveryPrepareCancelHeldCartsRequest | null {
+  if (!closed(value, ['cart_ids'])) return null;
+  const { cart_ids } = value;
+  if (!Array.isArray(cart_ids) || cart_ids.length < 1 || cart_ids.length > RECOVERY_BATCH_MAX) {
+    return null;
+  }
+  return cart_ids.every(isId) && new Set(cart_ids).size === cart_ids.length ? { cart_ids } : null;
+}
+
+/** RT-1563: the batch reference (a UUID main minted) and the approval. Nothing else crosses. */
+export function readCancelHeldCarts(value: unknown): RecoveryCancelHeldCartsRequest | null {
+  if (!closed(value, ['batch_id', 'approval_id'])) return null;
+  const { batch_id, approval_id } = value;
+  return isApprovalId(batch_id) && isApprovalId(approval_id) ? { batch_id, approval_id } : null;
+}
+
 export interface RecoveryIpcDeps {
   recovery: Pick<
     ManagerRecovery,
-    'listHeld' | 'completeAttempt' | 'cancelAttempt' | 'cancelHeldCart'
+    | 'listHeld'
+    | 'completeAttempt'
+    | 'cancelAttempt'
+    | 'cancelHeldCart'
+    | 'prepareCancelHeldCarts'
+    | 'cancelHeldCarts'
   >;
   logger: Pick<Logger, 'warn'>;
 }
@@ -127,5 +154,15 @@ export function registerRecoveryHandlers(
   ipcMain.handle(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CART, (_event, request: unknown) => {
     const req = readCancelHeldCart(request);
     return req === null ? INVALID : run('cancelHeldCart', () => recovery.cancelHeldCart(req));
+  });
+  ipcMain.handle(RECOVERY_IPC_CHANNELS.PREPARE_CANCEL_HELD_CARTS, (_event, request: unknown) => {
+    const req = readPrepareCancelHeldCarts(request);
+    return req === null
+      ? INVALID
+      : run('prepareCancelHeldCarts', () => recovery.prepareCancelHeldCarts(req));
+  });
+  ipcMain.handle(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CARTS, (_event, request: unknown) => {
+    const req = readCancelHeldCarts(request);
+    return req === null ? INVALID : run('cancelHeldCarts', () => recovery.cancelHeldCarts(req));
   });
 }

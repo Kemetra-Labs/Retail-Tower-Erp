@@ -17,7 +17,12 @@ export const RECOVERY_IPC_CHANNELS = {
   COMPLETE_ATTEMPT: 'recovery:complete-attempt',
   CANCEL_ATTEMPT: 'recovery:cancel-attempt',
   CANCEL_HELD_CART: 'recovery:cancel-held-cart',
+  PREPARE_CANCEL_HELD_CARTS: 'recovery:prepare-cancel-held-carts',
+  CANCEL_HELD_CARTS: 'recovery:cancel-held-carts',
 } as const;
+
+/** RT-1563: the most carts one batch may name (a till with no park limit may park many). */
+export const RECOVERY_BATCH_MAX = 500;
 
 /** The terminal's stuck payment: started, holding live tender, owned by someone else. */
 export interface RecoveryStuckAttemptView {
@@ -77,6 +82,29 @@ export interface RecoveryCancelHeldCartRequest {
   approval_id: string;
 }
 
+/**
+ * RT-1563 — step 1 of a bulk cancel of PARKED drafts: main snapshots the eligible carts and their
+ * versions and answers a batch reference. Only parked drafts qualify (state `editing`, parked); the
+ * rest of the named carts come back as `excluded_cart_ids`. Changes nothing.
+ */
+export interface RecoveryPrepareCancelHeldCartsRequest {
+  cart_ids: string[];
+}
+
+export interface RecoveryCancelHeldCartsRequest {
+  /** The batch reference from the prepare step; the approval is requested for this subject. */
+  batch_id: string;
+  approval_id: string;
+}
+
+/** Why one cart of the batch was left alone: it changed, or is no longer held, since the snapshot. */
+export type RecoveryBatchSkipReason = 'changed' | 'no_longer_held';
+
+export interface RecoveryBatchSkipped {
+  cart_id: string;
+  reason: RecoveryBatchSkipReason;
+}
+
 export const RECOVERY_REFUSAL_REASONS = [
   'no_session',
   'session_locked',
@@ -107,10 +135,28 @@ export type RecoveryCompleteAttemptResponse =
   | RecoveryRefusal;
 export type RecoveryCancelAttemptResponse = { kind: 'cancelled' } | RecoveryRefusal;
 export type RecoveryCancelHeldCartResponse = { kind: 'cancelled' } | RecoveryRefusal;
+export type RecoveryPrepareCancelHeldCartsResponse =
+  | {
+      kind: 'prepared';
+      batch_id: string;
+      count: number;
+      total_minor: number;
+      excluded_cart_ids: string[];
+    }
+  | RecoveryRefusal;
+export type RecoveryCancelHeldCartsResponse =
+  | { kind: 'cancelled_batch'; cancelled_cart_ids: string[]; skipped: RecoveryBatchSkipped[] }
+  | RecoveryRefusal;
 
 export interface RecoveryBridgeAPI {
   listHeld(): Promise<RecoveryListHeldResponse>;
   completeAttempt(req: RecoveryCompleteAttemptRequest): Promise<RecoveryCompleteAttemptResponse>;
   cancelAttempt(req: RecoveryCancelAttemptRequest): Promise<RecoveryCancelAttemptResponse>;
   cancelHeldCart(req: RecoveryCancelHeldCartRequest): Promise<RecoveryCancelHeldCartResponse>;
+  /** RT-1563: snapshot the parked drafts a bulk cancel would cancel. Changes nothing. */
+  prepareCancelHeldCarts(
+    req: RecoveryPrepareCancelHeldCartsRequest,
+  ): Promise<RecoveryPrepareCancelHeldCartsResponse>;
+  /** RT-1563: cancel the snapshot's parked drafts with one approval. */
+  cancelHeldCarts(req: RecoveryCancelHeldCartsRequest): Promise<RecoveryCancelHeldCartsResponse>;
 }

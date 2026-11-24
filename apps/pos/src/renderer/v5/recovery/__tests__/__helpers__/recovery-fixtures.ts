@@ -64,6 +64,8 @@ export type FakeApprovalBridge = {
 };
 
 export function fakeRecoveryBridge(view: RecoveryHeldView = heldView()): FakeRecoveryBridge {
+  // RT-1563: the batch the last prepare snapshotted, so the accepting default cancels exactly those.
+  let batch: string[] = [];
   return {
     listHeld: vi.fn<RecoveryBridgeAPI['listHeld']>(() => Promise.resolve(view)),
     completeAttempt: vi.fn<RecoveryBridgeAPI['completeAttempt']>(() =>
@@ -74,6 +76,19 @@ export function fakeRecoveryBridge(view: RecoveryHeldView = heldView()): FakeRec
     ),
     cancelHeldCart: vi.fn<RecoveryBridgeAPI['cancelHeldCart']>(() =>
       Promise.resolve({ kind: 'cancelled' }),
+    ),
+    prepareCancelHeldCarts: vi.fn<RecoveryBridgeAPI['prepareCancelHeldCarts']>((req) => {
+      batch = [...req.cart_ids];
+      return Promise.resolve({
+        kind: 'prepared',
+        batch_id: 'batch-1',
+        count: batch.length,
+        total_minor: batch.length * 1_000,
+        excluded_cart_ids: [],
+      });
+    }),
+    cancelHeldCarts: vi.fn<RecoveryBridgeAPI['cancelHeldCarts']>(() =>
+      Promise.resolve({ kind: 'cancelled_batch', cancelled_cart_ids: batch, skipped: [] }),
     ),
   };
 }

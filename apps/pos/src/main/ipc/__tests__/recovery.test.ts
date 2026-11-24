@@ -3,10 +3,12 @@ import { describe, expect, it, vi } from 'vitest';
 import {
   readCancelAttempt,
   readCancelHeldCart,
+  readCancelHeldCarts,
   readCompleteAttempt,
+  readPrepareCancelHeldCarts,
   registerRecoveryHandlers,
 } from '../recovery.js';
-import { RECOVERY_IPC_CHANNELS } from '../../../shared/operator/recovery.js';
+import { RECOVERY_BATCH_MAX, RECOVERY_IPC_CHANNELS } from '../../../shared/operator/recovery.js';
 
 /** RT-441 (§A4) — `recovery:*` takes closed shapes only. */
 
@@ -63,6 +65,48 @@ describe('recovery IPC validators', () => {
     });
     expect(readCancelHeldCart({ cart_id: 'c-1', approval_id: APPROVAL, reason: 'x' })).toBeNull();
   });
+
+  it('prepareCancelHeldCarts (RT-1563): 1..max distinct plain cart ids, nothing else', () => {
+    expect(readPrepareCancelHeldCarts({ cart_ids: ['c-1', 'c-2'] })).toEqual({
+      cart_ids: ['c-1', 'c-2'],
+    });
+    const many = Array.from({ length: RECOVERY_BATCH_MAX }, (_, i) => `c-${String(i)}`);
+    expect(readPrepareCancelHeldCarts({ cart_ids: many })?.cart_ids).toHaveLength(
+      RECOVERY_BATCH_MAX,
+    );
+    for (const bad of [
+      null,
+      [],
+      {},
+      { cart_ids: [] },
+      { cart_ids: 'c-1' },
+      { cart_ids: [...many, 'one-too-many'] },
+      { cart_ids: ['c-1', 'c-1'] },
+      { cart_ids: ['c 1'] },
+      { cart_ids: ['c-1', 7] },
+      { cart_ids: ['c-1'], approval_id: APPROVAL },
+      { cart_ids: ['c-1'], total_minor: 1 },
+    ]) {
+      expect(readPrepareCancelHeldCarts(bad)).toBeNull();
+    }
+  });
+
+  it('cancelHeldCarts (RT-1563): the batch reference and the approval, nothing else', () => {
+    expect(readCancelHeldCarts({ batch_id: APPROVAL, approval_id: APPROVAL })).toEqual({
+      batch_id: APPROVAL,
+      approval_id: APPROVAL,
+    });
+    for (const bad of [
+      null,
+      { batch_id: APPROVAL },
+      { batch_id: 'not-a-uuid', approval_id: APPROVAL },
+      { batch_id: APPROVAL, approval_id: 'not-a-uuid' },
+      { batch_id: APPROVAL, approval_id: APPROVAL, cart_ids: ['c-1'] },
+      { batch_id: APPROVAL, approval_id: APPROVAL, reason: 'x' },
+    ]) {
+      expect(readCancelHeldCarts(bad)).toBeNull();
+    }
+  });
 });
 
 describe('recovery IPC handlers', () => {
@@ -80,6 +124,13 @@ describe('recovery IPC handlers', () => {
       ),
       cancelAttempt: vi.fn(() => Promise.resolve({ kind: 'cancelled' as const })),
       cancelHeldCart: vi.fn((): { kind: 'cancelled' } => {
+        throw new Error('boom');
+      }),
+      prepareCancelHeldCarts: vi.fn(() => ({
+        kind: 'refused' as const,
+        reason: 'not_found' as const,
+      })),
+      cancelHeldCarts: vi.fn((): { kind: 'refused'; reason: 'not_found' } => {
         throw new Error('boom');
       }),
     };
@@ -113,6 +164,43 @@ describe('recovery IPC handlers', () => {
     ).resolves.toEqual({ kind: 'refused', reason: 'recovery_unavailable' });
     expect(logger.warn).toHaveBeenCalledWith(
       { op: 'cancelHeldCart', error: 'Error' },
+      'recovery:failed',
+    );
+  });
+
+  it('the batch channels validate first, then call main (RT-1563)', async () => {
+    const { handlers, recovery, logger } = register();
+    await expect(
+      Promise.resolve(
+        handlers.get(RECOVERY_IPC_CHANNELS.PREPARE_CANCEL_HELD_CARTS)?.({}, { cart_ids: [] }),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'invalid_input' });
+    await expect(
+      Promise.resolve(
+        handlers.get(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CARTS)?.(
+          {},
+          { batch_id: 'x', approval_id: APPROVAL },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'invalid_input' });
+    expect(recovery.prepareCancelHeldCarts).not.toHaveBeenCalled();
+    expect(recovery.cancelHeldCarts).not.toHaveBeenCalled();
+    await expect(
+      Promise.resolve(
+        handlers.get(RECOVERY_IPC_CHANNELS.PREPARE_CANCEL_HELD_CARTS)?.({}, { cart_ids: ['c-1'] }),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'not_found' });
+    expect(recovery.prepareCancelHeldCarts).toHaveBeenCalledWith({ cart_ids: ['c-1'] });
+    await expect(
+      Promise.resolve(
+        handlers.get(RECOVERY_IPC_CHANNELS.CANCEL_HELD_CARTS)?.(
+          {},
+          { batch_id: APPROVAL, approval_id: APPROVAL },
+        ),
+      ),
+    ).resolves.toEqual({ kind: 'refused', reason: 'recovery_unavailable' });
+    expect(logger.warn).toHaveBeenCalledWith(
+      { op: 'cancelHeldCarts', error: 'Error' },
       'recovery:failed',
     );
   });
