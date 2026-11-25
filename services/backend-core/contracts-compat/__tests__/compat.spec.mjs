@@ -232,7 +232,7 @@ test("freshness applies to the bootstrap-exception path too", () => {
   const future = evaluate(m, { now: new Date("2025-01-01T00:00:00Z") });
   assert.equal(future.state, "FAIL_MISSING_SNAPSHOT");
   assert.match(future.problems[0], /in the future/);
-  const stale = evaluate(m, { now: new Date("2026-12-01T00:00:00Z") });
+  const stale = evaluate(m, { now: new Date(CAPTURED_MS + 8 * DAY_MS) }); // past the 7-day limit, whatever the committed capture date
   assert.equal(stale.state, "NOT_PROVEN_NO_SUPPORTED_RELEASE_SNAPSHOT");
   assert.match(stale.warnings[0], /FAIL_STALE_FLEET/);
 });

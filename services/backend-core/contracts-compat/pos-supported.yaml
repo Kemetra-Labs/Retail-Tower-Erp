@@ -7,14 +7,15 @@
 schema: retail-tower/pos-compat@1
 fleet_baseline:
   source: lab devices table, active (not revoked, not retired) devices and the build each till reported (RT-719); no pilot or production terminals
-  # 2026-11-17 re-observation (RT-713 comment 17418): read-only query on lab-02 (SSM command
-  # 7a3b3bb0-7b36-4e58-a3b2-77368a008ac3), owner-approved for that one run. The one active till (not
-  # revoked, not retired) reports no POS build, so the fleet evidence shows nothing installed. The three
-  # tills of the 2026-11-10 observation (office-3 and Office on 27e466af, Home on 9931199b) are no longer
-  # active. Their `supported` entries stay (dropping one is its own reviewed change); installed is empty,
-  # so the owner-approved bootstrap_exception below applies (state NOT_PROVEN, never green).
-  captured_at: 2026-11-17T13:52:00Z
-  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=17418
+  # 2026-11-25 re-observation (RT-713 comment 18819): read-only query on lab-02 (SSM command
+  # 77a5a803-534e-4ad6-9515-8144de22128c), owner-approved for that one run. No device is active (not
+  # revoked, not retired), so the fleet evidence shows nothing installed. The one active till of the
+  # 2026-11-17 observation (comment 17418) and the three tills of the 2026-11-10 observation (office-3
+  # and Office on 27e466af, Home on 9931199b) are no longer active. Their `supported` entries stay
+  # (dropping one is its own reviewed change); installed is empty, so the owner-approved
+  # bootstrap_exception below applies (state NOT_PROVEN, never green).
+  captured_at: 2026-11-25T12:26:26Z
+  evidence: https://rahmaqanater.atlassian.net/browse/RT-713?focusedCommentId=18819
   installed: []
 bootstrap_exception:
   approved_by: owner (Ahmed Shaaban), answer in the Claude Code chat on 2026-11-17, recorded on RT-713 comment 17418
