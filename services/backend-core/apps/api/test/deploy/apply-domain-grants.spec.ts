@@ -145,6 +145,36 @@ describe("deploy/apply-domain-grants.sh", () => {
       );
     });
 
+    // RT-1603: the lab deploy runs --check-env before it changes anything on the host.
+    itBash("--check-env passes a complete environment without calling psql", () => {
+      const r = run(["--check-env"], { PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`, PSQL_LOG: log, DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "auth_lookup" });
+      expect({ status: r.status, stdout: r.stdout.trim(), stderr: r.stderr }).toEqual({ status: 0, stdout: "apply-domain-grants: environment ok", stderr: "" });
+      expect(calls()).toEqual([]);
+    });
+
+    itBash("--check-env refuses exactly what an apply run refuses, and calls no psql", () => {
+      const cases: [NodeJS.ProcessEnv, RegExp][] = [
+        [{ DOMAIN_DB_ROLE: "", LOOKUP_DB_ROLE: "auth_lookup" }, /DOMAIN_DB_ROLE is not set/],
+        [{ DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: undefined }, /LOOKUP_DB_ROLE is not set/],
+        [{ DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "app_domain" }, /LOOKUP_DB_ROLE must differ from DOMAIN_DB_ROLE/],
+      ];
+      for (const [env, message] of cases) {
+        const stubbed = { PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`, PSQL_LOG: log, ...env };
+        const check = run(["--check-env"], stubbed);
+        const apply = run([], stubbed);
+        expect(check.status).not.toBe(0);
+        expect(check.stderr).toMatch(message);
+        expect(apply.stderr.trim()).toBe(check.stderr.trim());
+      }
+      expect(calls()).toEqual([]);
+    });
+
+    itBash("refuses a second argument, so --check-env never falls through to an apply run", () => {
+      const extra = run(["--check-env", "--apply"], { PATH: `${bin}${delimiter}${process.env["PATH"] ?? ""}`, PSQL_LOG: log, DOMAIN_DB_ROLE: "app_domain", LOOKUP_DB_ROLE: "auth_lookup" });
+      expect(extra.status).not.toBe(0);
+      expect(extra.stderr).toMatch(/too many arguments/);
+    });
+
     itBash("stops at the first failing script", () => {
       const scripts = expected();
       const failing = scripts[2]!;

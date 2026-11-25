@@ -12,10 +12,16 @@
 #   G-Backup   confirm the lab-02 backup reference (RT-BackendLabBackup)
 #   fetch      the target release bundle from its GitHub release, checksums
 #              verified, its release.env equal to the digest parameters
+#   G-Prereq   read-only, from the target bundle (RT-1603): grants.env has every
+#              key its grants step needs (apply-domain-grants.sh --check-env),
+#              and docs/operations/sql/release-prerequisites.sql passes in a
+#              read-only transaction (e.g. the role migration 0132 needs)
 #   back up    backend.env and the compose wrapper
 #   arm        a 15-minute systemd-run auto-revert (the RT-638 pattern)
-#   G-Migrate  migrate (migrate image, migration-owner role), grants
-#              (deploy/apply-domain-grants.sh), catch-up scripts
+#   G-Migrate  swap the wrapper and backend.env, then migrate (migrate image,
+#              migration-owner role), grants (deploy/apply-domain-grants.sh),
+#              catch-up scripts. A stop between the swap and `up -d` restores
+#              the pre-deploy wrapper and env (RT-1603): the old app still runs
 #   start      api + worker by digest (only while 3+ minutes of the revert
 #              window remain), check the running images, then the catch-up
 #              scripts again (README Deploy step 4: what the old app wrote)
@@ -161,7 +167,23 @@ mainSteps:
 
           say() { printf '%s\n' "$*" >&3; }
           pass() { say "RT_GATE $1 pass"; }
-          stop() { echo "stopped at gate $GATE: $*"; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
+          # RT-1603: from the wrapper/env swap at G-Migrate until `up -d` is invoked, the running
+          # containers are still the current release's. A run that ends in that window puts the
+          # pre-deploy wrapper and backend.env back from this run's verified copies, so G-Host accepts
+          # a rerun without a manual restore. From `up -d` on, the auto-revert owns the rollback.
+          CONFIG_SWAPPED=no
+          restore_if_swapped() {
+            [ "$CONFIG_SWAPPED" = yes ] || return 0
+            CONFIG_SWAPPED=no
+            if cp -p "$RUN_DIR/dc" "$DC.restore" && mv "$DC.restore" "$DC" \
+              && cp -p "$RUN_DIR/backend.env" "$BACKEND_ENV.restore" && mv "$BACKEND_ENV.restore" "$BACKEND_ENV" \
+              && cmp -s "$RUN_DIR/dc" "$DC" && cmp -s "$RUN_DIR/backend.env" "$BACKEND_ENV"; then
+              say "RT_REVERT restored-pre-deploy-config"
+            else
+              say "RT_REVERT restore-pre-deploy-config-failed"
+            fi
+          }
+          stop() { echo "stopped at gate $GATE: $*"; restore_if_swapped; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
 
           RELEASE_TAG="${SSM_ReleaseTag:-}"
           RELEASE_SHA="${SSM_ReleaseSha:-}"
@@ -208,7 +230,8 @@ mainSteps:
           RUN_DIR="$STATE_ROOT/$RUN_ID"
           mkdir -m 0700 "$RUN_DIR"
           WORK="$(mktemp -d)"
-          trap 'rm -rf "$WORK"' EXIT
+          # restore_if_swapped also covers an exit that is not a stop (set -e) inside the swap window.
+          trap 'restore_if_swapped; rm -rf "$WORK"' EXIT
 
           # Reads one KEY=value line; refuses a key that is missing or set twice.
           env_value() {
@@ -331,6 +354,35 @@ mainSteps:
           say "RT_TARGET api=$API_DIGEST worker=$WORKER_DIGEST migrate=$MIGRATE_DIGEST"
           pass fetch
 
+          # ---------------------------------------------------------------- G-Prereq (RT-1603)
+          GATE=G-Prereq
+          # Grants, catch-up and this gate run in the pinned psql client with the migration-owner PG*
+          # variables from the root-only env file (never a URL on a command line).
+          psql_client() {
+            docker run --rm --network host --env-file "$GRANTS_ENV" -v "$TGT_DIR:/release:ro" -w /release \
+              "$PSQL_IMAGE" "$@" </dev/null
+          }
+          # Read-only, before anything on this host changes: what the TARGET bundle needs that only the
+          # owner can provide. The checks come from the bundle, so a later prerequisite needs no new
+          # version of this document. A bundle from before RT-1603 has neither check: `skip`, not a pass.
+          # 1. Every env key its grants step needs, in the same container and env file as that step.
+          if grep -qF -- '--check-env)' "$TGT_DIR/deploy/apply-domain-grants.sh"; then
+            psql_client bash deploy/apply-domain-grants.sh --check-env || stop "grants-env-incomplete"
+            pass grants-env
+          else
+            say "RT_GATE grants-env skip"
+          fi
+          # 2. What only a superuser can set up before migrate (e.g. the role 0132 needs), in a
+          #    read-only transaction; the SQL text stays in this root-only log.
+          if [ -f "$TGT_DIR/docs/operations/sql/release-prerequisites.sql" ]; then
+            psql_client psql -X -q -1 -v ON_ERROR_STOP=1 -c 'SET TRANSACTION READ ONLY' \
+              -f docs/operations/sql/release-prerequisites.sql || stop "release-prerequisite-missing"
+            pass release-prerequisites
+          else
+            say "RT_GATE release-prerequisites skip"
+          fi
+          pass G-Prereq
+
           # ---------------------------------------------------------------- back up
           GATE=backup-config
           cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env"
@@ -400,16 +452,12 @@ mainSteps:
 
           # ---------------------------------------------------------------- G-Migrate
           GATE=G-Migrate
-          mv "$RUN_DIR/dc.next" "$DC.next" && mv "$DC.next" "$DC"
-          cp -p "$RUN_DIR/backend.env.next" "$BACKEND_ENV.next" && mv "$BACKEND_ENV.next" "$BACKEND_ENV"
+          # Set before the first move, so a stop after a partial swap restores too (RT-1603).
+          CONFIG_SWAPPED=yes
+          { mv "$RUN_DIR/dc.next" "$DC.next" && mv "$DC.next" "$DC"; } || stop "config-swap-failed"
+          { cp -p "$RUN_DIR/backend.env.next" "$BACKEND_ENV.next" && mv "$BACKEND_ENV.next" "$BACKEND_ENV"; } || stop "config-swap-failed"
           "$DC" run --rm migrate </dev/null || stop "migrate-failed"
           pass migrate
-          # Grants and catch-up run in the pinned psql client with the migration-owner PG* variables
-          # from the root-only env file (never a URL on a command line).
-          psql_client() {
-            docker run --rm --network host --env-file "$GRANTS_ENV" -v "$TGT_DIR:/release:ro" -w /release \
-              "$PSQL_IMAGE" "$@" </dev/null
-          }
           psql_client bash deploy/apply-domain-grants.sh || stop "grants-failed"
           pass grants
           # README Deploy step 4's catch-up scripts, in its order (RT-1560): 0038, 0043, then 0113 (ERP
@@ -437,6 +485,8 @@ mainSteps:
           # ---------------------------------------------------------------- start api + worker
           GATE=start
           [ $(( $(date +%s) - ARMED_AT )) -le "$MAX_SECONDS_BEFORE_START" ] || stop "too-little-revert-window-left-to-start"
+          # From here the target release may be starting: the auto-revert, not a restore, owns the rollback.
+          CONFIG_SWAPPED=no
           "$DC" up -d </dev/null || stop "compose-up-failed"
           running_matches api "$API_REF" || stop "running-api-is-not-ApiDigest"
           running_matches worker "$WORKER_REF" || stop "running-worker-is-not-WorkerDigest"
