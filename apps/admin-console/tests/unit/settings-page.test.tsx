@@ -52,14 +52,14 @@ describe("SettingsPage", () => {
     ]) {
       expect(screen.getByText(marker)).toBeDefined();
     }
-    expect(screen.getByRole("link", { name: "My account" })).toHaveAttribute("href", "/account");
+    expect(screen.getByRole("link", { name: "My account" }).getAttribute("href")).toBe("/account");
   });
 
   test("without an active tenant it points at the tenant list", () => {
     ctx.tenant = null;
     renderPage();
     expect(screen.getByText("Choose a tenant first to see its settings.")).toBeDefined();
-    expect(screen.getByRole("link", { name: "Tenants" })).toHaveAttribute("href", "/tenants");
+    expect(screen.getByRole("link", { name: "Tenants" }).getAttribute("href")).toBe("/tenants");
     expect(screen.queryByText("branding-section")).toBeNull();
   });
 });
