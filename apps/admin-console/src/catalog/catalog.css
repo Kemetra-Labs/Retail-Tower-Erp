@@ -46,15 +46,19 @@
   flex: none;
   display: grid;
   place-items: center;
-  inline-size: 44px;
-  block-size: 44px;
+  /* The 44px size token (RT-959: no raw 36/44px); the thumb is not a control. */
+  inline-size: var(--target-touch);
+  block-size: var(--target-touch);
   border-radius: var(--radius-field-lg);
   background: var(--color-surface-sunken);
   color: var(--color-text-muted);
   font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
 }
+/* The name column takes the card's free width, so a short name or a missing
+ * availability badge never shrinks it to its text. */
 .catalog-card__head {
   display: flex;
+  flex: 1 1 auto;
   flex-direction: column;
   gap: var(--space-1);
   min-inline-size: 0;
@@ -168,7 +172,11 @@
   display: flex;
   gap: var(--space-2);
   overflow-x: auto;
+  min-inline-size: 0;
+  margin: 0;
+  border: 0;
   padding-block: var(--space-1);
+  padding-inline: 0;
 }
 .catalog-chip {
   flex: none;

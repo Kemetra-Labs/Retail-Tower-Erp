@@ -169,11 +169,7 @@ export function CatalogCategoryChips({
   const t = useT();
   if (categories.length === 0) return null;
   return (
-    <div
-      className="catalog-chips-row"
-      role="group"
-      aria-label={t("catalog.filter.categoriesLabel")}
-    >
+    <fieldset className="catalog-chips-row" aria-label={t("catalog.filter.categoriesLabel")}>
       <button
         type="button"
         className="catalog-chip"
@@ -198,7 +194,7 @@ export function CatalogCategoryChips({
           </button>
         );
       })}
-    </div>
+    </fieldset>
   );
 }
 
@@ -286,7 +282,11 @@ export function CatalogFilterBar({
               />
             </select>
           </FilterField>
-          <FilterField id="cf-brand" label={t("catalog.filter.brand")} error={message(errors.brand)}>
+          <FilterField
+            id="cf-brand"
+            label={t("catalog.filter.brand")}
+            error={message(errors.brand)}
+          >
             <select
               id="cf-brand"
               className="input"

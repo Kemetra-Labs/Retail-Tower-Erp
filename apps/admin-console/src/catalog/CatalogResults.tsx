@@ -170,19 +170,20 @@ function ProductCard({
   );
 }
 
+const SKELETON_CARDS = ["a", "b", "c", "d", "e", "f"] as const;
+
 /** Six placeholder cards, in the grid's shape: flat bars, no animation. */
 function CardSkeleton({ caption }: Readonly<{ caption: string }>): React.JSX.Element {
   const t = useT();
   return (
-    <div
+    <output
       className="catalog-grid"
-      role="status"
       aria-busy="true"
       aria-label={`${caption}: ${t("catalog.list.loadingNoun")}`}
     >
-      {Array.from({ length: 6 }, (_, i) => (
+      {SKELETON_CARDS.map((key) => (
         <div
-          key={i}
+          key={key}
           className="section-panel catalog-card catalog-card--skeleton"
           aria-hidden="true"
         >
@@ -191,7 +192,7 @@ function CardSkeleton({ caption }: Readonly<{ caption: string }>): React.JSX.Ele
           <span className="catalog-card__bar catalog-card__bar--meta" />
         </div>
       ))}
-    </div>
+    </output>
   );
 }
 

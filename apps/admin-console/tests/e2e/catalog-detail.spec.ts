@@ -137,7 +137,8 @@ test("D1: the list row opens the detail; read-only, only the product is read", a
   });
 
   await p.goto("/catalog/products");
-  await p.getByRole("row", { name: /Mineral water 1\.5L/ }).click();
+  // The card's name is its link to the detail.
+  await p.getByRole("link", { name: "Mineral water 1.5L" }).click();
   await expect(p).toHaveURL(new RegExp(`/catalog/products/${P1}$`));
   await expect(p.getByRole("heading", { level: 1, name: "Mineral water 1.5L" })).toBeVisible();
   await expect(p.getByRole("link", { name: t("catalog.nav.label"), exact: true })).toHaveAttribute(

@@ -181,7 +181,8 @@ test("S2: search is verbatim, filters reach the URL and the request, Load more d
   await p.getByLabel(t("catalog.filter.status"), { exact: true }).selectOption("any");
   // The category select sits behind «More filters».
   await p.getByRole("button", { name: t("filter.more"), exact: true }).click();
-  await p.getByLabel(t("catalog.filter.category")).selectOption(CATEGORY);
+  // Exact: the category chips group is labelled "Filter by category".
+  await p.getByLabel(t("catalog.filter.category"), { exact: true }).selectOption(CATEGORY);
   await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect.poll(() => queries.length).toBe(2);
   expect(Object.fromEntries(queries[1])).toEqual({
@@ -402,9 +403,7 @@ async function measureCards(p: Page) {
 const MIN_ITEM_WIDTH = 120;
 
 for (const width of [1440, 1280, 1200]) {
-  test(`S7: with a store in scope, price stays on one line at ${width}`, async ({
-    page: p,
-  }) => {
+  test(`S7: with a store in scope, price stays on one line at ${width}`, async ({ page: p }) => {
     await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
     await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
     await p.setViewportSize({ width, height: 900 });
@@ -421,9 +420,7 @@ for (const width of [1440, 1280, 1200]) {
 }
 
 for (const width of [1600, 1380, 1101, 1024]) {
-  test(`S7a: with a store in scope, cards keep name and price at ${width}`, async ({
-    page: p,
-  }) => {
+  test(`S7a: with a store in scope, cards keep name and price at ${width}`, async ({ page: p }) => {
     await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
     await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
     await p.setViewportSize({ width, height: 900 });
@@ -488,6 +485,7 @@ test("S7d: a very long SKU cannot squeeze the item name below its floor at 1101"
 
 test("S7c: a store in scope at 1024 keeps item, status and price and never clips the panel", async ({
   page: p,
+  t,
 }) => {
   await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
   await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
@@ -495,7 +493,9 @@ test("S7c: a store in scope at 1024 keeps item, status and price and never clips
   await p.goto("/catalog/products");
   const grid = p.locator(".catalog-grid");
   await expect(grid.getByText("Item number 2")).toBeVisible();
-  await expect(grid.locator(".catalog-card").first().getByText("Active")).toBeVisible();
+  await expect(
+    grid.locator(".catalog-card").first().getByText(t("catalog.status.active")),
+  ).toBeVisible();
 
   const m = await measureCards(p);
   expect(m.wrappedPrices).toBe(0);

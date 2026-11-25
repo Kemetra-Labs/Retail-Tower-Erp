@@ -188,7 +188,9 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
   test("the caption states the server order", async () => {
     renderList();
     const grid = await cardsReady();
-    expect(within(grid).getByText("Items, by name from A to Z")).toBeDefined();
+    // The caption sits beside the list and names it through aria-labelledby.
+    const captionId = grid.getAttribute("aria-labelledby") ?? "";
+    expect(document.getElementById(captionId)?.textContent).toBe("Items, by name from A to Z");
   });
 
   describe("store in scope", () => {
@@ -305,7 +307,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
     test("a deep link reads its filters", async () => {
       renderList(`/catalog/products?q=salt&status=inactive&category=${CATEGORY_1}`);
-      await cardsReady();
+      await cardsReady(/items, exact code matches first/i);
       expect(consoleListCatalogProducts.mock.calls[0][0]).toEqual({
         q: "salt",
         status: "inactive",
@@ -350,7 +352,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       const view = render(
         tree(`/catalog/products?q=salt&status=inactive&category=${CATEGORY_1}`, client),
       );
-      await cardsReady();
+      await cardsReady(/items, exact code matches first/i);
       const before = consoleListCatalogProducts.mock.calls.length;
       activeContext.mockReturnValue(ctx("owner", "t2"));
       view.rerender(
@@ -444,9 +446,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       await cardsReady();
       const chips = await screen.findByRole("group", { name: "Filter by category" });
       expect(
-        within(chips)
-          .getByRole("button", { name: "All categories" })
-          .getAttribute("aria-pressed"),
+        within(chips).getByRole("button", { name: "All categories" }).getAttribute("aria-pressed"),
       ).toBe("true");
       fireEvent.click(within(chips).getByRole("button", { name: "Beverages" }));
       await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
@@ -458,9 +458,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       expect(location()).toBe(`/catalog/products?category=${CATEGORY_1}`);
       await waitFor(() =>
         expect(
-          within(chips)
-            .getByRole("button", { name: "Beverages" })
-            .getAttribute("aria-pressed"),
+          within(chips).getByRole("button", { name: "Beverages" }).getAttribute("aria-pressed"),
         ).toBe("true"),
       );
     });
