@@ -1,4 +1,5 @@
 import { canReadBrands } from "@/brands/brandLogic";
+import { canImportCatalog } from "@/catalog-import/catalogImportLogic";
 import { canReadCatalog } from "@/catalog/catalogLogic";
 import type { IconNameFor } from "@/components/icons/Icon";
 import { canReadDevices } from "@/devices/deviceLogic";
@@ -19,8 +20,11 @@ import { canReadVouchers } from "@/vouchers/voucherLogic";
 
 /**
  * The shell's destinations (RT-969, Shell v3). One model feeds the sidebar, the
- * compact-shell drawer (RT-825) and the Ctrl K navigator, so none of them can
- * offer a destination the others don't, or one the role can't open.
+ * compact-shell drawer (RT-825) and the Ctrl K navigator, so the sidebar and
+ * drawer never offer a destination the other doesn't, or one the role can't
+ * open. The Ctrl K navigator lists the same model plus the navigator-only
+ * destinations (see `navigatorOnly`): built screens the sidebar deliberately
+ * omits by owner decision, which the navigator still finds.
  *
  * RT-270 (UX-09): a destination is listed only once it is built. Role-gated
  * entries mirror the API's roles (RT-178, RT-18, RT-560, RT-371, RT-421,
@@ -62,6 +66,13 @@ const always: Gate = () => true;
 
 interface GatedEntry extends NavEntry {
   readonly canRead: Gate;
+  /**
+   * Ctrl K only: the destination is built and role-gated, but the sidebar
+   * deliberately omits it by owner decision (each entry cites its RT). The
+   * sidebar and drawer never list it; the navigator does, so an operator can
+   * still find it by name. Reachable in-page as well — never a dead end.
+   */
+  readonly navigatorOnly?: boolean;
 }
 
 interface GatedGroup {
@@ -89,8 +100,41 @@ const TENANT_NAV: readonly GatedGroup[] = [
       // RT-1020: the reports index (the daily report, the review screens and
       // the proposed reports). Listed only for a role that can open one.
       { label: "reports.nav.label", to: "/reports", icon: "audit", canRead: canOpenAnyReport },
+      // RT-821 / RT-1020 / RT-1054: the daily and by-store reports live under
+      // /reports, so the sidebar omits them; navigator-only so Ctrl K finds
+      // them by name. Same sales gate as /sales.
+      {
+        label: "salesDaily.title",
+        to: "/sales-daily",
+        icon: "sale",
+        canRead: canReadSales,
+        navigatorOnly: true,
+      },
+      {
+        label: "reports.item.byStore.title",
+        to: "/sales-by-store",
+        icon: "sale",
+        canRead: canReadSales,
+        navigatorOnly: true,
+      },
       // RT-371: the device registry, for the roles the RT-365 API lets read it.
       { label: "devices.nav.label", to: "/devices", icon: "terminal", canRead: canReadDevices },
+      // RT-372: pairing codes and the POS download live on the device list,
+      // so the sidebar omits them; navigator-only so Ctrl K finds them.
+      {
+        label: "devices.list.pairingCodes",
+        to: "/devices/pairing-codes",
+        icon: "terminal",
+        canRead: canReadDevices,
+        navigatorOnly: true,
+      },
+      {
+        label: "devices.download.title",
+        to: "/devices/download-pos",
+        icon: "terminal",
+        canRead: canReadDevices,
+        navigatorOnly: true,
+      },
     ],
   },
   {
@@ -103,6 +147,15 @@ const TENANT_NAV: readonly GatedGroup[] = [
         to: "/catalog/products",
         icon: "product",
         canRead: canReadCatalog,
+      },
+      // RT-1509: the import wizard opens from the catalog list, so the sidebar
+      // omits it; navigator-only so Ctrl K finds it. Owner / tenant_admin only.
+      {
+        label: "catalogImport.nav.link",
+        to: "/catalog/import",
+        icon: "product",
+        canRead: canImportCatalog,
+        navigatorOnly: true,
       },
       {
         label: "shell.nav.unknownItems",
@@ -210,14 +263,38 @@ const PLATFORM_RETURN: NavGroup = {
   entries: [{ label: "platform.nav.tenants", to: "/platform/tenants", icon: "tenant" }],
 };
 
-/** The tenant shell's groups for a role; a group left with no entry is dropped. */
-export function tenantNav(role: string | null | undefined, signals: NavSignals = {}): NavGroup[] {
+/** Builds the groups, with or without the navigator-only destinations. */
+function buildGroups(
+  role: string | null | undefined,
+  signals: NavSignals,
+  includeNavigatorOnly: boolean,
+): NavGroup[] {
   const groups = TENANT_NAV.map((group) => ({
     id: group.id,
     heading: group.heading,
     entries: group.entries
-      .filter((entry) => entry.canRead(role, signals))
-      .map(({ canRead: _gate, ...entry }) => entry),
+      .filter(
+        (entry) => entry.canRead(role, signals) && (includeNavigatorOnly || !entry.navigatorOnly),
+      )
+      .map(({ canRead: _gate, navigatorOnly: _only, ...entry }) => entry),
   })).filter((group) => group.entries.length > 0);
   return signals.platformAdmin ? [...groups, PLATFORM_RETURN] : groups;
+}
+
+/** The tenant shell's groups for a role; a group left with no entry is dropped. */
+export function tenantNav(role: string | null | undefined, signals: NavSignals = {}): NavGroup[] {
+  return buildGroups(role, signals, false);
+}
+
+/**
+ * The Ctrl K navigator's groups for a role: the sidebar's entries plus the
+ * navigator-only destinations, in group order. The sidebar and drawer use
+ * `tenantNav`; the navigator uses this, so a built screen the sidebar
+ * deliberately omits is still findable by name.
+ */
+export function navigatorNav(
+  role: string | null | undefined,
+  signals: NavSignals = {},
+): NavGroup[] {
+  return buildGroups(role, signals, true);
 }
