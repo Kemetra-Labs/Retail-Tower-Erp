@@ -31,6 +31,17 @@ BEGIN
       missing := missing || format('%s is not a member of pricing_projection_writer (database-roles.md, Before migration 0132)', current_user);
     END IF;
   END IF;
+  -- 0132 also refuses these states of an existing role, whoever migrates.
+  IF EXISTS (SELECT 1 FROM pg_roles WHERE rolname = 'pricing_projection_writer'
+              AND (rolcanlogin OR rolsuper OR rolbypassrls OR rolcreaterole)) THEN
+    missing := missing || 'pricing_projection_writer must be NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE (Before migration 0132)'::text;
+  END IF;
+  IF EXISTS (SELECT 1 FROM pg_auth_members m JOIN pg_roles r ON r.oid = m.roleid
+              WHERE r.rolname = 'pricing_projection_writer'
+                AND m.member <> (SELECT oid FROM pg_roles WHERE rolname = current_user)
+                AND (m.inherit_option OR m.set_option)) THEN
+    missing := missing || format('a role other than %s can act as pricing_projection_writer (Before migration 0132)', current_user);
+  END IF;
 
   IF cardinality(missing) > 0 THEN
     RAISE EXCEPTION 'release prerequisites missing: %', array_to_string(missing, '; ')

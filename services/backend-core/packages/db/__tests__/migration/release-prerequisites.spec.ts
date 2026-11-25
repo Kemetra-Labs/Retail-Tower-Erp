@@ -98,4 +98,27 @@ describe("release-prerequisites.sql (RT-1603)", () => {
     await guard().admin.query(`GRANT ${WRITER} TO ${OWNER}`);
     expect(await check(OWNER)).toEqual({ code: null, message: "" });
   });
+
+  // The role states 0132 itself refuses, so they stop the release before the host changes too.
+  it("refuses a role that can log in, and passes again once it is NOLOGIN", async () => {
+    if (skip()) return;
+    await guard().admin.query(`ALTER ROLE ${WRITER} LOGIN`);
+    const r = await check(OWNER);
+    expect(r.code).toBe("55000");
+    expect(r.message).toContain("pricing_projection_writer must be NOLOGIN NOSUPERUSER NOBYPASSRLS NOCREATEROLE");
+    await guard().admin.query(`ALTER ROLE ${WRITER} NOLOGIN`);
+    expect(await check(OWNER)).toEqual({ code: null, message: "" });
+  });
+
+  it("refuses while another role can act as the bypass role", async () => {
+    if (skip()) return;
+    const other = "rt1603_other_role";
+    await guard().admin.query(`CREATE ROLE ${other} NOLOGIN`);
+    await guard().admin.query(`GRANT ${WRITER} TO ${other}`);
+    const r = await check(OWNER);
+    expect(r.code).toBe("55000");
+    expect(r.message).toContain(`a role other than ${OWNER} can act as pricing_projection_writer`);
+    await guard().admin.query(`REVOKE ${WRITER} FROM ${other}`);
+    expect(await check(OWNER)).toEqual({ code: null, message: "" });
+  });
 });

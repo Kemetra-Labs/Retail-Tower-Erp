@@ -46,7 +46,7 @@ SPECS = {
 # every gate is in here, with no swap and no revert, left lab-01 and lab-03 as they were. The Backend-Core
 # backup document only writes a dump on lab-02, so its gates are listed with the Backend-Core ones.
 SAFE_GATES = {
-    "backend": {"inputs", "lock", "G-Host", "G-Backup", "fetch", "G-Prereq", "backup-config",
+    "backend": {"inputs", "lock", "G-Host", "G-Backup", "fetch", "G-Prereq", "grants-env", "release-prerequisites", "backup-config",
                 "backup-preconditions", "backup-dump", "backup-restore-rehearsal", "preconditions", "dump", "restore-rehearsal"},
     "console": {"inputs", "lock", "G-Host", "fetch", "check"},
     "erp": {"inputs", "lock", "check"},

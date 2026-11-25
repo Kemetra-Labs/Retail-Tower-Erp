@@ -364,7 +364,8 @@ mainSteps:
           }
           # Read-only, before anything on this host changes: what the TARGET bundle needs that only the
           # owner can provide. The checks come from the bundle, so a later prerequisite needs no new
-          # version of this document. A bundle from before RT-1603 has neither check: `skip`, not a pass.
+          # version of this document. A bundle from before RT-1603 has neither check: each reports `skip`
+          # (nothing was checked), and the gate's own pass line then only means that it ran.
           # 1. Every env key its grants step needs, in the same container and env file as that step.
           if grep -qF -- '--check-env)' "$TGT_DIR/deploy/apply-domain-grants.sh"; then
             psql_client bash deploy/apply-domain-grants.sh --check-env || stop "grants-env-incomplete"
