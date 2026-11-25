@@ -45,7 +45,8 @@ interface ScanRow extends ResolvedStoreColumns {
   readonly low_stock_level: string | null;
 }
 
-const PAGE_SQL = `
+/** The scan of the tenant's products at store $2 that pass `filter` (on `tp`), in product id order. */
+const scanSql = (filter: string): string => `
   SELECT tp.id AS product_id,
          tp.retired_at AS retired_at,
          ${RESOLVED_STORE_COLUMNS_SQL},
@@ -60,9 +61,19 @@ const PAGE_SQL = `
     FROM tenant_products tp
     ${storeOverrideJoinSql("$2")}
    WHERE tp.tenant_id = $1
-     AND ($3::uuid IS NULL OR tp.id > $3::uuid)
-   ORDER BY tp.id
+     AND ${filter}
+   ORDER BY tp.id`;
+
+const PAGE_SQL = `${scanSql("($3::uuid IS NULL OR tp.id > $3::uuid)")}
    LIMIT $4`;
+
+/** RT-1600: the same scan, restricted to named products. */
+const BY_IDS_SQL = scanSql("tp.id = ANY($3::uuid[])");
+
+const sellableOf = (rows: readonly ScanRow[]): SellableStoreProduct[] =>
+  rows
+    .filter((row) => classifyResolvedSellability(row).kind === "sellable")
+    .map((row) => ({ productId: row.product_id, lowStockLevel: row.low_stock_level }));
 
 /** Scan `limit` products after `afterProductId` (null = from the start) and keep the sellable ones. */
 export async function readStoreSellablePage(
@@ -73,12 +84,24 @@ export async function readStoreSellablePage(
   // Over-fetch by one: the extra row only says whether another page follows.
   const result = await client.query<ScanRow>(PAGE_SQL, [input.tenantId, input.storeId, input.afterProductId, input.limit + 1]);
   const scanned = result.rows.slice(0, input.limit);
-  const items = scanned
-    .filter((row) => classifyResolvedSellability(row).kind === "sellable")
-    .map((row) => ({ productId: row.product_id, lowStockLevel: row.low_stock_level }));
   return {
-    items,
+    items: sellableOf(scanned),
     lastScannedProductId: scanned.at(-1)?.product_id ?? null,
     hasMore: result.rows.length > input.limit,
   };
+}
+
+/**
+ * RT-1600: which of `productIds` the store sells, with each one's low-stock level: the page's product set and level
+ * rule, for a caller that needs a few named products (the W9 redistribution accept re-check) rather than the whole
+ * catalogue. Pins `app.current_store` like the page read.
+ */
+export async function readStoreSellableProducts(
+  client: PoolClient,
+  input: { readonly tenantId: string; readonly storeId: string; readonly productIds: readonly string[] },
+): Promise<SellableStoreProduct[]> {
+  if (input.productIds.length === 0) return [];
+  await pinOverrideStore(client, input.storeId);
+  const result = await client.query<ScanRow>(BY_IDS_SQL, [input.tenantId, input.storeId, input.productIds]);
+  return sellableOf(result.rows);
 }

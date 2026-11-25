@@ -156,6 +156,30 @@ export async function resolvePosition(
  * outside this slice's allowed_files), so it is a documented follow-up, not
  * silently reached into here.
  */
+/** The order that makes a store's FIRST movement of a product the one that establishes its stocking unit (FR-022). */
+const ESTABLISHING_MOVEMENT_ORDER = 'received_at ASC, id ASC';
+
+/**
+ * RT-1600: the established stocking unit of every (store, product) pair among `storeIds` x `productIds` that has one,
+ * by the same rule as `assertUnitMatchesEstablished` (the unit of the first movement), in one statement.
+ */
+export async function readEstablishedUnits(
+  client: PoolClient,
+  storeIds: readonly string[],
+  productIds: readonly string[],
+): Promise<{ readonly storeId: string; readonly productId: string; readonly unit: string }[]> {
+  if (storeIds.length === 0 || productIds.length === 0) return [];
+  const r = await client.query<{ store_id: string; product_id: string; stocking_unit: string }>(
+    `SELECT DISTINCT ON (store_id, tenant_product_ref)
+            store_id::text AS store_id, tenant_product_ref::text AS product_id, stocking_unit
+       FROM stock_movements
+      WHERE store_id = ANY($1::uuid[]) AND tenant_product_ref = ANY($2::uuid[])
+      ORDER BY store_id, tenant_product_ref, ${ESTABLISHING_MOVEMENT_ORDER}`,
+    [storeIds, productIds],
+  );
+  return r.rows.map((x) => ({ storeId: x.store_id, productId: x.product_id, unit: x.stocking_unit }));
+}
+
 export async function assertUnitMatchesEstablished(
   client: PoolClient,
   storeId: string,
@@ -165,7 +189,7 @@ export async function assertUnitMatchesEstablished(
   const r = await client.query<{ stocking_unit: string }>(
     `SELECT stocking_unit FROM stock_movements
       WHERE store_id = $1 AND tenant_product_ref = $2
-      ORDER BY received_at ASC, id ASC
+      ORDER BY ${ESTABLISHING_MOVEMENT_ORDER}
       LIMIT 1`,
     [storeId, tenantProductRef],
   );

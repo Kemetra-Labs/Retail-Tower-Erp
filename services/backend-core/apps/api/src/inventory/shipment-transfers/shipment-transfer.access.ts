@@ -57,14 +57,22 @@ export function toHttp(err: unknown): unknown {
 /** V1: a store's legal entity is its tenant (see `assertSameLegalEntity`). */
 export const tenantOnlyLegalEntity = (tenantId: string): LegalEntityOf => () => tenantId;
 
-/** Dark by default: until the tenant is switched on, every operation is the non-disclosing 404. */
-export async function assertShipmentTransfersEnabled(client: PoolClient, tenantId: string): Promise<void> {
+/**
+ * Whether the tenant's shipment Transfers are switched on, read under the settings' shared advisory lock (so a
+ * concurrent switch is seen whole). RT-1600: the W9 redistribution accept reads it as its live-phase condition.
+ */
+export async function shipmentTransfersEnabled(client: PoolClient, tenantId: string): Promise<boolean> {
   await client.query(`SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`, [tenantId]);
   const r = await client.query<{ on: boolean }>(
     `SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
     [tenantId],
   );
-  if (r.rows[0]?.on !== true) throw new NotFoundException('Not Found');
+  return r.rows[0]?.on === true;
+}
+
+/** Dark by default: until the tenant is switched on, every operation is the non-disclosing 404. */
+export async function assertShipmentTransfersEnabled(client: PoolClient, tenantId: string): Promise<void> {
+  if (!(await shipmentTransfersEnabled(client, tenantId))) throw new NotFoundException('Not Found');
 }
 
 /** The caller's role and scope in the tenant; a non-member is the non-disclosing 404. */
