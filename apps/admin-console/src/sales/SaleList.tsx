@@ -15,6 +15,13 @@ import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
  * RT-1009 (v4.0): the band's facts are the list's scope and period only, as
  * the served page echoes them (`storeRef`, `from`/`to`, `asOf`); no count or
  * net, which the page does not serve. The results sit in one v4 panel.
+ *
+ * Modern concept 2/6: the smart insight sits at the top of the page (rule 4,
+ * `SalesInsight.tsx`, computed from the rows already loaded) and the table
+ * rows breathe (`sales.css`, rule 1). The columns, the filters and the one
+ * header action are unchanged: the table already shows only the seven
+ * essential columns, and the four status filters already sit behind the
+ * filter bar's extra toggle — there was nothing to cut.
  */
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
@@ -22,6 +29,7 @@ import { SaleFilterBar } from "./SaleFilterBar";
 import { Unavailable } from "./SalePager";
 import { BusinessDateRange } from "./SaleParts";
 import { QueryPrompt, Results } from "./SaleResults";
+import { SalesInsight } from "./SalesInsight";
 import {
   type FilterErrors,
   type SaleFilters,
@@ -189,6 +197,7 @@ export function SaleList(): React.JSX.Element {
   }
   return (
     <Shell scope={scope} facts={model.query ? facts : undefined}>
+      <SalesInsight list={list} role={scope.role} />
       <SaleFilterBar
         applied={model.filters}
         stores={directory.stores}

@@ -205,6 +205,43 @@
   margin: 0;
 }
 
+/* ---- Modern concept 2/6: the smart insight and breathing rows --------------
+ * The insight is the Overview insight's shape in this list's own class: a
+ * panel with the action-fill strip at the inline start (rule 4). The rows
+ * breathe: 24px vertical cell padding instead of the shared table's 16px,
+ * scoped to this list only so no other table moves; the header keeps its
+ * compact padding. */
+.sales-insight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-action-fill);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+}
+.sales-insight__body {
+  flex: 1;
+  min-inline-size: 200px;
+}
+.sales-insight__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.sales-insight__text {
+  margin: 0;
+}
+.sales-insight__cta {
+  white-space: nowrap;
+}
+.sale-results .data-table__row :is(td, th) {
+  padding-block: var(--space-5);
+}
+
 /* Forced colours: no shadow, tints or strips; system colours carry the split. */
 @media (forced-colors: active) {
   .surface--v4 .section-panel {
