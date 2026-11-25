@@ -7,6 +7,7 @@
   review records "would accept" / "would reject" per line; a live accept re-checks every line in one transaction,
   drops or reduces it with a reason and creates W3 draft Transfers only (never approves, reserves or posts). Migration
   `0134_redistribution_proposals` (two tables, RLS ENABLE + FORCE, composite tenant keys) with its deploy step
-  `docs/operations/sql/redistribution-proposals-domain-grants.sql`. Dark by default: owner and tenant_admin of a tenant
-  on `REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST` or `REDISTRIBUTION_LIVE_TENANT_ALLOWLIST` only (accept also needs W3
-  shipment transfers on); every other caller gets the non-disclosing 404.
+  `docs/operations/sql/redistribution-proposals-domain-grants.sql`. Dark by default: owner and tenant_admin with
+  tenant-wide store access, of a tenant on `REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST` or
+  `REDISTRIBUTION_LIVE_TENANT_ALLOWLIST` only (accept also needs W3 shipment transfers on); every other caller gets
+  the non-disclosing 404 (a session platform admin is admitted, as on every console operation).

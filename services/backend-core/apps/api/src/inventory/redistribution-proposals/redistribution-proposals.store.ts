@@ -1,6 +1,7 @@
 /**
  * RT-1600 — the SQL of the W9 redistribution proposals (migration 0134), on the caller's tenant-scoped client (RLS FORCE
- * on both tables). Nothing here opens a transaction or decides a rule: the service does.
+ * on both tables). Nothing here opens a transaction or decides a rule: the service does. The W3 reads (established
+ * unit, shipment-transfers switch) are W3's own helpers, not copies.
  *
  * Expiry is computed on read (no sweep): a non-terminal proposal past `expires_at` is REPORTED `expired`. Only a later
  * compute stores `expired` on it (`retireLiveProposal`), so the one-live-proposal index frees for the new one.
@@ -88,9 +89,13 @@ export async function lockTenantProposals(client: PoolClient, tenantId: string):
 /**
  * Retire the tenant's live proposal, if any, before a compute stores a new one: past its expiry it becomes `expired`
  * (never `superseded`); otherwise `superseded`, naming `supersededBy` (null when the compute stored nothing). Returns
- * the id of the proposal it superseded, or null.
+ * what happened to which proposal, or null when there was none.
  */
-export async function retireLiveProposal(client: PoolClient, now: Date, supersededBy: string | null): Promise<string | null> {
+export async function retireLiveProposal(
+  client: PoolClient,
+  now: Date,
+  supersededBy: string | null,
+): Promise<{ readonly id: string; readonly became: 'expired' | 'superseded' } | null> {
   const live = await client.query<{ id: string; expires_at: Date }>(
     `SELECT id, expires_at FROM redistribution_proposals WHERE state = ANY($1::text[]) FOR UPDATE`,
     [LIVE_STATES],
@@ -99,13 +104,13 @@ export async function retireLiveProposal(client: PoolClient, now: Date, supersed
   if (row === undefined) return null;
   if (row.expires_at.getTime() <= now.getTime()) {
     await client.query(`UPDATE redistribution_proposals SET state = 'expired', updated_at = $2 WHERE id = $1`, [row.id, now]);
-    return null;
+    return { id: row.id, became: 'expired' };
   }
   await client.query(
     `UPDATE redistribution_proposals SET state = 'superseded', decided_at = $2, superseded_by = $3, updated_at = $2 WHERE id = $1`,
     [row.id, now, supersededBy],
   );
-  return row.id;
+  return { id: row.id, became: 'superseded' };
 }
 
 export interface NewProposal {
@@ -278,31 +283,8 @@ export async function listProposals(
   return { rows, nextCursor };
 }
 
-// ---- Reads of the current state (inventory tables only) --------------------------------------------------------------
-
-/** cellKey-ready rows: the unit of each store's FIRST movement of each product (the W3 established-unit rule). */
-export async function readEstablishedUnits(
-  client: PoolClient,
-  storeIds: readonly string[],
-  productIds: readonly string[],
-): Promise<{ storeId: string; productId: string; unit: string }[]> {
-  if (storeIds.length === 0 || productIds.length === 0) return [];
-  const r = await client.query<{ store_id: string; product_id: string; stocking_unit: string }>(
-    `SELECT DISTINCT ON (store_id, tenant_product_ref)
-            store_id::text AS store_id, tenant_product_ref::text AS product_id, stocking_unit
-       FROM stock_movements
-      WHERE store_id = ANY($1::uuid[]) AND tenant_product_ref = ANY($2::uuid[])
-      ORDER BY store_id, tenant_product_ref, received_at ASC, id ASC`,
-    [storeIds, productIds],
-  );
-  return r.rows.map((x) => ({ storeId: x.store_id, productId: x.product_id, unit: x.stocking_unit }));
-}
-
-/** Whether W3 shipment transfers are activated for the tenant (the live phase also needs it). */
-export async function shipmentTransfersOn(client: PoolClient, tenantId: string): Promise<boolean> {
-  const r = await client.query<{ on: boolean }>(
-    `SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
-    [tenantId],
-  );
-  return r.rows[0]?.on === true;
+/** The database clock of the caller's transaction (heartbeats are stamped with it, so their age is measured on it). */
+export async function transactionNow(client: PoolClient): Promise<Date> {
+  const r = await client.query<{ now: Date }>(`SELECT now() AS now`);
+  return r.rows[0]!.now;
 }

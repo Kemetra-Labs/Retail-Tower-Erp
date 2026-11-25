@@ -12,8 +12,10 @@
  *     listed line gets its outcome and its Transfers exist, or nothing is written.
  *   - reject: closes the proposal with a reason.
  *
- * Every command runs in one `runWithTenantContext` transaction under the tenant's proposal advisory lock, so computes
- * and commands of one tenant serialise. Expiry is computed on read (no sweep): a live proposal past `expiresAt` is
+ * Every operation needs tenant-wide store access (a store-scoped owner or tenant_admin gets the non-disclosing 404;
+ * `redistribution-scope.ts`). Every command runs in one `runWithTenantContext` transaction under the tenant's proposal
+ * advisory lock, so computes and commands of one tenant serialise. Audit actions: `create` on a stored proposal,
+ * `supersede` / `expire` on the proposal a compute retires, `review`, `accept`, `reject`. Expiry is computed on read (no sweep): a live proposal past `expiresAt` is
  * reported `expired`, and every command on it is 409 `proposal_expired` before any other 409.
  */
 import {
@@ -29,14 +31,17 @@ import { runWithTenantContext } from '@data-pulse-2/db';
 import { newId, type Logger } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
-import { trackingModesOfProducts } from '../../catalog';
+import { readStoreSellableProducts, trackingModesOfProducts } from '../../catalog';
 import { ROOT_LOGGER } from '../../common/logging.interceptor';
-import { MembershipRepository } from '../../context';
+import { MembershipRepository, callerStoreScope } from '../../context';
 import { PG_POOL } from '../../database';
 import { readStoreDeviceFacts } from '../../device-health';
+import { composeStoreAvailabilityItem } from '../availability/availability.rules';
+import { readAvailabilityFactsOfPage } from '../availability/availability.snapshot.query';
 import { readTenantAvailabilitySnapshot, type TenantAvailabilitySnapshot } from '../availability/tenant-availability.snapshot';
 import { authorizeDestinationStoreAccess } from '../destination-store-access';
 import { INVENTORY_STORE_DIRECTORY, type InventoryStoreDirectory } from '../inventory-store-directory.port';
+import { readEstablishedUnits } from '../inventory-write.helpers';
 import { writeAudit } from '../position-events/position-event.writer';
 import { classifyStoreFreshness } from '../redistribution/freshness';
 import {
@@ -49,12 +54,19 @@ import { proposeRedistribution } from '../redistribution/propose';
 import { parseQty } from '../redistribution/quantity';
 import type { BufferPolicyV1, RedistributionResultV1 } from '../redistribution/types';
 import { readOpenTransferQuantities } from '../shipment-transfers/open-transfer-quantities';
-import { readAccess, requireStoreAuthority, toHttp, type TransferCaller } from '../shipment-transfers/shipment-transfer.access';
+import {
+  readAccess,
+  requireStoreAuthority,
+  shipmentTransfersEnabled,
+  toHttp,
+  type TransferCaller,
+} from '../shipment-transfers/shipment-transfer.access';
 import { createDraftTransfer } from '../shipment-transfers/shipment-transfer.draft';
 import { groupIntoTransfers, planAccept, type AcceptDecision, type AcceptFacts, type AcceptLine } from './redistribution-accept.plan';
 import { REDISTRIBUTION_ALLOWLIST, isLiveListed, type RedistributionAllowlist } from './redistribution-allowlist.config';
 import { buildRedistributionProblem, cellKey, type BuiltProblem, type ProblemReads } from './redistribution-problem';
 import { acceptOutcomeOf, proposalBody, proposalSummary } from './redistribution-proposals.projection';
+import { hasTenantWideAccess } from './redistribution-scope';
 import {
   effectiveState,
   insertProposal,
@@ -62,12 +74,11 @@ import {
   loadLines,
   loadProposal,
   lockTenantProposals,
-  readEstablishedUnits,
   recordOutcomes,
   recordReviews,
   retireLiveProposal,
   setProposalState,
-  shipmentTransfersOn,
+  transactionNow,
   type LineRow,
   type ProposalRow,
 } from './redistribution-proposals.store';
@@ -143,6 +154,9 @@ function sumByCell<T extends { storeId: string; productId: string }>(rows: reado
 
 const unique = (values: readonly string[]): string[] => [...new Set(values)];
 
+/** A product with no movement and no reservation (the facts read returns every requested id; this is a fallback). */
+const NO_FACTS = { primarySellable: '0.0000', expiredTrackedSellable: '0.0000', activeReserved: '0.0000' } as const;
+
 @Injectable()
 export class RedistributionProposalsService {
   /** The clock (epoch ms). A spec may pin it. */
@@ -156,10 +170,15 @@ export class RedistributionProposalsService {
     @Optional() @Inject(ROOT_LOGGER) private readonly logger?: Logger,
   ) {}
 
-  /** One tenant transaction; a command also takes the tenant's proposal lock. Rule errors map to the envelope. */
+  /**
+   * One tenant transaction; a command also takes the tenant's proposal lock. Before any read, the caller's store
+   * scope must be tenant-wide (`redistribution-scope.ts`), else the non-disclosing 404. Rule errors map to the envelope.
+   */
   private async inTenant<T>(caller: RedistributionCaller, command: boolean, fn: (client: PoolClient) => Promise<T>): Promise<T> {
     try {
       return await runWithTenantContext(this.pool, { tenantId: caller.tenantId, isPlatformAdmin: false }, async (client) => {
+        const scope = await callerStoreScope(client, this.memberships, { tenantId: caller.tenantId, context: caller.context });
+        if (!hasTenantWideAccess(caller.context, scope)) throw notFound();
         if (command) await lockTenantProposals(client, caller.tenantId);
         return await fn(client);
       });
@@ -170,7 +189,7 @@ export class RedistributionProposalsService {
 
   /** The tenant's phase now: live listed AND W3 shipment transfers activated. */
   private async acceptEnabled(client: PoolClient, tenantId: string): Promise<boolean> {
-    return isLiveListed(this.allowlist, tenantId) && (await shipmentTransfersOn(client, tenantId));
+    return isLiveListed(this.allowlist, tenantId) && (await shipmentTransfersEnabled(client, tenantId));
   }
 
   private async body(client: PoolClient, caller: RedistributionCaller, id: string, nowMs: number): Promise<Body> {
@@ -208,6 +227,8 @@ export class RedistributionProposalsService {
         this.logRun(caller, { status: 'refused_too_large', startedMs });
         throw refusedCompute('refused_too_large');
       }
+      // The snapshot reads live stores only; a scoped store that went away since the check above fails closed (400).
+      if (snapshot.excludedStores.length > 0) throw invalid('storeIds must name active stores of the tenant.');
       const built = buildRedistributionProblem(await this.problemReads(client, caller.tenantId, snapshot, now));
       const result = proposeRedistribution(built.problem, { now: this.clock });
       return await this.storeResult(client, caller, now, built, result, startedMs);
@@ -231,9 +252,10 @@ export class RedistributionProposalsService {
   ): Promise<ProblemReads> {
     const storeIds = snapshot.stores.map((s) => s.storeId);
     const productIds = unique(snapshot.rows.map((r) => r.productId));
+    const dbNow = await transactionNow(client);
     const stores = [];
     for (const s of snapshot.stores) {
-      stores.push({ storeId: s.storeId, readAt: s.readAt, exclusion: await this.freshness(client, tenantId, s.storeId, now) });
+      stores.push({ storeId: s.storeId, readAt: s.readAt, exclusion: await this.freshness(client, tenantId, s.storeId, dbNow) });
     }
     return {
       tenantId,
@@ -241,7 +263,6 @@ export class RedistributionProposalsService {
       limits: DEFAULT_LIMITS_V1,
       buffer: DEFAULT_BUFFER_POLICY_V1,
       stores,
-      inactiveStoreIds: snapshot.excludedStores.map((s) => s.storeId),
       rows: snapshot.rows,
       trackingModes: productIds.length === 0 ? new Map() : await trackingModesOfProducts(client, productIds),
       establishedUnits: await this.establishedUnits(client, storeIds, productIds),
@@ -249,9 +270,25 @@ export class RedistributionProposalsService {
     };
   }
 
-  private async freshness(client: PoolClient, tenantId: string, storeId: string, now: Date): Promise<ReturnType<typeof classifyStoreFreshness>> {
+  /** The freshness gate of one store; `dbNow` is the database clock the heartbeats are stamped with. */
+  private async freshness(client: PoolClient, tenantId: string, storeId: string, dbNow: Date): Promise<ReturnType<typeof classifyStoreFreshness>> {
     const devices = await readStoreDeviceFacts(client, { tenantId, storeId });
-    return classifyStoreFreshness(devices, now.getTime(), HEARTBEAT_STALE_AFTER_MS);
+    return classifyStoreFreshness(devices, dbNow.getTime(), HEARTBEAT_STALE_AFTER_MS);
+  }
+
+  /**
+   * Retire the live proposal and audit it: `supersede` (naming the new proposal, or null for nothing_to_move) or
+   * `expire` (past its expiry). Returns the id of the proposal it superseded, or null.
+   */
+  private async retire(client: PoolClient, caller: RedistributionCaller, now: Date, replacement: string | null): Promise<string | null> {
+    const retired = await retireLiveProposal(client, now, replacement);
+    if (retired === null) return null;
+    if (retired.became === 'expired') {
+      await this.audit(client, caller, 'expire', retired.id, {});
+      return null;
+    }
+    await this.audit(client, caller, 'supersede', retired.id, { supersededBy: replacement });
+    return retired.id;
   }
 
   private async establishedUnits(client: PoolClient, storeIds: readonly string[], productIds: readonly string[]): Promise<Map<string, string>> {
@@ -275,16 +312,13 @@ export class RedistributionProposalsService {
       throw refusedCompute(result.status);
     }
     if (result.status === 'nothing_to_move' || result.objective === null) {
-      const superseded = await retireLiveProposal(client, now, null);
-      if (superseded !== null) {
-        await this.audit(client, caller, 'create', superseded, { result: 'nothing_to_move', supersededProposalId: superseded });
-      }
+      const superseded = await this.retire(client, caller, now, null);
       this.logRun(caller, { status: 'nothing_to_move', startedMs, built });
       const body = { result: 'nothing_to_move', supersededProposalId: superseded, rule: result.rule, computedAt: now.toISOString(), stores: built.stores, warnings };
       return { status: 200, body };
     }
     const id = newId();
-    const superseded = await retireLiveProposal(client, now, id);
+    const superseded = await this.retire(client, caller, now, id);
     await insertProposal(client, {
       id,
       tenantId: caller.tenantId,
@@ -398,12 +432,12 @@ export class RedistributionProposalsService {
     return await this.inTenant(caller, true, async (client) => {
       const now = new Date(this.clock());
       // The live phase also needs W3 shipment transfers on; otherwise the non-disclosing 404 (RT-1599 PHASES).
-      if (!(await shipmentTransfersOn(client, caller.tenantId))) throw notFound();
+      if (!(await shipmentTransfersEnabled(client, caller.tenantId))) throw notFound();
       const p = await this.commandable(client, id, now.getTime());
       const all = await loadLines(client, p.id);
       const listed = listedLines(all, lineIds);
       assertUndecided(listed);
-      const facts = await this.acceptFacts(client, caller, listed, p.buffer, now);
+      const facts = await this.acceptFacts(client, caller, listed, p.buffer);
       const decisions = planAccept(listed.map(toAcceptLine), facts);
       if (decisions.every((d) => d.outcome === 'dropped')) {
         throw conflict('proposal_stale', 'The proposal no longer matches current stock.');
@@ -441,25 +475,19 @@ export class RedistributionProposalsService {
     caller: RedistributionCaller,
     lines: readonly LineRow[],
     buffer: BufferPolicyV1,
-    now: Date,
   ): Promise<AcceptFacts> {
     const storeIds = unique(lines.flatMap((l) => [l.source_store_id, l.destination_store_id]));
     const productIds = unique(lines.map((l) => l.product_id));
-    const snapshot = await readTenantAvailabilitySnapshot(
-      client,
-      { tenantId: caller.tenantId, storeIds, limits: { maxStores: DEFAULT_LIMITS_V1.maxStores, maxRows: DEFAULT_LIMITS_V1.maxRows } },
-      { stores: this.directory },
-    );
-    if (snapshot.kind === 'refused_too_large') throw conflict('proposal_stale', 'The proposal no longer matches current stock.');
+    const dbNow = await transactionNow(client);
     const freshStores = new Set<string>();
     for (const storeId of unique(lines.map((l) => l.source_store_id))) {
-      if ((await this.freshness(client, caller.tenantId, storeId, now)) === null) freshStores.add(storeId);
+      if ((await this.freshness(client, caller.tenantId, storeId, dbNow)) === null) freshStores.add(storeId);
     }
     const open = await readOpenTransferQuantities(client, { storeIds });
     const access = await readAccess(client, this.memberships, caller);
     return {
       freshStores,
-      rows: new Map(snapshot.rows.map((r) => [cellKey(r.storeId, r.productId), r] as const)),
+      rows: await this.currentRows(client, caller.tenantId, lines),
       openOutbound: sumByCell(open, (r) => r.outboundDraft),
       openInbound: sumByCell(open, (r) => r.inbound),
       trackingModes: await trackingModesOfProducts(client, productIds),
@@ -475,6 +503,41 @@ export class RedistributionProposalsService {
       },
       buffer,
     };
+  }
+
+  /**
+   * The current Available-to-Sell and reorder level of the LISTED products at their stores, and only those: the same
+   * sellability rule (`readStoreSellableProducts`), facts (`readAvailabilityFactsOfPage`) and formula
+   * (`composeStoreAvailabilityItem`) as the W3 snapshot, so a catalogue past the snapshot's row limit cannot make an
+   * accept stale. A store that is no longer live, or a product no longer sellable there, has no row
+   * (`product_not_sellable`). `app.current_store` is left as it was found, as the snapshot does.
+   */
+  private async currentRows(
+    client: PoolClient,
+    tenantId: string,
+    lines: readonly LineRow[],
+  ): Promise<Map<string, { readonly availableToSell: string; readonly reorderLevel: string | null }>> {
+    const productsAt = new Map<string, Set<string>>();
+    for (const l of lines) {
+      for (const storeId of [l.source_store_id, l.destination_store_id]) {
+        productsAt.set(storeId, (productsAt.get(storeId) ?? new Set<string>()).add(l.product_id));
+      }
+    }
+    const known = await this.directory.liveAndNamedStores(client, tenantId, [...productsAt.keys()]);
+    const live = new Set(known.filter((s) => s.live).map((s) => s.id.toLowerCase()));
+    const pinned = await client.query<{ store: string | null }>(`SELECT current_setting('app.current_store', true) AS store`);
+    const rows = new Map<string, { readonly availableToSell: string; readonly reorderLevel: string | null }>();
+    for (const [storeId, ids] of productsAt) {
+      if (!live.has(storeId.toLowerCase())) continue;
+      const sellable = await readStoreSellableProducts(client, { tenantId, storeId, productIds: [...ids] });
+      const facts = await readAvailabilityFactsOfPage(client, { storeId, productIds: sellable.map((p) => p.productId) });
+      for (const p of sellable) {
+        const item = composeStoreAvailabilityItem(p.productId, facts.byProduct.get(p.productId) ?? NO_FACTS, p.lowStockLevel);
+        rows.set(cellKey(storeId, p.productId), { availableToSell: item.availableToSell, reorderLevel: p.lowStockLevel });
+      }
+    }
+    await client.query(`SELECT set_config('app.current_store', $1, true)`, [pinned.rows[0]?.store ?? '']);
+    return rows;
   }
 
   /** One W3 draft Transfer per store pair and 100 lines, in this transaction; line id -> Transfer id. */

@@ -26,12 +26,18 @@ import type {
 /** The key of one store x product. */
 export const cellKey = (storeId: string, productId: string): string => `${storeId.toLowerCase()}\u0000${productId.toLowerCase()}`;
 
+/**
+ * A freshness exclusion. `inactive` never occurs here: the snapshot reads live stores only, and a compute scoped to a
+ * store that is not live is refused (400) before it, so every store of a proposal is live.
+ */
+type FreshnessExclusion = Exclude<SourceExclusion, 'inactive'>;
+
 /** One store as the proposal reports it (contract `RedistributionProposalStore`). */
 export interface ProposalStore {
   readonly storeId: string;
   readonly readAt: string;
   readonly eligibleAsSource: boolean;
-  readonly exclusion: SourceExclusion | null;
+  readonly exclusion: FreshnessExclusion | null;
 }
 
 interface OpenQuantity {
@@ -48,9 +54,7 @@ export interface ProblemReads {
   readonly limits: RedistributionLimitsV1;
   readonly buffer: BufferPolicyV1;
   /** The stores the snapshot read, with their read time and the freshness gate's verdict. */
-  readonly stores: readonly { readonly storeId: string; readonly readAt: string; readonly exclusion: SourceExclusion | null }[];
-  /** Requested stores the snapshot found not live: neither source nor destination. */
-  readonly inactiveStoreIds: readonly string[];
+  readonly stores: readonly { readonly storeId: string; readonly readAt: string; readonly exclusion: FreshnessExclusion | null }[];
   readonly rows: readonly {
     readonly storeId: string;
     readonly productId: string;
@@ -97,19 +101,7 @@ function productUnits(reads: ProblemReads): Map<string, Set<string>> {
 }
 
 function proposalStores(reads: ProblemReads): ProposalStore[] {
-  const read = reads.stores.map((s) => ({
-    storeId: s.storeId,
-    readAt: s.readAt,
-    eligibleAsSource: s.exclusion === null,
-    exclusion: s.exclusion,
-  }));
-  const inactive = reads.inactiveStoreIds.map((storeId) => ({
-    storeId,
-    readAt: reads.computedAt,
-    eligibleAsSource: false,
-    exclusion: 'inactive' as const,
-  }));
-  return [...read, ...inactive];
+  return reads.stores.map((s) => ({ storeId: s.storeId, readAt: s.readAt, eligibleAsSource: s.exclusion === null, exclusion: s.exclusion }));
 }
 
 export function buildRedistributionProblem(reads: ProblemReads): BuiltProblem {

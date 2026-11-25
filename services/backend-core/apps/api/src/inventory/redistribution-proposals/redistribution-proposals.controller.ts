@@ -11,7 +11,8 @@
  *
  * Guards, in order: the human cookie session, the tenant context, the role (owner / tenant_admin; any other role is
  * the non-disclosing 404, the `RolesGuard` default), then the dark-launch allowlists (`RedistributionPhaseGuard`: off
- * the shadow list, or off the live list for accept, is the same 404). All of them run before the idempotency
+ * the shadow list, or off the live list for accept, is the same 404). The service adds the store-scope gate: a
+ * store-scoped owner or tenant_admin is the same 404 (`redistribution-scope.ts`). The guards run before the idempotency
  * interceptor, so a refusal claims no key. Every command is `@Idempotent('required')`. Bodies are strict Zod DTOs;
  * tenant and actor come from the session, never the body.
  *

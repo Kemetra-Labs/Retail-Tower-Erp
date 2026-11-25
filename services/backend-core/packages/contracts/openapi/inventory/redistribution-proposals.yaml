@@ -18,9 +18,11 @@ info:
     shipment transfers in `draft`; it never approves, dispatches or receives one (the W3 transfer workflow owns those).
 
 
-    WHO. Owner or tenant_admin of the tenant. Every other role, another tenant's proposal, an unknown id, and a tenant
-    for which the feature is off all receive the same non-disclosing 404 `not_found`; the four are indistinguishable
-    by design. 403 is only `origin_rejected` (RT-430), on commands; reads never answer 403.
+    WHO. Owner or tenant_admin of the tenant whose store access covers every store of the tenant (a proposal reads
+    and moves stock across all of them). Every other role, an owner or tenant_admin whose access is limited to
+    specific stores, another tenant's proposal, an unknown id, and a tenant for which the feature is off all receive
+    the same non-disclosing 404 `not_found`; the cases are indistinguishable by design. A platform admin is admitted
+    as on every console operation. 403 is only `origin_rejected` (RT-430), on commands; reads never answer 403.
 
 
     PHASES. The feature ships dark. A tenant on the SHADOW allowlist may compute, list, read, review and reject:
@@ -1200,9 +1202,10 @@ components:
     NotFoundNonDisclosing:
       description: >
         404 `not_found`, non-disclosing: the proposal does not exist, belongs to another tenant, the caller's role
-        is not owner or tenant_admin, or the feature is off for the tenant (not on the shadow or live allowlist; for
-        accept, not on the live allowlist or W3 shipment transfers not activated). The cases are indistinguishable
-        by design.
+        is not owner or tenant_admin, the caller's store access does not cover every store of the tenant (a
+        store-scoped owner or tenant_admin), or the feature is off for the tenant (not on the shadow or live
+        allowlist; for accept, not on the live allowlist or W3 shipment transfers not activated). The cases are
+        indistinguishable by design. A platform admin is admitted as on every console operation.
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
