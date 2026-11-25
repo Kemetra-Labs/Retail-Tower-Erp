@@ -35,23 +35,14 @@ export const catalog: MessagesOf<typeof ar> = {
   "catalog.list.loadFailed": "Could not load items.",
   "catalog.list.sessionExpired": "Your session has expired. Sign in again.",
   "catalog.list.inlineError":
-    "The rest of the rows could not be loaded. The rows shown are from the last successful load.",
+    "The rest of the cards could not be loaded. The cards shown are from the last successful load.",
   "catalog.list.retry": "Retry",
   "catalog.list.cursorRejected":
     "The server did not accept the position of the next page. Start again from the first page.",
   "catalog.list.restart": "Start again",
   "catalog.list.loaded": "Loaded items: {count}",
   "catalog.list.loadMore": "Load more",
-  "catalog.list.col.item": "Item",
-  "catalog.list.col.status": "Status",
-  "catalog.list.col.price": "Price",
-  "catalog.list.col.sku": "SKU",
-  "catalog.list.col.barcode": "Barcode",
-  "catalog.list.col.category": "Category",
-  "catalog.list.col.availability": "Store availability",
-  "catalog.list.col.taxCategory": "Tax category",
-  "catalog.list.col.tracking": "Tracking",
-  "catalog.list.col.updatedAt": "Updated",
+  "catalog.list.cardMore": "More details",
 
   // --- Values ----------------------------------------------------------------
   "catalog.value.noPrice": "No price",
@@ -87,6 +78,7 @@ export const catalog: MessagesOf<typeof ar> = {
     "Matches a barcode, SKU or quick-sale code exactly, or part of the name. The text is sent exactly as typed.",
   "catalog.filter.status": "Status",
   "catalog.filter.category": "Category",
+  "catalog.filter.categoriesLabel": "Filter by category",
   "catalog.filter.categoryAll": "All categories",
   "catalog.filter.categoryLoading": "Loading…",
   "catalog.filter.categoryStale": "Unavailable category",

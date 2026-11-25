@@ -1,26 +1,37 @@
 /**
- * RT-765 list results (CAT-C1a, RT-752 AC 4): the table, its loading skeleton,
+ * RT-765 list results (CAT-C1a, RT-752 AC 4): the cards, their loading skeleton,
  * the error views and the empty states. Completeness is honest: only
  * `items: []` with `nextCursor: null` is "no items"; a short or empty page with
- * a cursor shows the rows so far and Load more. A 400 is a validation message,
+ * a cursor shows the cards so far and Load more. A 400 is a validation message,
  * never an empty list, and offers no Retry: the same query would be rejected
  * again. A 404 with a store in scope is a stale store, never "no items".
  *
- * The columns follow UX-10: Item, Status and Price must survive; SKU, Barcode,
- * Category (and, with a store in scope, Store availability) are contextual; tax
- * category, tracking and updated-at are metadata, dropped first when narrow
- * (`catalog.css`). Above 1100px numbers, codes and dates never wrap (RT-1236): the
- * item name takes the squeeze. Every value is the server's: no price or availability is
- * computed here.
+ * Modern concept 2/6 (Catalog): the dense table rows become cards — the name,
+ * status and price at a glance, the category and the primary codes under them.
+ * The metadata the table carried (tax category, tracking, updated-at) sits
+ * behind each card's details disclosure; the detail page still holds the full
+ * record. There is no product image in the contract
+ * (`ConsoleCatalogProductSummary` carries none), so the card's thumb is the
+ * first letter of the name — a visual anchor, never a picture of the item.
+ * The card's name is the link to the detail (the row's activation, as a link).
+ * The disclosure is a button with `aria-expanded`, like the filter bar's
+ * «فلاتر إضافية» toggle, not a native `<details>`: the content mounts only
+ * when open.
  *
- * RT-1010 (v4.0): every result state sits in one results panel. The rows open
- * the item, so they keep the ruled rows of a selectable table (§12.5).
+ * No smart insight line (rule 4) and no KPI strip (rule 3): the list is a
+ * keyset walk with no totals in the contract, so any count would describe only
+ * the loaded page and mislead; the loaded count stays where it was, in the
+ * pager. Every value is the server's: no price or availability is computed
+ * here.
+ *
+ * RT-1010 (v4.0): every result state sits in one results panel. The cards are
+ * section panels (§12.5), so they share the one resting elevation.
  */
 import { Banner } from "@/components/Banner";
-import { DataTable, type DataTableColumn } from "@/components/DataTable";
-import { DataTableSkeleton } from "@/components/DataTableSkeleton";
-import { DateTime, Money, type T, useT } from "@/i18n";
+import { DateTime, Money, useT } from "@/i18n";
 import type { CatalogProduct } from "@/lib/catalog-queries";
+import { useId, useState } from "react";
+import { Link } from "react-router";
 import { Notice, Pager, StoreStale, Unavailable } from "./CatalogPager";
 import { availabilityKey, statusBadgeClass, statusKey, trackingKey } from "./catalogLogic";
 import type { CatalogError, CatalogListState } from "./useCatalog";
@@ -41,7 +52,7 @@ function Price({
   storeInScope,
 }: Readonly<{ product: CatalogProduct; storeInScope: boolean }>): React.JSX.Element {
   const t = useT();
-  // With a store in scope the price is the store's. A row without its storeView
+  // With a store in scope the price is the store's. A card without its storeView
   // (the contract always sends one) shows no price rather than the tenant's.
   if (storeInScope && !product.storeView) return <>—</>;
   const money = storeInScope ? product.storeView?.effectivePrice : product.defaultPrice;
@@ -63,65 +74,126 @@ function Availability({ product }: Readonly<{ product: CatalogProduct }>): React
   );
 }
 
-function catalogColumns(t: T, storeInScope: boolean): DataTableColumn<CatalogProduct>[] {
-  const columns: DataTableColumn<CatalogProduct>[] = [
-    {
-      key: "item",
-      header: t("catalog.list.col.item"),
-      cell: (p) => (
-        <bdi className="catalog-item" dir="auto">
-          {p.name}
-        </bdi>
-      ),
-    },
-    {
-      key: "status",
-      header: t("catalog.list.col.status"),
-      cell: (p) => <span className={statusBadgeClass(p.status)}>{t(statusKey(p.status))}</span>,
-    },
-    {
-      key: "price",
-      header: t("catalog.list.col.price"),
-      cell: (p) => <Price product={p} storeInScope={storeInScope} />,
-    },
-    { key: "sku", header: t("catalog.list.col.sku"), cell: (p) => <Code value={p.primarySku} /> },
-    {
-      key: "barcode",
-      header: t("catalog.list.col.barcode"),
-      cell: (p) => <Code value={p.primaryBarcode} />,
-    },
-    {
-      key: "category",
-      header: t("catalog.list.col.category"),
-      cell: (p) => p.categoryName ?? t("catalog.value.noCategory"),
-    },
-  ];
-  if (storeInScope) {
-    columns.push({
-      key: "availability",
-      header: t("catalog.list.col.availability"),
-      cell: (p) => <Availability product={p} />,
-    });
-  }
-  // Metadata comes last: `catalog.css` drops the last three columns first.
-  columns.push(
-    {
-      key: "taxCategory",
-      header: t("catalog.list.col.taxCategory"),
-      cell: (p) => <Code value={p.taxCategory} />,
-    },
-    {
-      key: "tracking",
-      header: t("catalog.list.col.tracking"),
-      cell: (p) => t(trackingKey(p.trackingMode)),
-    },
-    {
-      key: "updatedAt",
-      header: t("catalog.list.col.updatedAt"),
-      cell: (p) => <DateTime value={p.updatedAt} className="catalog-nowrap" />,
-    },
+/**
+ * The codes a card shows, in the table's order: the primary SKU, then the
+ * primary barcode. Absent values are omitted, never "—": a card shows what
+ * the item has.
+ */
+function Codes({ product }: Readonly<{ product: CatalogProduct }>): React.JSX.Element | null {
+  const codes = [product.primarySku, product.primaryBarcode].filter(
+    (code): code is string => code !== null,
   );
-  return columns;
+  if (codes.length === 0) return null;
+  return (
+    <span className="catalog-card__codes">
+      {codes.map((code, i) => (
+        <span key={`${i}:${code}`} className="catalog-card__code">
+          {i > 0 ? <span aria-hidden="true"> • </span> : null}
+          <Code value={code} />
+        </span>
+      ))}
+    </span>
+  );
+}
+
+/**
+ * One item as a card: the thumb (the name's first letter — the contract has no
+ * image), the name as the link to the detail, the status and the store
+ * availability, the price, and the category with the primary codes. The
+ * metadata the table carried sits behind the details disclosure, with the
+ * detail page's own labels (`catalog.detail.field.*`).
+ */
+function ProductCard({
+  product,
+  storeInScope,
+}: Readonly<{ product: CatalogProduct; storeInScope: boolean }>): React.JSX.Element {
+  const t = useT();
+  const [open, setOpen] = useState(false);
+  const factsId = useId();
+  return (
+    <li className="section-panel catalog-card">
+      <div className="catalog-card__main">
+        <span className="catalog-card__thumb" aria-hidden="true">
+          {product.name.charAt(0)}
+        </span>
+        <div className="catalog-card__head">
+          <h2 className="catalog-card__name">
+            <Link to={`/catalog/products/${product.productId}`}>{product.name}</Link>
+          </h2>
+          <span className="catalog-card__badges">
+            <span className={statusBadgeClass(product.status)}>{t(statusKey(product.status))}</span>
+            {storeInScope ? <Availability product={product} /> : null}
+          </span>
+        </div>
+      </div>
+      <p className="catalog-card__price">
+        <Price product={product} storeInScope={storeInScope} />
+      </p>
+      <p className="catalog-card__meta">
+        <span className="catalog-card__category">
+          {product.categoryName ?? t("catalog.value.noCategory")}
+        </span>
+        <Codes product={product} />
+      </p>
+      <div className="catalog-card__more">
+        <button
+          type="button"
+          className="catalog-card__more-btn"
+          aria-expanded={open}
+          aria-controls={factsId}
+          onClick={() => setOpen(!open)}
+        >
+          {t("catalog.list.cardMore")}
+        </button>
+        {open ? (
+          <dl id={factsId} className="catalog-card__facts">
+            <div>
+              <dt>{t("catalog.detail.field.taxCategory")}</dt>
+              <dd>
+                <Code value={product.taxCategory} />
+              </dd>
+            </div>
+            <div>
+              <dt>{t("catalog.detail.field.tracking")}</dt>
+              <dd>{t(trackingKey(product.trackingMode))}</dd>
+            </div>
+            <div>
+              <dt>{t("catalog.detail.field.updatedAt")}</dt>
+              <dd>
+                <DateTime value={product.updatedAt} className="catalog-nowrap" />
+              </dd>
+            </div>
+          </dl>
+        ) : null}
+      </div>
+    </li>
+  );
+}
+
+const SKELETON_CARDS = ["a", "b", "c", "d", "e", "f"] as const;
+
+/** Six placeholder cards, in the grid's shape: flat bars, no animation. */
+function CardSkeleton({ caption }: Readonly<{ caption: string }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <output
+      className="catalog-grid"
+      aria-busy="true"
+      aria-label={`${caption}: ${t("catalog.list.loadingNoun")}`}
+    >
+      {SKELETON_CARDS.map((key) => (
+        <div
+          key={key}
+          className="section-panel catalog-card catalog-card--skeleton"
+          aria-hidden="true"
+        >
+          <span className="catalog-card__bar catalog-card__bar--name" />
+          <span className="catalog-card__bar catalog-card__bar--price" />
+          <span className="catalog-card__bar catalog-card__bar--meta" />
+        </div>
+      ))}
+    </output>
+  );
 }
 
 /** How each error kind is told. Only a generic failure can succeed on a retry. */
@@ -196,7 +268,6 @@ export interface CatalogResultsProps {
   summary: React.ReactNode;
   /** The search text is set: exact code matches are listed first (stated in the caption). */
   searching: boolean;
-  onOpen: (row: CatalogProduct) => void;
   onClearFilters: () => void;
 }
 
@@ -219,22 +290,19 @@ function ResultState({
   filtered,
   summary,
   searching,
-  onOpen,
   onClearFilters,
 }: Readonly<CatalogResultsProps>): React.JSX.Element {
   const t = useT();
-  const columns = catalogColumns(t, storeInScope);
-  const tableClass = storeInScope ? "catalog-table catalog-table--store" : "catalog-table";
+  const captionId = useId();
   const caption = t(searching ? "catalog.list.captionSearch" : "catalog.list.caption");
   if (list.isLoading) {
     return (
-      <div className={tableClass}>
-        <DataTableSkeleton
-          caption={caption}
-          columns={columns}
-          label={t("catalog.list.loadingNoun")}
-        />
-      </div>
+      <>
+        <p id={captionId} className="catalog-grid__caption">
+          {caption}
+        </p>
+        <CardSkeleton caption={caption} />
+      </>
     );
   }
   if (list.error) {
@@ -245,16 +313,15 @@ function ResultState({
   }
   return (
     <>
+      <p id={captionId} className="catalog-grid__caption">
+        {caption}
+      </p>
       {list.rows.length > 0 ? (
-        <div className={tableClass}>
-          <DataTable
-            caption={caption}
-            columns={columns}
-            rows={list.rows}
-            rowKey={(p) => p.productId}
-            onRowActivate={onOpen}
-          />
-        </div>
+        <ul className="catalog-grid" aria-labelledby={captionId}>
+          {list.rows.map((product) => (
+            <ProductCard key={product.productId} product={product} storeInScope={storeInScope} />
+          ))}
+        </ul>
       ) : (
         <output className="catalog-partial">{t("catalog.list.partialPage")}</output>
       )}
