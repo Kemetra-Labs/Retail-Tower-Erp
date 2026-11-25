@@ -31,11 +31,9 @@ function insightOf(onHand: ReadState<OnHand>): InsightKind | null {
   const data = onHand.data;
   if (!data || onHand.inlineError) return null;
   if (data.negativeBalance) return null;
-  const rows = data.statusQuantities ?? [];
+  const rows = data.statusQuantities;
   if (rows.length === 0) return null;
-  return rows.some((row) => row.inventoryStatus !== "sellable")
-    ? "otherStatuses"
-    : "allSellable";
+  return rows.some((row) => row.inventoryStatus !== "sellable") ? "otherStatuses" : "allSellable";
 }
 
 export function InventoryInsight({
