@@ -204,6 +204,11 @@ describe("InventoryStore (RT-728)", () => {
     const ledger = screen.getByRole("table", { name: "Stock movements, newest first" });
     expect(within(ledger).getByTestId("movement-quantity").textContent).toBe("-2.5000 kg");
     expect(within(ledger).getByText("Outbound")).toBeDefined();
+    // Modern concept 2/6 (rule 1): location, reason and ERP state sit behind
+    // the details toggle — absent by default, present after opening it.
+    expect(within(ledger).queryByText("Posting pending")).toBeNull();
+    expect(within(ledger).queryByText(/Main floor/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more details" }));
     expect(within(ledger).getByText("Posting pending")).toBeDefined();
     expect(within(ledger).getByText(/Main floor/)).toBeDefined();
     const open = within(ledger).getByRole("link", { name: `Open on-hand for product ${PRODUCT}` });
@@ -224,6 +229,7 @@ describe("InventoryStore (RT-728)", () => {
     const ledger = screen.getByRole("table", { name: "Stock movements, newest first" });
     expect(within(ledger).getByText("No product")).toBeDefined();
     expect(within(ledger).queryByRole("link")).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Show more details" }));
     expect(within(ledger).getByText("Unknown")).toBeDefined();
     expect(within(ledger).getByText("Not recorded")).toBeDefined();
   });
@@ -278,8 +284,37 @@ describe("InventoryProduct (RT-728)", () => {
     expect(qty.textContent).toBe("-1.2500 kg");
     expect(screen.getByTestId("on-hand-sellable").textContent).toBe("-1.2500 kg");
     expect(screen.getByText(/On-hand is below zero/)).toBeDefined();
+    // A negative balance is carried by the banner, never by the insight line.
+    expect(screen.queryByText("All on-hand stock is sellable.")).toBeNull();
+    expect(screen.queryByText(/also sits in other statuses/)).toBeNull();
     expect(screen.getByRole("rowheader", { name: "Damaged" })).toBeDefined();
     expect(api.getOnHand).toHaveBeenCalledWith(STORE, PRODUCT);
+  });
+
+  test("the insight says when stock also sits in other statuses", async () => {
+    api.getOnHand.mockResolvedValue(
+      ok({ ...onHand, negativeBalance: false, quantity: "10.0000", sellableQuantity: "8.0000" }),
+    );
+    renderAt(`/inventory/stores/${STORE}/products/${PRODUCT}`);
+    expect(
+      await screen.findByText(
+        "Stock also sits in other statuses — the by-status table below shows where.",
+      ),
+    ).toBeDefined();
+  });
+
+  test("the insight says when all on-hand stock is sellable", async () => {
+    api.getOnHand.mockResolvedValue(
+      ok({
+        ...onHand,
+        negativeBalance: false,
+        quantity: "8.0000",
+        sellableQuantity: "8.0000",
+        statusQuantities: [{ inventoryStatus: "sellable", quantity: "8.0000" }],
+      }),
+    );
+    renderAt(`/inventory/stores/${STORE}/products/${PRODUCT}`);
+    expect(await screen.findByText("All on-hand stock is sellable.")).toBeDefined();
   });
 
   test("a failed on-hand read is Unknown, never zero", async () => {

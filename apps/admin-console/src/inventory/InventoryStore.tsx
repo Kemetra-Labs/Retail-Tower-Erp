@@ -21,6 +21,12 @@ import { DetailPanel } from "@/components/DetailPanel";
  * panels with strip tables; the posting state is a text pill. Nothing the
  * ledger does changes: rows, then the stale error, then Load older (a failed
  * continuation keeps the rows).
+ *
+ * Modern concept 2/6 (rule 1): the ledger shows four columns by default
+ * (when, type, product, quantity) and the other three (location and status,
+ * reason, ERPNext state) behind a "Show more details" toggle — the same rows,
+ * the same reads, nothing hidden from the API, only from the first glance.
+ * The locations table is already four essential columns, so it is untouched.
  */
 import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
@@ -28,6 +34,7 @@ import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { StockLocation, StockMovement } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 import { useSignOut } from "@/shell/useSignOut";
+import { useState } from "react";
 import { Link, useParams } from "react-router";
 import {
   canReadInventory,
@@ -174,6 +181,11 @@ function columns(t: T): { key: string; header: string }[] {
   ];
 }
 
+/** Modern concept 2/6 (rule 1): the four columns the ledger shows by default. */
+function baseColumns(t: T): { key: string; header: string }[] {
+  return columns(t).slice(0, 4);
+}
+
 function ProductCell({
   storeId,
   movement,
@@ -195,10 +207,12 @@ function MovementRow({
   storeId,
   movement,
   locations,
+  showDetails,
 }: Readonly<{
   storeId: string;
   movement: StockMovement;
   locations: StockLocation[] | undefined;
+  showDetails: boolean;
 }>): React.JSX.Element {
   const t = useT();
   const location = locationLabel(locations, movement.stockLocationId);
@@ -214,23 +228,27 @@ function MovementRow({
       <td className="num" data-testid="movement-quantity">
         <Quantity value={movement.quantity} /> <Machine value={movement.stockingUnit} />
       </td>
-      <td>
-        {location ? <bdi dir="auto">{location}</bdi> : <Unknown />}
-        {" · "}
-        {t(inventoryStatusKey(movement.inventoryStatus))}
-      </td>
-      <td className="inventory__wrap">
-        {movement.reason ? (
-          <bdi dir="auto">{movement.reason}</bdi>
-        ) : (
-          <span className="muted">{t("inventory.value.none")}</span>
-        )}
-      </td>
-      <td>
-        <span className={`badge ${integrationTone(movement.integrationState)}`.trim()}>
-          {t(integrationStateKey(movement.integrationState))}
-        </span>
-      </td>
+      {showDetails ? (
+        <>
+          <td>
+            {location ? <bdi dir="auto">{location}</bdi> : <Unknown />}
+            {" · "}
+            {t(inventoryStatusKey(movement.inventoryStatus))}
+          </td>
+          <td className="inventory__wrap">
+            {movement.reason ? (
+              <bdi dir="auto">{movement.reason}</bdi>
+            ) : (
+              <span className="muted">{t("inventory.value.none")}</span>
+            )}
+          </td>
+          <td>
+            <span className={`badge ${integrationTone(movement.integrationState)}`.trim()}>
+              {t(integrationStateKey(movement.integrationState))}
+            </span>
+          </td>
+        </>
+      ) : null}
     </tr>
   );
 }
@@ -245,6 +263,7 @@ function MovementsBody({
   locations: StockLocation[] | undefined;
 }>): React.JSX.Element {
   const t = useT();
+  const [showDetails, setShowDetails] = useState(false);
   const cols = columns(t);
   const caption = t("inventory.movements.caption");
   if (movements.isLoading) {
@@ -275,8 +294,19 @@ function MovementsBody({
       </Body>
     );
   }
+  const visibleCols = showDetails ? cols : baseColumns(t);
   return (
     <>
+      <div className="inventory__columns-toggle">
+        <button
+          type="button"
+          className="btn-secondary"
+          aria-expanded={showDetails}
+          onClick={() => setShowDetails((v) => !v)}
+        >
+          {t(showDetails ? "inventory.movements.showLess" : "inventory.movements.showMore")}
+        </button>
+      </div>
       <TableScrollRegion>
         {(captionId) => (
           <table className="data-table data-table--strips">
@@ -285,7 +315,7 @@ function MovementsBody({
             </caption>
             <thead>
               <tr>
-                {cols.map((col) => (
+                {visibleCols.map((col) => (
                   <th
                     key={col.key}
                     scope="col"
@@ -298,7 +328,13 @@ function MovementsBody({
             </thead>
             <tbody>
               {movements.rows.map((m) => (
-                <MovementRow key={m.id} storeId={storeId} movement={m} locations={locations} />
+                <MovementRow
+                  key={m.id}
+                  storeId={storeId}
+                  movement={m}
+                  locations={locations}
+                  showDetails={showDetails}
+                />
               ))}
             </tbody>
           </table>

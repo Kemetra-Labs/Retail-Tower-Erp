@@ -90,11 +90,49 @@
   max-inline-size: none;
 }
 
+/* ---- Modern concept 2/6: the smart insight (rule 4) -------------------------
+ * The same shape as the Overview's insight: a surface card with the action
+ * fill on its leading edge, title over one line of text. No link: the
+ * by-status table it points at is on the same page, below it. */
+.inventory-insight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-action-fill);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+}
+.inventory-insight__body {
+  flex: 1;
+  min-inline-size: 200px;
+}
+.inventory-insight__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.inventory-insight__text {
+  margin: 0;
+}
+
+/* ---- Modern concept 2/6: the ledger's details toggle (rule 1) --------------- */
+.inventory__columns-toggle {
+  display: flex;
+  padding: var(--space-3) var(--space-4) 0;
+}
+.inventory__columns-toggle > .btn-secondary {
+  margin-inline-start: auto;
+}
+
 /* What sits in a panel under its header: states, banners, notes. */
 .inventory__panel-body {
   display: flex;
   flex-direction: column;
-  gap: var(--space-3);
+  gap: var(--space-4);
   padding: 0 var(--space-5) var(--space-4);
 }
 .inventory__panel-body--solo {
