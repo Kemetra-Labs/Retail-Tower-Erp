@@ -27,6 +27,8 @@ test("production sidebar shows no RF-* placeholder entries", async ({ page, t })
   // RT-969: grouped as on the owner-approved canvas.
   await expect(nav.locator(".nav-entry__label")).toHaveText([
     t("shell.nav.overview"),
+    t("alerts.nav.label"),
+    t("search.nav.label"),
     t("sales.nav.label"),
     t("shell.nav.shiftCloses"),
     t("reports.nav.label"),

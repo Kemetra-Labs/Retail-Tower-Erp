@@ -227,7 +227,8 @@ function StockRows({
 export function AttentionLedger({
   session,
   nowMs,
-}: Readonly<{ session: OverviewSession; nowMs: number }>): React.JSX.Element {
+  allHref,
+}: Readonly<{ session: OverviewSession; nowMs: number; allHref?: string }>): React.JSX.Element {
   const t = useT();
   const stock = useStockPanel(session);
   const shift = useShiftPanel(session, nowMs);
@@ -250,6 +251,11 @@ export function AttentionLedger({
         <h2 id="overview-attention" className="section-panel__title">
           {t("overview.attention.title")}
         </h2>
+        {allHref ? (
+          <Link className="glance-head-link" to={allHref}>
+            {t("overview.attention.viewAll")}
+          </Link>
+        ) : null}
       </div>
       {allHidden ? (
         <p className="ledger__quiet section-panel__body">

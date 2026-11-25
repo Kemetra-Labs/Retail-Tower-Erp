@@ -43,8 +43,8 @@ const FROM_ADMIN: Readonly<Record<string, IconName | null>> = {
   device: "terminal",
   receipt: "sale",
   search: "search",
-  // No call site: they join with the slice that first renders them (doc 25 §3).
-  bell: null,
+  alerts: "bell",
+  // No call site: it joins with the slice that first renders it (doc 25 §3).
   help: null,
   "sign-out": "signOut",
   chevron: "disclosure",
@@ -346,8 +346,6 @@ function typeContract(): React.JSX.Element[] {
   return [
     <Icon key="a" name="store" />,
     <Icon key="b" name="lock" size="lg" />,
-    // @ts-expect-error search declares no md grid, so the size must be given.
-    <Icon key="c" name="search" />,
     // @ts-expect-error close declares no lg grid.
     <Icon key="d" name="close" size="lg" />,
     // @ts-expect-error the label lives on the control, never on the glyph (D-263-6).
@@ -358,5 +356,5 @@ function typeContract(): React.JSX.Element[] {
 }
 
 test("the compile-time contract is part of the typecheck", () => {
-  expect(typeContract()).toHaveLength(6);
+  expect(typeContract()).toHaveLength(5);
 });
