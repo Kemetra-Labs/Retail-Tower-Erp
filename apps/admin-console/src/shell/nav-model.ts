@@ -1,5 +1,5 @@
-import { canImportCatalog } from "@/catalog-import/catalogImportLogic";
 import { canReadBrands } from "@/brands/brandLogic";
+import { canImportCatalog } from "@/catalog-import/catalogImportLogic";
 import { canReadCatalog } from "@/catalog/catalogLogic";
 import type { IconNameFor } from "@/components/icons/Icon";
 import { canReadDevices } from "@/devices/deviceLogic";
@@ -273,7 +273,9 @@ function buildGroups(
     id: group.id,
     heading: group.heading,
     entries: group.entries
-      .filter((entry) => entry.canRead(role, signals) && (includeNavigatorOnly || !entry.navigatorOnly))
+      .filter(
+        (entry) => entry.canRead(role, signals) && (includeNavigatorOnly || !entry.navigatorOnly),
+      )
       .map(({ canRead: _gate, navigatorOnly: _only, ...entry }) => entry),
   })).filter((group) => group.entries.length > 0);
   return signals.platformAdmin ? [...groups, PLATFORM_RETURN] : groups;
@@ -290,6 +292,9 @@ export function tenantNav(role: string | null | undefined, signals: NavSignals =
  * `tenantNav`; the navigator uses this, so a built screen the sidebar
  * deliberately omits is still findable by name.
  */
-export function navigatorNav(role: string | null | undefined, signals: NavSignals = {}): NavGroup[] {
+export function navigatorNav(
+  role: string | null | undefined,
+  signals: NavSignals = {},
+): NavGroup[] {
   return buildGroups(role, signals, true);
 }

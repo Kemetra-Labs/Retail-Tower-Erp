@@ -150,7 +150,12 @@ describe("navigator-only destinations", () => {
   test("the gates hold: a cashier sees none of the five, a store manager sees all but the import", () => {
     expect(navPaths("cashier")).toEqual(paths("cashier"));
     expect(navPaths("store_manager")).toHaveLength(20);
-    for (const to of ["/sales-daily", "/sales-by-store", "/devices/pairing-codes", "/devices/download-pos"]) {
+    for (const to of [
+      "/sales-daily",
+      "/sales-by-store",
+      "/devices/pairing-codes",
+      "/devices/download-pos",
+    ]) {
       expect(navPaths("store_manager")).toContain(to);
     }
     expect(navPaths("store_manager")).not.toContain("/catalog/import");

@@ -141,7 +141,11 @@ export function ShellTopBar({
       <span className="topbar__brand">
         <TowerMark className="tower-mark" />
       </span>
-      <ShellNavigatorControl navigator={navigator} groups={navigatorGroups} withStores={withStores} />
+      <ShellNavigatorControl
+        navigator={navigator}
+        groups={navigatorGroups}
+        withStores={withStores}
+      />
       <div className="topbar__spacer" />
       {user ? <UserMenu user={user} roleLabel={roleLabel} accountLink={accountLink} /> : null}
     </header>
