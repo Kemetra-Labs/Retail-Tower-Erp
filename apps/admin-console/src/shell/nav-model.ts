@@ -12,6 +12,7 @@ import { canUseProductReconciliation } from "@/product-reconciliation/productRec
 import { canOpenAnyReport } from "@/reports/reportsLogic";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
+import { canOpenSettings } from "@/settings/settingsLogic";
 import { canReadShiftCloses } from "@/shift-closes/shiftCloseLogic";
 import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
 import { showTrackingNav } from "@/tracking/trackingLogic";
@@ -242,6 +243,12 @@ const TENANT_NAV: readonly GatedGroup[] = [
       { label: "vouchers.nav.label", to: "/vouchers", icon: "cash", canRead: canReadVouchers },
       // RT-1338: automatic offers (RT-286): owner / tenant_admin manage, store_manager reads and pauses.
       { label: "offers.nav.label", to: "/offers", icon: "cash", canRead: canReadOffers },
+      // RF-7 (spec 016): the Settings destination gathers the tenant sections
+      // (branding, cash policy, AI plan, tracked selling). Owner /
+      // tenant_admin only. The building glyph is shared with Tenants until a
+      // dedicated settings glyph is vendored (no Fluent `settings` path lives
+      // in the repo yet); the sidebar already reuses glyphs this way.
+      { label: "settings.nav.label", to: "/settings", icon: "tenant", canRead: canOpenSettings },
     ],
   },
 ];

@@ -37,6 +37,7 @@ import { sales } from "./en/sales";
 import { salesByStore } from "./en/salesByStore";
 import { salesDaily } from "./en/salesDaily";
 import { search } from "./en/search";
+import { settings } from "./en/settings";
 import { shell } from "./en/shell";
 import { shift } from "./en/shift";
 import { stock } from "./en/stock";
@@ -91,6 +92,7 @@ export const EN_MODULES = {
   vouchers,
   brands,
   offers,
+  settings,
 };
 
 export const en: MessagesOf<typeof ar> = {
@@ -136,4 +138,5 @@ export const en: MessagesOf<typeof ar> = {
   ...vouchers,
   ...brands,
   ...offers,
+  ...settings,
 };

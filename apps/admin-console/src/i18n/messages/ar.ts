@@ -38,6 +38,7 @@ import { sales } from "./ar/sales";
 import { salesByStore } from "./ar/salesByStore";
 import { salesDaily } from "./ar/salesDaily";
 import { search } from "./ar/search";
+import { settings } from "./ar/settings";
 import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
 import { stock } from "./ar/stock";
@@ -91,6 +92,7 @@ export const AR_MODULES = {
   vouchers,
   brands,
   offers,
+  settings,
 };
 
 export const ar = {
@@ -136,4 +138,5 @@ export const ar = {
   ...vouchers,
   ...brands,
   ...offers,
+  ...settings,
 };
