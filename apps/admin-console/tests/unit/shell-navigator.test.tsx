@@ -220,8 +220,11 @@ describe("what it offers", () => {
     type("cairo");
     expect(optionNames()).toEqual(["Cairo Festival City", "New Cairo Mall"]);
     type("sales");
+    // Navigator-only screens the sidebar omits are found here too.
     expect(optionNames()).toEqual([
       "Sales",
+      "Daily received sales",
+      "Sales by store",
       "Sales needing repair",
       "Sales the till could not send",
     ]);

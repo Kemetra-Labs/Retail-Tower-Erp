@@ -25,6 +25,11 @@ import { Banner } from "@/components/Banner";
  *
  * RT-1579 (RT-1511 S4): the stock quantities panel (AvailabilitySection) sits
  * right after the on-hand panel, so the page always has two numbered panels.
+ *
+ * Modern concept 2/6: one smart-insight line under the band (`InventoryInsight`,
+ * rule 4) and nothing else new — the band's two facts are already the page's
+ * KPIs (physical and sellable on-hand, number + context), and the status move
+ * is already the page's one main action (rule 2), so neither is added here.
  */
 import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
@@ -37,6 +42,7 @@ import { useSignOut } from "@/shell/useSignOut";
 import { canReadStockDiscrepancies } from "@/stock-discrepancies/stockDiscrepancyLogic";
 import { Link, useParams } from "react-router";
 import { AvailabilitySection } from "./AvailabilitySection";
+import { InventoryInsight } from "./InventoryInsight";
 import { StatusMoveSection } from "./StatusMoveSection";
 import {
   canReadInventory,
@@ -384,6 +390,7 @@ function ProductView({
       {/* A deep link to another store's view never switches scope (RT-268); the
           notice sits under the band, which never carries state. */}
       <ScopeMismatchBanner storeId={target.storeId} />
+      <InventoryInsight onHand={onHand} />
       <OnHandSection onHand={onHand} storeId={target.storeId} role={scope.role} index={1} />
       <AvailabilitySection onHand={onHand} timeZone={timeZone} index={2} />
       {moves ? (

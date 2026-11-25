@@ -188,3 +188,15 @@ export function reportModel(
     asOf: summary.asOf,
   };
 }
+
+/** The zones that decide "today" before the first read: the store's, or every store's. */
+export function proposalZones(
+  scope: Readonly<{ activeStoreId: string | null }>,
+  directory: Readonly<{
+    timeZoneOf: (storeId: string) => string | null | undefined;
+    stores: readonly { timezone?: string | null }[];
+  }>,
+): string[] {
+  if (scope.activeStoreId) return [directory.timeZoneOf(scope.activeStoreId) ?? "UTC"];
+  return directory.stores.map((s) => s.timezone ?? "UTC");
+}

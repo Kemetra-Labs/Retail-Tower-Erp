@@ -212,6 +212,9 @@ describe("store page band and panels (RT-1016)", () => {
       }),
     );
     renderAt(`/inventory/stores/${STORE}`);
+    // The ERP state sits behind the ledger's details toggle (modern concept
+    // 2/6, rule 1): open it before reading the pill.
+    fireEvent.click(await screen.findByRole("button", { name: "Show more details" }));
     const pill = await screen.findByText("Confirmed by ERPNext");
     expect(pill.className).toContain("badge--success");
   });

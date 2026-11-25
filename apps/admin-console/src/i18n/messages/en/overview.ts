@@ -61,6 +61,7 @@ export const overview: MessagesOf<typeof ar> = {
     "Stores are on different business days, so the scope has no single today. Choose a store, or open daily sales.",
   "overview.kpi.none": "No stores in scope.",
   "overview.kpi.sparkPeriod": "Last 14 business days",
+  "overview.kpi.sparkLabel": "Trend over the last 14 business days",
   "overview.kpi.sparkSummary":
     "Received sales in {currency} over the last 14 business days; gaps are days the read lacks.",
 
@@ -112,6 +113,22 @@ export const overview: MessagesOf<typeof ar> = {
   "overview.recent.all": "All sales",
   "overview.recent.needsStore": "Choose a store in the scope switcher to see its latest sales.",
   "overview.recent.none": "No sales received for this store in the last 31 business days.",
+
+  // --- Modern concept 1/6: the smart insight (rule 4) -------------------------
+  "overview.insight.title": "What matters today",
+  "overview.insight.failedPosting": {
+    one: "1 sale failed to post to ERPNext today.",
+    other: "{count} sales failed to post to ERPNext today.",
+  },
+  "overview.insight.needsRepair": {
+    one: "1 sale needs repair.",
+    other: "{count} sales need repair.",
+  },
+  "overview.insight.criticalStock": {
+    one: "1 item is critically low on stock.",
+    other: "{count} items are critically low on stock.",
+  },
+  "overview.insight.clear": "No failed postings and no sales needing repair today.",
 
   // --- Overview v4 side column (RT-993) ----------------------------------------
   "overview.side.label": "Overview side column",

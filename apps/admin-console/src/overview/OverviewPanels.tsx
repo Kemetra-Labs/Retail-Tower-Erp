@@ -5,6 +5,12 @@
  * latest sales; a side column with quick actions, the attention list and the
  * «قريبًا» frames. The reads are RT-970's, unchanged in kind.
  *
+ * Modern concept 1/6: the quick-actions bar and the smart insight move to the
+ * top of the main column (rules 2 and 4) — the actions are the same four
+ * destinations the side column listed, and the insight is computed from the
+ * reads already on the page (`SmartInsight.tsx`). The side column keeps the
+ * attention list, the stores-today frame and low stock.
+ *
  * RT-970 Overview v2 (owner-approved canvas «المختار · A + مسار C», 2026-10-30):
  * the page header with Refresh, then the KPI ledger strip, the pipeline strip,
  * the 14-day trend beside the attention list, and the latest sales. Every
@@ -32,7 +38,8 @@ import { PostingPanel } from "./PostingPanel";
 import { ReceiptRow } from "./ReceiptRow";
 import { RecentSales } from "./RecentSales";
 import { SaleRail } from "./SaleRail";
-import { SideColumn } from "./SideColumn";
+import { QuickActions, SideColumn } from "./SideColumn";
+import { SmartInsight } from "./SmartInsight";
 import { TrendPanel } from "./TrendPanel";
 import { canOpenAudit } from "./overviewLogic";
 import { useActiveDevices, useGlanceSummary, useRecentSales } from "./useGlancePanels";
@@ -107,6 +114,8 @@ function Panels({
       {header(<SaleRail session={session} summary={summary} devices={devices} />)}
       <div className="overview">
         <div className="overview__main">
+          <QuickActions role={session.role} className="overview__quick" />
+          <SmartInsight session={session} summary={summary} />
           <ReceiptRow state={summary} scope={scope} />
           <div className="overview__charts">
             <TrendPanel state={summary} />

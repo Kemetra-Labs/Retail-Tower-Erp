@@ -156,6 +156,10 @@ test("S1: owner → store ledger → product on-hand, read-only", async ({ page:
   await expect(locs).toContainText(t("inventory.locations.kind.primary"));
   const ledger = p.getByRole("table", { name: t("inventory.movements.caption") });
   await expect(ledger.getByTestId("movement-quantity")).toHaveText(["12.0000 kg"]);
+  // Modern concept 2/6 (rule 1): the ERP state and the reason sit behind the
+  // details toggle — the default four columns carry only when, type, product
+  // and quantity.
+  await p.getByRole("button", { name: t("inventory.movements.showMore") }).click();
   await expect(ledger).toContainText(t("inventory.integration.confirmed"));
   await expectNoAxeViolations(p, "inventory store ledger");
 

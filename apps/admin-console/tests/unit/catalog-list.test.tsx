@@ -63,13 +63,24 @@ function renderList(entry = "/catalog/products") {
 
 const location = () => screen.getByTestId("location").textContent;
 
-async function tableReady(): Promise<HTMLElement> {
-  let table: HTMLElement | undefined;
+/**
+ * The card grid, once its first page has loaded: the grid's accessible name is
+ * the caption (the server order), and the loading skeleton is a `status` region
+ * with `aria-busy`, never a list, so this waits past it.
+ */
+async function cardsReady(name = /items, by name from a to z/i): Promise<HTMLElement> {
+  let grid: HTMLElement | undefined;
   await waitFor(() => {
-    table = screen.getByRole("table");
-    expect(table.getAttribute("aria-busy")).not.toBe("true");
+    grid = screen.getByRole("list", { name });
+    expect(grid.getAttribute("aria-busy")).not.toBe("true");
   });
-  return table as HTMLElement;
+  return grid as HTMLElement;
+}
+
+/** The category select sits behind «More filters»: open the disclosure first. */
+async function openMoreFilters(): Promise<void> {
+  fireEvent.click(screen.getByRole("button", { name: /more filters/i }));
+  await screen.findByLabelText("Category");
 }
 
 /** The count's number is isolated in a <bdi>, so match the status message's whole text. */
@@ -108,20 +119,21 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
   test("the first page is requested with the default status and the page size, nothing else", async () => {
     renderList();
-    await tableReady();
+    await cardsReady();
     expect(consoleListCatalogProducts).toHaveBeenCalledTimes(1);
     expect(consoleListCatalogProducts.mock.calls[0][0]).toEqual({ status: "active", limit: 50 });
   });
 
-  test("tenant scope (All stores): tenant price, no availability column", async () => {
+  test("tenant scope (All stores): tenant price, no availability badge", async () => {
     renderList();
-    const table = await tableReady();
-    expect(within(table).queryByText("Store availability")).toBeNull();
-    const [, row] = within(table).getAllByRole("row");
-    expect(within(row).getByText("10.50 EGP")).toBeDefined();
+    const grid = await cardsReady();
+    expect(within(grid).queryByText("Available")).toBeNull();
+    expect(within(grid).queryByText("Not available")).toBeNull();
+    const [card] = within(grid).getAllByRole("listitem");
+    expect(within(card).getByText("10.50 EGP")).toBeDefined();
   });
 
-  test("rows render server values: identifiers isolated, missing values labelled, never rounded", async () => {
+  test("cards render server values: identifiers isolated, missing values labelled, never rounded", async () => {
     consoleListCatalogProducts.mockResolvedValue(
       page([
         product(),
@@ -146,8 +158,8 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       ]),
     );
     renderList();
-    const table = await tableReady();
-    const [, first, second, third] = within(table).getAllByRole("row");
+    const grid = await cardsReady();
+    const [first, second, third] = within(grid).getAllByRole("listitem");
     expect(within(first).getByText("Mineral water 1.5L")).toBeDefined();
     expect(within(first).getByText("Active")).toBeDefined();
     expect(within(first).getByText("Beverages")).toBeDefined();
@@ -155,6 +167,9 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     expect(within(first).getByText("0012345678905").closest("bdi")?.getAttribute("dir")).toBe(
       "ltr",
     );
+    // The metadata the table carried sits behind the card's details disclosure.
+    expect(within(first).queryByText("standard")).toBeNull();
+    fireEvent.click(within(first).getByRole("button", { name: "More details" }));
     expect(within(first).getByText("standard")).toBeDefined();
     expect(within(first).getByText("None")).toBeDefined();
     expect(within(first).getByRole("time").getAttribute("dateTime")).toBe("2026-10-07T10:30:00Z");
@@ -162,6 +177,8 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     expect(within(second).getByText("Retired")).toBeDefined();
     expect(within(second).getByText("No price")).toBeDefined();
     expect(within(second).getByText("No category")).toBeDefined();
+    expect(within(second).queryByText("SKU-0042")).toBeNull();
+    fireEvent.click(within(second).getByRole("button", { name: "More details" }));
     expect(within(second).getByText("By batch")).toBeDefined();
 
     expect(within(third).getByText("Inactive")).toBeDefined();
@@ -170,8 +187,10 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
   test("the caption states the server order", async () => {
     renderList();
-    const table = await tableReady();
-    expect(within(table).getByText("Items, by name from A to Z")).toBeDefined();
+    const grid = await cardsReady();
+    // The caption sits beside the list and names it through aria-labelledby.
+    const captionId = grid.getAttribute("aria-labelledby") ?? "";
+    expect(document.getElementById(captionId)?.textContent).toBe("Items, by name from A to Z");
   });
 
   describe("store in scope", () => {
@@ -179,7 +198,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       activeContext.mockReturnValue(ctx("store_manager", "t1", CAIRO_STORE));
     });
 
-    test("store_id is sent and the columns show the server-resolved store values", async () => {
+    test("store_id is sent and the cards show the server-resolved store values", async () => {
       consoleListCatalogProducts.mockResolvedValue(
         page([
           product({ storeView: storeView({ hasOverride: true }) }),
@@ -192,14 +211,13 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
         ]),
       );
       renderList();
-      const table = await tableReady();
+      const grid = await cardsReady();
       expect(consoleListCatalogProducts.mock.calls[0][0]).toEqual({
         status: "active",
         limit: 50,
         store_id: CAIRO_STORE,
       });
-      expect(within(table).getByText("Store availability")).toBeDefined();
-      const [, first, second] = within(table).getAllByRole("row");
+      const [first, second] = within(grid).getAllByRole("listitem");
       // The store's effective price (12.00), not the tenant default (10.50).
       expect(within(first).getByText("12.00 EGP")).toBeDefined();
       expect(within(first).queryByText("10.50 EGP")).toBeNull();
@@ -210,13 +228,14 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       expect(within(second).queryByText("Store-specific")).toBeNull();
     });
 
-    test("a row without its storeView shows no price, never the tenant's", async () => {
+    test("a card without its storeView shows no price, never the tenant's", async () => {
       consoleListCatalogProducts.mockResolvedValue(page([product()]));
       renderList();
-      const table = await tableReady();
-      const [, row] = within(table).getAllByRole("row");
-      expect(within(row).queryByText("10.50 EGP")).toBeNull();
-      expect(within(row).getAllByRole("cell")[2].textContent).toBe("—");
+      const grid = await cardsReady();
+      const [card] = within(grid).getAllByRole("listitem");
+      expect(within(card).queryByText("10.50 EGP")).toBeNull();
+      // The price line is "—": the card shows no price rather than the tenant's.
+      expect(card.querySelector(".catalog-card__price")?.textContent).toBe("—");
     });
 
     test("a store change restarts the walk from the first page", async () => {
@@ -225,7 +244,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
         .mockResolvedValueOnce(page([product({ productId: PRODUCT_2, name: "Loose tea" })]));
       const client = createQueryClient();
       const view = render(tree("/catalog/products", client));
-      await tableReady();
+      await cardsReady();
       activeContext.mockReturnValue(ctx("store_manager", "t1", NEW_YORK_STORE));
       view.rerender(tree("/catalog/products", client));
       expect(await screen.findByText("Loose tea")).toBeDefined();
@@ -249,7 +268,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
   describe("filters", () => {
     test("the search text is sent verbatim: no trim, leading zeros and spaces kept", async () => {
       renderList();
-      await tableReady();
+      await cardsReady();
       fireEvent.change(screen.getByLabelText("Name or code"), { target: { value: " 0012 " } });
       fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
@@ -263,14 +282,15 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
     test("nothing is requested until Search applies the form (explicit submit)", async () => {
       renderList();
-      await tableReady();
+      await cardsReady();
       fireEvent.change(screen.getByLabelText("Name or code"), { target: { value: "milk" } });
       expect(consoleListCatalogProducts).toHaveBeenCalledTimes(1);
     });
 
     test("status and category are applied to the URL and the request", async () => {
       renderList();
-      await tableReady();
+      await cardsReady();
+      await openMoreFilters();
       const category = (await screen.findByLabelText("Category")) as HTMLSelectElement;
       await waitFor(() => expect(within(category).getByText("Beverages")).toBeDefined());
       fireEvent.change(screen.getByLabelText("Status"), { target: { value: "any" } });
@@ -287,7 +307,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
     test("a deep link reads its filters", async () => {
       renderList(`/catalog/products?q=salt&status=inactive&category=${CATEGORY_1}`);
-      await tableReady();
+      await cardsReady(/items, exact code matches first/i);
       expect(consoleListCatalogProducts.mock.calls[0][0]).toEqual({
         q: "salt",
         status: "inactive",
@@ -310,12 +330,12 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       expect(consoleListCatalogProducts).not.toHaveBeenCalled();
     });
 
-    test("a new filter restarts the walk without a cursor and drops the old rows", async () => {
+    test("a new filter restarts the walk without a cursor and drops the old cards", async () => {
       consoleListCatalogProducts
         .mockResolvedValueOnce(page([product()], "c1"))
         .mockResolvedValueOnce(page([product({ productId: PRODUCT_3, name: "Salt" })]));
       renderList();
-      await tableReady();
+      await cardsReady();
       fireEvent.change(screen.getByLabelText("Status"), { target: { value: "retired" } });
       fireEvent.click(screen.getByRole("button", { name: "Apply" }));
       expect(await screen.findByText("Salt")).toBeDefined();
@@ -332,7 +352,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       const view = render(
         tree(`/catalog/products?q=salt&status=inactive&category=${CATEGORY_1}`, client),
       );
-      await tableReady();
+      await cardsReady(/items, exact code matches first/i);
       const before = consoleListCatalogProducts.mock.calls.length;
       activeContext.mockReturnValue(ctx("owner", "t2"));
       view.rerender(
@@ -355,10 +375,11 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
 
     test("an uppercase category id in the link is sent lower case and selected in the form", async () => {
       renderList(`/catalog/products?category=${CATEGORY_1.toUpperCase()}`);
-      await tableReady();
+      await cardsReady();
       expect(consoleListCatalogProducts.mock.calls[0][0]).toMatchObject({
         category_id: CATEGORY_1,
       });
+      await openMoreFilters();
       await waitFor(() =>
         expect((screen.getByLabelText("Category") as HTMLSelectElement).value).toBe(CATEGORY_1),
       );
@@ -386,6 +407,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       const notice = await screen.findByText(/no items match/i);
       await waitFor(() => expect(notice.textContent).toContain("Beverages"));
       expect(notice.textContent).not.toContain("Unavailable category");
+      await openMoreFilters();
       const select = screen.getByLabelText("Category") as HTMLSelectElement;
       expect(select.selectedOptions[0].textContent).toBe("Beverages");
     });
@@ -397,6 +419,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       const notice = await screen.findByText(/no items match/i);
       expect(notice.textContent).toContain("Selected category");
       expect(notice.textContent).not.toContain("Unavailable category");
+      await openMoreFilters();
       const select = screen.getByLabelText("Category") as HTMLSelectElement;
       expect(select.selectedOptions[0].textContent).toBe("Selected category");
     });
@@ -404,7 +427,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     test("the category list failing leaves the list usable, with a note", async () => {
       consoleListCatalogCategories.mockResolvedValue(failure(500));
       renderList();
-      await tableReady();
+      await cardsReady();
       expect(await screen.findByText("Categories could not be loaded.")).toBeDefined();
       expect(screen.getByText("Mineral water 1.5L")).toBeDefined();
     });
@@ -412,9 +435,39 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     test("a category list without items (empty body) is an empty set, not a crash", async () => {
       consoleListCatalogCategories.mockResolvedValue({ status: 200, data: {} });
       renderList();
-      await tableReady();
+      await cardsReady();
+      await openMoreFilters();
       const category = screen.getByLabelText("Category") as HTMLSelectElement;
       expect(within(category).getAllByRole("option")).toHaveLength(1);
+    });
+
+    test("a category chip applies at once, keeping the other filters", async () => {
+      renderList();
+      await cardsReady();
+      const chips = await screen.findByRole("group", { name: "Filter by category" });
+      expect(
+        within(chips).getByRole("button", { name: "All categories" }).getAttribute("aria-pressed"),
+      ).toBe("true");
+      fireEvent.click(within(chips).getByRole("button", { name: "Beverages" }));
+      await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
+      expect(consoleListCatalogProducts.mock.calls[1][0]).toEqual({
+        status: "active",
+        category_id: CATEGORY_1,
+        limit: 50,
+      });
+      expect(location()).toBe(`/catalog/products?category=${CATEGORY_1}`);
+      await waitFor(() =>
+        expect(
+          within(chips).getByRole("button", { name: "Beverages" }).getAttribute("aria-pressed"),
+        ).toBe("true"),
+      );
+    });
+
+    test("the chip row is absent when the category list fails", async () => {
+      consoleListCatalogCategories.mockResolvedValue(failure(500));
+      renderList();
+      await cardsReady();
+      expect(screen.queryByRole("group", { name: "Filter by category" })).toBeNull();
     });
   });
 
@@ -469,7 +522,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
         .mockResolvedValueOnce(page([product({ storeView: storeView() })], "c1"))
         .mockResolvedValueOnce(failingPage);
       renderList();
-      await tableReady();
+      await cardsReady();
       fireEvent.click(screen.getByRole("button", { name: "Load more" }));
     }
 
@@ -533,7 +586,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
         "Your session has expired. Sign in again.",
       ],
     ] as const)(
-      "a continuation %s, with no Retry and the rows kept",
+      "a continuation %s, with no Retry and the cards kept",
       async (_name, response, storeId, text) => {
         await loadMoreFailing(response, storeId);
         expect(await screen.findByText(text)).toBeDefined();
@@ -542,12 +595,12 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       },
     );
 
-    test("a failed continuation keeps the loaded rows and retries the next page", async () => {
+    test("a failed continuation keeps the loaded cards and retries the next page", async () => {
       await loadMoreFailing(failure(500));
       consoleListCatalogProducts.mockResolvedValueOnce(
         page([product({ productId: PRODUCT_2, name: "Loose tea" })], null),
       );
-      expect(await screen.findByText(/the rest of the rows could not be loaded/i)).toBeDefined();
+      expect(await screen.findByText(/the rest of the cards could not be loaded/i)).toBeDefined();
       expect(screen.getByText("Mineral water 1.5L")).toBeDefined();
       fireEvent.click(screen.getByRole("button", { name: "Retry" }));
       expect(await screen.findByText("Loose tea")).toBeDefined();
@@ -571,7 +624,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
   });
 
   describe("paging", () => {
-    test("a product that appears on two pages is listed once, the later row winning (D4)", async () => {
+    test("a product that appears on two pages is listed once, the later card winning (D4)", async () => {
       consoleListCatalogProducts
         .mockResolvedValueOnce(
           page(
@@ -592,22 +645,21 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
           ),
         );
       renderList();
-      await tableReady();
+      await cardsReady();
       fireEvent.click(screen.getByRole("button", { name: "Load more" }));
       expect(await screen.findByText("Charlie")).toBeDefined();
-      const table = screen.getByRole("table");
-      const names = within(table)
-        .getAllByRole("row")
-        .slice(1)
-        .map((row) => within(row).getAllByRole("cell")[0].textContent);
+      const grid = screen.getByRole("list", { name: /items, by name from a to z/i });
+      const names = within(grid)
+        .getAllByRole("listitem")
+        .map((card) => within(card).getByRole("link").textContent);
       expect(names).toEqual(["Bravo", "Alpha renamed", "Charlie"]);
-      // The count is the deduplicated rows, never a total.
+      // The count is the deduplicated cards, never a total.
       expect(loadedCount(3)).toBeDefined();
     });
 
     test("the loaded count is a status message with its number isolated", async () => {
       renderList();
-      await tableReady();
+      await cardsReady();
       const count = loadedCount(1);
       expect(count.tagName).toBe("OUTPUT");
       expect(count.querySelector("bdi")?.textContent).toBe("1");
@@ -616,7 +668,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     test("Load more is offered while the server gives a cursor; the end only for a null cursor", async () => {
       consoleListCatalogProducts.mockResolvedValueOnce(page([product()], "c1"));
       renderList();
-      await tableReady();
+      await cardsReady();
       expect(screen.getByRole("button", { name: "Load more" })).toBeDefined();
       expect(screen.queryByText("End of the items.")).toBeNull();
     });
@@ -626,7 +678,7 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
         .mockResolvedValueOnce(page([product()], "c1"))
         .mockResolvedValueOnce(page([product({ productId: PRODUCT_2, name: "Loose tea" })], null));
       renderList();
-      await tableReady();
+      await cardsReady();
       const more = screen.getByRole("button", { name: "Load more" });
       more.focus();
       fireEvent.click(more);
@@ -635,10 +687,10 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
     });
   });
 
-  test("activating a row opens the product's detail route", async () => {
+  test("clicking a card's name opens the product's detail route", async () => {
     renderList();
-    const table = await tableReady();
-    fireEvent.click(within(table).getByText("Mineral water 1.5L"));
+    const grid = await cardsReady();
+    fireEvent.click(within(grid).getByRole("link", { name: "Mineral water 1.5L" }));
     await waitFor(() => expect(location()).toBe(`/catalog/products/${PRODUCT_1}`));
   });
 });
@@ -655,18 +707,26 @@ describe("CatalogProductList v4.0 (RT-1010)", () => {
 
   test("the band carries no facts: the page serves no scope echo or total", async () => {
     const { container } = renderList();
-    await tableReady();
+    await cardsReady();
     expect(container.querySelector(".list-band")).not.toBeNull();
     expect(container.querySelector(".list-band__facts")).toBeNull();
   });
 
-  test("the table sits in one results panel with the pager", async () => {
+  test("the cards sit in one results panel with the pager", async () => {
     const { container } = renderList();
-    const table = await tableReady();
-    const panel = table.closest(".catalog-results");
+    const grid = await cardsReady();
+    const panel = grid.closest(".catalog-results");
     expect(panel?.classList.contains("section-panel")).toBe(true);
     expect(panel?.querySelector(".catalog-pager")).not.toBeNull();
     expect(container.querySelector(".surface")?.classList.contains("catalog-v4")).toBe(true);
+  });
+
+  test("each card is a section panel of its own", async () => {
+    renderList();
+    const grid = await cardsReady();
+    const [card] = within(grid).getAllByRole("listitem");
+    expect(card.classList.contains("section-panel")).toBe(true);
+    expect(card.classList.contains("catalog-card")).toBe(true);
   });
 
   test("an empty result sits in the same panel", async () => {

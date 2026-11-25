@@ -187,6 +187,57 @@
   stroke-width: 1;
 }
 
+/* The same sparkline on a light card (modern concept 1/6, rule 3): an Ink line
+ * on the card surface, so it reads without the hero's Mint-on-Ink. */
+.card-spark__line {
+  fill: none;
+  stroke: var(--color-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.card-spark__dot {
+  fill: var(--color-ink);
+}
+.card-spark__base {
+  stroke: var(--color-border);
+  stroke-width: 1;
+}
+
+/* ---- Modern concept 1/6: quick-actions bar and smart insight ----------------- */
+/* The bar keeps the side column's list and notes; its items share one row
+ * where there is room and wrap below it. */
+.overview__quick .quick-actions {
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+}
+.overview-insight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-action-fill);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+}
+.overview-insight__body {
+  flex: 1;
+  min-inline-size: 200px;
+}
+.overview-insight__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.overview-insight__text {
+  margin: 0;
+}
+.overview-insight__cta {
+  white-space: nowrap;
+}
+
 /* A delta: arrow, signed value and the named baseline, as words. The chip's tone
  * follows the metric's good direction (§12.8.2), never the arrow; it carries its
  * own fill, so it reads the same on a light card and on the Ink hero. */
@@ -724,6 +775,7 @@
     color: CanvasText;
   }
   .hero-spark__line,
+  .card-spark__line,
   .trend-chart__line--current,
   .trend-chart__line--previous,
   .trend-chart__grid--base {
@@ -733,6 +785,7 @@
     stroke: GrayText;
   }
   .hero-spark__dot,
+  .card-spark__dot,
   .trend-chart__dot,
   .trend-chart__tick,
   .trend-chart__day {

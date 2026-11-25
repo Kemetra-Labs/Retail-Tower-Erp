@@ -29,6 +29,7 @@ import { operators } from "./ar/operators";
 import { overview } from "./ar/overview";
 import { platform } from "./ar/platform";
 import { posPilot } from "./ar/posPilot";
+import { postingHealth } from "./ar/postingHealth";
 import { postingRepair } from "./ar/postingRepair";
 import { productRecon } from "./ar/productRecon";
 import { saleQuarantine } from "./ar/saleQuarantine";
@@ -70,6 +71,7 @@ export const AR_MODULES = {
   saleSync,
   saleQuarantine,
   postingRepair,
+  postingHealth,
   cashPolicy,
   inventory,
   counts,
@@ -114,6 +116,7 @@ export const ar = {
   ...saleSync,
   ...saleQuarantine,
   ...postingRepair,
+  ...postingHealth,
   ...cashPolicy,
   ...inventory,
   ...counts,

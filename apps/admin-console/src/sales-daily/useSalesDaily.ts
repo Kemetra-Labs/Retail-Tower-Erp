@@ -31,8 +31,14 @@ function renderOf(failure: unknown): SalesSummaryErrorRender | undefined {
   return failure instanceof SummaryFetchError ? failure.render : UNEXPECTED;
 }
 
-export const salesDailyQueryKey = (scope: SaleScope, query: SalesSummaryQuery | null) =>
-  ["sales-summary", "daily", scope.tenantId, scope.activeStoreId, query] as const;
+/** The reports that read the sales summary; each keeps its own cache entry. */
+type SummaryReport = "daily" | "posting-health";
+
+const summaryQueryKey = (
+  report: SummaryReport,
+  scope: SaleScope,
+  query: SalesSummaryQuery | null,
+) => ["sales-summary", report, scope.tenantId, scope.activeStoreId, query] as const;
 
 export interface SalesDailyState {
   summary?: SalesSummary;
@@ -41,11 +47,15 @@ export interface SalesDailyState {
   retry: () => void;
 }
 
-/** The report read for a valid range; `null` reads nothing. */
-export function useSalesDaily(scope: SaleScope, query: SalesSummaryQuery | null): SalesDailyState {
+/** One report's summary read for a valid range; `null` reads nothing. */
+export function useSalesSummaryRead(
+  report: SummaryReport,
+  scope: SaleScope,
+  query: SalesSummaryQuery | null,
+): SalesDailyState {
   const enabled = Boolean(scope.tenantId) && query !== null;
   const result = useQuery<SalesSummary>({
-    queryKey: salesDailyQueryKey(scope, query),
+    queryKey: summaryQueryKey(report, scope, query),
     enabled,
     queryFn: async () => {
       const sent = query as SalesSummaryQuery;
@@ -65,4 +75,9 @@ export function useSalesDaily(scope: SaleScope, query: SalesSummaryQuery | null)
     error: renderOf(result.error),
     retry: () => void result.refetch(),
   };
+}
+
+/** The daily report read for a valid range; `null` reads nothing. */
+export function useSalesDaily(scope: SaleScope, query: SalesSummaryQuery | null): SalesDailyState {
+  return useSalesSummaryRead("daily", scope, query);
 }

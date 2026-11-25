@@ -38,6 +38,7 @@ import { NavigationBlocker } from "@/shell/navigation-blocker";
 import { offerRoutes } from "@/shell/offerRoutes";
 import { payerRoutes } from "@/shell/payerRoutes";
 import { platformRoutes } from "@/shell/platformRoutes";
+import { postingHealthRoutes } from "@/shell/postingHealthRoutes";
 import { productReconciliationRoutes } from "@/shell/productReconciliationRoutes";
 import { rf2Routes } from "@/shell/rf2Routes";
 import { rf4aRoutes } from "@/shell/rf4aRoutes";
@@ -115,6 +116,7 @@ const router = createBrowserRouter(
           {saleSyncRoutes}
           {alertsRoutes}
           {searchRoutes}
+          {postingHealthRoutes}
           {accountRoutes}
         </Route>
       </Route>
