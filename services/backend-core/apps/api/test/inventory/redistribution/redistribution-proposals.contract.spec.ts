@@ -165,11 +165,12 @@ describe('redistribution-proposals — authentication and idempotency', () => {
 });
 
 describe('redistribution-proposals — non-disclosing refusals', () => {
-  it('answers 404 with the one non-disclosing response, and 403 only for origin_rejected', () => {
+  it('answers 404 with the one non-disclosing response, and 403 only for origin_rejected on commands', () => {
     for (const id of Object.keys(OPERATIONS) as OperationId[]) {
       const responses = op(id).responses as Record<string, Json>;
       expect([id, responses['404']]).toEqual([id, { $ref: '#/components/responses/NotFoundNonDisclosing' }]);
-      expect([id, responses['403']]).toEqual([id, { $ref: '#/components/responses/OriginRejected' }]);
+      const expected403 = COMMANDS.includes(id) ? { $ref: '#/components/responses/OriginRejected' } : undefined;
+      expect([id, responses['403']]).toEqual([id, expected403]);
     }
     const notFound = String(deref({ $ref: '#/components/responses/NotFoundNonDisclosing' })['description']);
     for (const words of ['another tenant', 'owner or tenant_admin', 'feature is off', 'indistinguishable']) {
@@ -203,6 +204,35 @@ describe('redistribution-proposals — states, codes and outcomes', () => {
     for (const code of ERROR_CODES) {
       expect([code, description.includes(`\`${code}\``)]).toEqual([code, true]);
       expect([code, exampleCodes.has(code)]).toEqual([code, true]);
+    }
+  });
+
+  it('ties each accept outcome to its fields', () => {
+    const validate = validator('RedistributionAcceptOutcome');
+    const base = {
+      proposedQuantity: '8.0000',
+      decidedAt: '2026-11-26T08:10:00.000Z',
+      decidedBy: '0190f5a2-3b4c-7d8e-9f01-0000000000c1',
+    };
+    const transferId = '0190f5a2-3b4c-7d8e-9f01-0000000000f1';
+    const cases: Array<[unknown, boolean]> = [
+      [{ ...base, outcome: 'created', createdQuantity: '8.0000', transferId, reason: null }, true],
+      [{ ...base, outcome: 'created', createdQuantity: '8.0000', transferId: null, reason: null }, false],
+      [{ ...base, outcome: 'reduced', createdQuantity: '5.0000', transferId, reason: 'source_available_insufficient' }, true],
+      [{ ...base, outcome: 'reduced', createdQuantity: '5.0000', transferId, reason: null }, false],
+      [{ ...base, outcome: 'dropped', createdQuantity: null, transferId: null, reason: 'stocking_unit_changed' }, true],
+      [{ ...base, outcome: 'dropped', createdQuantity: '1.0000', transferId: null, reason: 'source_not_fresh' }, false],
+    ];
+    for (const [value, ok] of cases) expect([value, validate(value)]).toEqual([value, ok]);
+  });
+
+  it('keeps warning codes, exclusions and drop reasons open, so a new value is not breaking', () => {
+    for (const name of ['RedistributionStoreExclusion', 'RedistributionLineDropReason']) {
+      expect([name, (doc.components!.schemas![name] as Json)['enum']]).toEqual([name, undefined]);
+    }
+    for (const name of ['RedistributionWarning', 'RedistributionLineWarning']) {
+      const code = ((doc.components!.schemas![name] as Json)['properties'] as Json)['code'] as Json;
+      expect([name, code['enum']]).toEqual([name, undefined]);
     }
   });
 
@@ -261,6 +291,23 @@ describe('redistribution-proposals — examples validate against their schemas',
       const value = example['value'] as Json;
       expect([name, value['state']]).toEqual([name, name]);
       expect([name, validate(value), validate.errors ?? null]).toEqual([name, true, null]);
+    }
+  });
+
+  it('validates the compute, list and accept examples against their schemas', () => {
+    const cases: Array<[OperationId, string, string]> = [
+      ['createRedistributionProposal', '200', 'RedistributionNothingToMove'],
+      ['listRedistributionProposals', '200', 'RedistributionProposalList'],
+      ['acceptRedistributionProposal', '200', 'RedistributionAcceptResult'],
+    ];
+    for (const [id, status, schema] of cases) {
+      const content = ((op(id).responses as Record<string, Json>)[status]!['content'] as Json)['application/json'] as Json;
+      const examples = content['examples'] as Record<string, Json>;
+      expect([id, Object.keys(examples).length > 0]).toEqual([id, true]);
+      const validate = validator(schema);
+      for (const [name, example] of Object.entries(examples)) {
+        expect([id, name, validate(example['value']), validate.errors ?? null]).toEqual([id, name, true, null]);
+      }
     }
   });
 

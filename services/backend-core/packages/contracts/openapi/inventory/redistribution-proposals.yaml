@@ -20,7 +20,7 @@ info:
 
     WHO. Owner or tenant_admin of the tenant. Every other role, another tenant's proposal, an unknown id, and a tenant
     for which the feature is off all receive the same non-disclosing 404 `not_found`; the four are indistinguishable
-    by design. 403 is only `origin_rejected` (RT-430).
+    by design. 403 is only `origin_rejected` (RT-430), on commands; reads never answer 403.
 
 
     PHASES. The feature ships dark. A tenant on the SHADOW allowlist may compute, list, read, review and reject:
@@ -30,16 +30,20 @@ info:
 
 
     STATES. `open` (just computed), `reviewed` (at least one review decision recorded), `partially_accepted` (some
-    lines accepted, others still undecided), `accepted` (every line accepted), `rejected`, `expired` (24 hours after
-    `createdAt` without a terminal decision) and `superseded` (a newer compute replaced it). `accepted`, `rejected`,
-    `expired` and `superseded` are terminal. A tenant has at most one non-terminal proposal: a new compute supersedes
-    it.
+    lines have an accept outcome, others not yet), `accepted` (every line has an accept outcome: created, reduced or
+    dropped), `rejected`, `expired` (past `expiresAt`, set by the server, 24 hours after `createdAt` in V1, without a
+    terminal decision) and `superseded` (a newer compute replaced it). `accepted`, `rejected`, `expired` and
+    `superseded` are terminal. A tenant has at most one non-terminal proposal: every compute, scoped or not and
+    whether or not it finds anything to move, supersedes it. A proposal past `expiresAt` is `expired`, never
+    `superseded`, even before any sweep, and `proposal_expired` wins over every other 409 code.
 
 
     FRESHNESS. A store is excluded as a SOURCE (never as a destination) when any active device of the store has an
     unknown queue, dead-letter or held sales, or a stale heartbeat; an inactive store is excluded both ways. The
-    exclusion and the per-store read time are on the proposal. Accept re-reads stock and open drafts line by line: a
-    line whose source can no longer give the quantity is reduced or dropped, and the outcome records both quantities.
+    exclusion and the per-store read time are on the proposal. Accept re-checks each listed line against current
+    state: the source's freshness, its available stock net of open drafts, the destination's gap to its reorder
+    level, sellability at both stores, and every per-line rule of the W3 transfer create command. A line that can no
+    longer be given in full is reduced or dropped, and the outcome records both quantities and the reason.
 
 
     QUANTITIES are exact-decimal strings (`numeric(19,4)`), never floats. There is no money or currency on this
@@ -55,7 +59,7 @@ info:
 
     ERRORS use the canonical envelope `{ error: { code, message, request_id } }`. Codes on this surface:
     `validation_error`, `idempotency_key_required`, `idempotency_key_malformed` (400); `unauthorized` (401);
-    `origin_rejected` (403); `not_found` (404); `idempotency_key_conflict`, `proposal_superseded`,
+    `origin_rejected` (403, commands only); `not_found` (404); `idempotency_key_conflict`, `proposal_superseded`,
     `proposal_expired`, `proposal_state_conflict`, `proposal_line_already_decided`, `proposal_stale` (409);
     `redistribution_too_large`, `redistribution_deadline_exceeded`, `redistribution_plan_invalid` (422);
     `idempotency_in_progress` (425); `rate_limited` (429); `internal_error` (5xx).
@@ -66,7 +70,9 @@ info:
     `reorder_level_missing`; the buffer policy is echoed; warnings and validator violations are structured
     `{code, ...}` objects; per-move warnings sit on each line; an inactive store is excluded both as source and as
     destination. A stored proposal always has a non-null objective and a passed validator report: a compute whose
-    result is not `proposed` is never stored.
+    result is not `proposed` is never stored. Warning codes, store exclusions and line drop reasons are open strings
+    whose current values are listed on each schema: a client must show an unknown value generically, and a new value
+    is not a breaking change.
 
 servers:
   - url: https://api.example.com
@@ -87,10 +93,11 @@ paths:
       x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
-        Computes a proposal on demand over the tenant's active stores, or over `storeIds` when given (at least two).
-        The result is stored only when the rule proposes at least one line: 201 with the new proposal, which
-        supersedes the tenant's non-terminal proposal, if any. When nothing needs to move, 200 with the outcome and
-        nothing is stored or superseded. A store set above the limits is 422 `redistribution_too_large`, a compute
+        Computes a proposal on demand over the tenant's active stores, or over `storeIds` when given (at least two;
+        a store that is not an active store of the tenant is 400 `validation_error`, which never says whether it
+        exists elsewhere). Either way the tenant's non-terminal proposal, if any, is superseded. The result is stored
+        only when the rule proposes at least one line: 201 with the new proposal. When nothing needs to move, 200
+        with the outcome, including the id of the proposal it superseded; nothing new is stored. A store set above the limits is 422 `redistribution_too_large`, a compute
         over its deadline is 422 `redistribution_deadline_exceeded`, and a plan the independent validator rejects
         is 422 `redistribution_plan_invalid`; none of the three stores or supersedes anything. Owner or tenant_admin
         on the shadow or live allowlist; otherwise the non-disclosing 404.
@@ -106,11 +113,22 @@ paths:
               $ref: "#/components/schemas/ComputeRedistributionProposalCommand"
       responses:
         "200":
-          description: Nothing to move. Nothing was stored and no proposal was superseded.
+          description: Nothing to move. Nothing new was stored; the tenant's non-terminal proposal, if any, was superseded.
           content:
             application/json:
               schema:
                 $ref: "#/components/schemas/RedistributionNothingToMove"
+              examples:
+                nothing_to_move:
+                  value:
+                    result: nothing_to_move
+                    supersededProposalId: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.200Z", eligibleAsSource: true, exclusion: null }
+                    warnings: []
         "201":
           description: Proposal computed, stored in state `open`, and the previous non-terminal one superseded.
           content:
@@ -155,9 +173,23 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RedistributionProposalList"
+              examples:
+                one_page:
+                  value:
+                    items:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000a1"
+                        state: open
+                        acceptEnabled: false
+                        createdAt: "2026-11-26T08:00:00.000Z"
+                        expiresAt: "2026-11-27T08:00:00.000Z"
+                        computedAt: "2026-11-26T08:00:00.000Z"
+                        objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                        lineCount: 1
+                        excludedStoreCount: 1
+                        warningCount: 1
+                    nextCursor: null
         "400": { $ref: "#/components/responses/ReadValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/OriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -204,6 +236,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b2", readAt: "2026-11-26T07:59:59.300Z", eligibleAsSource: false, exclusion: device_heartbeat_stale }
                     objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
                     validator: { passed: true, violations: [] }
@@ -237,6 +270,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -268,6 +302,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "20.0000", deficitAfter: "4.0000", storePairs: 1, lines: 2 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -308,6 +343,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "20.0000", deficitAfter: "4.0000", storePairs: 1, lines: 2 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -348,6 +384,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -379,6 +416,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-25T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-25T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -410,6 +448,7 @@ paths:
                     buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
                     stores:
                       - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T06:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T06:59:59.120Z", eligibleAsSource: true, exclusion: null }
                     objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
                     validator: { passed: true, violations: [] }
                     warnings: []
@@ -425,7 +464,6 @@ paths:
                         acceptOutcome: null
         "400": { $ref: "#/components/responses/ReadValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
-        "403": { $ref: "#/components/responses/OriginRejected" }
         "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
         "429": { $ref: "#/components/responses/TooManyRequests" }
         "5XX": { $ref: "#/components/responses/SystemFailure" }
@@ -444,7 +482,8 @@ paths:
         Records a review decision for each listed line; a later decision on the same line replaces the earlier one.
         Creates nothing and changes no stock. Allowed while the proposal is `open`, `reviewed` or
         `partially_accepted` and on a line with no accept outcome; the proposal becomes `reviewed` unless it is
-        already `partially_accepted`. A line id that is not on this proposal is 400 `validation_error`. A terminal
+        already `partially_accepted`. A line id that is not on this proposal, or one listed twice, is 400
+        `validation_error`. A terminal
         proposal is 409 `proposal_superseded`, `proposal_expired` or `proposal_state_conflict`; an accepted line is
         409 `proposal_line_already_decided`. Owner or tenant_admin on the shadow or live allowlist; otherwise the
         non-disclosing 404.
@@ -485,11 +524,13 @@ paths:
       x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
-        In ONE transaction: re-reads the source stock and open draft transfers for each listed line, drops or
-        reduces lines that can no longer be given in full, groups the rest by store pair, splits a pair at 100 lines
-        (the W3 transfer limit) and creates one W3 shipment transfer in `draft` per group through the W3 create
-        command, with reason `Redistribution proposal <id>`. Every W3 rule of that command applies. It never
-        approves, dispatches or reserves. Either every listed line gets an outcome and its transfers exist, or
+        In ONE transaction: re-checks each listed line (source freshness, source stock net of open draft
+        transfers, the destination's gap, sellability at both stores, and every per-line rule of the W3 create
+        command, such as the established stocking unit), drops or reduces lines that can no longer be given in full,
+        groups the rest by store pair, splits a pair at 100 lines (the W3 transfer limit) and creates one W3 shipment
+        transfer in `draft` per group through the W3 create command, with reason `Redistribution proposal <id>`. A
+        line the W3 command would refuse is reported `dropped` with its reason, never an error for the whole
+        accept. It never approves, dispatches or reserves. Either every listed line gets an outcome and its transfers exist, or
         nothing is written. Each listed line reports `created`, `reduced` (both quantities) or `dropped` (with a
         reason). When every listed line would be dropped, nothing is written and the answer is 409
         `proposal_stale`: compute a new proposal. The proposal becomes `accepted` when every line has an outcome,
@@ -514,6 +555,54 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/RedistributionAcceptResult"
+              examples:
+                created_and_dropped:
+                  value:
+                    lines:
+                      - lineId: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        outcome: { outcome: created, proposedQuantity: "8.0000", createdQuantity: "8.0000", transferId: "0190f5a2-3b4c-7d8e-9f01-0000000000f1", reason: null, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                      - lineId: "0190f5a2-3b4c-7d8e-9f01-0000000000d2"
+                        outcome: { outcome: dropped, proposedQuantity: "8.0000", createdQuantity: null, transferId: null, reason: source_not_fresh, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                    transferIds: ["0190f5a2-3b4c-7d8e-9f01-0000000000f1"]
+                    proposal:
+                      id: "0190f5a2-3b4c-7d8e-9f01-0000000000a4"
+                      state: accepted
+                      acceptEnabled: true
+                      createdAt: "2026-11-26T08:00:00.000Z"
+                      createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                      expiresAt: "2026-11-27T08:00:00.000Z"
+                      decidedAt: "2026-11-26T08:10:00.000Z"
+                      supersededBy: null
+                      rejectReason: null
+                      rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                      computedAt: "2026-11-26T08:00:00.000Z"
+                      limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                      buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                      stores:
+                        - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                        - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      objective: { deficitBefore: "20.0000", deficitAfter: "4.0000", storePairs: 1, lines: 2 }
+                      validator: { passed: true, violations: [] }
+                      warnings: []
+                      lines:
+                        - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                          productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                          sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                          destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                          quantity: "8.0000"
+                          stockingUnit: piece
+                          warnings: []
+                          reviewDecision: null
+                          acceptOutcome: { outcome: created, proposedQuantity: "8.0000", createdQuantity: "8.0000", transferId: "0190f5a2-3b4c-7d8e-9f01-0000000000f1", reason: null, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                        - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d2"
+                          productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e2"
+                          sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                          destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                          quantity: "8.0000"
+                          stockingUnit: piece
+                          warnings: []
+                          reviewDecision: null
+                          acceptOutcome: { outcome: dropped, proposedQuantity: "8.0000", createdQuantity: null, transferId: null, reason: source_not_fresh, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
         "400": { $ref: "#/components/responses/WriteValidationFailure" }
         "401": { $ref: "#/components/responses/Unauthorized" }
         "403": { $ref: "#/components/responses/OriginRejected" }
@@ -639,8 +728,9 @@ components:
         storeIds:
           type: array
           minItems: 2
-          maxItems: 50
+          maxItems: 200
           uniqueItems: true
+          description: The stores to consider. The runtime's store limit (`limits.maxStores`) still applies.
           items: { type: string, format: uuid }
     ReviewRedistributionProposalCommand:
       type: object
@@ -650,7 +740,8 @@ components:
         lineDecisions:
           type: array
           minItems: 1
-          maxItems: 1000
+          maxItems: 200
+          description: At most 200 decisions per request, so the body stays under the API's JSON limit.
           items:
             type: object
             additionalProperties: false
@@ -662,7 +753,7 @@ components:
               note:
                 type: string
                 minLength: 1
-                maxLength: 500
+                maxLength: 200
     AcceptRedistributionProposalCommand:
       type: object
       additionalProperties: false
@@ -731,9 +822,12 @@ components:
         rounding: { type: string, enum: [scale, whole_unit] }
     RedistributionStoreExclusion:
       type: string
-      enum: [pos_queue_unknown, pos_queue_dead_letter_or_held, device_heartbeat_stale, inactive]
+      minLength: 1
+      maxLength: 64
       description: >
-        Why a store may not give stock. `inactive` also bars it as a destination; the others bar it only as a source.
+        Why a store may not give stock. Open string; current values `pos_queue_unknown`,
+        `pos_queue_dead_letter_or_held`, `device_heartbeat_stale` and `inactive`. `inactive` also bars it as a
+        destination; the others bar it only as a source.
     RedistributionProposalStore:
       type: object
       additionalProperties: false
@@ -790,12 +884,11 @@ components:
       properties:
         code:
           type: string
-          enum:
-            - store_excluded_as_source
-            - negative_available_to_sell
-            - reorder_level_missing
-            - tracked_product_skipped
-            - stocking_unit_mismatch
+          minLength: 1
+          maxLength: 64
+          description: >
+            Open string; current values `store_excluded_as_source`, `negative_available_to_sell`,
+            `reorder_level_missing`, `tracked_product_skipped` and `stocking_unit_mismatch`.
         storeId: { type: string, format: uuid }
         productId: { type: string, format: uuid }
         count: { type: integer, minimum: 1 }
@@ -807,7 +900,9 @@ components:
       properties:
         code:
           type: string
-          enum: [source_near_reorder_level]
+          minLength: 1
+          maxLength: 64
+          description: Open string; current value `source_near_reorder_level`.
         detail: { type: string }
     RedistributionReviewDecision:
       type: object
@@ -817,41 +912,59 @@ components:
         decision: { $ref: "#/components/schemas/RedistributionReviewDecisionValue" }
         note:
           oneOf:
-            - { type: string, minLength: 1, maxLength: 500 }
+            - { type: string, minLength: 1, maxLength: 200 }
             - type: "null"
         decidedAt: { type: string, format: date-time }
         decidedBy: { type: string, format: uuid }
     RedistributionLineDropReason:
       type: string
-      enum: [source_not_fresh, source_available_insufficient, destination_gap_closed, product_not_sellable]
+      minLength: 1
+      maxLength: 64
       description: >
-        Why accept reduced or dropped a line: the source store is no longer fresh, its available stock (net of open
-        drafts) can no longer give the quantity, the destination is no longer below its reorder level, or the
-        product is no longer sellable at one of the stores.
+        Why accept reduced or dropped a line. Open string; current values: `source_not_fresh` (the source store is
+        no longer fresh), `source_available_insufficient` (its stock net of open drafts can no longer give the
+        quantity), `destination_gap_closed` (the destination is no longer below its reorder level, or needs less),
+        `product_not_sellable` (no longer sellable at one of the stores), `stocking_unit_changed` (the product's
+        established stocking unit differs from the line's) and `transfer_rule_refused` (another per-line rule of the
+        W3 create command refuses it).
     RedistributionAcceptOutcome:
-      type: object
-      additionalProperties: false
-      required: [outcome, proposedQuantity, createdQuantity, transferId, reason, decidedAt, decidedBy]
       description: >
         `created`: the full quantity is on the draft transfer. `reduced`: a smaller positive quantity is, with the
         reason. `dropped`: nothing was created for the line, with the reason.
-      properties:
-        outcome: { type: string, enum: [created, reduced, dropped] }
-        proposedQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
-        createdQuantity:
-          oneOf:
-            - $ref: "#/components/schemas/PositiveDecimalQuantity"
-            - type: "null"
-        transferId:
-          oneOf:
-            - { type: string, format: uuid }
-            - type: "null"
-        reason:
-          oneOf:
-            - $ref: "#/components/schemas/RedistributionLineDropReason"
-            - type: "null"
-        decidedAt: { type: string, format: date-time }
-        decidedBy: { type: string, format: uuid }
+      oneOf:
+        - type: object
+          additionalProperties: false
+          required: [outcome, proposedQuantity, createdQuantity, transferId, reason, decidedAt, decidedBy]
+          properties:
+            outcome: { type: string, const: created }
+            proposedQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+            createdQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+            transferId: { type: string, format: uuid }
+            reason: { type: "null" }
+            decidedAt: { type: string, format: date-time }
+            decidedBy: { type: string, format: uuid }
+        - type: object
+          additionalProperties: false
+          required: [outcome, proposedQuantity, createdQuantity, transferId, reason, decidedAt, decidedBy]
+          properties:
+            outcome: { type: string, const: reduced }
+            proposedQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+            createdQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+            transferId: { type: string, format: uuid }
+            reason: { $ref: "#/components/schemas/RedistributionLineDropReason" }
+            decidedAt: { type: string, format: date-time }
+            decidedBy: { type: string, format: uuid }
+        - type: object
+          additionalProperties: false
+          required: [outcome, proposedQuantity, createdQuantity, transferId, reason, decidedAt, decidedBy]
+          properties:
+            outcome: { type: string, const: dropped }
+            proposedQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+            createdQuantity: { type: "null" }
+            transferId: { type: "null" }
+            reason: { $ref: "#/components/schemas/RedistributionLineDropReason" }
+            decidedAt: { type: string, format: date-time }
+            decidedBy: { type: string, format: uuid }
     RedistributionProposalLine:
       type: object
       additionalProperties: false
@@ -913,14 +1026,15 @@ components:
         acceptEnabled:
           type: boolean
           description: >
-            True when the tenant is in the live phase (live allowlist and W3 shipment transfers activated), so accept
-            is available; false in the shadow phase.
+            The tenant's phase when this response was produced: true in the live phase (live allowlist and W3
+            shipment transfers activated), false in the shadow phase. It does not say the proposal itself can still
+            be accepted (see `state`). An idempotent replay returns the value of the original response.
         createdAt: { type: string, format: date-time }
         createdBy: { type: string, format: uuid }
         expiresAt:
           type: string
           format: date-time
-          description: 24 hours after `createdAt`.
+          description: Set by the server; 24 hours after `createdAt` in V1.
         decidedAt:
           description: When the proposal reached a terminal state other than `expired`; null otherwise.
           oneOf:
@@ -954,10 +1068,15 @@ components:
     RedistributionNothingToMove:
       type: object
       additionalProperties: false
-      required: [result, rule, computedAt, stores, warnings]
-      description: The compute found no line to propose. Nothing was stored.
+      required: [result, supersededProposalId, rule, computedAt, stores, warnings]
+      description: The compute found no line to propose. Nothing new was stored.
       properties:
         result: { type: string, const: nothing_to_move }
+        supersededProposalId:
+          description: The tenant's non-terminal proposal this compute superseded, or null.
+          oneOf:
+            - { type: string, format: uuid }
+            - type: "null"
         rule: { $ref: "#/components/schemas/RedistributionRule" }
         computedAt: { type: string, format: date-time }
         stores:
@@ -1078,8 +1197,8 @@ components:
               value: { error: { code: unauthorized, message: Unauthorized., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000105" } }
     OriginRejected:
       description: >
-        403 `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin`
-        header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A role outside owner
+        403 `origin_rejected` (RT-430), commands only: the command is authenticated by the `dp2_session` cookie and
+        its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A role outside owner
         and tenant_admin is NOT a 403: it is the non-disclosing 404.
       content:
         application/json:
@@ -1134,7 +1253,8 @@ components:
       description: >
         422, nothing stored or superseded. `redistribution_too_large`: the store or row count is above the limits.
         `redistribution_deadline_exceeded`: the compute ran past its deadline. `redistribution_plan_invalid`: the
-        independent validator rejected the plan (the violations are recorded server-side under `request_id`).
+        engine refused its input or the independent validator rejected the plan (the violations are recorded
+        server-side under `request_id`).
       content:
         application/json:
           schema: { $ref: "#/components/schemas/Error" }
