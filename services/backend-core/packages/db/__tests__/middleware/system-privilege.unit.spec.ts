@@ -38,7 +38,11 @@ describe("runWithSystemPrivilege (RT-1461)", () => {
     expect(privQueries).toHaveLength(1);
     // The one statement both sets and reads back.
     expect(privQueries[0]).toContain("set_config('app.system_privilege', $1, true)");
-    expect(privQueries[0]).toContain("current_setting('app.system_privilege', true)");
+    // RT-1461 AC: the privilege read-back is set_config's return value, not a separate current_setting
+    // read whose result would depend on select-list evaluation order.
+    expect(privQueries[0]).toContain("set_config('app.system_privilege', $1, true) AS priv");
+    expect(privQueries[0]).not.toContain("current_setting('app.system_privilege'");
+    expect(privQueries[0]).not.toContain("OFFSET 0");
     expect(query).toHaveBeenCalledWith(privQueries[0], ["signup"]);
     // BEGIN, tenant pin, platform-admin off, the one privilege statement, COMMIT: nothing else.
     expect(sqls).toHaveLength(5);

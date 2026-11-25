@@ -52,14 +52,14 @@ export async function runWithSystemPrivilege<T>(pool: Pool, ctx: SystemContext, 
   if (!PRIVILEGES.has(ctx.privilege)) throw new Error("runWithSystemPrivilege: unknown privilege");
   // `runWithTenantContext` validates the tenant id, opens the transaction and sets `app.is_platform_admin = 'false'`.
   return await runWithTenantContext(pool, { tenantId: ctx.tenantId, isPlatformAdmin: false }, async (client) => {
-    // RT-1461: one round trip. The inner SELECT sets the privilege; `OFFSET 0` keeps it a separate
-    // evaluation step, so the outer `current_setting` calls read the settings AFTER the set took
-    // effect, inside this same transaction. Verification is unchanged: any mismatch throws below.
+    // RT-1461: one round trip. `priv` is set_config's own return value (the value it applied), so the
+    // check never depends on the order Postgres evaluates the select list. The platform-admin and
+    // provisioner flags were set by earlier statements of this transaction and this statement does not
+    // touch them, so their reads are order-independent too. Verification is unchanged: any mismatch throws.
     const check = await client.query<{ admin: string | null; priv: string | null; prov: string | null }>(
-      `SELECT current_setting('app.is_platform_admin', true) AS admin,
-              current_setting('app.system_privilege', true) AS priv,
-              coalesce(current_setting('app.is_provisioner', true), '') AS prov
-         FROM (SELECT set_config('app.system_privilege', $1, true) AS applied OFFSET 0) AS set_priv`,
+      `SELECT set_config('app.system_privilege', $1, true) AS priv,
+              current_setting('app.is_platform_admin', true) AS admin,
+              coalesce(current_setting('app.is_provisioner', true), '') AS prov`,
       [ctx.privilege],
     );
     const row = check.rows[0];
