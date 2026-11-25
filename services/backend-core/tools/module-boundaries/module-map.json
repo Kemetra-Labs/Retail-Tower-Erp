@@ -145,6 +145,8 @@
         "inventory_recalls",
         "inventory_reservations",
         "inventory_safety_changes",
+        "redistribution_proposal_lines",
+        "redistribution_proposals",
         "sale_line_findings",
         "shipment_transfer_discrepancies",
         "shipment_transfer_lines",
