@@ -55,6 +55,8 @@ export interface ReturnExecutionsRepository {
   listForReturn(returnId: string): ExecutionEntry[];
   /** This terminal's `pending` / `unknown` executions, oldest first (resolver order). */
   listUnrecorded(scope: ReturnScope): ExecutionEntry[];
+  /** RT-1606: this terminal's `refused` (final, 409/422) executions: counted, never re-sent. */
+  countRefused(scope: ReturnScope): number;
   recordAttempt(stamp: ExecutionStamp): void;
   /** pending/unknown -> unknown. False when the row was already final. */
   markUnknown(stamp: ExecutionStamp): boolean;
@@ -160,6 +162,17 @@ class SqlReturnExecutionsRepository implements ReturnExecutionsRepository {
                  ORDER BY e.created_at ASC, e.execution_id ASC`;
     const rows = this.prepare(sql).all(scope.tenantId, scope.branchId, scope.terminalId);
     return (rows as Row[]).map(toEntry);
+  }
+
+  countRefused(scope: ReturnScope): number {
+    const sql = `SELECT COUNT(*) AS n FROM return_refund_executions e
+                 JOIN return_journal j ON j.return_id = e.return_id
+                 WHERE j.tenant_id = ? AND j.branch_id = ? AND j.terminal_id = ?
+                   AND e.state = 'refused'`;
+    const row = this.prepare(sql).get(scope.tenantId, scope.branchId, scope.terminalId) as {
+      n: number;
+    };
+    return row.n;
   }
 
   recordAttempt({ executionId, now }: ExecutionStamp): void {
