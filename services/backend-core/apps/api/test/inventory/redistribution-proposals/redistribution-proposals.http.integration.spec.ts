@@ -4,14 +4,17 @@
  * idempotency interceptor over a fake Redis. Only cookie authentication is faked (the `x-test-session` header).
  *
  * Proves (RT-1600 acceptance 2, 3 and 7, plus the wire shapes):
- *   2. a role other than owner / tenant_admin (store_manager, store_staff) is the non-disclosing 404 on every route;
- *   3. a tenant on neither allowlist is the same 404, on reads and commands alike;
- *   7. a replayed accept (same key, same body) returns the stored response with `Idempotent-Replayed: true` and
+ *   2. a role other than owner / tenant_admin (store_manager, store_staff) is the non-disclosing 404 on every route,
+ *      and so is an owner or tenant_admin whose membership is limited to specific stores (review S1);
+ *   3. a tenant on neither allowlist is the same 404, on reads and commands alike; a shadow-only tenant reads its
+ *      proposal but gets the same 404 on accept;
+ *   7. a refused accept claims no key (the same key and body succeed once the refusal is lifted, not replayed); a
+ *      replayed accept (same key, same body) returns the stored 2xx response with `Idempotent-Replayed: true` and
  *      creates no second Transfer; the key reused with another body is 409 `idempotency_key_conflict`;
  *   every 2xx body validates (AJV) against its RT-1599 schema, and every refusal against the `Error` envelope.
  *
  * The allowlists are set in the environment before the app boots and restored afterwards: tenant A is on the LIVE
- * list, tenant B on neither.
+ * list, tenant B on the SHADOW list only, tenant C on neither.
  *
  * Docker policy: hard failure unless MIGRATION_TEST_ALLOW_SKIP=1.
  */
@@ -32,8 +35,21 @@ import { InventoryStoreDirectoryModule } from '../../../src/stores/inventory-sto
 import { seedConsoleMember } from '../../_helpers/console-members';
 import { allContracts, contractDocument } from '../../_helpers/openapi-contract';
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from '../../_helpers/postgres-container';
-import { STORE_A_X, STORE_A_Y, TENANT_A, TENANT_B } from '../../catalog/__support__/isolation-harness';
-import { bootScopedApp, SES_OWNER_ALL } from '../../catalog/erpnext-reconciliation/__support__/read-store-scope';
+import {
+  PRODUCT_B_ACTIVE,
+  STORE_A_X,
+  STORE_A_Y,
+  STORE_B_X,
+  STORE_B_Y,
+  TENANT_A,
+  TENANT_B,
+} from '../../catalog/__support__/isolation-harness';
+import {
+  bootScopedApp,
+  SES_ADMIN_SPEC,
+  SES_OWNER_ALL,
+  SES_OWNER_SPEC,
+} from '../../catalog/erpnext-reconciliation/__support__/read-store-scope';
 import { SES_MANAGER, SES_STAFF, seedConsoleSalesFixture } from '../../console-sales/__support__/console-sales-fixture';
 
 const BASE = '/api/inventory/v1/redistribution-proposals';
@@ -44,7 +60,11 @@ const LIVE_ENV = 'REDISTRIBUTION_LIVE_TENANT_ALLOWLIST';
 
 const a = (tag: string): string => `0a000000-0000-7000-8000-${tag.padStart(12, '0')}`;
 const b = (tag: string): string => `0b000000-0000-7000-8000-${tag.padStart(12, '0')}`;
+const c = (tag: string): string => `0c000000-0000-7000-8000-${tag.padStart(12, '0')}`;
 const SES_OWNER_B = b('160000b1');
+const TENANT_C = c('160000c0');
+const SES_OWNER_C = c('160000c1');
+const B_PROPOSAL = b('160000d1');
 const ACTOR = a('160000e1');
 
 @Module({ imports: [InventoryModule, TransferErpPortModule, InventoryStoreDirectoryModule] })
@@ -141,6 +161,25 @@ async function seedStock(): Promise<void> {
   );
 }
 
+/** A stored open proposal of tenant B (shadow phase only), written directly: B can read it but never accept it. */
+async function seedShadowProposal(): Promise<void> {
+  await env!.admin.query(
+    `INSERT INTO redistribution_proposals
+       (id, tenant_id, state, created_by, expires_at, rule_name, rule_version, computed_at, limits, buffer, stores, warnings,
+        objective_deficit_before, objective_deficit_after, objective_store_pairs, objective_lines)
+     VALUES ($1, $2, 'open', $3, now() + interval '1 day', 'reorder_gap_greedy', '1.0.0', now(),
+             '{"maxStores":50,"maxRows":20000,"deadlineMs":5000,"maxLinesPerTransfer":100}'::jsonb,
+             '{"minimum":"1.0000","percentOfReorderLevel":10,"rounding":"scale"}'::jsonb, '[]'::jsonb, '[]'::jsonb, 8, 0, 1, 1)`,
+    [B_PROPOSAL, TENANT_B, b('160000b2')],
+  );
+  await env!.admin.query(
+    `INSERT INTO redistribution_proposal_lines
+       (id, tenant_id, proposal_id, line_seq, product_id, source_store_id, destination_store_id, quantity, stocking_unit)
+     VALUES ($1, $2, $3, 1, $4, $5, $6, 8, 'piece')`,
+    [b('160000d2'), TENANT_B, B_PROPOSAL, PRODUCT_B_ACTIVE, STORE_B_X, STORE_B_Y],
+  );
+}
+
 beforeAll(async () => {
   ajv.addSchema(contractDocument(allContracts(), CONTRACT) as object, CONTRACT);
   try {
@@ -168,12 +207,26 @@ beforeAll(async () => {
     stores: 'all',
     sessions: { [SES_OWNER_B]: null },
   });
-  await env.admin.query(
-    `INSERT INTO tenant_inventory_settings (tenant_id, shipment_transfers_enabled, updated_by) VALUES ($1, true, $2)
-     ON CONFLICT (tenant_id) DO UPDATE SET shipment_transfers_enabled = true`,
-    [TENANT_A, ACTOR],
-  );
+  await env.admin.query(`INSERT INTO tenants (id, slug, name, default_currency_code) VALUES ($1, 'rt1600-c', 'RT1600 C', 'EGP')`, [TENANT_C]);
+  await seedConsoleMember(env.admin, {
+    tenantId: TENANT_C,
+    userId: c('160000c2'),
+    email: 'rt1600-http-owner-c@example.test',
+    membershipId: c('160000c3'),
+    roleId: c('160000c4'),
+    roleCode: 'owner',
+    stores: 'all',
+    sessions: { [SES_OWNER_C]: null },
+  });
+  for (const tenant of [TENANT_A, TENANT_B]) {
+    await env.admin.query(
+      `INSERT INTO tenant_inventory_settings (tenant_id, shipment_transfers_enabled, updated_by) VALUES ($1, true, $2)
+       ON CONFLICT (tenant_id) DO UPDATE SET shipment_transfers_enabled = true`,
+      [tenant, ACTOR],
+    );
+  }
   await seedStock();
+  await seedShadowProposal();
   const redis = new FakeRedis();
   const marker = new FakeMarker();
   const store = new IdempotencyKeyStore({
@@ -188,7 +241,7 @@ beforeAll(async () => {
     { provide: InProgressMarker, useValue: marker },
     { provide: APP_INTERCEPTOR, useValue: new IdempotencyInterceptor(new Reflector(), store, marker as unknown as InProgressMarker) },
   ];
-  process.env[SHADOW_ENV] = '';
+  process.env[SHADOW_ENV] = TENANT_B;
   process.env[LIVE_ENV] = TENANT_A;
   app = await bootScopedApp(env, RedistributionHttpHarness, undefined, { authLookupPool: env.admin, providers });
 }, 240_000);
@@ -239,26 +292,33 @@ describe('the proposal routes over HTTP', () => {
     expect((list.body as { items: { id: string }[] }).items.map((i) => i.id)).toEqual([proposal.id]);
   });
 
-  it('answers a store_manager and a store_staff with the non-disclosing 404 on reads and commands (2)', async () => {
+  it('answers a store_manager, a store_staff and a store-scoped owner or tenant_admin with the non-disclosing 404 (2)', async () => {
     if (skip()) return;
-    for (const session of [SES_MANAGER, SES_STAFF]) {
+    for (const session of [SES_MANAGER, SES_STAFF, SES_OWNER_SPEC, SES_ADMIN_SPEC]) {
       expectRefused(await read(BASE, session), 404, 'not_found');
       expectRefused(await read(`${BASE}/${proposal.id}`, session), 404, 'not_found');
       expectRefused(await post(BASE, session, {}), 404, 'not_found');
       expectRefused(await post(`${BASE}/${proposal.id}/reject`, session, { reason: 'not mine' }), 404, 'not_found');
+      expectRefused(await post(`${BASE}/${proposal.id}/accept`, session, { lineIds: [proposal.lines[0]!.id] }), 404, 'not_found');
     }
+    expect((await read(`${BASE}/${proposal.id}`, SES_OWNER_ALL)).body).toMatchObject({ state: 'open' });
   });
 
-  it('answers a tenant on neither allowlist with the same 404, before any key is claimed (3)', async () => {
+  it('answers a tenant on neither allowlist with the same 404 on reads and commands (3)', async () => {
     if (skip()) return;
-    expectRefused(await read(BASE, SES_OWNER_B), 404, 'not_found');
-    expectRefused(await read(`${BASE}/${proposal.id}`, SES_OWNER_B), 404, 'not_found');
-    const idemKey = key();
-    expectRefused(await post(BASE, SES_OWNER_B, {}, idemKey), 404, 'not_found');
-    // A refused request claimed nothing: the same key and body are refused the same way, never replayed.
-    const again = await post(BASE, SES_OWNER_B, {}, idemKey);
-    expectRefused(again, 404, 'not_found');
-    expect(again.headers['idempotent-replayed']).toBeUndefined();
+    expectRefused(await read(BASE, SES_OWNER_C), 404, 'not_found');
+    expectRefused(await read(`${BASE}/${B_PROPOSAL}`, SES_OWNER_C), 404, 'not_found');
+    expectRefused(await post(BASE, SES_OWNER_C, {}), 404, 'not_found');
+  });
+
+  it('lets a shadow-only tenant read its proposal but answers its accept with the same 404 (3)', async () => {
+    if (skip()) return;
+    const own = await read(`${BASE}/${B_PROPOSAL}`, SES_OWNER_B);
+    expectStatus(own, 200);
+    expectValid('RedistributionProposal', own.body);
+    expect((own.body as { acceptEnabled: boolean }).acceptEnabled).toBe(false);
+    expectRefused(await post(`${BASE}/${B_PROPOSAL}/accept`, SES_OWNER_B, { lineIds: [b('160000d2')] }), 404, 'not_found');
+    expect(Number((await env!.admin.query(`SELECT count(*) AS n FROM shipment_transfers WHERE tenant_id = $1`, [TENANT_B])).rows[0].n)).toBe(0);
   });
 
   it('requires Idempotency-Key on a command and validates the body strictly (400)', async () => {
@@ -271,12 +331,17 @@ describe('the proposal routes over HTTP', () => {
     expectRefused(await read(`${BASE}?cursor=forged`, SES_OWNER_ALL), 400, 'validation_error');
   });
 
-  it('replays an accept with the same key and body, creating no second Transfer; another body is 409 (7)', async () => {
+  it('claims no key on a refused accept, then replays the accepted one with the same key and body (7)', async () => {
     if (skip()) return;
     const idemKey = key();
     const body = { lineIds: proposal.lines.map((l) => l.id) };
+    // Refused (W3 shipment transfers off: the live phase is not on): the same key must stay unclaimed.
+    await env!.admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = false WHERE tenant_id = $1`, [TENANT_A]);
+    expectRefused(await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, body, idemKey), 404, 'not_found');
+    await env!.admin.query(`UPDATE tenant_inventory_settings SET shipment_transfers_enabled = true WHERE tenant_id = $1`, [TENANT_A]);
     const first = await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, body, idemKey);
     expectStatus(first, 200);
+    expect(first.headers['idempotent-replayed']).toBeUndefined();
     expectValid('RedistributionAcceptResult', first.body);
     const before = Number((await env!.admin.query(`SELECT count(*) AS n FROM shipment_transfers`)).rows[0].n);
     const replay = await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, body, idemKey);

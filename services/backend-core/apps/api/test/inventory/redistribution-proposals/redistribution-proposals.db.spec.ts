@@ -6,9 +6,9 @@
  *   1. cross-tenant: another tenant's proposal is the non-disclosing 404 for every read and command, and its list is empty;
  *   4. the freshness gate: a store whose active till has an unknown queue, dead-letter / held sales or a stale
  *      heartbeat is excluded as a SOURCE (with its reason and read time on the proposal); revoked tills are ignored;
- *   5. supersede: every compute retires the live proposal (a newer one, or one that finds nothing to move); a proposal
- *      past its expiry is reported `expired`, its commands are 409 `proposal_expired`, and a later compute stores
- *      `expired`, never `superseded`;
+ *   5. supersede: every compute retires the live proposal (open or partially_accepted; by a newer one, or by one that
+ *      finds nothing to move) and audits `supersede` on it; a proposal past its expiry is reported `expired`, its
+ *      commands are 409 `proposal_expired`, and a later compute stores `expired` (audited `expire`), never `superseded`;
  *   6. accept is atomic: a failure while creating the second draft Transfer leaves no Transfer, no outcome, no state
  *      change and no audit row;
  *   8. accept drops and reduces lines against current state, records both quantities and the reason;
@@ -102,6 +102,11 @@ async function codeOf(p: Promise<unknown>): Promise<string> {
 }
 
 const count = async (sql: string, params: unknown[] = []): Promise<number> => Number((await admin.query(sql, params)).rows[0].n);
+
+/** The metadata of every audit row of `action` on proposal `targetId`. */
+const audits = async (action: string, targetId: string): Promise<Record<string, unknown>[]> =>
+  (await admin.query(`SELECT metadata FROM audit_events WHERE action = $1 AND target_id = $2`, [`inventory.redistribution_proposal.${action}`, targetId]))
+    .rows.map((r: { metadata: Record<string, unknown> }) => r.metadata);
 
 /** A sellable product of tenant A (priced, untracked) with a tenant-default reorder level. */
 async function product(level = '10'): Promise<string> {
@@ -301,6 +306,23 @@ describe('supersede and expiry (5)', () => {
     const old = await get(first.id);
     expect([old.state, old.supersededBy, old.decidedAt !== null]).toEqual(['superseded', second.id, true]);
     expect(await codeOf(svc.reject(ownerA(), first.id, 'late'))).toBe('proposal_superseded');
+    expect(await audits('supersede', first.id)).toEqual([{ supersededBy: second.id }]);
+    expect(await audits('create', second.id)).toHaveLength(1);
+  });
+
+  it('a compute supersedes a partially_accepted proposal too', async () => {
+    if (skipped()) return;
+    await twoLineScenario();
+    const first = await proposed();
+    const partial = (await svc.accept(ownerA(), first.id, [lineTo(first, STORE_A_Y).id])) as { proposal: Proposal };
+    expect(partial.proposal.state).toBe('partially_accepted');
+    const second = await proposed();
+    expect(second.lines.map((l) => l.destinationStoreId)).toEqual([STORE_A_Z]);
+    const old = await get(first.id);
+    expect([old.state, old.supersededBy]).toEqual(['superseded', second.id]);
+    // The accepted line keeps its outcome and its draft Transfer.
+    expect(lineTo(old, STORE_A_Y).acceptOutcome).toMatchObject({ outcome: 'created' });
+    expect(await count(`SELECT count(*) AS n FROM shipment_transfers`)).toBe(1);
   });
 
   it('a compute that finds nothing to move still supersedes the live proposal', async () => {
@@ -313,6 +335,7 @@ describe('supersede and expiry (5)', () => {
     expect(r).toMatchObject({ status: 200, body: { result: 'nothing_to_move', supersededProposalId: first.id } });
     const old = await get(first.id);
     expect([old.state, old.supersededBy]).toEqual(['superseded', null]);
+    expect(await audits('supersede', first.id)).toEqual([{ supersededBy: null }]);
   });
 
   it('a proposal past its expiry is reported expired, refuses commands, and a later compute stores expired, not superseded', async () => {
@@ -329,6 +352,8 @@ describe('supersede and expiry (5)', () => {
     await compute();
     const stored = await admin.query(`SELECT state, superseded_by, decided_at FROM redistribution_proposals WHERE id = $1`, [first.id]);
     expect(stored.rows[0]).toEqual({ state: 'expired', superseded_by: null, decided_at: null });
+    expect(await audits('expire', first.id)).toHaveLength(1);
+    expect(await audits('supersede', first.id)).toEqual([]);
   });
 });
 

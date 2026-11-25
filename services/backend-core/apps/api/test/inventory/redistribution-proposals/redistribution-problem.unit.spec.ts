@@ -28,7 +28,6 @@ const reads = (over: Partial<ProblemReads> = {}): ProblemReads => ({
     { storeId: X, readAt: '2026-11-26T07:59:59.100Z', exclusion: null },
     { storeId: Y, readAt: '2026-11-26T07:59:59.200Z', exclusion: null },
   ],
-  inactiveStoreIds: [],
   rows: [
     { storeId: X, productId: P, availableToSell: '50.0000', reorderLevel: '10.0000' },
     { storeId: Y, productId: P, availableToSell: '2.0000', reorderLevel: '10.0000' },
@@ -94,25 +93,22 @@ describe('buildRedistributionProblem', () => {
     ]);
   });
 
-  it('reports every store with its read time and exclusion; an excluded store is not a source, an inactive one neither way', () => {
+  it('reports every store with its read time and exclusion; an excluded store is not a source', () => {
     const built = buildRedistributionProblem(
       reads({
         stores: [
           { storeId: X, readAt: '2026-11-26T07:59:59.100Z', exclusion: 'pos_queue_unknown' },
           { storeId: Y, readAt: '2026-11-26T07:59:59.200Z', exclusion: null },
         ],
-        inactiveStoreIds: [Z],
       }),
     );
     expect(built.stores).toEqual([
       { storeId: X, readAt: '2026-11-26T07:59:59.100Z', eligibleAsSource: false, exclusion: 'pos_queue_unknown' },
       { storeId: Y, readAt: '2026-11-26T07:59:59.200Z', eligibleAsSource: true, exclusion: null },
-      { storeId: Z, readAt: AT, eligibleAsSource: false, exclusion: 'inactive' },
     ]);
     expect(built.problem.stores.map((s) => [s.storeId, s.tenantId, s.exclusion])).toEqual([
       [X, TENANT, 'pos_queue_unknown'],
       [Y, TENANT, undefined],
-      [Z, TENANT, 'inactive'],
     ]);
     const result = proposeRedistribution(built.problem);
     expect(result.status).toBe('nothing_to_move');
