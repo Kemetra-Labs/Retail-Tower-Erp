@@ -41,14 +41,21 @@ export function finalizePlan(
 
   const report = validateRedistributionPlan(problem, plan.moves);
   const violations: RedistributionViolationV1[] = [...report.violations];
+  // All four objective fields are recomputed: the deficits by the validator, pairs and lines from the moves.
+  const pairs = new Set(plan.moves.map((m) => `${m.sourceStoreId}\u0000${m.destinationStoreId}`)).size;
   const reproduced =
-    report.deficitBefore === plan.objective.deficitBefore && report.deficitAfter === plan.objective.deficitAfter;
+    report.deficitBefore === plan.objective.deficitBefore &&
+    report.deficitAfter === plan.objective.deficitAfter &&
+    pairs === plan.objective.storePairs &&
+    plan.moves.length === plan.objective.lines;
   if (violations.length === 0 && !reproduced) {
     violations.push({
       code: 'objective_mismatch',
       detail:
         `engine ${plan.objective.deficitBefore} -> ${plan.objective.deficitAfter}, ` +
-        `validator ${report.deficitBefore} -> ${report.deficitAfter}`,
+        `${String(plan.objective.storePairs)} pairs, ${String(plan.objective.lines)} lines; ` +
+        `validator ${report.deficitBefore} -> ${report.deficitAfter}, ` +
+        `${String(pairs)} pairs, ${String(plan.moves.length)} lines`,
     });
   }
   if (violations.length > 0) return emptyResult('invalid', { passed: false, violations });

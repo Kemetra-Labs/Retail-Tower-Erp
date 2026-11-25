@@ -54,6 +54,7 @@ export interface RedistributionLimitsV1 {
  * the source) either at the 0.0001 scale or to a whole stocking unit. A placeholder, tuned in RT-1598/RT-1602.
  */
 export interface BufferPolicyV1 {
+  /** At least one stocking unit (`1.0000`): a smaller minimum is refused as `input_invalid_buffer_policy`. */
   readonly minimum: Qty;
   /** An integer 0..100. */
   readonly percentOfReorderLevel: number;

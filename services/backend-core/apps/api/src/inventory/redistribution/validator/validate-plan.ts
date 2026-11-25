@@ -213,7 +213,7 @@ function bufferFunction(policy: BufferPolicyV1): ((level: bigint) => bigint) | n
   const minimum = parseQty(policy.minimum);
   const percent = policy.percentOfReorderLevel;
   const usable =
-    minimum !== null && minimum >= 0n && Number.isInteger(percent) && percent >= 0 && percent <= 100;
+    minimum !== null && minimum >= UNIT && Number.isInteger(percent) && percent >= 0 && percent <= 100;
   if (!usable || (policy.rounding !== 'scale' && policy.rounding !== 'whole_unit')) return null;
   return (level) => {
     const product = level * BigInt(percent);

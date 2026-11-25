@@ -54,8 +54,9 @@ describe("bufferOf (P-10)", () => {
   });
 
   it("rounds a fractional 10% up (toward protecting the source), never down", () => {
-    expect(b("0.0015", { minimum: "0.0000", percentOfReorderLevel: 10, rounding: "scale" })).toBe(2n);
-    expect(b("15.0001", { minimum: "0.0000", percentOfReorderLevel: 10, rounding: "scale" })).toBe(15_001n);
+    // 10% of 15.0001 is 1.50001: rounded up to 1.5001, never down to 1.5000.
+    expect(b("15.0001")).toBe(15_001n);
+    expect(b("10.0001")).toBe(10_001n);
   });
 
   it("rounds up to a whole stocking unit when the policy says so", () => {
@@ -384,6 +385,9 @@ describe("limits, deadline and malformed input", () => {
       [{ ...two, limits: { ...two.limits, deadlineMs: 0 } }, "input_invalid_limits"],
       [{ ...two, buffer: { minimum: "1.0000", percentOfReorderLevel: 101, rounding: "scale" } }, "input_invalid_buffer_policy"],
       [{ ...two, buffer: { minimum: "-1.0000", percentOfReorderLevel: 10, rounding: "scale" } }, "input_invalid_buffer_policy"],
+      // P-10: the buffer is at least one stocking unit, or a source could end at exactly its reorder level (POS "low").
+      [{ ...two, buffer: { minimum: "0.0000", percentOfReorderLevel: 0, rounding: "scale" } }, "input_invalid_buffer_policy"],
+      [{ ...two, buffer: { minimum: "0.9999", percentOfReorderLevel: 10, rounding: "scale" } }, "input_invalid_buffer_policy"],
       [{ ...two, buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: "up" as "scale" } }, "input_invalid_buffer_policy"],
       [{ ...two, stores: [store(S1), store(S1)] }, "input_duplicate_store"],
       [{ ...two, stores: [store(S1), store(S2, { tenantId: OTHER_TENANT })] }, "input_tenant_mismatch"],

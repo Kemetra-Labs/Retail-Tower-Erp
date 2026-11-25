@@ -21,7 +21,7 @@ Stage 1 of slice A, "redistribution proposals" ([master plan](https://rahmaqanat
 
 Per store × product, in exact decimals:
 
-- `buffer = max(1 stocking unit, 10% of reorderLevel)`, rounded **up**. The rounding is at the 0.0001 scale, or to a whole unit when `rounding: "whole_unit"`. This is a P-10 placeholder and a parameter (`problem.buffer`).
+- `buffer = max(1 stocking unit, 10% of reorderLevel)`, rounded **up**. The rounding is at the 0.0001 scale, or to a whole unit when `rounding: "whole_unit"`. This is a P-10 placeholder and a parameter (`problem.buffer`). Its `minimum` may not go below one stocking unit (`input_invalid_buffer_policy`), because the source floor relies on it.
 - `surplus = max(0, ATS − reorderLevel − buffer − openOutboundDraft)`.
 - `deficit = max(0, reorderLevel − ATS − openInbound)`.
 

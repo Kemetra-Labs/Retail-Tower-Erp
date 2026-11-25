@@ -3,7 +3,7 @@
  * engine never throws and never guesses.
  */
 import { TRANSFER_LINE_MAX } from '../policy';
-import { parseQty } from '../quantity';
+import { UNIT, parseQty } from '../quantity';
 import type {
   BufferPolicyV1,
   RedistributionProblemV1,
@@ -34,7 +34,8 @@ function isUsableBufferPolicy(policy: BufferPolicyV1): boolean {
   const minimum = parseQty(policy.minimum);
   return (
     minimum !== null &&
-    minimum >= 0n &&
+    // At least one stocking unit (P-10): with the inclusive floor, a source then always ends above its level.
+    minimum >= UNIT &&
     Number.isInteger(policy.percentOfReorderLevel) &&
     policy.percentOfReorderLevel >= 0 &&
     policy.percentOfReorderLevel <= 100 &&

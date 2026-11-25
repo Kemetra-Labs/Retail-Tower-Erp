@@ -183,6 +183,15 @@ describe("validator negative-plan matrix (every broken plan is rejected)", () =>
     );
   });
 
+  it("rejects a buffer minimum below one stocking unit (a source could otherwise end at exactly its level)", () => {
+    const p = problem([store(S1), store(S2)], [row(S1, P1, "20.0000", "10.0000"), row(S2, P1, "0.0000", "10.0000")], {
+      buffer: { minimum: "0.0000", percentOfReorderLevel: 0, rounding: "scale" },
+    });
+    expect(validateRedistributionPlan(p, [move(P1, S1, S2, "10.0000")]).violations.map((v) => v.code)).toEqual([
+      "input_invalid_buffer_policy",
+    ]);
+  });
+
   it("rejects a plan whose buffer policy is malformed instead of guessing a buffer", () => {
     const p = { ...base, buffer: { minimum: "x", percentOfReorderLevel: 10, rounding: "scale" as const } };
     expect(validateRedistributionPlan(p, [move(P1, S1, S2, "8.0000")]).violations.map((v) => v.code)).toContain(
@@ -211,7 +220,22 @@ describe("finalizePlan (the engine/validator join)", () => {
     const r = finalizePlan(simple, planned([move(P1, S1, S2, "8.0000")], "1.0000"), () => 0);
     expect(r.status).toBe("invalid");
     expect(r.validator?.violations).toEqual([
-      { code: "objective_mismatch", detail: "engine 8.0000 -> 1.0000, validator 8.0000 -> 0.0000" },
+      {
+        code: "objective_mismatch",
+        detail: "engine 8.0000 -> 1.0000, 1 pairs, 1 lines; validator 8.0000 -> 0.0000, 1 pairs, 1 lines",
+      },
     ]);
+  });
+
+  it("rejects an engine plan whose store-pair or line count disagrees with its moves", () => {
+    const good = planned([move(P1, S1, S2, "8.0000")], "0.0000");
+    expect(finalizePlan(simple, good, () => 0).status).toBe("proposed");
+    for (const objective of [
+      { ...good.objective, storePairs: 2 },
+      { ...good.objective, lines: 2 },
+    ]) {
+      const r = finalizePlan(simple, { ...good, objective }, () => 0);
+      expect(r.validator?.violations.map((v) => v.code)).toEqual(["objective_mismatch"]);
+    }
   });
 });
