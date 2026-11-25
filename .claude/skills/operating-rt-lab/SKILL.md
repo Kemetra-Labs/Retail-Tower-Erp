@@ -91,9 +91,11 @@ restored by hand.
   same PR as its migration (a spec ties every migration whose HINT says "As a superuser" to a check).
   The document runs whatever the bundle ships, so no new SSM document version is needed.
 - A stop after the swap but before `up -d` now restores the wrapper and env
-  (`RT_REVERT restored-pre-deploy-config`). Migrations that ran stay applied, and the run's revert
-  unit stays armed. G-Host still refuses while any `rt-deploy-revert-*` unit is active or elapsed
-  (`an-earlier-auto-revert-is-armed-or-elapsed`), so check `systemctl list-units --all
+  (`RT_REVERT restored-pre-deploy-config`) and stops that run's revert timer
+  (`RT_REVERT cancelled-after-restore`), so a rerun needs nothing on the host. Migrations that ran
+  stay applied. Without the `cancelled-after-restore` line (the revert claimed first, or the stop
+  failed), G-Host refuses while any `rt-deploy-revert-*` unit is active or elapsed
+  (`an-earlier-auto-revert-is-armed-or-elapsed`): check `systemctl list-units --all
   'rt-deploy-revert-*'` before a rerun. On 2026-11-25 the fired units cleared themselves.
 - `restore-pre-deploy-config-failed`, or a document version older than RT-1603: the pre-deploy
   copies are in `/var/lib/rt-deploy/<run>/` (`dc`, `backend.env`). The owner restores them and

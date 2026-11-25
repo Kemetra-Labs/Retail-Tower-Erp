@@ -164,6 +164,9 @@ describe("RT-BackendLabBackup (lab-02, D-1a)", () => {
   });
 });
 
+/** The cancel step's timer stop; the restore path (RT-1603) has its own, earlier in the body. */
+const CANCEL_STOP = 'systemctl stop "$UNIT.timer" || { release_claim;';
+
 describe("RT-BackendLabDeploy (lab-01)", () => {
   const b = deploy.body;
 
@@ -203,7 +206,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       'running_matches api "$API_REF"',
       "GATE=G-Ready",
       'deploy/console-smoke.sh" "http://$ORIGIN_HOST"',
-      'systemctl stop "$UNIT.timer"',
+      CANCEL_STOP,
       'say "RT_DONE release=$RELEASE_TAG"',
     ]);
   });
@@ -380,8 +383,13 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   });
 
   it("cancels the auto-revert only after readiness and the console smoke pass", () => {
-    expect(b.indexOf('systemctl stop "$UNIT.timer"')).toBeGreaterThan(b.indexOf("pass console-smoke"));
-    expect([...b.matchAll(/systemctl stop/g)]).toHaveLength(1);
+    expect(b.indexOf(CANCEL_STOP)).toBeGreaterThan(b.indexOf("pass console-smoke"));
+    // the only other timer stop is the restore path's (RT-1603), which runs only before up -d
+    const stops = [...b.matchAll(/systemctl stop/g)].map((m) => m.index ?? -1);
+    expect(stops).toHaveLength(2);
+    expect(stops[0]).toBeGreaterThan(b.indexOf("restore_if_swapped() {"));
+    expect(stops[0]).toBeLessThan(b.indexOf("stop() {"));
+    expect(stops[1]).toBeGreaterThan(b.indexOf("GATE=cancel-revert"));
   });
 
   it("never reports success over a revert that fired: window check before start, fired/ran checks at cancel", () => {
@@ -440,7 +448,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       b.indexOf('"$DC" up -d </dev/null ||'),
       catchups[1] ?? -1,
       b.indexOf("GATE=G-Ready"),
-      b.indexOf('systemctl stop "$UNIT.timer"'),
+      b.indexOf(CANCEL_STOP),
     ];
     expect(steps.every((i) => i > -1)).toBe(true);
     expect(steps).toEqual([...steps].sort((x, y) => x - y));
@@ -451,7 +459,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(post).toMatch(/\|\| stop "post-start-catch-up-failed"/);
     // stop() exits; the only cancel is after readiness and the smoke
     expect(b).toMatch(/stop\(\) \{ [^}]*exit 1; \}/);
-    expect(b.indexOf('systemctl stop "$UNIT.timer"')).toBeGreaterThan(b.indexOf("pass console-smoke"));
+    expect(b.indexOf(CANCEL_STOP)).toBeGreaterThan(b.indexOf("pass console-smoke"));
     expect(b).not.toMatch(/trap[^\n]*systemctl/);
   });
 
@@ -681,43 +689,89 @@ describe("RT-BackendLabDeploy release prerequisites and the swap window (RT-1603
     const helpers = b.slice(b.indexOf("CONFIG_SWAPPED=no\n"), b.indexOf("\n", b.indexOf("stop() {")));
     expect(helpers).toContain("restore_if_swapped() {");
     const swap = b.slice(b.indexOf("CONFIG_SWAPPED=yes"), b.indexOf('"$DC" run --rm migrate'));
-    const run = (scenario: string): { out: string; dc: string; env: string } => {
+    type Result = { out: string; dc: string; env: string; outcome: string | null; systemctl: string[] };
+    const run = (scenario: string, setup = ""): Result => {
       const dir = mkdtempSync(join(tmpdir(), "rt1603-swap-")).replace(/\\/g, "/");
       const script = [
         "set -euo pipefail",
         // as in the document: RT_* lines on fd 3, everything else to the (here discarded) log
         "exec 3>&1 >/dev/null",
         "say() { printf '%s\\n' \"$*\" >&3; }",
-        `GATE=G-Migrate T='${dir}'`,
+        `GATE=G-Migrate T='${dir}' UNIT=rt-deploy-revert-20261125T000000Z STOP_RC=0`,
         'RUN_DIR="$T/run" DC="$T/dc" BACKEND_ENV="$T/backend.env"',
         'mkdir -p "$RUN_DIR"; printf old-dc > "$DC"; printf old-env > "$BACKEND_ENV"',
         'cp -p "$DC" "$RUN_DIR/dc"; cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env"',
         'printf new-dc > "$RUN_DIR/dc.next"; printf new-env > "$RUN_DIR/backend.env.next"',
+        // the armed timer: `stop` succeeds unless STOP_RC says otherwise, and leaves it inactive
+        'systemctl() { echo "$*" >> "$T/systemctl"; case "$1" in stop) return "$STOP_RC" ;; is-active) return 1 ;; esac; }',
+        setup,
         helpers,
         "trap 'restore_if_swapped' EXIT",
         scenario,
       ].join("\n");
       const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
-      const out = { out: r.stdout.trim(), dc: readFileSync(join(dir, "dc"), "utf8"), env: readFileSync(join(dir, "backend.env"), "utf8") };
+      const readOr = (f: string): string | null => {
+        try {
+          return readFileSync(join(dir, f), "utf8").trim();
+        } catch {
+          return null;
+        }
+      };
+      const out: Result = {
+        out: r.stdout.trim(),
+        dc: readOr("dc") ?? "",
+        env: readOr("backend.env") ?? "",
+        outcome: readOr("run/outcome/by"),
+        systemctl: (readOr("systemctl") ?? "").split("\n").filter(Boolean),
+      };
       rmSync(dir, { recursive: true, force: true });
       return out;
     };
-    // before the swap: nothing to restore
-    expect(run('stop "grants-env-incomplete"')).toEqual({ out: "RT_FAIL gate=G-Migrate reason=grants-env-incomplete", dc: "old-dc", env: "old-env" });
-    // inside the window: a stop restores, then reports the failure
+    const unit = "rt-deploy-revert-20261125T000000Z";
+    const restored = "RT_REVERT restored-pre-deploy-config";
+    const cancelled = `RT_REVERT cancelled-after-restore unit=${unit}`;
+    const timerStop = [`stop ${unit}.timer`, `is-active --quiet ${unit}.timer`];
+    // before the swap: nothing to restore, the revert stays armed
+    expect(run('stop "grants-env-incomplete"')).toEqual({
+      out: "RT_FAIL gate=G-Migrate reason=grants-env-incomplete", dc: "old-dc", env: "old-env", outcome: null, systemctl: [],
+    });
+    // inside the window: a stop claims the outcome, restores, stops the timer, then reports the failure
     expect(run(`${swap}\nstop "migrate-failed"`)).toEqual({
-      out: "RT_REVERT restored-pre-deploy-config\nRT_FAIL gate=G-Migrate reason=migrate-failed",
-      dc: "old-dc",
-      env: "old-env",
+      out: `${restored}\n${cancelled}\nRT_FAIL gate=G-Migrate reason=migrate-failed`, dc: "old-dc", env: "old-env", outcome: "restore", systemctl: timerStop,
     });
-    // inside the window: an exit that is not a stop (set -e) restores through the EXIT trap
-    expect(run(`${swap}\nfalse`)).toEqual({ out: "RT_REVERT restored-pre-deploy-config", dc: "old-dc", env: "old-env" });
-    // once up -d is invoked the auto-revert owns the rollback: no restore
+    // inside the window: an exit that is not a stop (set -e) does the same through the EXIT trap
+    expect(run(`${swap}\nfalse`)).toEqual({ out: `${restored}\n${cancelled}`, dc: "old-dc", env: "old-env", outcome: "restore", systemctl: timerStop });
+    // the revert claimed first: restore the files, but leave its outcome and its timer alone
+    expect(run(`${swap}\nstop "migrate-failed"`, 'mkdir -p "$RUN_DIR/outcome"; echo revert > "$RUN_DIR/outcome/by"')).toEqual({
+      out: `${restored}\nRT_FAIL gate=G-Migrate reason=migrate-failed`, dc: "old-dc", env: "old-env", outcome: "revert", systemctl: [],
+    });
+    // the timer stop fails: say so; the claim stays, so the revert can only exit as a no-op
+    expect(run(`${swap}\nstop "migrate-failed"`, "STOP_RC=5")).toEqual({
+      out: `${restored}\nRT_REVERT not-cancelled-after-restore unit=${unit}\nRT_FAIL gate=G-Migrate reason=migrate-failed`,
+      dc: "old-dc", env: "old-env", outcome: "restore", systemctl: [`stop ${unit}.timer`],
+    });
+    // the restore fails: give the claim back and leave the timer armed, so the revert can still run
+    expect(run(`${swap}\nrm -f "$RUN_DIR/dc"\nstop "migrate-failed"`)).toEqual({
+      out: "RT_REVERT restore-pre-deploy-config-failed\nRT_FAIL gate=G-Migrate reason=migrate-failed", dc: "new-dc", env: "new-env", outcome: null, systemctl: [],
+    });
+    // once up -d is invoked the auto-revert owns the rollback: no restore, no claim, no timer stop
     expect(run(`${swap}\nCONFIG_SWAPPED=no\nstop "compose-up-failed"`)).toEqual({
-      out: "RT_FAIL gate=G-Migrate reason=compose-up-failed",
-      dc: "new-dc",
-      env: "new-env",
+      out: "RT_FAIL gate=G-Migrate reason=compose-up-failed", dc: "new-dc", env: "new-env", outcome: null, systemctl: [],
     });
+  });
+
+  it("the restore path uses the same outcome claim as revert.sh and the cancel step", () => {
+    const helper = b.slice(b.indexOf("restore_if_swapped() {"), b.indexOf("stop() {"));
+    expectInOrder(helper, [
+      'mkdir "$RUN_DIR/outcome" 2>/dev/null',
+      'echo restore > "$RUN_DIR/outcome/by"',
+      'cp -p "$RUN_DIR/dc" "$DC.restore"',
+      'rm -f "$RUN_DIR/outcome/by"; rmdir "$RUN_DIR/outcome"',
+      '[ "$claimed" = yes ] || return 0',
+      'systemctl stop "$UNIT.timer" && ! systemctl is-active --quiet "$UNIT.timer"',
+    ]);
+    // revert.sh claims the same directory first and exits when it is taken
+    expect(b).toContain('mkdir "$RUN_DIR/outcome" 2>/dev/null || exit 0');
   });
 });
 

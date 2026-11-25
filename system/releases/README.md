@@ -241,7 +241,7 @@ Refusals seen so far:
 | `backup-config reason=next-wrapper-still-uses-the-current-release` | a same-release redeploy on `RT-BackendLabDeploy` older than #218 | the owner updates the document (step 7) |
 | `G-Prereq reason=grants-env-incomplete` | lab-01 `grants.env` lacks a key the target release's grants step needs (for example `LOOKUP_DB_ROLE`, RT-1558); nothing changed on the host | the owner adds it (the key is named in lab-01 `/var/log/rt-deploy/`), then rerun |
 | `G-Prereq reason=release-prerequisite-missing` | a superuser step the target release needs before `migrate` is missing (for example the 0132 role, `services/backend-core/docs/operations/database-roles.md`); nothing changed on the host | the owner runs the named step on lab-02, then rerun |
-| `RT_REVERT restored-pre-deploy-config` before an `RT_FAIL` | the run stopped after the wrapper/env swap but before the start; the old app kept running and the wrapper and `backend.env` were put back (RT-1603). Migrations that ran stay applied | fix the named cause, then rerun once G-Host accepts it (the revert unit must be gone) |
+| `RT_REVERT restored-pre-deploy-config` before an `RT_FAIL` | the run stopped after the wrapper/env swap but before the start; the old app kept running and the wrapper and `backend.env` were put back (RT-1603). Migrations that ran stay applied. `RT_REVERT cancelled-after-restore` follows when the run's revert timer was stopped too | fix the named cause, then rerun. Without the `cancelled-after-restore` line, the revert unit is still there and G-Host refuses until the owner checks it |
 
 ### 7. Owner-only steps (no agent or CI job does these)
 

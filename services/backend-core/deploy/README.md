@@ -547,8 +547,13 @@ runs these steps and stops at the first failure:
    old app is still running, so the document puts the pre-deploy wrapper and
    `backend.env` back from the run's copies and reports
    `RT_REVERT restored-pre-deploy-config` (RT-1603; `restore-pre-deploy-config-failed`
-   means the owner restores them from `/var/lib/rt-deploy/<run>/`). The
-   database is not restored: migrations that ran stay applied.
+   means the owner restores them from `/var/lib/rt-deploy/<run>/`). It takes the
+   auto-revert's outcome claim before it restores and, once the files verify,
+   stops that run's revert timer (`RT_REVERT cancelled-after-restore`), so
+   G-Host accepts a rerun at once. If the revert claimed first, or the stop
+   fails (`not-cancelled-after-restore`), the timer stays until the owner
+   checks it, as below. A failed restore gives the claim back and leaves the
+   revert armed. The database is not restored: migrations that ran stay applied.
 7. Start `api` + `worker` by digest, then run the catch-up scripts again
    (Deploy step 4: what the previous release wrote while it still ran).
    Both catch-up runs use the four Deploy step 4 scripts in that order, with the

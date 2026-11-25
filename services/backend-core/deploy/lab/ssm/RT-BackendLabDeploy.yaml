@@ -21,7 +21,8 @@
 #   G-Migrate  swap the wrapper and backend.env, then migrate (migrate image,
 #              migration-owner role), grants (deploy/apply-domain-grants.sh),
 #              catch-up scripts. A stop between the swap and `up -d` restores
-#              the pre-deploy wrapper and env (RT-1603): the old app still runs
+#              the pre-deploy wrapper and env (RT-1603): the old app still runs.
+#              It then takes the revert's outcome claim and stops its timer
 #   start      api + worker by digest (only while 3+ minutes of the revert
 #              window remain), check the running images, then the catch-up
 #              scripts again (README Deploy step 4: what the old app wrote)
@@ -171,16 +172,36 @@ mainSteps:
           # containers are still the current release's. A run that ends in that window puts the
           # pre-deploy wrapper and backend.env back from this run's verified copies, so G-Host accepts
           # a rerun without a manual restore. From `up -d` on, the auto-revert owns the rollback.
+          # After a verified restore the armed revert has nothing left to undo, so this run takes the
+          # revert's outcome claim (the same atomic mkdir revert.sh and cancel-revert make) and stops
+          # its timer; G-Host then accepts a rerun at once. The claim comes first, so a revert that
+          # fires meanwhile exits without touching the files; if the revert claimed first, it owns
+          # the outcome and its timer is left alone. A failed restore gives the claim back, so the
+          # still-armed revert can run.
           CONFIG_SWAPPED=no
           restore_if_swapped() {
+            local claimed=no
             [ "$CONFIG_SWAPPED" = yes ] || return 0
             CONFIG_SWAPPED=no
+            if mkdir "$RUN_DIR/outcome" 2>/dev/null; then
+              claimed=yes
+              echo restore > "$RUN_DIR/outcome/by"
+            fi
             if cp -p "$RUN_DIR/dc" "$DC.restore" && mv "$DC.restore" "$DC" \
               && cp -p "$RUN_DIR/backend.env" "$BACKEND_ENV.restore" && mv "$BACKEND_ENV.restore" "$BACKEND_ENV" \
               && cmp -s "$RUN_DIR/dc" "$DC" && cmp -s "$RUN_DIR/backend.env" "$BACKEND_ENV"; then
               say "RT_REVERT restored-pre-deploy-config"
             else
               say "RT_REVERT restore-pre-deploy-config-failed"
+              if [ "$claimed" = yes ]; then rm -f "$RUN_DIR/outcome/by"; rmdir "$RUN_DIR/outcome" || true; fi
+              return 0
+            fi
+            [ "$claimed" = yes ] || return 0
+            # Keeping the claim when the stop fails is safe: the revert would only exit as a no-op.
+            if systemctl stop "$UNIT.timer" && ! systemctl is-active --quiet "$UNIT.timer"; then
+              say "RT_REVERT cancelled-after-restore unit=$UNIT"
+            else
+              say "RT_REVERT not-cancelled-after-restore unit=$UNIT"
             fi
           }
           stop() { echo "stopped at gate $GATE: $*"; restore_if_swapped; say "RT_FAIL gate=$GATE reason=$*"; exit 1; }
