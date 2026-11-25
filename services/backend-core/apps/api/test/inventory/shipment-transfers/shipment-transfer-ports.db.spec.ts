@@ -152,8 +152,9 @@ beforeEach(async () => {
   if (!env) return;
   await admin.query(`DELETE FROM transfer_posting_lines`);
   await admin.query(`DELETE FROM transfer_postings`);
-  await admin.query(`DELETE FROM erpnext_posting_status WHERE kind IN ('transfer_dispatch', 'transfer_receive')`);
+  // The effect integration rows reference the dispatch work items (ON DELETE RESTRICT): delete them first.
   await admin.query(`DELETE FROM inventory_effect_integration WHERE tenant_id = $1`, [TENANT_A]);
+  await admin.query(`DELETE FROM erpnext_posting_status WHERE kind IN ('transfer_dispatch', 'transfer_receive')`);
   for (const t of [
     'shipment_transfer_discrepancies', 'shipment_transfer_receipt_lines', 'shipment_transfer_receipts',
     'shipment_transfer_lines', 'inventory_reservations', 'shipment_transfers',
@@ -220,6 +221,20 @@ describe('readOpenTransferQuantities', () => {
         },
       ].sort((a, b) => a.storeId.localeCompare(b.storeId)),
     );
+  });
+
+  it('counts an approved Transfer whose reservation lapsed as outbound (ATS no longer subtracts it, A-2)', async () => {
+    if (skipped()) return;
+    const t = await svc.create(owner(), draft('6'));
+    await svc.approve(owner(), t.id, FAR_FUTURE);
+    const before = await asTenant(TENANT_A, (client) => readOpenTransferQuantities(client, { storeIds: [STORE_A_X] }));
+    expect(before).toEqual([]); // reserved: already out of the source's ATS, nothing to net
+    // The reservation lapses; no command has swept it back to draft yet.
+    await admin.query(`UPDATE shipment_transfers SET reservation_expires_at = now() - interval '1 minute' WHERE id = $1`, [t.id]);
+    await admin.query(`UPDATE inventory_reservations SET expires_at = now() - interval '1 minute' WHERE source_id = $1`, [t.id]);
+    const after = await asTenant(TENANT_A, (client) => readOpenTransferQuantities(client));
+    expect(after.find((r) => r.storeId === STORE_A_X)?.outboundDraft).toBe('6.0000');
+    expect(after.find((r) => r.storeId === STORE_A_Y)).toMatchObject({ inboundApproved: '6.0000', inbound: '6.0000' });
   });
 
   it('filters by store, and an empty list reads nothing', async () => {

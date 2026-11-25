@@ -39,7 +39,7 @@ import { TRANSFER_LINE_MAX, TransferRuleError, assertErpQuantity, assertSameLega
 import type { TransferBody } from './shipment-transfer.store';
 
 /** What the port needs besides the client: the membership reads behind the caller's role and store scope. */
-export interface DraftTransferDeps {
+interface DraftTransferDeps {
   readonly memberships: MembershipRepository;
 }
 

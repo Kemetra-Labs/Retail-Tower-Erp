@@ -10,7 +10,7 @@
 import type { PoolClient } from 'pg';
 
 /** A store as the directory reports it. */
-export interface DirectoryStore {
+interface DirectoryStore {
   readonly id: string;
   /** Not deleted AND active (`deleted_at IS NULL AND is_active`). */
   readonly live: boolean;

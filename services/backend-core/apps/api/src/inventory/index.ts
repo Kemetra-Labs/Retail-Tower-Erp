@@ -62,22 +62,14 @@ export {
 export {
   TENANT_AVAILABILITY_PLACEHOLDER_LIMITS,
   readTenantAvailabilitySnapshot,
-  type TenantAvailabilityExcludedStore,
   type TenantAvailabilityLimits,
-  type TenantAvailabilityRow,
   type TenantAvailabilitySnapshot,
-  type TenantAvailabilityStore,
 } from "./availability/tenant-availability.snapshot";
-export { readOpenTransferQuantities, type OpenTransferQuantityRow } from "./shipment-transfers/open-transfer-quantities";
-export { createDraftTransfer, type DraftTransferDeps } from "./shipment-transfers/shipment-transfer.draft";
+export { readOpenTransferQuantities } from "./shipment-transfers/open-transfer-quantities";
+export { createDraftTransfer } from "./shipment-transfers/shipment-transfer.draft";
 /**
  * RT-1597: the tenant's live stores, as an inverted port (Stores imports inventory, so inventory cannot import Stores).
  * Stores provides `INVENTORY_STORE_DIRECTORY` from a `@Global()` module that only `app.module.ts` imports.
  */
-export {
-  INVENTORY_STORE_DIRECTORY,
-  type DirectoryStore,
-  type InventoryStoreDirectory,
-} from "./inventory-store-directory.port";
+export { INVENTORY_STORE_DIRECTORY, type InventoryStoreDirectory } from "./inventory-store-directory.port";
 export type { CreateTransferInput, TransferCaller } from "./shipment-transfers/shipment-transfer.access";
-export type { TransferBody } from "./shipment-transfers/shipment-transfer.store";

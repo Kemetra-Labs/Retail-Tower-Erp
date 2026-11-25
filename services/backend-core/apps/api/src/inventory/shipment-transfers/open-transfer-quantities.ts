@@ -4,10 +4,13 @@
  * tenant's Transfers are invisible).
  *
  * Why these quantities: a Draft reserves nothing (806), so its source stock still counts in ATS and must be netted by the
- * caller; an approved Transfer is already reserved, so it has already left the source's ATS. Towards the destination,
- * nothing on a Transfer is in its ATS until received, so every open Transfer into it counts.
+ * caller; an approved Transfer is reserved, so it has already left the source's ATS, UNTIL its reservation lapses: from
+ * `reservation_expires_at` on, ATS no longer subtracts it (A-2, `RESERVATION_ACTIVE_SQL`) and the Transfer goes back to
+ * draft at the next expiry sweep (798). Towards the destination, nothing on a Transfer is in its ATS until received, so
+ * every open Transfer into it counts.
  *
- *   - `outboundDraft`: the line quantity of `draft` Transfers out of the store.
+ *   - `outboundDraft`: the line quantity of Transfers out of the store whose stock is NOT reserved: `draft` ones, and
+ *     `approved` ones whose reservation has lapsed but which no command has swept back to draft yet.
  *   - `inboundDraft`, `inboundApproved`: the line quantity of `draft` / `approved` Transfers into the store.
  *   - `inboundInTransit`: the In Transit quantity (`dispatched - received - short_closed`, G4-1; the same expression as
  *     `OnHand.availability.inTransitInbound`) of `in_transit` AND `partially_received` Transfers into the store. A partly
@@ -19,7 +22,7 @@
  */
 import type { PoolClient } from 'pg';
 
-export interface OpenTransferQuantityRow {
+interface OpenTransferQuantityRow {
   readonly storeId: string;
   readonly productId: string;
   readonly stockingUnit: string;
@@ -48,7 +51,7 @@ const OPEN_QUANTITIES_SQL = `
            0::numeric AS inbound_in_transit
       FROM shipment_transfer_lines l
       JOIN shipment_transfers t ON t.id = l.transfer_id AND t.tenant_id = l.tenant_id
-     WHERE t.state = 'draft'
+     WHERE (t.state = 'draft' OR (t.state = 'approved' AND t.reservation_expires_at <= now()))
        AND ($1::uuid[] IS NULL OR t.source_store_id = ANY($1::uuid[]))
     UNION ALL
     SELECT t.destination_store_id, l.tenant_product_ref, l.stocking_unit,

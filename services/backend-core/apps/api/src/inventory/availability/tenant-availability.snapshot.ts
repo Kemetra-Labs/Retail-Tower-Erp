@@ -39,7 +39,7 @@ export interface TenantAvailabilityLimits {
 export const TENANT_AVAILABILITY_PLACEHOLDER_LIMITS: TenantAvailabilityLimits = Object.freeze({ maxStores: 50, maxRows: 20_000 });
 
 /** One sellable product at one store. Quantities are exact `numeric(19,4)` decimal strings. */
-export interface TenantAvailabilityRow {
+interface TenantAvailabilityRow {
   readonly storeId: string;
   readonly productId: string;
   /** The A-1 Available-to-Sell, never clamped: it may be negative (A-4). */
@@ -51,7 +51,7 @@ export interface TenantAvailabilityRow {
 }
 
 /** One store that was read. */
-export interface TenantAvailabilityStore {
+interface TenantAvailabilityStore {
   readonly storeId: string;
   /** The oldest `asOf` of the store's pages (ISO 8601). */
   readonly readAt: string;
@@ -59,7 +59,7 @@ export interface TenantAvailabilityStore {
 }
 
 /** A requested store that was not read: deactivated or deleted, or not a store of this tenant. */
-export interface TenantAvailabilityExcludedStore {
+interface TenantAvailabilityExcludedStore {
   readonly storeId: string;
   readonly reason: 'inactive' | 'not_found';
 }
@@ -106,8 +106,17 @@ export async function readTenantAvailabilitySnapshot(
   if (storeIds.length > limits.maxStores) return { kind: 'refused_too_large', limit: 'maxStores', max: limits.maxStores };
 
   const pinned = await client.query<{ store: string | null }>(`SELECT current_setting('app.current_store', true) AS store`);
-  const result = await readStores(client, tenantId, [...storeIds].sort(), limits.maxRows);
-  await client.query(`SELECT set_config('app.current_store', $1, true)`, [pinned.rows[0]?.store ?? '']);
+  const restore = (): Promise<unknown> =>
+    client.query(`SELECT set_config('app.current_store', $1, true)`, [pinned.rows[0]?.store ?? '']);
+  let result: Awaited<ReturnType<typeof readStores>>;
+  try {
+    result = await readStores(client, tenantId, [...storeIds].sort(), limits.maxRows);
+  } catch (err) {
+    // Best effort: after a database error the transaction is aborted and the restore fails too; keep the first error.
+    await restore().catch(() => undefined);
+    throw err;
+  }
+  await restore();
   return result === null
     ? { kind: 'refused_too_large', limit: 'maxRows', max: limits.maxRows }
     : { kind: 'snapshot', ...result, excludedStores };
