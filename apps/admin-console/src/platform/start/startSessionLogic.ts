@@ -53,10 +53,22 @@ function isTicketValid(ticket: string): boolean {
   return ticket === "" || TICKET_REF_PATTERN.test(ticket);
 }
 
+/**
+ * RT-932: the one fault a rejected ticket reference has, so the message says what
+ * is wrong instead of repeating the whole rule (the hint under the field keeps it).
+ * Checked in this order; `TICKET_REF_PATTERN` stays the single judge of validity.
+ */
+function ticketFault(ticket: string): MessageKey {
+  if (ticket.length > 64) return "platform.start.ticket.invalid.long";
+  if (/\s/.test(ticket)) return "platform.start.ticket.invalid.space";
+  if (!/^[A-Za-z0-9]/.test(ticket)) return "platform.start.ticket.invalid.start";
+  return "platform.start.ticket.invalid.chars";
+}
+
 function draftErrors(purpose: string, ticket: string): StartDraftErrors {
   const errors: StartDraftErrors = {};
   if (!isPurpose(purpose)) errors.purpose = "platform.start.purpose.required";
-  if (!isTicketValid(ticket)) errors.ticketRef = "platform.start.ticket.invalid";
+  if (!isTicketValid(ticket)) errors.ticketRef = ticketFault(ticket);
   return errors;
 }
 

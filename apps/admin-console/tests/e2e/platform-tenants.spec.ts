@@ -201,6 +201,11 @@ test("search is client-side over name and slug, with a no-match state", async ({
   await expect(page.getByText(t("platform.tenants.count", { shown: 1, total: 3 }))).toBeVisible();
   await search.fill("zzz");
   await expect(page.getByText(t("platform.tenants.noMatch", { query: "zzz" }))).toBeVisible();
+  // RT-932: no "0 of N" line under the no-match message; the way out is the action.
+  await expect(page.getByText(t("platform.tenants.count", { shown: 0, total: 3 }))).toHaveCount(0);
+  await page.getByRole("button", { name: t("platform.tenants.search.clear") }).click();
+  await expect(search).toHaveValue("");
+  await expect(directoryTable(page).locator("tbody tr")).toHaveCount(3);
   expect(reads).toBe(1);
 });
 
@@ -249,7 +254,7 @@ test("client validation: no purpose, or a ticket that breaks the pattern, sends 
   await drawer.getByLabel(t("platform.start.purpose.label")).selectOption("incident");
   await drawer.getByLabel(t("platform.start.ticket.label")).fill("ops@kemetra.test");
   await drawer.getByRole("button", { name: t("platform.start.submit") }).click();
-  await expect(drawer.getByText(t("platform.start.ticket.invalid"))).toBeVisible();
+  await expect(drawer.getByText(t("platform.start.ticket.invalid.chars"))).toBeVisible();
   expect(server.opens).toHaveLength(0);
 });
 
@@ -335,7 +340,7 @@ test("409 already_member: names the cause and the normal switch lands in the ten
   await drawer.getByRole("button", { name: t("platform.start.submit") }).click();
   await expect(drawer.getByText(t("platform.start.member.title"))).toBeVisible();
   await expectNoAxeViolations(page, "already member");
-  await drawer.getByRole("button", { name: t("platform.start.member.switch") }).click();
+  await drawer.getByRole("button", { name: t("platform.tenants.action.switch") }).click();
   await expect(page).toHaveURL(/\/$/);
   expect(server.switches).toEqual([{ tenant_id: NILE }]);
 });
@@ -493,7 +498,12 @@ test.describe("expired bar copy (RT-781 lab finding, comment 13591)", () => {
     await expectNoAxeViolations(page, "expired bar on the directory");
 
     const drawer = await openDrawer(page, "Nile Pharma", t);
-    await expect(drawer).toContainText(t("platform.start.replaces"));
+    await expect(drawer).toContainText(
+      t("platform.start.replacesNoTicket", {
+        tenant: "\u2068أسواق الدلتا\u2069",
+        purpose: t("platform.session.purpose.incident"),
+      }),
+    );
     await drawer.getByLabel(t("platform.start.purpose.label")).selectOption("incident");
     await drawer.getByRole("button", { name: t("platform.start.submit") }).click();
     await expect(bar).toHaveAttribute("data-state", "active");

@@ -94,6 +94,8 @@
   padding-inline: var(--space-5);
 }
 .platform-directory .data-table--strips {
+  /* RT-932: a bounded width keeps the action from drifting far from the name it belongs to. */
+  max-inline-size: 960px;
   border-collapse: separate;
   border-spacing: 0 6px;
 }
@@ -152,6 +154,9 @@
 }
 .platform-directory__slug {
   display: block;
+  /* RT-932: an LTR block would align to the cell's physical left; as a flex item of the
+     column it sits at the cell's inline start (right in Arabic), under the name. */
+  align-self: flex-start;
   font-family: var(--font-mono);
   font-size: var(--text-machine);
   color: var(--color-text-muted);
