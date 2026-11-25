@@ -42,6 +42,7 @@ import { resolvePosTelemetryTarget } from "../../src/pos-telemetry/pos-telemetry
 import { resolveRefKey } from "../../src/pos-telemetry/pos-telemetry.refs";
 import { resolvePilotReleaseConfig } from "../../src/pos-pilot-releases/pilot-release.config";
 import { resolvePricingAuthoringConfig } from "../../src/pricing/change-sets/price-authoring.config";
+import { resolveRedistributionAllowlist } from "../../src/inventory/redistribution-proposals/redistribution-allowlist.config";
 import { resolvePromotionOidcConfig } from "../../src/pos-pilot-releases/promotion-oidc.config";
 import { createPilotReleasePresigner } from "../../src/pos-pilot-releases/pilot-release.s3-presigner";
 import {
@@ -283,6 +284,8 @@ describe("RT-984 production compose passes every API env setting", () => {
       ["POS_SENTRY_DSN", () => resolvePosTelemetryTarget(process.env)],
       ["POS_TELEMETRY_REF_KEY", () => resolveRefKey(process.env)],
       ["PRICING_AUTHORING_TENANT_ALLOWLIST", () => resolvePricingAuthoringConfig(process.env)],
+      ["REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST", () => resolveRedistributionAllowlist(process.env)],
+      ["REDISTRIBUTION_LIVE_TENANT_ALLOWLIST", () => resolveRedistributionAllowlist(process.env)],
       ["POS_PILOT_RELEASE_PUBLISHER", () => resolvePilotReleaseConfig(process.env)],
       ["POS_PILOT_RELEASE_BUCKET", () => resolvePilotReleaseConfig(process.env)],
       ["POS_PILOT_RELEASE_URL_TTL_SECONDS", () => resolvePilotReleaseConfig(process.env)],

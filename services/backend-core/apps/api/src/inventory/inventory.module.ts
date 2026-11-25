@@ -21,7 +21,7 @@
  *   allowed-files stop). The module stays bare until 009-US1-ONHAND adds the
  *   first controller + service.
  */
-import { Module } from "@nestjs/common";
+import { Logger, Module } from "@nestjs/common";
 
 import type { Pool } from "pg";
 
@@ -48,6 +48,14 @@ import { ShipmentTransfersSettingController } from "./shipment-transfers/shipmen
 import { ShipmentTransfersService } from "./shipment-transfers/shipment-transfers.service";
 import { IdentityExpiryService } from "./safety/identity-expiry.service";
 import { InventoryRecallsService } from "./safety/inventory-recalls.service";
+import {
+  REDISTRIBUTION_ALLOWLIST,
+  resolveRedistributionAllowlist,
+  type RedistributionAllowlist,
+} from "./redistribution-proposals/redistribution-allowlist.config";
+import { RedistributionPhaseGuard } from "./redistribution-proposals/redistribution-phase.guard";
+import { RedistributionProposalsController } from "./redistribution-proposals/redistribution-proposals.controller";
+import { RedistributionProposalsService } from "./redistribution-proposals/redistribution-proposals.service";
 import { PosAvailabilityController } from "./availability/pos-availability.controller";
 import { PosAvailabilityService } from "./availability/pos-availability.service";
 import { InventorySafetyFeedController } from "./safety/inventory-safety-feed.controller";
@@ -66,6 +74,21 @@ import { TrackingIdentitiesController } from "./tracking-identities.controller";
 import { TrackingResolutionController } from "./tracking-resolution/tracking-resolution.controller";
 import { TrackingResolutionService } from "./tracking-resolution/tracking-resolution.service";
 import { TrackingIdentityReadsService } from "./tracking-identity-reads.service";
+
+/**
+ * RT-1600: the redistribution allowlists, read once from the process environment
+ * (`REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST`, `REDISTRIBUTION_LIVE_TENANT_ALLOWLIST`).
+ */
+function bindRedistributionAllowlist(): RedistributionAllowlist {
+  const allowlist = resolveRedistributionAllowlist(process.env);
+  if (allowlist.ignoredCount > 0) {
+    // Only the count: the entries themselves are not logged.
+    new Logger("InventoryModule").warn(
+      `redistribution allowlists: ${allowlist.ignoredCount} entry(ies) not a tenant UUID, ignored`,
+    );
+  }
+  return allowlist;
+}
 
 /**
  * InventoryModule — populated by 009-US1-ONHAND (T033).
@@ -117,6 +140,8 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // shipment_transfers_enabled is on).
     ShipmentTransfersController,
     ShipmentTransfersSettingController,
+    // RT-1600: the W9 redistribution proposals (cookieAuth, RolesGuard; dark behind the shadow / live allowlists).
+    RedistributionProposalsController,
   ],
   providers: [
     InventoryService,
@@ -142,6 +167,10 @@ import { TrackingIdentityReadsService } from "./tracking-identity-reads.service"
     // RT-1513: the shipment Transfer service and its activation switch (the switch has no HTTP surface yet, RT-1517).
     ShipmentTransfersService,
     ShipmentTransferActivationService,
+    // RT-1600: the redistribution proposal runtime and its dark-launch gate.
+    RedistributionProposalsService,
+    RedistributionPhaseGuard,
+    { provide: REDISTRIBUTION_ALLOWLIST, useFactory: bindRedistributionAllowlist },
     RolesGuard,
     // The feed's PosDeviceAuthGuard resolves (tenant, store) from the device
     // row: the device on the pre-tenant lookup pool, its tenant's status on

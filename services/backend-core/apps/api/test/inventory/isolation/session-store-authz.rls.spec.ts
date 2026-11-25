@@ -40,6 +40,7 @@ import { ZodValidationPipe } from "../../../src/common/zod-validation.pipe";
 import { ContextModule } from "../../../src/context/context.module";
 import { InventoryModule } from "../../../src/inventory/inventory.module";
 import { TransferErpPortModule } from "../../../src/catalog/erpnext-posting/transfer-erp-port.module";
+import { InventoryStoreDirectoryModule } from "../../../src/stores/inventory-store-directory.module";
 import {
   APP_ROLE_NAME,
   APP_ROLE_PASSWORD,
@@ -139,7 +140,8 @@ beforeAll(async () => {
   singleConnectionPool = new Pool({ connectionString: appRoleUri(env.adminUri), max: 1 });
 
   const moduleRef = await Test.createTestingModule({
-    imports: [AuthModule, ContextModule, InventoryModule, TransferErpPortModule],
+    // RT-1600: the redistribution proposals read the store directory port, which only the composition root provides.
+    imports: [AuthModule, ContextModule, InventoryModule, TransferErpPortModule, InventoryStoreDirectoryModule],
   })
     .overrideProvider(PG_POOL)
     .useValue(singleConnectionPool)

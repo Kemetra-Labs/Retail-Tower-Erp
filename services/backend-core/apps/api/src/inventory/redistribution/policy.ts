@@ -33,3 +33,12 @@ export const DEFAULT_LIMITS_V1: RedistributionLimitsV1 = {
   deadlineMs: 5_000,
   maxLinesPerTransfer: TRANSFER_LINE_MAX,
 };
+
+/**
+ * RT-1600 freshness gate (placeholder, tuned with the pilot): an active till whose last heartbeat is older than this,
+ * or that never reported, makes its store ineligible as a SOURCE (`device_heartbeat_stale`).
+ */
+export const HEARTBEAT_STALE_AFTER_MS = 15 * 60 * 1000;
+
+/** RT-1599 V1: a proposal expires 24 hours after it was created. */
+export const PROPOSAL_TTL_MS = 24 * 60 * 60 * 1000;

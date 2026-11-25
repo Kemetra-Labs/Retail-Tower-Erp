@@ -16,6 +16,7 @@ Stage 1 of slice A, "redistribution proposals" ([master plan](https://rahmaqanat
 | `engine/` | Input checks and the rule `reorder_gap_greedy` |
 | `validator/` | The independent validator, on a separate code path that never imports `engine/` |
 | `propose.ts` | `proposeRedistribution`: engine, then validator, then the result |
+| `freshness.ts` | RT-1600: the store freshness gate (which stores may not give stock), a pure function of the device facts |
 
 ## Rule `reorder_gap_greedy` (P-1, P-9, P-10)
 
@@ -56,6 +57,8 @@ Every status other than `proposed` has no moves. There is never a partial result
 - Stores excluded as `inactive` are neither source nor destination. Any other exclusion only bars the store as a source.
 
 ## What the runtime (RT-1600) must supply
+
+RT-1600 serves this from `../redistribution-proposals/` (the HTTP runtime of the RT-1599 contract; `redistribution-problem.ts` is the join described here). It lives outside this directory because it uses Nest, the database and the W3 ports, which this pure module may not import.
 
 The RT-1597 snapshot port returns ATS, reorder level and read time per row, but no stocking unit and no tracking mode. RT-1600 must fill `stockingUnit` and `tracked` from another source before building a problem. The open-transfer port's rows carry a unit. It must never default `tracked` to `false` without that source, and the engine trusts both fields.
 

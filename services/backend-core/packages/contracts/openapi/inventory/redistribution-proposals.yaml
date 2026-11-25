@@ -7,7 +7,7 @@ info:
     delegation in chat on 2026-11-25). The contract for store-to-store redistribution PROPOSALS, published before any
     consumer is built. A new file, additive to every other contract: no existing operation or schema changes. The
     runtime is RT-1600 and the Console screen RT-1601; until RT-1600 lands every operation is marked
-    `x-runtime-status: contract-only`.
+    `x-runtime-status: contract-only`. RT-1600 serves every operation of this contract, so none is marked any more.
 
 
     WHAT A PROPOSAL IS. On request, Backend-Core reads the tenant's stores (the W3 availability snapshot, open
@@ -89,8 +89,6 @@ paths:
       operationId: createRedistributionProposal
       tags: [inventory-redistribution]
       summary: Compute a redistribution proposal for the tenant.
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
         Computes a proposal on demand over the tenant's active stores, or over `storeIds` when given (at least two;
@@ -148,8 +146,6 @@ paths:
       operationId: listRedistributionProposals
       tags: [inventory-redistribution]
       summary: List the tenant's redistribution proposals, newest first, in keyset pages.
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       description: >
         The tenant's proposals newest first (`createdAt DESC, id DESC`), optionally filtered by `state`, as summaries
         without lines. An opaque `cursor` bound to this operation, the tenant and the filter; a value the server did
@@ -201,8 +197,6 @@ paths:
       operationId: getRedistributionProposal
       tags: [inventory-redistribution]
       summary: Read one redistribution proposal with its lines.
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       description: >
         The proposal with its lines, per-store read times and exclusions, objective, validator report and warnings,
         plus each line's review decision and accept outcome. Owner or tenant_admin on the shadow or live allowlist;
@@ -475,8 +469,6 @@ paths:
       operationId: reviewRedistributionProposal
       tags: [inventory-redistribution]
       summary: Record "would accept" / "would reject" decisions on lines (shadow phase).
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
         Records a review decision for each listed line; a later decision on the same line replaces the earlier one.
@@ -520,8 +512,6 @@ paths:
       operationId: acceptRedistributionProposal
       tags: [inventory-redistribution]
       summary: Accept lines into W3 shipment transfers in `draft` (live phase).
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
         In ONE transaction: re-checks each listed line (source freshness, source stock net of open draft
@@ -619,8 +609,6 @@ paths:
       operationId: rejectRedistributionProposal
       tags: [inventory-redistribution]
       summary: Reject the proposal with a reason.
-      x-runtime-status: contract-only
-      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
       x-idempotency: required
       description: >
         Moves the proposal to `rejected` with the given reason. Lines that already have an accept outcome keep it
@@ -853,8 +841,8 @@ components:
       properties:
         deficitBefore: { $ref: "#/components/schemas/NonNegativeDecimalQuantity" }
         deficitAfter: { $ref: "#/components/schemas/NonNegativeDecimalQuantity" }
-        storePairs: { type: integer, minimum: 0 }
-        lines: { type: integer, minimum: 0 }
+        storePairs: { type: integer, minimum: 1 }
+        lines: { type: integer, minimum: 1 }
     RedistributionViolation:
       type: object
       additionalProperties: false
@@ -1130,7 +1118,10 @@ components:
           items: { $ref: "#/components/schemas/RedistributionAcceptLineResult" }
         transferIds:
           type: array
-          description: The W3 shipment transfers created in `draft` by this accept, one per store pair and 100 lines.
+          minItems: 1
+          description: >
+            The W3 shipment transfers created in `draft` by this accept, one per store pair and 100 lines. At least one:
+            an accept that would drop every listed line is 409 `proposal_stale`.
           items: { type: string, format: uuid }
         proposal: { $ref: "#/components/schemas/RedistributionProposal" }
     IdempotencyInProgressBody:

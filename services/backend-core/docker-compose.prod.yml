@@ -167,6 +167,11 @@ services:
       # RT-1484: tenant UUIDs (comma-separated) that may write Price Change Sets until their
       # legacy cutover (RT-1485). Empty = nobody: every write is 409 pricing_authority_legacy.
       PRICING_AUTHORING_TENANT_ALLOWLIST: ${PRICING_AUTHORING_TENANT_ALLOWLIST:-}
+      # RT-1600: tenant UUIDs (comma-separated) for the W9 redistribution proposals. Shadow: compute, list,
+      # read, review, reject. Live (implies shadow): also accept into W3 draft Transfers. Empty = nobody:
+      # every proposal route is the non-disclosing 404.
+      REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST: ${REDISTRIBUTION_SHADOW_TENANT_ALLOWLIST:-}
+      REDISTRIBUTION_LIVE_TENANT_ALLOWLIST: ${REDISTRIBUTION_LIVE_TENANT_ALLOWLIST:-}
       # RT-1292 / RT-1297 POS pilot release lane. Off while any of the pin, the bucket or the
       # S3 key below is empty: the Console then gets { available: false }. No `:?` on purpose:
       # a missing value never stops the api. The three S3 values go to THIS service only, under
