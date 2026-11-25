@@ -301,3 +301,59 @@ describe('v5 Sale polish — product flags read at 12px', () => {
     expect(rule).toMatch(/padding:\s*2px var\(--space-2\)/);
   });
 });
+
+// RT-1177 AC2 and AC3, as stylesheet guards (the cloud session has no display, so no capture was taken).
+describe('v5 Sale polish — product flags cannot grow the cart row', () => {
+  const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+  const sale = readFileSync(resolve(__dirname, '../sale/sale-direction-b.css'), 'utf8');
+  const flag = /\.v5-live-flag\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const flags = /\.v5-live-flags\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+
+  it('keeps the row floor on the shared token: 60px comfortable, 52px compact', () => {
+    expect(sale).toMatch(/\.v5-sale-cart-table\s*\{[^}]*--v5-fit-row-size:\s*60px;/);
+    expect(sale).toMatch(
+      /\.v5-live-sale \.v5-sale-cart-line\s*\{\s*min-block-size:\s*var\(--v5-fit-row-size\);\s*padding-block:\s*var\(--space-1\);/,
+    );
+    const compact = sale.split('@container v5-screen (max-width: 1120px)')[1] ?? '';
+    expect(compact).toMatch(/--v5-fit-row-size:\s*52px;/);
+    expect(compact).toMatch(/\.v5-live-sale \.v5-sale-cart-line\s*\{\s*padding-block:\s*2px;/);
+  });
+
+  it('adds only the 2px block padding to the flag line box: no height, line-height, margin or border', () => {
+    expect(flag, 'the .v5-live-flag rule').not.toBe('');
+    expect(flag).toMatch(/padding:\s*2px var\(--space-2\)/);
+    expect(flag).not.toMatch(/(?:^|[\s;{-])(?:min-|max-)?(?:block-size|height)\s*:/);
+    expect(flag).not.toMatch(/line-height\s*:/);
+    expect(flag).not.toMatch(/margin/);
+    expect(flag).not.toMatch(/border\s*:/);
+  });
+
+  it('wraps the flags in a flex-wrap row with a small gap, so extra flags wrap inside the line', () => {
+    expect(flags).toMatch(/display:\s*flex/);
+    expect(flags).toMatch(/flex-wrap:\s*wrap/);
+    expect(flags).toMatch(/gap:\s*var\(--space-1\)/);
+    expect(flags).not.toMatch(/(?:block-size|height|margin|padding)/);
+  });
+});
+
+describe('v5 Sale polish — product flags in forced-colours mode', () => {
+  const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+  const rule = (selector: string): string =>
+    new RegExp(`${selector.replace(/[.[\]-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+
+  it('leaves the Rx and controlled flags to the UA: token colours only, no forced-color-adjust opt-out', () => {
+    for (const name of ['.v5-live-flag', '.v5-live-flag--controlled', '.v5-live-flag--rx']) {
+      const body = rule(name);
+      expect(body, name).not.toBe('');
+      expect(body, name).not.toMatch(/forced-color-adjust/);
+      expect(body, name).not.toMatch(/#[0-9a-f]{3,8}\b|rgba?\(/i);
+    }
+    // The meaning is the Arabic text, so the flag stays readable when its background is dropped.
+    expect(rule('.v5-live-flag--controlled')).toMatch(/color:\s*var\(--color-warning-emphasis\)/);
+    expect(rule('.v5-live-flag--rx')).toMatch(/color:\s*var\(--color-primary-emphasis\)/);
+  });
+
+  it('keeps the availability badge shape visible with a transparent border', () => {
+    expect(rule('.v5-live-flag--availability')).toMatch(/border:\s*1px solid transparent/);
+  });
+});
