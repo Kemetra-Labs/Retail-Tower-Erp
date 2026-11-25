@@ -327,6 +327,16 @@ describe("limits, deadline and malformed input", () => {
     }
   });
 
+  it("refuses a tenant whose total deficit would not fit numeric(19,4) (the objective is a Qty too)", () => {
+    const huge = (sid: string) => row(sid, P1, "-999999999999999.0000", "999999999999999.0000");
+    const p = problem([store(S1), store(S2), store(S3)], [huge(S1), huge(S2), huge(S3)]);
+    expect(proposeRedistribution(p).status).toBe("refused_too_large");
+    // A single row can overflow too: level - ATS = 1999999999999998 (16 integer digits).
+    expect(proposeRedistribution(problem([store(S1)], [huge(S1)])).status).toBe("refused_too_large");
+    const fits = row(S1, P1, "0.0000", "999999999999999.0000");
+    expect(proposeRedistribution(problem([store(S1)], [fits])).status).toBe("nothing_to_move");
+  });
+
   it("returns deadline_exceeded, never a partial result, when the clock passes the deadline", () => {
     let t = 0;
     const now = () => (t += 1000);

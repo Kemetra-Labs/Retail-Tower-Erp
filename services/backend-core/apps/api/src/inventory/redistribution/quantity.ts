@@ -9,6 +9,9 @@ export const UNIT = 10_000n;
 
 const QTY = /^(-?)(\d{1,15})(?:\.(\d{1,4}))?$/;
 
+/** The largest scaled magnitude a `numeric(19,4)` column holds (15 integer digits, 4 fractional). */
+export const QTY_MAX = 10n ** 19n - 1n;
+
 /** The scaled value of a `numeric(19,4)` decimal string, or `null` when it is not one. */
 export function parseQty(value: unknown): bigint | null {
   if (typeof value !== 'string') return null;

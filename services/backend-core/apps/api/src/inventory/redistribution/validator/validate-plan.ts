@@ -46,8 +46,8 @@ interface ReadRow {
 
 interface Ledger {
   readonly tenantId: string;
-  readonly stores: ReadonlyMap<string, RedistributionStoreV1>;
-  readonly rows: ReadonlyMap<string, ReadRow>;
+  readonly stores: Map<string, RedistributionStoreV1>;
+  readonly rows: Map<string, ReadRow>;
   readonly out: Map<string, bigint>;
   readonly into: Map<string, bigint>;
   readonly violations: RedistributionViolationV1[];
@@ -64,12 +64,13 @@ export function validateRedistributionPlan(
 ): RedistributionValidationReportV1 {
   const ledger: Ledger = {
     tenantId: problem.tenantId,
-    stores: new Map(problem.stores.map((s) => [s.storeId, s])),
-    rows: new Map(problem.rows.map((r) => [keyOf(r.storeId, r.productId), readRow(r)])),
+    stores: new Map(),
+    rows: new Map(),
     out: new Map(),
     into: new Map(),
     violations: [],
   };
+  indexInput(ledger, problem);
   checkLines(ledger, lines);
   checkTransferSizes(ledger, lines, lineLimitOf(problem));
   const policy = problem.buffer ?? DEFAULT_BUFFER_POLICY_V1;
@@ -87,6 +88,26 @@ export function validateRedistributionPlan(
     deficitBefore: formatQty(before),
     deficitAfter: formatQty(after),
   };
+}
+
+/**
+ * Indexes stores and rows on the validator's own path. A duplicate store, a duplicate (store, product) row or a
+ * row of an unknown store is a violation: the validator never lets a later entry silently replace an earlier one
+ * (an excluded store re-listed as eligible, or a short row re-listed as long).
+ */
+function indexInput(ledger: Ledger, problem: RedistributionProblemV1): void {
+  const { stores, rows } = ledger;
+  for (const s of problem.stores) {
+    if (stores.has(s.storeId)) ledger.violations.push({ code: 'input_duplicate_store', storeId: s.storeId });
+    else stores.set(s.storeId, s);
+  }
+  for (const r of problem.rows) {
+    const at = { storeId: r.storeId, productId: r.productId };
+    if (!stores.has(r.storeId)) ledger.violations.push({ code: 'input_unknown_store', ...at });
+    const key = keyOf(r.storeId, r.productId);
+    if (rows.has(key)) ledger.violations.push({ code: 'input_duplicate_row', ...at });
+    else rows.set(key, readRow(r));
+  }
 }
 
 function readRow(raw: RedistributionRowV1): ReadRow {

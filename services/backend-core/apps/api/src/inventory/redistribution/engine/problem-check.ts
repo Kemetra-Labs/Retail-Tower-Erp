@@ -30,7 +30,7 @@ export function checkProblemShape(problem: RedistributionProblemV1): Redistribut
   return violations;
 }
 
-export function isUsableBufferPolicy(policy: BufferPolicyV1): boolean {
+function isUsableBufferPolicy(policy: BufferPolicyV1): boolean {
   const minimum = parseQty(policy.minimum);
   return (
     minimum !== null &&

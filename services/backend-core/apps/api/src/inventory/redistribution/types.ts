@@ -7,7 +7,7 @@
 /** A `numeric(19,4)` decimal string in the product's stocking unit (at most 15 integer digits). */
 export type Qty = string;
 
-export type StoreExclusionV1 =
+type StoreExclusionV1 =
   | 'pos_queue_unknown'
   | 'pos_queue_dead_letter_or_held'
   | 'device_heartbeat_stale'
@@ -72,7 +72,7 @@ export interface RedistributionProblemV1 {
   readonly buffer?: BufferPolicyV1;
 }
 
-export type MoveWarningCodeV1 = 'source_near_reorder_level';
+type MoveWarningCodeV1 = 'source_near_reorder_level';
 
 export interface RedistributionMoveV1 {
   readonly productId: string;

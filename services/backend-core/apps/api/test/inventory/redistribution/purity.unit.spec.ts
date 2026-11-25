@@ -16,7 +16,9 @@ function sourceFiles(dir: string): string[] {
   });
 }
 
-const IMPORT = /(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|import\(\s*['"]([^'"]+)['"]\s*\)|require\(\s*['"]([^'"]+)['"]\s*\)/g;
+/** `from '…'`, side-effect `import '…'`, dynamic `import (…)` and `require (…)`, with any spacing. */
+const IMPORT =
+  /(?:import|export)\s[^'"]*?from\s*['"]([^'"]+)['"]|\bimport\s*['"]([^'"]+)['"]|\bimport\s*\(\s*['"]([^'"]+)['"]\s*\)|\brequire\s*\(\s*['"]([^'"]+)['"]\s*\)/g;
 
 describe("redistribution module purity", () => {
   const files = sourceFiles(ROOT);
@@ -29,12 +31,22 @@ describe("redistribution module purity", () => {
   it.each(files.map((f) => [relative(ROOT, f).replace(/\\/g, "/"), f]))("%s imports only files of this module", (_rel, file) => {
     const text = readFileSync(file, "utf8");
     for (const m of text.matchAll(IMPORT)) {
-      const spec = m[1] ?? m[2] ?? m[3]!;
+      const spec = m[1] ?? m[2] ?? m[3] ?? m[4]!;
       expect(spec.startsWith(".")).toBe(true);
       const target = resolve(dirname(file), spec);
       expect(relative(ROOT, target).startsWith("..")).toBe(false);
     }
-    expect(text).not.toMatch(/\bprocess\.env\b|\bfetch\(|\bsetTimeout\(|\bsetInterval\(|1392/);
+    expect(text).not.toMatch(/\bprocess\.env\b|\bfetch\s*\(|\bsetTimeout\s*\(|\bsetInterval\s*\(|\bMath\.random\b|1392/);
+  });
+
+  it("finds every import form (the detector itself)", () => {
+    const found = (text: string) => [...text.matchAll(IMPORT)].map((m) => m[1] ?? m[2] ?? m[3] ?? m[4]);
+    expect(found(`import 'node:fs';`)).toEqual(["node:fs"]);
+    expect(found(`import "node:http";`)).toEqual(["node:http"]);
+    expect(found(`import fs = require ("fs");`)).toEqual(["fs"]);
+    expect(found(`await import ("node:fs")`)).toEqual(["node:fs"]);
+    expect(found(`import type { A } from './types';
+export { b } from "../x";`)).toEqual(["./types", "../x"]);
   });
 
   it("keeps the validator independent of the engine's arithmetic", () => {

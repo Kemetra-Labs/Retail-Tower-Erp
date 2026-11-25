@@ -13,7 +13,7 @@
  * no optimality claim beyond objective 1 when no pair line limit binds.
  */
 import { DEFAULT_BUFFER_POLICY_V1, SOURCE_FLOOR_INCLUSIVE } from '../policy';
-import { UNIT, compareIds, formatQty, parseQty } from '../quantity';
+import { QTY_MAX, UNIT, compareIds, formatQty, parseQty } from '../quantity';
 import type {
   BufferPolicyV1,
   RedistributionMoveV1,
@@ -97,6 +97,12 @@ function deficitOf(c: Cell): bigint {
   return d > 0n ? d : 0n;
 }
 
+function totalDeficit(groups: ReadonlyArray<Group>): bigint {
+  let total = 0n;
+  for (const g of groups) for (const c of g.cells) total += deficitOf(c);
+  return total;
+}
+
 const canSource = (s: RedistributionStoreV1): boolean => s.eligibleAsSource && s.exclusion === undefined;
 
 export function planReorderGapGreedy(problem: RedistributionProblemV1, options: EngineOptions = {}): EnginePlan {
@@ -113,6 +119,8 @@ export function planReorderGapGreedy(problem: RedistributionProblemV1, options: 
 
   const tally = new WarningTally();
   const groups = collectGroups(problem, policy, tally);
+  // The objective totals must fit numeric(19,4) like every other Qty (moves always do: each is <= a surplus).
+  if (totalDeficit(groups) > QTY_MAX) return { kind: 'refused_too_large' };
   const pastDeadline = (): boolean => now() > startedAt + problem.limits.deadlineMs;
   const allocation = allocate(groups, problem.limits.maxLinesPerTransfer, pastDeadline);
   if (allocation === null) return DEADLINE;
@@ -240,8 +248,7 @@ function finish(
     movedOut.set(m.source, (movedOut.get(m.source) ?? 0n) + m.quantity);
     moved += m.quantity;
   }
-  let deficitBefore = 0n;
-  for (const g of groups) for (const c of g.cells) deficitBefore += deficitOf(c);
+  const deficitBefore = totalDeficit(groups);
   const moves = allocation.moves
     .map((m): RedistributionMoveV1 => {
       const end = m.source.ats - m.source.draft - movedOut.get(m.source)!;

@@ -55,6 +55,14 @@ Every status other than `proposed` has no moves. There is never a partial result
 - `objective` and `validator` are `null` when nothing was computed.
 - Stores excluded as `inactive` are neither source nor destination. Any other exclusion only bars the store as a source.
 
-## Open owner question
+## What the runtime (RT-1600) must supply
 
-The floor is inclusive: a source may end at exactly `reorderLevel + buffer`, which is where P-10's surplus formula leaves a fully used source. P-10's text "rejects at or below" would make that strict. Flipping `SOURCE_FLOOR_INCLUSIVE` makes both the engine and the validator strict, because both read that one constant.
+The RT-1597 snapshot port returns ATS, reorder level and read time per row, but no stocking unit and no tracking mode. RT-1600 must fill `stockingUnit` and `tracked` from another source before building a problem. The open-transfer port's rows carry a unit. It must never default `tracked` to `false` without that source, and the engine trusts both fields.
+
+## Source floor (settled 2026-11-25)
+
+The floor is **inclusive**: a source may end at exactly `reorderLevel + buffer`, which is where P-10's surplus formula leaves a fully used source. The validator rejects only an end below it.
+
+P-10's aim is to keep the source out of the POS `low` band (ATS ≤ reorder level). That holds, because the buffer is at least one stocking unit. The earlier "at or below" wording in RT-1598 and plan §10.1 was a drafting slip, now corrected to "below".
+
+A full-surplus move always raises `source_near_reorder_level`, which is intended. `SOURCE_FLOOR_INCLUSIVE` is the one constant both the engine and the validator read.

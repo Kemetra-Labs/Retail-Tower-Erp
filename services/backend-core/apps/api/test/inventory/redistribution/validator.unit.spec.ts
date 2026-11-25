@@ -148,6 +148,34 @@ describe("validator negative-plan matrix (every broken plan is rejected)", () =>
     expect(validateRedistributionPlan(p, [move(P1, S1, S2, "8.0000")]).passed).toBe(true);
   });
 
+  it("rejects a duplicate store instead of letting a later entry re-list an excluded store as eligible", () => {
+    const p = problem(
+      [store(S1, { eligibleAsSource: false, exclusion: "pos_queue_dead_letter_or_held" }), store(S1), store(S2)],
+      [row(S1, P1, "30.0000", "10.0000"), row(S2, P1, "0.0000", "10.0000")],
+    );
+    const report = validateRedistributionPlan(p, [move(P1, S1, S2, "5.0000")]);
+    expect(report.passed).toBe(false);
+    expect(report.violations.map((v) => v.code)).toEqual(
+      expect.arrayContaining(["input_duplicate_store", "excluded_source"]),
+    );
+  });
+
+  it("rejects a duplicate row instead of letting a later entry hide a floor breach", () => {
+    const p = problem(
+      [store(S1), store(S2)],
+      [row(S1, P1, "0.0000", "10.0000"), row(S1, P1, "30.0000", "10.0000"), row(S2, P1, "0.0000", "10.0000")],
+    );
+    const report = validateRedistributionPlan(p, [move(P1, S1, S2, "5.0000")]);
+    expect(report.violations.map((v) => v.code)).toEqual(
+      expect.arrayContaining(["input_duplicate_row", "source_floor_breached"]),
+    );
+  });
+
+  it("rejects a row of a store that is not in the problem", () => {
+    const p = problem([store(S1), store(S2)], [row(S1, P1, "30.0000", "10.0000"), row(S2, P1, "0.0000", "10.0000"), row(S9, P1, "0.0000", "10.0000")]);
+    expect(validateRedistributionPlan(p, []).violations).toEqual([{ code: "input_unknown_store", storeId: S9, productId: P1 }]);
+  });
+
   it("does not trust malformed rows: a move over a malformed row is rejected", () => {
     const p = problem([store(S1), store(S2)], [row(S1, P1, "abc", "10.0000"), row(S2, P1, "0.0000", "10.0000")]);
     expect(validateRedistributionPlan(p, [move(P1, S1, S2, "1.0000")]).violations.map((v) => v.code)).toContain(
