@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
 import { canOpenSettings } from "@/settings/settingsLogic";
+import { describe, expect, test } from "vitest";
 
 /** RF-7 (spec 016): only the tenant's admins may open Settings. */
 describe("canOpenSettings", () => {
