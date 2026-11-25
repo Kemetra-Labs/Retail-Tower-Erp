@@ -39,8 +39,8 @@ vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => activeContext(),
 }));
 
-import { createQueryClient } from "@/lib/query";
 import { AlertsPage } from "@/alerts/AlertsPage";
+import { createQueryClient } from "@/lib/query";
 
 const A = "0190f000-0000-7000-8000-0000000000a1";
 const NOW = "2026-10-15T22:30:00Z"; // Oct 16 in Cairo, Oct 15 in UTC
@@ -130,9 +130,7 @@ describe("AlertsPage", () => {
     ]) {
       fn.mockReset();
     }
-    storeRows.mockReturnValue([
-      { id: A, name: "Cairo Festival City", timezone: "Africa/Cairo" },
-    ]);
+    storeRows.mockReturnValue([{ id: A, name: "Cairo Festival City", timezone: "Africa/Cairo" }]);
     answerAll();
   });
 

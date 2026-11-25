@@ -2,13 +2,8 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
-import { ctx, page as catalogPage, product } from "./catalog-fixtures";
-import {
-  CAIRO_STORE,
-  item as saleItem,
-  page as salePage,
-  stores,
-} from "./sale-fixtures";
+import { page as catalogPage, ctx, product } from "./catalog-fixtures";
+import { CAIRO_STORE, item as saleItem, page as salePage, stores } from "./sale-fixtures";
 
 const consoleListCatalogProducts = vi.fn();
 vi.mock("@/lib/catalog-queries", () => ({
@@ -89,9 +84,7 @@ describe("SearchPage", () => {
       "/catalog/products/0190f000-0000-7000-8000-0000000007b1",
     );
     const saleLink = await screen.findByRole("link", { name: "R-0042" });
-    expect(saleLink.getAttribute("href")).toBe(
-      "/sales/0190f000-0000-7000-8000-0000000005b1",
-    );
+    expect(saleLink.getAttribute("href")).toBe("/sales/0190f000-0000-7000-8000-0000000005b1");
     expect(await screen.findByText("Ops One")).toBeDefined();
     expect(screen.getByText("ops@example.test")).toBeDefined();
     // The sales read asks for the receipt in the active store's last 31 days.

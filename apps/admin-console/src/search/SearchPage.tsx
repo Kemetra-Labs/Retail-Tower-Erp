@@ -1,3 +1,5 @@
+import { canReadCatalog, statusBadgeClass, statusKey } from "@/catalog/catalogLogic";
+import { type CatalogListState, useCatalogList, useCatalogScope } from "@/catalog/useCatalog";
 /**
  * Global search: one term across the three things the contracts can actually
  * search, one page per section, no stitching and no invented figures.
@@ -20,19 +22,9 @@ import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { SectionIndex } from "@/components/SectionIndex";
-import {
-  canReadCatalog,
-  statusBadgeClass,
-  statusKey,
-} from "@/catalog/catalogLogic";
-import {
-  type CatalogListState,
-  useCatalogList,
-  useCatalogScope,
-} from "@/catalog/useCatalog";
-import { formatNumber, Money, roleKey, useT } from "@/i18n";
+import { Money, formatNumber, roleKey, useT } from "@/i18n";
 import { useMembers } from "@/operators/useMembers";
-import type { MemberRow } from "@/operators/useMembers";
+import type { MemberListResult, MemberRow } from "@/operators/useMembers";
 import { BusinessDate, SaleNumber } from "@/sales/SaleParts";
 import { canReadSales } from "@/sales/saleLogic";
 import { type SaleListState, useSaleList, useSaleScope } from "@/sales/useSales";
@@ -73,9 +65,7 @@ function Section({
   );
 }
 
-function SectionError({
-  onRetry,
-}: Readonly<{ onRetry: () => void }>): React.JSX.Element {
+function SectionError({ onRetry }: Readonly<{ onRetry: () => void }>): React.JSX.Element {
   const t = useT();
   return (
     <Banner
@@ -88,6 +78,23 @@ function SectionError({
       }
     />
   );
+}
+
+/** The loading, failed and empty states a list section shares; null once it has rows. */
+function listStatus(
+  list: Readonly<{
+    isLoading: boolean;
+    error?: unknown;
+    rows: readonly unknown[];
+    retry: () => void;
+  }>,
+  loadingLabel: string,
+  empty: string,
+): React.JSX.Element | null {
+  if (list.isLoading) return <ListState state="loading" label={loadingLabel} />;
+  if (list.error) return <SectionError onRetry={list.retry} />;
+  if (list.rows.length === 0) return <p>{empty}</p>;
+  return null;
 }
 
 function ProductsSection({
@@ -103,15 +110,14 @@ function ProductsSection({
   const captionId = useCaptionId();
   if (list.error?.kind === "not-found") return null;
   const moreHref = `/catalog/products?${new URLSearchParams({ q }).toString()}`;
+  const status = listStatus(list, t("search.loading"), t("search.products.empty", { q }));
   return (
-    <Section position={position} title={t("search.products.title")} hint={t("search.products.hint")}>
-      {list.isLoading ? (
-        <ListState state="loading" label={t("search.loading")} />
-      ) : list.error ? (
-        <SectionError onRetry={list.retry} />
-      ) : list.rows.length === 0 ? (
-        <p>{t("search.products.empty", { q })}</p>
-      ) : (
+    <Section
+      position={position}
+      title={t("search.products.title")}
+      hint={t("search.products.hint")}
+    >
+      {status ?? (
         <>
           <DataTableScroll captionId={captionId}>
             <table className="data-table">
@@ -170,19 +176,7 @@ function SalesSection({
   if (list.error?.kind === "not-found") return null;
   return (
     <Section position={position} title={t("search.sales.title")} hint={t("search.sales.hint")}>
-      {!hasStore ? (
-        <p>{t("search.sales.needsStore")}</p>
-      ) : !directoryReady ? (
-        <ListState state="loading" label={t("search.loading")} />
-      ) : q.length > MAX_SALE_NUMBER_LENGTH ? (
-        <p>{t("search.sales.tooLong")}</p>
-      ) : list.isLoading ? (
-        <ListState state="loading" label={t("search.loading")} />
-      ) : list.error ? (
-        <SectionError onRetry={list.retry} />
-      ) : list.rows.length === 0 ? (
-        <p>{t("search.sales.empty", { q })}</p>
-      ) : (
+      {salesStatus(t, q, list, hasStore, directoryReady) ?? (
         <DataTableScroll captionId={captionId}>
           <table className="data-table">
             <caption id={captionId} className="data-table__caption">
@@ -217,6 +211,20 @@ function SalesSection({
       )}
     </Section>
   );
+}
+
+/** What the sales section shows instead of its table, or null when it has rows. */
+function salesStatus(
+  t: ReturnType<typeof useT>,
+  q: string,
+  list: SaleListState,
+  hasStore: boolean,
+  directoryReady: boolean,
+): React.JSX.Element | null {
+  if (!hasStore) return <p>{t("search.sales.needsStore")}</p>;
+  if (!directoryReady) return <ListState state="loading" label={t("search.loading")} />;
+  if (q.length > MAX_SALE_NUMBER_LENGTH) return <p>{t("search.sales.tooLong")}</p>;
+  return listStatus(list, t("search.loading"), t("search.sales.empty", { q }));
 }
 
 function OperatorsSection({
@@ -284,18 +292,98 @@ function OperatorsSection({
   );
 }
 
-export function SearchPage(): React.JSX.Element {
+/** Operators whose name or email holds the term, folded as the other searches fold it. */
+function matchingOperators(result: MemberListResult | undefined, term: string | null): MemberRow[] {
+  if (term === null || result?.kind !== "rows") return [];
+  const folded = foldForSearch(term);
+  return result.rows.filter((m) =>
+    foldForSearch(`${m.displayName ?? ""} ${m.email}`).includes(folded),
+  );
+}
+
+/** True when every section this role may see answered "not found" (no read is served). */
+function noSectionReadable(
+  products: CatalogListState | null,
+  sales: SaleListState | null,
+  members: MemberListResult | undefined,
+): boolean {
+  return (
+    (products === null || products.error?.kind === "not-found") &&
+    (sales === null || sales.error?.kind === "not-found") &&
+    members?.kind === "not-found"
+  );
+}
+
+function SearchIntro(): React.JSX.Element {
   const t = useT();
-  const [searchParams, setSearchParams] = useSearchParams();
-  const q = (searchParams.get("q") ?? "").trim();
+  return (
+    <section className="section-panel search__intro">
+      <div className="section-panel__head">
+        <h2 className="section-panel__title">{t("search.intro.title")}</h2>
+      </div>
+      <ul className="search__intro-list">
+        <li>{t("search.intro.products")}</li>
+        <li>{t("search.intro.sales")}</li>
+        <li>{t("search.intro.operators")}</li>
+      </ul>
+    </section>
+  );
+}
+
+function SearchForm({
+  q,
+  tooLong,
+  onSearch,
+}: Readonly<{ q: string; tooLong: boolean; onSearch: (next: string) => void }>): React.JSX.Element {
+  const t = useT();
   const [draft, setDraft] = useState(q);
   useEffect(() => setDraft(q), [q]);
-  const catalogScope = useCatalogScope();
+  return (
+    <form
+      className="search__form"
+      onSubmit={(e) => {
+        e.preventDefault();
+        onSearch(draft.trim());
+      }}
+    >
+      <div className="field search__field">
+        <label htmlFor="search-term">{t("search.input.label")}</label>
+        <input
+          id="search-term"
+          className="input"
+          type="search"
+          autoComplete="off"
+          spellCheck={false}
+          placeholder={t("search.input.placeholder")}
+          value={draft}
+          onChange={(e) => setDraft(e.target.value)}
+        />
+      </div>
+      <button type="submit" className="btn-primary">
+        {t("search.submit")}
+      </button>
+      {tooLong ? (
+        <p className="search__error" role="alert">
+          {t("catalog.filter.qTooLong")}
+        </p>
+      ) : null}
+    </form>
+  );
+}
+
+/** The three sections for one term; each hides itself when its read is not served. */
+function SearchResults({
+  q,
+  term,
+  catalogScope,
+}: Readonly<{
+  q: string;
+  term: string | null;
+  catalogScope: ReturnType<typeof useCatalogScope>;
+}>): React.JSX.Element {
+  const t = useT();
   const saleScope = useSaleScope();
   const directory = useStoreDirectory(catalogScope.tenantId);
-  const tooLong = q.length > MAX_SEARCH_LENGTH;
-  const term = q === "" || tooLong ? null : q;
-
   const showProducts = canReadCatalog(catalogScope.role);
   const showSales = canReadSales(saleScope.role);
   const products = useCatalogList(
@@ -311,21 +399,47 @@ export function SearchPage(): React.JSX.Element {
     showSales ? receiptSearchQuery(term, saleScope.activeStoreId, window) : null,
   );
   const members = useMembers(term === null ? null : catalogScope.tenantId);
-  const operatorRows = useMemo(() => {
-    if (term === null || members.result?.kind !== "rows") return [];
-    const folded = foldForSearch(term);
-    return members.result.rows.filter((m) =>
-      foldForSearch(`${m.displayName ?? ""} ${m.email}`).includes(folded),
-    );
-  }, [members.result, term]);
-
+  const operatorRows = useMemo(
+    () => matchingOperators(members.result, term),
+    [members.result, term],
+  );
   const settled = !products.isLoading && !sales.isLoading && !members.isLoading;
-  const nothingVisible =
-    term !== null &&
+  if (
     settled &&
-    (!showProducts || products.error?.kind === "not-found") &&
-    (!showSales || sales.error?.kind === "not-found") &&
-    members.result?.kind === "not-found";
+    noSectionReadable(showProducts ? products : null, showSales ? sales : null, members.result)
+  ) {
+    return <p>{t("search.nothing")}</p>;
+  }
+  return (
+    <>
+      {showProducts ? <ProductsSection q={q} position={1} list={products} /> : null}
+      {showSales ? (
+        <SalesSection
+          q={q}
+          position={2}
+          list={sales}
+          hasStore={saleScope.activeStoreId !== null}
+          directoryReady={directory.ready}
+        />
+      ) : null}
+      <OperatorsSection
+        q={q}
+        position={3}
+        rows={operatorRows}
+        isLoading={members.isLoading}
+        notFound={members.result?.kind === "not-found"}
+      />
+    </>
+  );
+}
+
+export function SearchPage(): React.JSX.Element {
+  const t = useT();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const q = (searchParams.get("q") ?? "").trim();
+  const catalogScope = useCatalogScope();
+  const tooLong = q.length > MAX_SEARCH_LENGTH;
+  const term = q === "" || tooLong ? null : q;
 
   if (!catalogScope.tenantId) {
     return (
@@ -341,70 +455,13 @@ export function SearchPage(): React.JSX.Element {
         documentTitle={t("search.title")}
         subtitle={t("search.subtitle")}
       />
-      <form
-        className="search__form"
-        onSubmit={(e) => {
-          e.preventDefault();
-          const next = draft.trim();
-          setSearchParams(next === "" ? {} : { q: next });
-        }}
-      >
-        <div className="field search__field">
-          <label htmlFor="search-term">{t("search.input.label")}</label>
-          <input
-            id="search-term"
-            className="input"
-            type="search"
-            autoComplete="off"
-            spellCheck={false}
-            placeholder={t("search.input.placeholder")}
-            value={draft}
-            onChange={(e) => setDraft(e.target.value)}
-          />
-        </div>
-        <button type="submit" className="btn-primary">
-          {t("search.submit")}
-        </button>
-        {tooLong ? (
-          <p className="search__error" role="alert">
-            {t("catalog.filter.qTooLong")}
-          </p>
-        ) : null}
-      </form>
-      {q === "" ? (
-        <section className="section-panel search__intro">
-          <div className="section-panel__head">
-            <h2 className="section-panel__title">{t("search.intro.title")}</h2>
-          </div>
-          <ul className="search__intro-list">
-            <li>{t("search.intro.products")}</li>
-            <li>{t("search.intro.sales")}</li>
-            <li>{t("search.intro.operators")}</li>
-          </ul>
-        </section>
-      ) : tooLong ? null : nothingVisible ? (
-        <p>{t("search.nothing")}</p>
-      ) : (
-        <>
-          {showProducts ? <ProductsSection q={q} position={1} list={products} /> : null}
-          {showSales ? (
-            <SalesSection
-              q={q}
-              position={2}
-              list={sales}
-              hasStore={saleScope.activeStoreId !== null}
-              directoryReady={directory.ready}
-            />
-          ) : null}
-          <OperatorsSection
-            q={q}
-            position={3}
-            rows={operatorRows}
-            isLoading={members.isLoading}
-            notFound={members.result?.kind === "not-found"}
-          />
-        </>
-      )}
+      <SearchForm
+        q={q}
+        tooLong={tooLong}
+        onSearch={(next) => setSearchParams(next === "" ? {} : { q: next })}
+      />
+      {q === "" ? <SearchIntro /> : null}
+      {term === null ? null : <SearchResults q={q} term={term} catalogScope={catalogScope} />}
     </div>
   );
 }

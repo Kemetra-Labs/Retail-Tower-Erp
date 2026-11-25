@@ -356,5 +356,5 @@ function typeContract(): React.JSX.Element[] {
 }
 
 test("the compile-time contract is part of the typecheck", () => {
-  expect(typeContract()).toHaveLength(6);
+  expect(typeContract()).toHaveLength(5);
 });

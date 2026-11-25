@@ -8,11 +8,8 @@ import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { useT } from "@/i18n";
 import { AttentionLedger } from "@/overview/AttentionLedger";
-import {
-  OverviewRefreshButton,
-  useOverviewRefresh,
-  useOverviewSession,
-} from "@/overview/OverviewPanels";
+import { OverviewRefreshButton, useOverviewRefresh } from "@/overview/OverviewPanels";
+import { useOverviewSession } from "@/overview/useOverviewPanels";
 import "../shell/surface.css";
 import "../overview/overview.css";
 

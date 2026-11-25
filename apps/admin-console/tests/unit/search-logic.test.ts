@@ -1,4 +1,3 @@
-import { describe, expect, test } from "vitest";
 import {
   MAX_SALE_NUMBER_LENGTH,
   MAX_SEARCH_LENGTH,
@@ -7,6 +6,7 @@ import {
   receiptSearchQuery,
   receiptWindow,
 } from "@/search/searchLogic";
+import { describe, expect, test } from "vitest";
 
 const WINDOW = { from: "2026-09-23", to: "2026-10-23" };
 

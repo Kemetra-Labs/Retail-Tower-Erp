@@ -77,6 +77,8 @@ describe("shell locale", () => {
     expect(screen.getByRole("navigation", { name: "التنقل الرئيسي" })).toBeDefined();
     expect(navLabels()).toEqual([
       "نظرة عامة",
+      "التنبيهات",
+      "بحث",
       "سجل التدقيق",
       "المتاجر",
       "المستخدمون",
@@ -100,6 +102,8 @@ describe("shell locale", () => {
     expect(html().dir).toBe("ltr");
     expect(navLabels()).toEqual([
       "Overview",
+      "Alerts",
+      "Search",
       "Audit",
       "Stores",
       "Operators",

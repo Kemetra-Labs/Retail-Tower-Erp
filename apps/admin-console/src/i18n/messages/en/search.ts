@@ -23,7 +23,8 @@ export const search: MessagesOf<typeof ar> = {
 
   // --- Products ---------------------------------------------------------------
   "search.products.title": "Products",
-  "search.products.hint": "An exact barcode, SKU or PLU, or a part of the product name. Active products only.",
+  "search.products.hint":
+    "An exact barcode, SKU or PLU, or a part of the product name. Active products only.",
   "search.products.empty": "No products match “{q}”.",
   "search.products.more": "Showing the first {count}.",
   "search.products.seeAll": "See all matches in the catalog",

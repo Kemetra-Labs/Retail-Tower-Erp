@@ -17,7 +17,7 @@ import { addDays } from "@/sales-daily/dailyLogic";
 import { todayIn } from "@/sales/saleFilters";
 
 /** The receipt-number lookup reads at most the last 31 business days (the sales list's cap). */
-export const RECEIPT_WINDOW_DAYS = 30;
+const RECEIPT_WINDOW_DAYS = 30;
 /** `sale_number` is an exact match of at most 96 characters. */
 export const MAX_SALE_NUMBER_LENGTH = 96;
 /** `q` is the catalog's search text: at most 100 characters. */
