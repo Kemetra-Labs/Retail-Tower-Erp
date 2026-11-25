@@ -1,0 +1,31 @@
+.posting-report__hint {
+  margin: 0;
+  color: var(--color-text-muted);
+}
+
+.posting-report__summary {
+  margin: var(--space-3) 0 0;
+}
+
+.posting-report__repair {
+  margin: var(--space-3) 0 0;
+}
+
+.posting-table__mark {
+  font-weight: var(--weight-regular);
+  color: var(--color-text-muted);
+}
+
+.posting-table__count {
+  display: block;
+  font-weight: var(--weight-strong);
+}
+
+.posting-table__unknown {
+  font-style: italic;
+  color: var(--color-text-muted);
+}
+
+.posting-surface .section-panel {
+  margin-top: var(--space-4);
+}

@@ -7,6 +7,7 @@
  */
 import { type MessageKey, Money, formatNumber, useT } from "@/i18n";
 import type { MetricId, SalesKpis } from "@/metrics/metricRegistry";
+import { BusinessDate } from "@/sales/SaleParts";
 import type { DayState } from "./dailyLogic";
 
 export type MoneyMetric = "receivedSales" | "voids" | "returns" | "legacyRefunds";
@@ -22,6 +23,21 @@ export const STATE_MARK: Record<Exclude<DayState, "complete">, MessageKey> = {
   "so-far": "metrics.context.soFar",
   "not-begun": "salesDaily.row.notBegun",
 };
+
+/** A report row's header: its business date, and the day's state in words unless complete. */
+export function DayHeader({
+  date,
+  state,
+  markClassName,
+}: Readonly<{ date: string; state: DayState; markClassName: string }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <th scope="row">
+      <BusinessDate value={date} />
+      {state === "complete" ? null : <span className={markClassName}> {t(STATE_MARK[state])}</span>}
+    </th>
+  );
+}
 
 export function Unknown(): React.JSX.Element {
   const t = useT();

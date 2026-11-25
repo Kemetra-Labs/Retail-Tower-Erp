@@ -1,8 +1,10 @@
+import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 /**
  * RT-1020 (v4.0) the reports index catalogue: what the Console can open today
  * and what is only proposed. Pure data and role gates, no React.
  *
- * - `available`: the built reports (daily received sales, sales by store);
+ * - `available`: the built reports (daily received sales, sales by store,
+ *   posting health);
  * - `review`: existing review screens, linked as they are;
  * - `proposed`: a report that has no screen and no served figure yet. It is
  *   listed so the owner can see the map, never linked and never given a number.
@@ -63,6 +65,10 @@ const GROUPS: readonly ReportGroup[] = [
         kind: "proposed",
         title: "reports.item.byHour.title",
         question: "reports.item.byHour.q",
+        // No contract serves hourly buckets: console-sales-summary and
+        // console-sales carry business-day buckets only, and deriving hours
+        // client-side would stitch paged reads (RT-751 AC 4). Needs an hourly
+        // bucket in the sales summary, or a new consoleGetSalesHourly op.
       },
     ],
   },
@@ -120,9 +126,11 @@ const GROUPS: readonly ReportGroup[] = [
       },
       {
         id: "posting-health",
-        kind: "proposed",
+        kind: "available",
+        to: "/posting-health",
         title: "reports.item.postingHealth.title",
         question: "reports.item.postingHealth.q",
+        canOpen: canReadErpStatus,
       },
     ],
   },
