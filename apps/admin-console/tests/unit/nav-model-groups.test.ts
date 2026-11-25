@@ -1,4 +1,4 @@
-import { tenantNav } from "@/shell/nav-model";
+import { navigatorNav, tenantNav } from "@/shell/nav-model";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -107,5 +107,76 @@ describe("settings destination (RF-7)", () => {
     for (const role of ["store_manager", "store_staff", "cashier", "auditor"]) {
       expect(paths(role)).not.toContain("/settings");
     }
+  });
+});
+
+/**
+ * Navigator-only destinations: built screens the sidebar deliberately omits
+ * by owner decision — the daily/by-store reports live under /reports
+ * (RT-821/RT-1020/RT-1054), the import opens from the catalog list (RT-1509),
+ * pairing codes and the POS download live on the device list (RT-372).
+ * The sidebar and drawer never list them; Ctrl K does, with the same gates.
+ */
+describe("navigator-only destinations", () => {
+  const NAV_ONLY = [
+    "/sales-daily",
+    "/sales-by-store",
+    "/catalog/import",
+    "/devices/pairing-codes",
+    "/devices/download-pos",
+  ] as const;
+  const navPaths = (role: string) =>
+    navigatorNav(role, SIGNALS).flatMap((g) => g.entries.map((e) => e.to));
+
+  test("the sidebar model is unchanged: none of the five is listed", () => {
+    expect(paths("owner")).toHaveLength(23);
+    for (const to of NAV_ONLY) expect(paths("owner")).not.toContain(to);
+  });
+
+  test("an owner's navigator is the sidebar entries plus the five, in group order", () => {
+    expect(navPaths("owner")).toEqual([
+      "/",
+      "/sales",
+      "/shift-closes",
+      "/reports",
+      "/sales-daily",
+      "/sales-by-store",
+      "/devices",
+      "/devices/pairing-codes",
+      "/devices/download-pos",
+      "/catalog/products",
+      "/catalog/import",
+      "/unknown-items",
+      "/catalog/brands",
+      "/inventory",
+      "/tracking",
+      "/stock-discrepancies",
+      "/erp-connection",
+      "/sales-needing-repair",
+      "/quarantined-sales",
+      "/product-reconciliation",
+      "/audit",
+      "/stores",
+      "/operators",
+      "/tenants",
+      "/payer-accounts",
+      "/vouchers",
+      "/offers",
+      "/settings",
+    ]);
+  });
+
+  test("the gates hold: a cashier sees none of the five, a store manager sees all but the import", () => {
+    expect(navPaths("cashier")).toEqual(paths("cashier"));
+    expect(navPaths("store_manager")).toHaveLength(20);
+    for (const to of [
+      "/sales-daily",
+      "/sales-by-store",
+      "/devices/pairing-codes",
+      "/devices/download-pos",
+    ]) {
+      expect(navPaths("store_manager")).toContain(to);
+    }
+    expect(navPaths("store_manager")).not.toContain("/catalog/import");
   });
 });

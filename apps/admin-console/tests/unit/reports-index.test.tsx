@@ -16,12 +16,7 @@ import { ReportsIndex } from "@/reports/ReportsIndex";
  * «not available yet» in words, is not a link, and carries no figure.
  */
 
-const PROPOSED = [
-  "Sales by hour",
-  "Shortage and overage trend",
-  "Stock movement by type",
-  "Posting health across days",
-];
+const PROPOSED = ["Sales by hour", "Shortage and overage trend", "Stock movement by type"];
 
 function renderIndex(): void {
   render(
@@ -42,11 +37,12 @@ describe("ReportsIndex (RT-1020)", () => {
   });
   afterEach(cleanup);
 
-  test("an owner gets the built report and the three review screens as live links", () => {
+  test("an owner gets the built reports and the three review screens as live links", () => {
     renderIndex();
     expect(screen.getByRole("heading", { level: 1, name: "Reports" })).toBeDefined();
     expect(hrefOf("Daily received sales")).toBe("/sales-daily");
     expect(hrefOf("Sales by store")).toBe("/sales-by-store");
+    expect(hrefOf("Posting health across days")).toBe("/posting-health");
     expect(hrefOf("Cash variance in shifts")).toBe("/shift-closes");
     expect(hrefOf("ERPNext stock discrepancies")).toBe("/stock-discrepancies");
     expect(hrefOf("Sales needing repair")).toBe("/sales-needing-repair");
@@ -91,7 +87,8 @@ describe("ReportsIndex (RT-1020)", () => {
     expect(hrefOf("Sales by store")).toBe("/sales-by-store");
     expect(hrefOf("Cash variance in shifts")).toBe("/shift-closes");
     expect(screen.queryByRole("link", { name: "Sales needing repair" })).toBeNull();
-    // Its proposed sibling is still listed, as not available.
+    expect(screen.queryByRole("link", { name: "Posting health across days" })).toBeNull();
+    // Its proposed siblings are still listed, as not available.
     expect(screen.getAllByText("Proposed, not available yet")).toHaveLength(PROPOSED.length);
   });
 

@@ -8,7 +8,8 @@ description: >-
   RT-396 and RT-397 the colours, radii and type ARE the approved light target (RT-392).
   v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
   v4.0 (owner decision 2026-10-30) adopts the "Ink & Receipt" look (canvas board v9) as the
-  approved, not yet shipped, visual target (§12). The token block below stays shipped truth.
+  approved visual target (§12), shipping in slices; the slices already on main are listed in
+  §10 and §12.8. The token block below stays shipped truth.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
@@ -623,7 +624,7 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
 | Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
 | Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969**. Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
-| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Not filed yet.** One Jira issue per letter. Waits: (a) dark half on §12.8.4; (d) on §12.8.2 (each KPI's good direction) and §12.8.6 (data sources); (e) on §12.8.3 (licence + A/B); (f) and segmented controls follow D-V3 as amended (§12.6) |
+| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Shipping in slices — no longer "approved, not shipped".** On `main`: (a) the Ink/Mint/action-fill role tokens, light and dark (§12.8.4 decided 2026-10-31; `--color-action-fill` shipped by RT-1037); (c) the receipt card + pipeline rail as the Overview's `ReceiptRow` + `SaleRail`; (d) Overview v4 (RT-993; §12.8.2 good directions recorded 2026-11-01 in `src/metrics/metricRegistry.ts`, §12.8.6 three widgets render «قريبًا» frames). Still to land: (b) Ink sidebar + Mint signal line; (e) display face, waiting on §12.8.3 (licence + A/B); (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice. **Not filed yet.** One Jira issue per letter. |
 
 ## 11. Do's and Don'ts
 
@@ -651,15 +652,15 @@ Each debt is tracked separately. Do not fold them into feature work.
 - Introduce a new package (including Tailwind or an icon or i18n library) without an
   authorizing Jira issue.
 
-## 12. v4.0 "Ink & Receipt" (owner decision 2026-10-30, approved, not shipped)
+## 12. v4.0 "Ink & Receipt" (owner decision 2026-10-30, approved; shipping in slices — §10 and §12.8 name what is on `main`)
 
 The reference is board v9 «✓ المعتمد · نظرة عامة v9» on the canvas
 <https://claude.ai/artifact/7LkLBupz4nTpvB4P4k4NW4>. A versioned copy of the source of every current
 board, with an index mapping each board to its Jira slice, is in
 [`docs/design/v9/`](docs/design/v9/README.md). Where the canvas and this section differ,
-this section wins; where a rule here is silent, §1–§11 still apply. Values below are **target
-tokens**: a slice adds them to `src/styles/tokens.css` as roles, and components never spell the
-hex.
+this section wins; where a rule here is silent, §1–§11 still apply. Values below are the
+**target tokens**: the slices already on `main` have landed them in `src/styles/tokens.css` as
+roles (see §10), and components never spell the hex.
 
 ### 12.1 Color
 

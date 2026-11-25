@@ -90,6 +90,10 @@ export const inventory = {
   "inventory.movements.empty": "لا توجد حركات مخزون في هذا المتجر بعد.",
   "inventory.movements.loadMore": "تحميل حركات أقدم",
 
+  // --- Modern concept 2/6: the ledger's details toggle (rule 1) ---------------
+  "inventory.movements.showMore": "عرض المزيد من التفاصيل",
+  "inventory.movements.showLess": "عرض تفاصيل أقل",
+
   "inventory.movementType.inbound": "وارد",
   "inventory.movementType.outbound": "صادر",
   "inventory.movementType.adjustment": "تسوية",
@@ -129,6 +133,12 @@ export const inventory = {
     "محسوب عند القراءة من حركات هذا المنتج في المتجر، لكل المواقع. ليس رصيد ERPNext الدفتري.",
   "inventory.onHand.loadingNoun": "الرصيد",
   "inventory.onHand.loadFailed": "تعذّر تحميل الرصيد. الرصيد غير معروف.",
+
+  // --- Modern concept 2/6: the product page's smart insight (rule 4) -----------
+  "inventory.insight.title": "ماذا يعني هذا الرصيد",
+  "inventory.insight.allSellable": "كل الرصيد الموجود قابل للبيع.",
+  "inventory.insight.otherStatuses":
+    "يوجد مخزون أيضًا في حالات أخرى — جدول الرصيد حسب الحالة أدناه يوضّح أين.",
 
   // --- RT-1579: لوحة كميات المخزون (المتاح للبيع وما يتكوّن منه) ---
   "inventory.availability.title": "كميات المخزون",

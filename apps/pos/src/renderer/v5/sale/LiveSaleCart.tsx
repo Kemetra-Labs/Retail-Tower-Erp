@@ -1,4 +1,4 @@
-import { useState, type JSX, type ReactNode } from 'react';
+import { useEffect, useRef, useState, type JSX, type ReactNode } from 'react';
 import type { CartLineItem, DiscountPlaceholderSeed } from '../../sale/useSaleCartController';
 import { formatHumanCount } from '../../ui/format/human-format';
 import { Icon } from '../../icons/Icon';
@@ -397,20 +397,34 @@ function PrimaryAction(props: Readonly<Props>): JSX.Element {
         </button>
       </>
     );
-  if (props.frozenSubtotalMinor !== null)
-    return (
-      <button
-        type="button"
-        className="v5-sale-checkout v5-btn v5-btn--primary v5-btn--commit"
-        disabled={!props.canContinue}
-        onClick={props.onContinue}
-      >
-        <span>المتابعة إلى الدفع</span>
-        <Icon name="forward" size="lg" />
-      </button>
-    );
+  if (props.frozenSubtotalMinor !== null) return <ContinueAction {...props} />;
   if (props.cancelled) return <p className="v5-live-notice">تم إلغاء البيع.</p>;
   return <HandoffAction {...props} />;
+}
+
+/**
+ * The frozen cart's commit: «المتابعة إلى الدفع». It replaces the handoff button, which was focused
+ * and then disabled, so focus fell to `BODY` (RT-1176, UX-11). When it mounts with focus on `BODY`,
+ * it takes focus itself; it never takes focus from another element.
+ */
+function ContinueAction(props: Readonly<Props>): JSX.Element {
+  const ref = useRef<HTMLButtonElement>(null);
+  useEffect(() => {
+    const active = document.activeElement;
+    if (active === null || active === document.body) ref.current?.focus();
+  }, []);
+  return (
+    <button
+      ref={ref}
+      type="button"
+      className="v5-sale-checkout v5-btn v5-btn--primary v5-btn--commit"
+      disabled={!props.canContinue}
+      onClick={props.onContinue}
+    >
+      <span>المتابعة إلى الدفع</span>
+      <Icon name="forward" size="lg" />
+    </button>
+  );
 }
 
 /** The editing cart's commit: «تسليم السلة للدفع», with the reason it is unavailable under it. */

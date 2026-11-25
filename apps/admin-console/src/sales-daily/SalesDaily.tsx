@@ -29,6 +29,7 @@ import {
   type ReportModel,
   buildSummaryQuery,
   defaultRange,
+  proposalZones,
   rangeFromSearch,
   rangeToSearch,
   reportModel,
@@ -48,12 +49,6 @@ const RANGE_PROBLEM_KEY = {
 function fieldErrorOf(error: SalesSummaryErrorRender | undefined): MessageKey | undefined {
   if (error?.kind === "range") return RANGE_PROBLEM_KEY[error.problem];
   return error?.kind === "field" ? "salesDaily.range.rejected" : undefined;
-}
-
-/** The zones that decide "today" before the first read: the store's, or every store's. */
-function proposalZones(scope: SaleScope, directory: StoreDirectory): string[] {
-  if (scope.activeStoreId) return [directory.timeZoneOf(scope.activeStoreId) ?? "UTC"];
-  return directory.stores.map((s) => s.timezone ?? "UTC");
 }
 
 /** The URL's range, else the default once the zone is known; null while it is not. */

@@ -35,7 +35,7 @@
 
 </div>
 
-> **Retail Tower OS** is the product; this repository, [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console), is its admin/operator track, the browser frontend. It consumes Backend-Core OpenAPI contracts through a generated client and never calls ERPNext/Frappe directly. What it owns and does not own: [see below](#what-this-repo-owns).
+> **Retail Tower OS** is the product; this product, `apps/admin-console/` in the monorepo, is its admin/operator track, the browser frontend. It consumes Backend-Core OpenAPI contracts through a generated client and never calls ERPNext/Frappe directly. What it owns and does not own: [see below](#what-this-repo-owns).
 >
 > **Also known as:** this repo's surface name is "Retail Tower Console". Older specs, code comments and config here still say "Data-Pulse-2" / "DP2" for Backend-Core (for example the `dp2_session` cookie and the `DATA_PULSE_2_PIN` constant) and "POS-Pulse" for POS; these are the same repositories as the tracks below.
 
@@ -49,10 +49,10 @@
 
 | Track | Repository | Owns |
 | --- | --- | --- |
-| **Backend-Core** | [`Kemetra/Backend-Core`](https://github.com/Kemetra/Backend-Core) | APIs · data · workers · tenant/store context · sync operations |
-| **POS** | [`Kemetra/POS`](https://github.com/Kemetra/POS) | Windows cashier terminal · offline state · receipts |
-| **Admin-Console** ◀ you are here | [`Kemetra/Admin-Console`](https://github.com/Kemetra/Admin-Console) | Operator web UI · catalog · inventory views · sync ops |
-| **ERPNext-Connector** | [`Kemetra/ERPNext-Connector`](https://github.com/Kemetra/ERPNext-Connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
+| **Backend-Core** | [`services/backend-core/`](https://github.com/Kemetra-Labs/Retail-Tower-Erp/tree/main/services/backend-core) | APIs · data · workers · tenant/store context · sync operations |
+| **POS** | [`apps/pos/`](https://github.com/Kemetra-Labs/Retail-Tower-Erp/tree/main/apps/pos) | Windows cashier terminal · offline state · receipts |
+| **Admin-Console** ◀ you are here | [`apps/admin-console/`](https://github.com/Kemetra-Labs/Retail-Tower-Erp/tree/main/apps/admin-console) | Operator web UI · catalog · inventory views · sync ops |
+| **ERPNext-Connector** | [`integrations/erpnext-connector/`](https://github.com/Kemetra-Labs/Retail-Tower-Erp/tree/main/integrations/erpnext-connector) | The only ERPNext/Frappe adapter · DocType mapping · posting |
 
 <sub>Management screens read <b>down</b> from Backend-Core and operator actions go <b>up</b> to it; Backend-Core orchestrates everything beyond (<a href="docs/architecture/sync-overview.md">sync overview</a>). The former <code>Kemetra/Orchestrator</code> handbook is retired (AD-ORCH-003); durable decisions live in <a href="https://rahmaqanater.atlassian.net/wiki/spaces/RETAIL/pages/5341185/Decisions">Confluence RETAIL</a>.</sub>
 
@@ -81,7 +81,7 @@
 </tr>
 </table>
 
-> AI-embedded describes the architectural and design direction. **No AI feature is implemented in this repository today**: there is no model, assistant, or AI-driven code under `src`. The only AI-related material is design intent, an "AI Studio" concept screen in the [vision set](docs/design/_vision/README.md) that is explicitly marked as having no slice yet. What is shipped is tracked in [Current implementation status](#current-implementation-status).
+> AI-embedded describes the architectural and design direction. AI surfaces exist in code (`src/ai-manager-sales/` Manager Sales Ask/Explain and `src/ai-entitlements/` AI plan section) but are gated off by default. There is no model, assistant, or AI-driven code path enabled by default under `src`. What is shipped is tracked in [Current implementation status](#current-implementation-status).
 
 ---
 
@@ -89,39 +89,39 @@
 
 > **Source of truth.** GitHub `main` is the technical truth for what is implemented; active work and priorities are tracked in Jira (project **RT**). The `Status:` headers inside `specs/*/spec.md` and the "gated" labels in [`api-readiness.md`](specs/001-console-foundation/api-readiness.md) were written at spec time and often lag the code (for example, spec 017 still reads "Proposed / Draft" although its screens are on `main`). The table below is derived from what exists on `main`: routes, screens, generated-client operations, and tests.
 
-The Vite/React SPA is past the scaffold. It ships sign-in and active-context handling, tenant/store management, operator/admin management, audit search, the unknown-items review queue, settlement screens (payer accounts, receivables, claims, remittance reconciliation, apply-payment), and an ERPNext negative-stock view that reads through Backend-Core.
+The Vite/React SPA is past the scaffold. It ships sign-in and active-context handling, tenant/store management, operator/admin management, audit search, the unknown-items review queue, catalog management (products, import wizard, brands), sales search and reports, inventory (stores, transfers, counts), devices/POS pairing, tracking, ERP posting health and repair, shift closes, offers, vouchers and payer accounts, and an ERPNext negative-stock view that reads through Backend-Core. There is no `/receivables` route: settlement receivables were retired (RT-413/RT-421) and ERPNext owns accounts receivable.
 
 Route families keep the original RF numbering from the [foundation plan](specs/001-console-foundation/plan.md). Settlement and stock-discrepancy surfaces were added later and carry no RF number.
 
 | | Surface | Route | State on `main` | Backend-Core contract (generated client) | Spec |
 | :--: | --- | --- | --- | --- | --- |
-| <img src="docs/assets/icons/rf1-auth.svg" width="34" alt=""/> | Sign-in, active tenant/store context, app shell (RF-1) | `/signin` · `/` | Implemented: sign-in, scope gate, app shell. Password sign-in only; Overview is a placeholder that shows the active tenant and store name | `auth` · `context` | [`003`](specs/003-rf1-auth-shell) |
+| <img src="docs/assets/icons/rf1-auth.svg" width="34" alt=""/> | Sign-in, active tenant/store context, app shell (RF-1) | `/signin` · `/` | Implemented: sign-in, scope gate, app shell. Password sign-in only; Overview (v4) is built: greeting, KPIs, 14-day trend, posting panel, recent sales, attention ledger | `auth` · `context` | [`003`](specs/003-rf1-auth-shell) |
 | <img src="docs/assets/icons/rf2-tenant-store.svg" width="34" alt=""/> | Tenant and store management (RF-2) | `/tenants` · `/stores` (+ `new`, `:id`, `:id/edit`) | Implemented: list, detail, create, edit, soft delete | `tenants` · `stores` | [`004`](specs/004-rf2-tenant-store-mgmt) |
 | <img src="docs/assets/icons/rf5-operators.svg" width="34" alt=""/> | Operator/admin management (RF-5) | `/operators` · public `/accept-invitation` | Implemented: member list, invite, edit, revoke, accept invitation | `tenants` (members) · `memberships` | [`005`](specs/005-rf5-operator-admin) |
 | <img src="docs/assets/icons/rf6-audit-search.svg" width="34" alt=""/> | Audit and operational search (RF-6) | `/audit` | Implemented: cursor-paginated search and read-only inspect | `audit` | [`006`](specs/006-rf6-audit-search) |
-| <img src="docs/assets/icons/rf4-unknown-items.svg" width="34" alt=""/> | Unknown-items review queue (RF-4a) | `/unknown-items` | Implemented: list, inspect, dismiss. Link and create-product (RF-4b) are not built. The sidebar still shows this entry as gated, so the route is reachable by URL only | `catalog/unknown-items` | [`007`](specs/007-rf4a-unknown-items) |
+| <img src="docs/assets/icons/rf4-unknown-items.svg" width="34" alt=""/> | Unknown-items review queue (RF-4a) | `/unknown-items` | Implemented: list, inspect, dismiss. Link and create-product (RF-4b) are built (`UnknownItemLinkProduct`, `UnknownItemCreateProduct`) | `catalog/unknown-items` | [`007`](specs/007-rf4a-unknown-items) |
 | | Payer accounts | `/payer-accounts` | Implemented: list and create. No sidebar entry yet | `settlement` | [`017`](specs/017-console-customer-and-payer-accounts) |
-| | Receivables, claims, remittance, apply-payment | `/receivables` | Implemented: list, submit claim, reconcile remittance, apply payment. No sidebar entry yet | `settlement` | [`018`](specs/018-console-receivables-and-insurance-claims) · [`019`](specs/019-console-settlement-reconciliation) |
+| | Receivables, claims, remittance, apply-payment | none | Not built as a console route: there is no `/receivables` route and no `src/receivables/` directory. Settlement receivables were retired (RT-413/RT-421); ERPNext owns accounts receivable | none consumed | [`018`](specs/018-console-receivables-and-insurance-claims) · [`019`](specs/019-console-settlement-reconciliation) (specs only, superseded) |
 | | ERPNext stock discrepancies (RT-178) | `/stock-discrepancies` · `/stock-discrepancies/:storeId` | Implemented: negative on-hand per store and item, plus a "request fresh snapshot" action. Sidebar entry is shown only to the roles the API allows | `erpnext-reconciliation` | tracked in Jira RT |
-| <img src="docs/assets/icons/rf3-catalog.svg" width="34" alt=""/> | Catalog management (RF-3) | none | Not built; no sidebar route | none consumed | [`api-readiness.md`](specs/001-console-foundation/api-readiness.md) |
+| <img src="docs/assets/icons/rf3-catalog.svg" width="34" alt=""/> | Catalog management (RF-3) | `/catalog/products` · `/catalog/products/:productId` · `/catalog/products/:productId/edit` · `/catalog/import` · `/catalog/brands` | Implemented: product list/detail/edit, 7-step import wizard, brands. No `/catalog/products/new` route (owner decision D9) | `catalog` | [`api-readiness.md`](specs/001-console-foundation/api-readiness.md) |
 | <img src="docs/assets/icons/rf7-settings.svg" width="34" alt=""/> | Settings / connectors / system management (RF-7) | none | Not built | none consumed | [`016`](specs/016-rf-connectors-settings) (vision stub) |
-| | Overview dashboard, data quality, inventory, sales, monitoring, alerts, reports | none | Not built; spec folders `009`–`015` are vision stubs only | none consumed | [`009`](specs/009-rf-overview-dashboard)–[`015`](specs/015-rf-reports-analytics) |
-| | Provider-based login | none | Not built; spec-only draft | none consumed | [`008`](specs/008-provider-auth-login) |
-| | Observability instrumentation (error tracking, session replay) | none | Not built; spec-only draft | none consumed | [`020`](specs/020-console-observability-instrumentation) |
+| | Sales, inventory, devices, tracking, ERP, reports | `/sales` · `/sales-daily` · `/sales-by-store` · `/reports` · `/inventory` · `/devices` · `/tracking` · `/erp-connection` · `/shift-closes` | Implemented: sales list/detail, sales-daily and sales-by-store reports (CSV export), inventory stores/transfers/counts, device pairing and health, tracking holds, ERP posting health/mappings/quarantine repair, shift closes. Not built: monitoring/alerts, global data search, sales-by-hour and posting-health reports (proposed in Reports) | `sales` · `inventory` · `devices` · `erpnext-reconciliation` | [`009`](specs/009-rf-overview-dashboard)–[`015`](specs/015-rf-reports-analytics) (vision stubs, lag the code) |
+| | Provider-based login | none | Not built; spec-only draft (008). Console still signs in with email + password (`src/auth/SignIn.tsx` → `POST /api/v1/auth/signin`); the consumed auth contract at PIN `1f23da8b` has no `verifyIdentityToken` operation. Blocked on DP-2 D3 (provider-neutral identity link + `verifyIdentityToken`) and the G10 gate — see spec 008 §8 | none consumed | [`008`](specs/008-provider-auth-login) |
+| | Observability instrumentation (error tracking, session replay) | none (no screen) | Built, errors-only: `@sentry/react` 11.8.0, top-level `AppErrorBoundary` + router error element, unhandled error/rejection capture, `beforeSend` scrub (`src/observability/scrub.ts`), default-inert via Backend-Core telemetry config (`GET /api/v1/console/telemetry/config`; 204 keeps it inert). No session replay, tracing, or breadcrumbs (owner decision D7) | `console-telemetry` (config) | [`020`](specs/020-console-observability-instrumentation) (spec-only draft; the errors-only slice shipped under RT-633 / OBS-4 / RT-673, narrower than the spec) |
 
 Wiring, boundaries and tooling, with the repo-backed evidence for each:
 
 | Area | What holds | Evidence |
 | --- | --- | --- |
 | Frontend-only | Admin-Console is frontend-only | [Constitution principle 1](.specify/memory/constitution.md) · [boundary test](tests/unit/boundary.test.ts) |
-| Generated API client | Generated from nine Backend-Core OpenAPI sources at a pinned commit (`auth`, `context`, `tenants`, `stores`, `memberships`, `audit`, `catalog/unknown-items`, `settlement`, `erpnext-reconciliation`); regeneration needs a local Backend-Core checkout | [`openapi-ts.config.ts`](openapi-ts.config.ts) · [`src/generated/schema.d.ts`](src/generated/schema.d.ts) |
+| Generated API client | Generated from 41 Backend-Core OpenAPI sources at a pinned commit in [`contracts/backend-core/PIN`](contracts/backend-core/PIN) (commit `1f23da8b3adbfac96dded9e4706c7657e14feff5`); regeneration needs a local Backend-Core checkout | [`openapi-ts.config.ts`](openapi-ts.config.ts) · [`src/generated/schema.d.ts`](src/generated/schema.d.ts) |
 | Browser-to-backend path | The browser reaches the backend only through the generated client; hand-written API calls exist only as generated-client wrappers, and a boundary test enforces this | [Constitution principle 8](.specify/memory/constitution.md) · [`src/generated`](src/generated) · [`src/lib`](src/lib) · [`tests/unit/boundary.test.ts`](tests/unit/boundary.test.ts) |
 | Backend contracts | Backend-Core owns backend contracts (owned upstream) | [Constitution principle 2](.specify/memory/constitution.md) · [contract boundary docs](specs/001-console-foundation/contracts) |
-| POS terminal behavior | Owned elsewhere, by `Kemetra/POS` | [Constitution principle 3](.specify/memory/constitution.md) |
+| POS terminal behavior | Owned elsewhere, by `apps/pos/` in the monorepo | [Constitution principle 3](.specify/memory/constitution.md) |
 | Work governance | Work is issue-governed; `main` is the technical truth | [Operating instructions](CLAUDE.md) · [Constitution](.specify/memory/constitution.md) (the Maestro slice-dispatch workflow in `docs/agent-os` is historical) |
 | Approval gates | Package, lockfile, dependency, and CI changes remain approval-gated | [Constitution principle 9](.specify/memory/constitution.md) |
 | Secrets and deployment | No secrets or deployment assumptions belong here | [Constitution principle 10](.specify/memory/constitution.md) |
-| Tests | 53 Vitest unit test files and 18 Playwright e2e spec files under `tests/` | [`tests/unit`](tests/unit) · [`tests/e2e`](tests/e2e) |
+| Tests | 311 Vitest unit test files and 96 Playwright e2e spec files under `tests/` | [`tests/unit`](tests/unit) · [`tests/e2e`](tests/e2e) |
 | CI | The monorepo's root workflow `admin-console.yml`, jobs `admin/build-test` (`pnpm install --frozen-lockfile`, `build`, `lint`, unit tests) and `admin/e2e`, selected by the project graph, on Node 24 (from the root `.nvmrc`) | [`.github/workflows/admin-console.yml`](../../.github/workflows/admin-console.yml) |
 | AI review | CodeRabbit is the primary AI reviewer, capped at about one included review per hour, so incremental review is off. High-tier PRs (RT-582 tiers; the Admin-Console path mapping is not defined yet, so until it is the PR author names the tier, and PRs touching paths that carry `path_instructions` in `.coderabbit.yaml` are the working candidates) get a manual `@coderabbitai full review` after the last push, because a plain `review` only covers commits since the previous review; the `skip-coderabbit` label opts a trivial PR out | [`.coderabbit.yaml`](.coderabbit.yaml) |
 
@@ -133,7 +133,7 @@ Not verified by this README: that the unit and e2e suites currently pass, and th
 
 | Path | Purpose |
 | --- | --- |
-| `src` | React SPA: `auth`, `context`, `shell`, `tenants`, `stores`, `operators`, `audit`, `unknown-items`, `payers`, `receivables`, `settlement-reconciliation`, `stock-discrepancies`, shared `components`, `lib` (generated-client wrappers) and `generated` (client types) |
+| `src` | React SPA: `auth`, `context`, `shell`, `tenants`, `stores`, `operators`, `audit`, `unknown-items`, `payers`, `catalog`, `inventory`, `sales`, `devices`, `tracking`, `stock-discrepancies`, shared `components`, `lib` (generated-client wrappers) and `generated` (client types) |
 | `tests` | Vitest unit tests (`tests/unit`) and Playwright e2e specs (`tests/e2e`) |
 | `specs` | Spec Kit artifacts, `001`–`020`: foundation and scaffold (`001`–`002`), RF-1/2/5/6 slices (`003`–`006`), RF-4a (`007`), provider login draft (`008`), vision stubs (`009`–`016`), settlement children (`017`–`019`), observability draft (`020`). Design records, not the authority for current behavior; see [Current implementation status](#current-implementation-status) |
 | `.specify/memory/constitution.md` | Binding project boundary and implementation rules |

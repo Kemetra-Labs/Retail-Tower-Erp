@@ -13,12 +13,17 @@
  *   metric's good direction (owner decision 2026-11-01, §12.8.2).
  * - Money stays per currency and is never added across currencies; a date the
  *   read lacks shows «غير متاح», never 0.
+ *
+ * Modern concept 1/6 (rule 3): every card carries a sparkline, not just the
+ * hero — the same 14 business days from the same summary read, one series per
+ * card (transactions and voids count their days; returns takes its own first
+ * currency's totals, as its card does). A missing day is a gap, never 0.
  */
 import { ReceiptCard } from "@/components/ReceiptCard";
 import { DIRECTION, DateTime, Money, useLocale, useT } from "@/i18n";
 import type { SalesSummary } from "@/lib/sales-summary-queries";
 import { type MetricId, type SalesKpis, deltaTone } from "@/metrics/metricRegistry";
-import { reportModel } from "@/sales-daily/dailyLogic";
+import { type ReportModel, addDays, reportModel } from "@/sales-daily/dailyLogic";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId } from "react";
 import { Link } from "react-router";
@@ -112,35 +117,56 @@ function MoneyDeltas({
   );
 }
 
-/** The hero's sparkline: one currency over the last 14 business days, gaps kept. */
-function HeroSpark({
-  summary,
-  date,
-  currency,
-}: Readonly<{ summary: SalesSummary; date: string; currency: string }>) {
+/**
+ * One card's 14-day series ending at `date`: one value per business day from
+ * the report model, a gap (null) where the read lacks the day or it has not
+ * begun — the same gaps the hero sparkline keeps.
+ */
+function seriesOf(
+  model: ReportModel,
+  date: string,
+  pick: (kpis: SalesKpis | null) => string | null,
+): (string | null)[] {
+  return Array.from({ length: TREND_DAYS }, (_, i) => {
+    const day = addDays(date, i - TREND_DAYS + 1);
+    const row = model.rows.find((r) => r.date === day);
+    if (!row || row.state === "not-begun") return null;
+    return pick(row.kpis);
+  });
+}
+
+/** A card's sparkline: the series on a zero baseline, gaps kept. */
+function Spark({
+  values,
+  label,
+  tone,
+}: Readonly<{
+  values: readonly (string | null)[];
+  label: string;
+  /** `hero` keeps the Mint-on-Ink spark; `plain` is the Ink line for light cards. */
+  tone: "hero" | "plain";
+}>): React.JSX.Element {
   const t = useT();
   const direction = DIRECTION[useLocale()];
-  const values = comparisonModel(reportModel(summary), date, TREND_DAYS, currency).map(
-    (p) => p.current,
-  );
   const g = sparkGeometry(values, direction);
+  const prefix = tone === "hero" ? "hero-spark" : "card-spark";
   return (
     <span className="receipt-row__spark">
       <svg
-        className="hero-spark"
+        className={prefix}
         role="img"
-        aria-label={t("overview.kpi.sparkSummary", { currency })}
+        aria-label={label}
         viewBox={`0 0 ${g.width} ${g.height}`}
         width={g.width}
         height={g.height}
         focusable="false"
       >
-        <line className="hero-spark__base" x1={0} x2={g.width} y1={g.baselineY} y2={g.baselineY} />
+        <line className={`${prefix}__base`} x1={0} x2={g.width} y1={g.baselineY} y2={g.baselineY} />
         {g.runs.map((run) =>
           run.length === 1 ? (
             <circle
               key={run[0].index}
-              className="hero-spark__dot"
+              className={`${prefix}__dot`}
               cx={run[0].x}
               cy={run[0].y}
               r={2.5}
@@ -148,7 +174,7 @@ function HeroSpark({
           ) : (
             <polyline
               key={run[0].index}
-              className="hero-spark__line"
+              className={`${prefix}__line`}
               points={run.map((p) => `${p.x},${p.y}`).join(" ")}
             />
           ),
@@ -159,19 +185,36 @@ function HeroSpark({
   );
 }
 
+/** The hero's sparkline: one currency over the last 14 business days, gaps kept. */
+function HeroSpark({
+  summary,
+  date,
+  currency,
+}: Readonly<{ summary: SalesSummary; date: string; currency: string }>) {
+  const t = useT();
+  const values = comparisonModel(reportModel(summary), date, TREND_DAYS, currency).map(
+    (p) => p.current,
+  );
+  return <Spark values={values} label={t("overview.kpi.sparkSummary", { currency })} tone="hero" />;
+}
+
 function CountCard({
   id,
   label,
   today,
   previous,
   describedBy,
+  spark,
 }: Readonly<{
   id: MetricId;
   label: string;
   today: number | null;
   previous: number | null;
   describedBy: string;
+  /** The card's 14-day series; omitted while the read lacks a series. */
+  spark?: readonly (string | null)[];
 }>) {
+  const t = useT();
   const trend = countTrend(today, previous);
   return (
     <ReceiptCard
@@ -187,6 +230,7 @@ function CountCard({
         }
         previous={<bdi dir="ltr">{previous}</bdi>}
       />
+      {spark ? <Spark values={spark} label={t("overview.kpi.sparkLabel")} tone="plain" /> : null}
     </ReceiptCard>
   );
 }
@@ -197,13 +241,17 @@ function MoneyCard({
   today,
   previous,
   describedBy,
+  spark,
 }: Readonly<{
   id: MetricId;
   label: string;
   today: MoneyFacts | null;
   previous: MoneyFacts | null;
   describedBy: string;
+  /** The card's 14-day series in its first currency; omitted without one. */
+  spark?: readonly (string | null)[];
 }>) {
+  const t = useT();
   const currencies = amountsOf(today, previous);
   return (
     <ReceiptCard
@@ -212,8 +260,17 @@ function MoneyCard({
       figure={<MoneyFigure today={today} currencies={currencies} />}
     >
       <MoneyDeltas id={id} today={today} previous={previous} currencies={currencies} />
+      {spark ? <Spark values={spark} label={t("overview.kpi.sparkLabel")} tone="plain" /> : null}
     </ReceiptCard>
   );
+}
+
+/**
+ * The returns card shows its own first currency, so its trend follows that
+ * currency, not the received-sales one.
+ */
+function returnsSparkCurrency(day: Ready, fallback: string | undefined): string | undefined {
+  return amountsOf(day.today?.returns ?? null, day.previous?.returns ?? null)?.[0] ?? fallback;
 }
 
 function Row({
@@ -226,6 +283,15 @@ function Row({
   const { today, previous } = day;
   const received = amountsOf(today?.receivedSales ?? null, previous?.receivedSales ?? null);
   const sparkCurrency = received?.[0];
+  const model = reportModel(summary);
+  const transactionsSpark = seriesOf(model, day.date, (kpis) =>
+    kpis ? String(kpis.receivedSales.count) : null,
+  );
+  const returnsCurrency = returnsSparkCurrency(day, sparkCurrency);
+  const returnsSpark = returnsCurrency
+    ? seriesOf(model, day.date, (kpis) => (kpis ? totalIn(kpis.returns, returnsCurrency) : null))
+    : undefined;
+  const voidsSpark = seriesOf(model, day.date, (kpis) => (kpis ? String(kpis.voids.count) : null));
   return (
     <>
       <p id={contextId} className="receipt-row__context">
@@ -263,6 +329,7 @@ function Row({
             today={today?.receivedSales.count ?? null}
             previous={previous?.receivedSales.count ?? null}
             describedBy={contextId}
+            spark={transactionsSpark}
           />
         </li>
         <li>
@@ -272,6 +339,7 @@ function Row({
             today={today?.returns ?? null}
             previous={previous?.returns ?? null}
             describedBy={contextId}
+            spark={returnsSpark}
           />
         </li>
         <li>
@@ -281,6 +349,7 @@ function Row({
             today={today?.voids.count ?? null}
             previous={previous?.voids.count ?? null}
             describedBy={contextId}
+            spark={voidsSpark}
           />
         </li>
       </ul>

@@ -65,6 +65,7 @@ export const overview = {
     "المتاجر في أيام عمل مختلفة، فلا يوجد «اليوم» واحد للنطاق. اختر متجرًا، أو افتح المبيعات اليومية.",
   "overview.kpi.none": "لا توجد متاجر في هذا النطاق.",
   "overview.kpi.sparkPeriod": "آخر 14 يوم عمل",
+  "overview.kpi.sparkLabel": "اتجاه آخر 14 يوم عمل",
   "overview.kpi.sparkSummary":
     "المبيعات المستلمة بعملة {currency} خلال آخر 14 يوم عمل؛ الفجوات أيام لا تتضمنها القراءة.",
 
@@ -116,6 +117,34 @@ export const overview = {
   "overview.recent.all": "كل المبيعات",
   "overview.recent.needsStore": "اختر متجرًا من مُبدِّل النطاق لعرض آخر عملياته.",
   "overview.recent.none": "لا مبيعات مستلمة لهذا المتجر في آخر 31 يوم عمل.",
+
+  // --- Modern concept 1/6: the smart insight (rule 4) -------------------------
+  "overview.insight.title": "ما يهم اليوم",
+  "overview.insight.failedPosting": {
+    zero: "لا توجد مبيعات فشل ترحيلها إلى ERPNext اليوم.",
+    one: "مبيعة واحدة فشل ترحيلها إلى ERPNext اليوم.",
+    two: "مبيعتان فشل ترحيلهما إلى ERPNext اليوم.",
+    few: "{count} مبيعات فشل ترحيلها إلى ERPNext اليوم.",
+    many: "{count} مبيعة فشل ترحيلها إلى ERPNext اليوم.",
+    other: "{count} مبيعة فشل ترحيلها إلى ERPNext اليوم.",
+  },
+  "overview.insight.needsRepair": {
+    zero: "لا توجد مبيعات تحتاج إلى إصلاح.",
+    one: "مبيعة واحدة تحتاج إلى إصلاح.",
+    two: "مبيعتان تحتاجان إلى إصلاح.",
+    few: "{count} مبيعات تحتاج إلى إصلاح.",
+    many: "{count} مبيعة تحتاج إلى إصلاح.",
+    other: "{count} مبيعة تحتاج إلى إصلاح.",
+  },
+  "overview.insight.criticalStock": {
+    zero: "لا توجد أصناف بمخزون حرج.",
+    one: "صنف واحد بمخزون حرج.",
+    two: "صنفان بمخزون حرج.",
+    few: "{count} أصناف بمخزون حرج.",
+    many: "{count} صنفًا بمخزون حرج.",
+    other: "{count} صنف بمخزون حرج.",
+  },
+  "overview.insight.clear": "لا توجد مبيعات فاشلة الترحيل ولا مبيعات تحتاج إلى إصلاح اليوم.",
 
   // --- Overview v4 side column (RT-993) ----------------------------------------
   "overview.side.label": "العمود الجانبي للنظرة العامة",

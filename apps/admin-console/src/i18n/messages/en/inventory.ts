@@ -78,6 +78,10 @@ export const inventory: MessagesOf<typeof ar> = {
   "inventory.movements.empty": "No stock movements at this store yet.",
   "inventory.movements.loadMore": "Load older movements",
 
+  // --- Modern concept 2/6: the ledger's details toggle (rule 1) ---------------
+  "inventory.movements.showMore": "Show more details",
+  "inventory.movements.showLess": "Show fewer details",
+
   "inventory.movementType.inbound": "Inbound",
   "inventory.movementType.outbound": "Outbound",
   "inventory.movementType.adjustment": "Adjustment",
@@ -117,6 +121,12 @@ export const inventory: MessagesOf<typeof ar> = {
     "Computed on read from this product's movements at the store, across every location. Not ERPNext book stock.",
   "inventory.onHand.loadingNoun": "on-hand",
   "inventory.onHand.loadFailed": "On-hand could not be loaded. The balance is unknown.",
+
+  // --- Modern concept 2/6: the product page's smart insight (rule 4) -----------
+  "inventory.insight.title": "What this balance means",
+  "inventory.insight.allSellable": "All on-hand stock is sellable.",
+  "inventory.insight.otherStatuses":
+    "Stock also sits in other statuses — the by-status table below shows where.",
 
   // --- RT-1579: the stock quantities panel (Available To Sell and its facts) ---
   "inventory.availability.title": "Stock quantities",
