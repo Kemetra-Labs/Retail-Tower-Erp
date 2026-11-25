@@ -241,14 +241,15 @@ const LEGACY_DETAIL = {
 // 1. Document + operations
 // ===========================================================================
 describe("console-sales — document and operations", () => {
-  it("is an OpenAPI 3.1 document at version 1.3.0-draft (RT-1343; RT-1061 was 1.2.0-draft, RT-620 1.1.0-draft)", () => {
+  it("is an OpenAPI 3.1 document at version 1.4.0-draft (RT-1571; RT-1343 was 1.3.0-draft, RT-1061 1.2.0-draft, RT-620 1.1.0-draft)", () => {
     expect(doc.openapi).toBe("3.1.0");
-    expect(doc.info?.version).toBe("1.3.0-draft");
+    expect(doc.info?.version).toBe("1.4.0-draft");
     const info = String(doc.info?.description).replace(/\s+/g, " ");
     expect(info).toContain("1.2.0-draft (RT-1061: RT-973 slice 1 + RT-977 slice 1, additive");
     expect(info).toContain("`ConsoleSaleItem.syncStatusVersion`");
     expect(info).toContain("`ConsoleSaleDetail.erpPostingFailure`");
     expect(info).toContain("1.3.0-draft (RT-1343 item 4, additive to a response enum");
+    expect(info).toContain("1.4.0-draft (RT-1571, RT-285 F-7, RT-740 lineage; additive to a response");
   });
 
   it("declares exactly the list and detail reads, and nothing else", () => {
@@ -532,8 +533,9 @@ describe("console-sales — projections", () => {
     expect(objects.length).toBeGreaterThanOrEqual(12);
     for (const [name, s] of objects) {
       expect({ name, additionalProperties: s.additionalProperties }).toEqual({ name, additionalProperties: false });
-      // RT-1337: `SaleHistoryLine.promotion` is optional (absent on a line no offer touched).
-      const optional = name === "SaleHistoryLine" ? ["promotion"] : [];
+      // RT-1337: `SaleHistoryLine.promotion` is optional (absent on a line no offer touched); RT-1571:
+      // `discount` too (absent when no manual discount was recorded).
+      const optional = name === "SaleHistoryLine" ? ["promotion", "discount"] : [];
       expect({ name, required: [...(s.required ?? [])].sort() }).toEqual({
         name,
         required: Object.keys(s.properties ?? {})

@@ -155,13 +155,14 @@ describe("pos-sales/sale-history.yaml — loadability and document conventions",
     expect(doc.openapi).toBe("3.1.0");
   });
 
-  it("is a 1.1.0-draft that cites the [GATED] approval and the owner decisions", () => {
-    expect(doc.info?.version).toBe("1.1.0-draft");
+  it("is a 1.2.0-draft (RT-1571; RT-1343 was 1.1.0-draft) that cites the [GATED] approval and the owner decisions", () => {
+    expect(doc.info?.version).toBe("1.2.0-draft");
     const info = doc.info?.description ?? "";
     expect(info).toContain("[GATED] approval Jira RT-537 comment 12057");
     expect(info).toContain("OD-534-1..8");
     expect(info).toContain("Implemented: the runtime is RT-539");
     expect(info.replace(/\s+/g, " ")).toContain("1.1.0-draft (RT-1343 item 4, additive to a response enum");
+    expect(info.replace(/\s+/g, " ")).toContain("1.2.0-draft (RT-1571, RT-285 F-7, RT-740 lineage; additive to a response");
   });
 
   it("states that a list covers only what the server has received (never the complete store)", () => {
