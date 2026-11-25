@@ -96,6 +96,16 @@ describe("TenantForm create", () => {
     expect(navigate).not.toHaveBeenCalled();
   });
 
+  test("an unmapped error status -> generic danger banner with the request reference (RT-976)", async () => {
+    createTenant.mockResolvedValue({ status: 401, error: { error: { request_id: "req-gen" } } });
+    renderForm({ mode: "create" });
+    submit({ slug: "x", name: "Y" });
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("req-gen");
+    expect(alert.textContent).toContain("The request could not be completed.");
+    expect(navigate).not.toHaveBeenCalled();
+  });
+
   test("submit is busy while the create is in flight", async () => {
     createTenant.mockReturnValue(new Promise(() => {}));
     renderForm({ mode: "create" });

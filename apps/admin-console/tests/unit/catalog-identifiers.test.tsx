@@ -215,6 +215,24 @@ describe("identifiers add / retire (RT-769, CAT-C2b)", () => {
     expect(within(scope).queryByRole("option", { name: "Cairo Festival" })).toBeNull();
   });
 
+  test("a field error is announced with role=alert (RT-976)", async () => {
+    await openAdd();
+    type("");
+    submit();
+    const alert = await within(drawer("Add identifier")).findByRole("alert");
+    expect(alert.textContent).toContain("Enter the value.");
+    fireEvent.change(typeSelect(), { target: { value: "external_pos_id" } });
+    type("ext-1");
+    submit();
+    await waitFor(() =>
+      expect(
+        within(drawer("Add identifier"))
+          .getAllByRole("alert")
+          .some((a) => a.textContent?.includes("Enter the source system.")),
+      ).toBe(true),
+    );
+  });
+
   test("an external POS id hides the scope and requires a source system", async () => {
     await openAdd();
     fireEvent.change(typeSelect(), { target: { value: "external_pos_id" } });
@@ -351,7 +369,10 @@ describe("identifiers add / retire (RT-769, CAT-C2b)", () => {
     expect(document.activeElement).toBe(input);
     expect(describedText(input)).toContain("Already used by another item.");
     const panel = drawer("Add identifier");
-    expect(within(panel).queryByRole("alert")).toBeNull();
+    // No banner: the only alert is the announced inline field error (RT-976).
+    const alerts = within(panel).getAllByRole("alert");
+    expect(alerts).toHaveLength(1);
+    expect(alerts[0]?.className).toContain("rtc-inline-error");
     expect(panel.textContent).not.toContain("r-alias");
     expect(input.value).toBe("0012345678905");
 

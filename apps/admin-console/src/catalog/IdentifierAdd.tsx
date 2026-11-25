@@ -236,6 +236,7 @@ export function IdentifierAdd({
               required
               hint={t("catalog.identifier.field.sourceHint")}
               error={errors.sourceSystem}
+              announceError
             >
               {(aria) => (
                 <input
@@ -261,6 +262,7 @@ export function IdentifierAdd({
             hint={t("catalog.identifier.field.valueHint")}
             warning={warning ? t(warning) : null}
             error={errors.value}
+            announceError
           >
             {(aria) => (
               <input

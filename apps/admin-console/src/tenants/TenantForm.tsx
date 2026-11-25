@@ -96,11 +96,12 @@ export function TenantForm({
       back={{ to: backPath, label: t(isEdit ? "tenants.form.back" : "tenants.detail.back") }}
       title={title}
       notices={
-        banner && (banner.kind === "banner" || banner.kind === "not-found") ? (
+        banner &&
+        (banner.kind === "banner" || banner.kind === "not-found" || banner.kind === "generic") ? (
           <Banner
             variant="danger"
             message={t(banner.messageKey)}
-            requestId={banner.kind === "banner" ? banner.requestId : undefined}
+            requestId={banner.kind === "not-found" ? undefined : banner.requestId}
           />
         ) : null
       }
