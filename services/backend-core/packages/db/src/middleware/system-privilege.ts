@@ -52,11 +52,15 @@ export async function runWithSystemPrivilege<T>(pool: Pool, ctx: SystemContext, 
   if (!PRIVILEGES.has(ctx.privilege)) throw new Error("runWithSystemPrivilege: unknown privilege");
   // `runWithTenantContext` validates the tenant id, opens the transaction and sets `app.is_platform_admin = 'false'`.
   return await runWithTenantContext(pool, { tenantId: ctx.tenantId, isPlatformAdmin: false }, async (client) => {
-    await client.query("SELECT set_config('app.system_privilege', $1, true)", [ctx.privilege]);
+    // RT-1461: one round trip. The inner SELECT sets the privilege; `OFFSET 0` keeps it a separate
+    // evaluation step, so the outer `current_setting` calls read the settings AFTER the set took
+    // effect, inside this same transaction. Verification is unchanged: any mismatch throws below.
     const check = await client.query<{ admin: string | null; priv: string | null; prov: string | null }>(
       `SELECT current_setting('app.is_platform_admin', true) AS admin,
               current_setting('app.system_privilege', true) AS priv,
-              coalesce(current_setting('app.is_provisioner', true), '') AS prov`,
+              coalesce(current_setting('app.is_provisioner', true), '') AS prov
+         FROM (SELECT set_config('app.system_privilege', $1, true) AS applied OFFSET 0) AS set_priv`,
+      [ctx.privilege],
     );
     const row = check.rows[0];
     if (row?.admin !== "false" || row.priv !== ctx.privilege || row.prov === "true") {
