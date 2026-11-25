@@ -137,11 +137,6 @@ export function metricDefinition(id: MetricId): MetricDefinition {
   return METRICS[id];
 }
 
-/** The cited field of one bucket, as returned (no arithmetic). */
-export function selectMetric<K extends MetricId>(id: K, kpis: SalesKpis): SalesKpis[K] {
-  return kpis[id];
-}
-
 /** Good when it moved the way the business wants, bad against it, neutral otherwise. */
 export type DeltaTone = "good" | "bad" | "neutral";
 
