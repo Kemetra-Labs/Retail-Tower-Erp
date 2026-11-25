@@ -29,7 +29,17 @@ describe("tenant navigation groups (RT-1291)", () => {
   test("Daily and Stock and items hold the approved entries, in their old relative order", () => {
     const groups = tenantNav("owner", SIGNALS);
     const entries = (id: string) => groups.find((g) => g.id === id)?.entries.map((e) => e.to);
-    expect(entries("daily")).toEqual(["/", "/sales", "/shift-closes", "/reports", "/devices"]);
+    // Alerts and Search join the daily group right after Overview; the rest
+    // keeps its old relative order.
+    expect(entries("daily")).toEqual([
+      "/",
+      "/alerts",
+      "/search",
+      "/sales",
+      "/shift-closes",
+      "/reports",
+      "/devices",
+    ]);
     expect(entries("stock")).toEqual([
       "/catalog/products",
       "/unknown-items",
@@ -61,13 +71,22 @@ describe("tenant navigation groups (RT-1291)", () => {
     ]);
   });
 
-  test("a role sees the same set of entries as before; only the grouping changed", () => {
+  test("Alerts and Search join every role's daily group; the rest is unchanged", () => {
     // RT-1109 added Vouchers for owner and tenant_admin; RT-1338 added Brands and Offers;
     // RT-1312 added the sale quarantine queue.
-    expect(paths("owner")).toHaveLength(23);
-    expect(paths("tenant_admin")).toHaveLength(23);
-    expect(paths("store_manager")).toHaveLength(16);
-    expect(paths("cashier")).toEqual(["/", "/audit", "/stores", "/operators", "/tenants"]);
+    expect(paths("owner")).toHaveLength(25);
+    expect(paths("tenant_admin")).toHaveLength(25);
+    expect(paths("store_manager")).toHaveLength(18);
+    // Cashier keeps Overview plus the two always-gated entries.
+    expect(paths("cashier")).toEqual([
+      "/",
+      "/alerts",
+      "/search",
+      "/audit",
+      "/stores",
+      "/operators",
+      "/tenants",
+    ]);
   });
 
   test("tracking stays hidden until the tenant has tracked products", () => {
@@ -76,7 +95,7 @@ describe("tenant navigation groups (RT-1291)", () => {
     expect(paths("owner", { hasTrackedProducts: true, trackedSellingOn: false })).not.toContain(
       "/tracking",
     );
-    expect(paths("owner", {})).toHaveLength(22);
+    expect(paths("owner", {})).toHaveLength(24);
   });
 
   test("RT-1468: a platform admin gets the platform directory as the last group; nobody else does", () => {
@@ -129,13 +148,15 @@ describe("navigator-only destinations", () => {
     navigatorNav(role, SIGNALS).flatMap((g) => g.entries.map((e) => e.to));
 
   test("the sidebar model is unchanged: none of the five is listed", () => {
-    expect(paths("owner")).toHaveLength(23);
+    expect(paths("owner")).toHaveLength(25);
     for (const to of NAV_ONLY) expect(paths("owner")).not.toContain(to);
   });
 
   test("an owner's navigator is the sidebar entries plus the five, in group order", () => {
     expect(navPaths("owner")).toEqual([
       "/",
+      "/alerts",
+      "/search",
       "/sales",
       "/shift-closes",
       "/reports",
@@ -168,7 +189,7 @@ describe("navigator-only destinations", () => {
 
   test("the gates hold: a cashier sees none of the five, a store manager sees all but the import", () => {
     expect(navPaths("cashier")).toEqual(paths("cashier"));
-    expect(navPaths("store_manager")).toHaveLength(20);
+    expect(navPaths("store_manager")).toHaveLength(22);
     for (const to of [
       "/sales-daily",
       "/sales-by-store",

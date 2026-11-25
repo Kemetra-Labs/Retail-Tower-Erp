@@ -90,6 +90,10 @@ const TENANT_NAV: readonly GatedGroup[] = [
     heading: "shell.nav.section.daily",
     entries: [
       { label: "shell.nav.overview", to: "/", icon: "dashboard", end: true, canRead: always },
+      // The attention ledger on its own page (RT-559's panels, no new read).
+      { label: "alerts.nav.label", to: "/alerts", icon: "bell", canRead: always },
+      // Global data search: products, sales by receipt, operators.
+      { label: "search.nav.label", to: "/search", icon: "search", canRead: always },
       // RT-587 (spec 012 FR-012, OD-556-3): sales search and sale detail.
       { label: "sales.nav.label", to: "/sales", icon: "sale", canRead: canReadSales },
       {

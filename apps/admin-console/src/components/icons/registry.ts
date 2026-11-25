@@ -28,7 +28,7 @@ interface IconEntry {
 
 export const ICON_REGISTRY = {
   // Actions
-  search: { asset: "search", mirror: "never", regular: [16] },
+  search: { asset: "search", mirror: "never", regular: [16, 20] },
   close: { asset: "dismiss", mirror: "never", regular: [16] },
   confirm: { asset: "checkmark", mirror: "never", regular: [16] },
   lock: { asset: "lock_closed", mirror: "never", regular: [24] },
@@ -71,6 +71,8 @@ export const ICON_REGISTRY = {
   tenant: { asset: "building", mirror: "never", regular: [20] },
   store: { asset: "building_shop", mirror: "never", regular: [20] },
   connection: { asset: "plug_connected", mirror: "never", regular: [20] },
+  // The alerts screen's bell (doc 25 §3; the slice that first renders it).
+  bell: { asset: "alert", mirror: "never", regular: [20] },
 } as const satisfies Readonly<Record<string, IconEntry>>;
 
 export type IconName = keyof typeof ICON_REGISTRY;

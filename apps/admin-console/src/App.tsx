@@ -26,6 +26,7 @@ import { SignInRoute } from "@/shell/SignInRoute";
  * hosts the providers the routes read.
  */
 import { accountRoutes } from "@/shell/accountRoutes";
+import { alertsRoutes } from "@/shell/alertsRoutes";
 import { catalogRoutes } from "@/shell/catalogRoutes";
 import { countRoutes } from "@/shell/countRoutes";
 import { deviceRoutes } from "@/shell/deviceRoutes";
@@ -45,6 +46,7 @@ import { rf5Routes } from "@/shell/rf5Routes";
 import { rf6Routes } from "@/shell/rf6Routes";
 import { saleRoutes } from "@/shell/saleRoutes";
 import { saleSyncRoutes } from "@/shell/saleSyncRoutes";
+import { searchRoutes } from "@/shell/searchRoutes";
 import { settingsRoutes } from "@/shell/settingsRoutes";
 import { shiftCloseRoutes } from "@/shell/shiftCloseRoutes";
 import { stockDiscrepancyRoutes } from "@/shell/stockDiscrepancyRoutes";
@@ -114,6 +116,8 @@ const router = createBrowserRouter(
           {saleRoutes}
           {saleSyncRoutes}
           {settingsRoutes}
+          {alertsRoutes}
+          {searchRoutes}
           {postingHealthRoutes}
           {accountRoutes}
         </Route>

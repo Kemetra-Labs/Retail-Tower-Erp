@@ -6,6 +6,7 @@
 import type { ar } from "./ar";
 import { aiManagerSales } from "./en/aiManagerSales";
 import { aiPlan } from "./en/aiPlan";
+import { alerts } from "./en/alerts";
 import { audit } from "./en/audit";
 import { auth } from "./en/auth";
 import { branding } from "./en/branding";
@@ -35,6 +36,7 @@ import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
 import { salesByStore } from "./en/salesByStore";
 import { salesDaily } from "./en/salesDaily";
+import { search } from "./en/search";
 import { settings } from "./en/settings";
 import { shell } from "./en/shell";
 import { shift } from "./en/shift";
@@ -83,6 +85,8 @@ export const EN_MODULES = {
   metrics,
   salesDaily,
   salesByStore,
+  alerts,
+  search,
   tracking,
   trackedSelling,
   vouchers,
@@ -127,6 +131,8 @@ export const en: MessagesOf<typeof ar> = {
   ...metrics,
   ...salesDaily,
   ...salesByStore,
+  ...alerts,
+  ...search,
   ...tracking,
   ...trackedSelling,
   ...vouchers,

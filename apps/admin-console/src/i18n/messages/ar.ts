@@ -7,6 +7,7 @@
  */
 import { aiManagerSales } from "./ar/aiManagerSales";
 import { aiPlan } from "./ar/aiPlan";
+import { alerts } from "./ar/alerts";
 import { audit } from "./ar/audit";
 import { auth } from "./ar/auth";
 import { branding } from "./ar/branding";
@@ -36,6 +37,7 @@ import { saleSync } from "./ar/saleSync";
 import { sales } from "./ar/sales";
 import { salesByStore } from "./ar/salesByStore";
 import { salesDaily } from "./ar/salesDaily";
+import { search } from "./ar/search";
 import { settings } from "./ar/settings";
 import { shell } from "./ar/shell";
 import { shift } from "./ar/shift";
@@ -83,6 +85,8 @@ export const AR_MODULES = {
   metrics,
   salesDaily,
   salesByStore,
+  alerts,
+  search,
   tracking,
   trackedSelling,
   vouchers,
@@ -127,6 +131,8 @@ export const ar = {
   ...metrics,
   ...salesDaily,
   ...salesByStore,
+  ...alerts,
+  ...search,
   ...tracking,
   ...trackedSelling,
   ...vouchers,

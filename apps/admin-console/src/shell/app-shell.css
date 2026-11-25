@@ -286,6 +286,11 @@
   flex-direction: column;
   gap: var(--space-4);
 }
+/* The nav scrolls once its entries outgrow the sidebar. Focus scrolls a
+ * control just into view, so leave room for its focus ring too. */
+.sidebar__nav :is(a, button) {
+  scroll-margin-block: var(--space-2);
+}
 .sidebar__spacer {
   flex: 1;
 }

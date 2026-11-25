@@ -71,6 +71,8 @@ describe("production navigation", () => {
     // RT-969: grouped as on the owner-approved canvas.
     expect(entryLabels(nav)).toEqual([
       "Overview",
+      "Alerts",
+      "Search",
       "Sales",
       "Shift closes",
       "Reports",
@@ -221,14 +223,14 @@ describe("production navigation", () => {
   });
 
   // RT-587 (spec 012 FR-012 / OD-556-3): Sales, only for the roles the console
-  // sales read serves; RT-969 lists it right after Overview, as on the canvas.
+  // sales read serves; RT-969 lists it in Daily, after Overview, Alerts and Search.
   test.each(["owner", "tenant_admin", "store_manager"])(
     "RT-587: %s sees Sales in its section",
     (role) => {
       const nav = renderShell(role);
       expect(within(nav).getByRole("link", { name: "Sales" }).getAttribute("href")).toBe("/sales");
       expect(groupOf(nav, "Sales")).toBe("Daily");
-      expect(entryLabels(nav).indexOf("Sales")).toBe(1);
+      expect(entryLabels(nav).indexOf("Sales")).toBe(3);
     },
   );
 
