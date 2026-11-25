@@ -12,6 +12,15 @@
 #
 #   deploy/apply-domain-grants.sh           apply them (needs DOMAIN_DB_ROLE and LOOKUP_DB_ROLE)
 #   deploy/apply-domain-grants.sh --list    print them, one path per line
+#   deploy/apply-domain-grants.sh --check-env
+#                                           check the environment an apply run
+#                                           needs, then exit 0 without psql
+#
+# RT-1603: --check-env makes exactly the checks an apply run makes before its
+# first psql call, so a deploy can refuse a missing key (for example
+# LOOKUP_DB_ROLE in grants.env) before it changes anything. The lab deploy
+# document runs the target bundle's copy in the same container and env file
+# as the real grants step. Add a new required key to check_env(), not inline.
 #
 # RT-1558: every script also gets -v lookup_role=$LOOKUP_DB_ROLE (the
 # AUTH_LOOKUP_DATABASE_URL role name). A script with the optional `\if
@@ -46,24 +55,34 @@ routine_scripts() {
 SCRIPTS="$(routine_scripts)"
 [ -n "$SCRIPTS" ] || fail "no routine grant scripts found under docs/operations/sql"
 
+# Every environment check an apply run makes before its first psql call.
+check_env() {
+  # The domain role must be named explicitly: guessing a default could grant to
+  # a role that DATABASE_URL does not use and still report success.
+  [ -n "${DOMAIN_DB_ROLE:-}" ] || fail "DOMAIN_DB_ROLE is not set (the DATABASE_URL role name)"
+  # RT-1558: the lookup-role checks must run on every release, so that role is
+  # required too. It must differ from the domain role: the API refuses one role
+  # for both pools.
+  [ -n "${LOOKUP_DB_ROLE:-}" ] || fail "LOOKUP_DB_ROLE is not set (the AUTH_LOOKUP_DATABASE_URL role name)"
+  [ "$LOOKUP_DB_ROLE" != "$DOMAIN_DB_ROLE" ] || fail "LOOKUP_DB_ROLE must differ from DOMAIN_DB_ROLE"
+}
+
+[ $# -le 1 ] || fail "too many arguments"
 case "${1:-}" in
   --list)
     printf '%s\n' "$SCRIPTS"
     exit 0
     ;;
+  --check-env)
+    check_env
+    echo "apply-domain-grants: environment ok"
+    exit 0
+    ;;
   "") ;;
-  *) fail "unknown argument: $1 (expected no argument or --list)" ;;
+  *) fail "unknown argument: $1 (expected no argument, --list or --check-env)" ;;
 esac
-[ $# -le 1 ] || fail "too many arguments"
 
-# The domain role must be named explicitly: guessing a default could grant to
-# a role that DATABASE_URL does not use and still report success.
-[ -n "${DOMAIN_DB_ROLE:-}" ] || fail "DOMAIN_DB_ROLE is not set (the DATABASE_URL role name)"
-# RT-1558: the lookup-role checks must run on every release, so that role is
-# required too. It must differ from the domain role: the API refuses one role
-# for both pools.
-[ -n "${LOOKUP_DB_ROLE:-}" ] || fail "LOOKUP_DB_ROLE is not set (the AUTH_LOOKUP_DATABASE_URL role name)"
-[ "$LOOKUP_DB_ROLE" != "$DOMAIN_DB_ROLE" ] || fail "LOOKUP_DB_ROLE must differ from DOMAIN_DB_ROLE"
+check_env
 
 while IFS= read -r script; do
   echo "apply-domain-grants: $script"

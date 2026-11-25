@@ -123,6 +123,17 @@ Then run the release sequence. Use it for the first deploy **and** for every
 redeploy of a new ref:
 
 ```bash
+# 0. Check the release prerequisites before anything changes (RT-1603). Both
+#    are read-only. The first checks that deploy/grants.env sets every key step
+#    2 needs (it runs no psql). The second checks, in a read-only transaction,
+#    what only a superuser can set up before `migrate` (for example the role
+#    migration 0132 needs, docs/operations/database-roles.md). If either fails,
+#    fix the named prerequisite first; nothing has changed yet.
+op run --env-file=deploy/grants.env -- deploy/apply-domain-grants.sh --check-env
+op run --env-file=deploy/grants.env -- \
+  psql -X -q -1 -v ON_ERROR_STOP=1 -c 'SET TRANSACTION READ ONLY' \
+    -f docs/operations/sql/release-prerequisites.sql
+
 # 1. Apply migrations on their own first.
 op run --env-file=deploy/prod.env -- \
   docker compose -f docker-compose.prod.yml run --rm --build migrate
@@ -518,10 +529,31 @@ runs these steps and stops at the first failure:
 
 1. G-Host: the running images and `SENTRY_RELEASE` must be `current_release`'s.
 2. G-Backup: confirm the fresh backup reference from lab-02.
-3. Fetch the bundle and verify it.
+3. Fetch the bundle and verify it. Then G-Prereq (RT-1603), read-only, before
+   anything on lab-01 changes: the
+   target bundle's `apply-domain-grants.sh --check-env` in the grants step's
+   own container and `grants.env` (refuses `grants-env-incomplete`, for example
+   a missing `LOOKUP_DB_ROLE`), then its
+   `docs/operations/sql/release-prerequisites.sql` in a read-only transaction
+   (refuses `release-prerequisite-missing`, for example the role migration 0132
+   needs). Both are Deploy step 0 above. A bundle from before RT-1603 lacks
+   them and reports `RT_GATE grants-env skip` and
+   `RT_GATE release-prerequisites skip`. The details are in the root-only log
+   under `/var/log/rt-deploy/`.
 4. Back up `backend.env` and the wrapper.
 5. Arm a 15-minute `systemd-run` auto-revert.
-6. Migrate, then grants, then catch-up.
+6. Swap the wrapper and `backend.env`, then migrate, then grants, then
+   catch-up. If the run ends after the swap but before step 7's `up -d`, the
+   old app is still running, so the document puts the pre-deploy wrapper and
+   `backend.env` back from the run's copies and reports
+   `RT_REVERT restored-pre-deploy-config` (RT-1603; `restore-pre-deploy-config-failed`
+   means the owner restores them from `/var/lib/rt-deploy/<run>/`). It takes the
+   auto-revert's outcome claim before it restores and, once the files verify,
+   stops that run's revert timer (`RT_REVERT cancelled-after-restore`), so
+   G-Host accepts a rerun at once. If the revert claimed first, or the stop
+   fails (`not-cancelled-after-restore`), the timer stays until the owner
+   checks it, as below. A failed restore gives the claim back and leaves the
+   revert armed. The database is not restored: migrations that ran stay applied.
 7. Start `api` + `worker` by digest, then run the catch-up scripts again
    (Deploy step 4: what the previous release wrote while it still ran).
    Both catch-up runs use the four Deploy step 4 scripts in that order, with the

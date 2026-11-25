@@ -530,8 +530,14 @@ ERP_DOCUMENT = ROOT / "integrations" / "erpnext-connector" / "deploy" / "lab" / 
 
 
 def document_gates(path):
-    """The GATE=<name> names of an SSM document in the order the document runs them, once each."""
-    names = re.findall(r"(?<![$\w])GATE=([A-Za-z0-9_.-]+)", path.read_text(encoding="utf-8"))
+    """The gate names an SSM document can put in its ledger, in the order the document runs them, once each.
+
+    The ledger's `gates` list holds every `RT_GATE <name> <result>` line, so the names come from
+    `GATE=<name>` (an RT_FAIL boundary), `pass <name>` and `say "RT_GATE <name> ..."` (RT-1603: G-Prereq
+    prints its sub-gates `grants-env` and `release-prerequisites` before the host changes).
+    """
+    pattern = r'(?<![$\w])GATE=([A-Za-z0-9_.-]+)|^[ \t]*pass ([A-Za-z][A-Za-z0-9_.-]*)[ \t]*$|say "RT_GATE ([A-Za-z][A-Za-z0-9_.-]*) '
+    names = [next(g for g in m.groups() if g) for m in re.finditer(pattern, path.read_text(encoding="utf-8"), re.MULTILINE)]
     return list(dict.fromkeys(names))
 
 

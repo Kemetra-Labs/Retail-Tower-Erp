@@ -146,6 +146,11 @@ member** (with `INHERIT` or `SET`): 0132 refuses to run if one is, and the
 domain, lookup and retention roles must never be granted it. The role must
 stay `NOLOGIN`, `NOSUPERUSER`, `NOBYPASSRLS` and `NOCREATEROLE` (0132 checks).
 
+`docs/operations/sql/release-prerequisites.sql` checks the role and the
+migration owner's membership read-only before `migrate` (deploy/README.md Deploy
+step 0; the lab deploy document's G-Prereq gate, RT-1603), so a missing role
+stops a release before anything changes.
+
 Without the role, `migrate up` stops at 0132 with `role pricing_projection_writer
 does not exist`; earlier migrations stay applied, and re-running after the step
 above resumes at 0132. Test databases migrate as a superuser, so 0132 creates

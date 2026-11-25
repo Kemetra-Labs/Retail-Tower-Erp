@@ -30,6 +30,7 @@ ALLOWLIST=(
   Caddyfile
   deploy/console-smoke.sh
   deploy/apply-domain-grants.sh
+  docs/operations/sql/release-prerequisites.sql
   docs/operations/sql/sale-responsibilities-feed-rehead.sql
   docs/operations/sql/erpnext-posting-resolution-catchup.sql
   docs/operations/sql/inventory-effect-integration-catchup.sql

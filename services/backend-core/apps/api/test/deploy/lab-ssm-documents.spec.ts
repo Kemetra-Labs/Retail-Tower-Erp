@@ -10,7 +10,7 @@
  * a legacy backend-core-<sha12>.
  */
 import { spawnSync } from "node:child_process";
-import { mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
 import * as yaml from "js-yaml";
@@ -164,6 +164,9 @@ describe("RT-BackendLabBackup (lab-02, D-1a)", () => {
   });
 });
 
+/** The cancel step's timer stop; the restore path (RT-1603) has its own, earlier in the body. */
+const CANCEL_STOP = 'systemctl stop "$UNIT.timer" || { release_claim;';
+
 describe("RT-BackendLabDeploy (lab-01)", () => {
   const b = deploy.body;
 
@@ -179,19 +182,21 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(b).not.toContain('grep -qF -- "$BACKEND_ENV" "$DC"');
   });
 
-  it("follows the RT-532 order: host, backup, fetch, config backup, auto-revert, migrate, grants, catch-up, start, ready, cancel", () => {
+  it("follows the RT-532 order: host, backup, fetch, prerequisites, config backup, auto-revert, migrate, grants, catch-up, start, ready, cancel", () => {
     expectInOrder(b, [
       "GATE=G-Host",
       "pass G-Host",
       "GATE=G-Backup",
       "pass G-Backup",
       "GATE=fetch",
+      "GATE=G-Prereq",
+      "pass G-Prereq",
       "GATE=backup-config",
       "GATE=arm-revert",
       'systemd-run --unit="$UNIT" --on-active="$REVERT_AFTER"',
       'mv "$DC.next" "$DC"',
       '"$DC" run --rm migrate </dev/null || stop "migrate-failed"',
-      "psql_client bash deploy/apply-domain-grants.sh",
+      'psql_client bash deploy/apply-domain-grants.sh || stop "grants-failed"',
       "erpnext-posting-resolution-catchup.sql",
       "inventory-effect-integration-catchup.sql",
       "erp-provisioning-host-label-catchup.sql",
@@ -201,7 +206,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
       'running_matches api "$API_REF"',
       "GATE=G-Ready",
       'deploy/console-smoke.sh" "http://$ORIGIN_HOST"',
-      'systemctl stop "$UNIT.timer"',
+      CANCEL_STOP,
       'say "RT_DONE release=$RELEASE_TAG"',
     ]);
   });
@@ -378,8 +383,13 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   });
 
   it("cancels the auto-revert only after readiness and the console smoke pass", () => {
-    expect(b.indexOf('systemctl stop "$UNIT.timer"')).toBeGreaterThan(b.indexOf("pass console-smoke"));
-    expect([...b.matchAll(/systemctl stop/g)]).toHaveLength(1);
+    expect(b.indexOf(CANCEL_STOP)).toBeGreaterThan(b.indexOf("pass console-smoke"));
+    // the only other timer stop is the restore path's (RT-1603), which runs only before up -d
+    const stops = [...b.matchAll(/systemctl stop/g)].map((m) => m.index ?? -1);
+    expect(stops).toHaveLength(2);
+    expect(stops[0]).toBeGreaterThan(b.indexOf("restore_if_swapped() {"));
+    expect(stops[0]).toBeLessThan(b.indexOf("stop() {"));
+    expect(stops[1]).toBeGreaterThan(b.indexOf("GATE=cancel-revert"));
   });
 
   it("never reports success over a revert that fired: window check before start, fired/ran checks at cancel", () => {
@@ -433,12 +443,12 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(catchups).toHaveLength(2);
     const steps = [
       b.indexOf('"$DC" run --rm migrate </dev/null'),
-      b.indexOf("psql_client bash deploy/apply-domain-grants.sh"),
+      b.indexOf('psql_client bash deploy/apply-domain-grants.sh || stop "grants-failed"'),
       catchups[0] ?? -1,
       b.indexOf('"$DC" up -d </dev/null ||'),
       catchups[1] ?? -1,
       b.indexOf("GATE=G-Ready"),
-      b.indexOf('systemctl stop "$UNIT.timer"'),
+      b.indexOf(CANCEL_STOP),
     ];
     expect(steps.every((i) => i > -1)).toBe(true);
     expect(steps).toEqual([...steps].sort((x, y) => x - y));
@@ -449,7 +459,7 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
     expect(post).toMatch(/\|\| stop "post-start-catch-up-failed"/);
     // stop() exits; the only cancel is after readiness and the smoke
     expect(b).toMatch(/stop\(\) \{ [^}]*exit 1; \}/);
-    expect(b.indexOf('systemctl stop "$UNIT.timer"')).toBeGreaterThan(b.indexOf("pass console-smoke"));
+    expect(b.indexOf(CANCEL_STOP)).toBeGreaterThan(b.indexOf("pass console-smoke"));
     expect(b).not.toMatch(/trap[^\n]*systemctl/);
   });
 
@@ -581,10 +591,187 @@ describe("RT-BackendLabDeploy (lab-01)", () => {
   });
 
   it("stops at the first failure: every gate step ends in stop on failure", () => {
-    for (const needle of ['"$DC" run --rm migrate', "psql_client bash deploy/apply-domain-grants.sh", '"$DC" up -d </dev/null ||', "console-smoke.sh"]) {
+    for (const needle of ['"$DC" run --rm migrate', "psql_client bash deploy/apply-domain-grants.sh ||", '"$DC" up -d </dev/null ||', "console-smoke.sh"]) {
       const line = b.split("\n").find((l) => l.includes(needle)) ?? "";
       expect({ needle, line }).toEqual({ needle, line: expect.stringMatching(/\|\| stop "[a-z-]+"$/) });
     }
+  });
+});
+
+// RT-1603: on 2026-11-25 two missing release prerequisites (the 0132 role, LOOKUP_DB_ROLE in
+// grants.env) stopped runs after the wrapper/env swap, and each rerun needed a manual restore.
+describe("RT-BackendLabDeploy release prerequisites and the swap window (RT-1603)", () => {
+  const b = deploy.body;
+  const prereq = b.slice(b.indexOf("GATE=G-Prereq"), b.indexOf("pass G-Prereq") + "pass G-Prereq".length);
+
+  it("G-Prereq runs after fetch and before the config backup, and changes nothing", () => {
+    expectInOrder(b, ["pass fetch", "GATE=G-Prereq", "pass G-Prereq", "GATE=backup-config", "GATE=arm-revert"]);
+    expect(prereq).not.toMatch(/\bcp\b|\bmv\b|sed -i|systemd-run|docker pull|"\$DC"/);
+    // the checks come from the target bundle, in the grants step's own container and env file
+    expect(prereq).toContain("psql_client() {");
+    expect(b.indexOf("psql_client() {")).toBeLessThan(b.indexOf("psql_client bash"));
+    expect([...b.matchAll(/psql_client\(\) \{/g)]).toHaveLength(1);
+    expect(prereq).toContain("psql_client bash deploy/apply-domain-grants.sh --check-env || stop \"grants-env-incomplete\"");
+    // the SQL runs in one read-only transaction and stops on its first error
+    expect(prereq).toContain("psql_client psql -X -q -1 -v ON_ERROR_STOP=1 -c 'SET TRANSACTION READ ONLY' \\");
+    expect(prereq).toContain('-f docs/operations/sql/release-prerequisites.sql || stop "release-prerequisite-missing"');
+  });
+
+  it("reports an older bundle's missing checks as skip lines the ledgers accept", () => {
+    const resultRe = new RegExp(/RESULT_RE='([^']+)'/.exec(read("../../.github/workflows/deploy-lab.yml"))?.[1] ?? "^$");
+    for (const line of ["RT_GATE grants-env skip", "RT_GATE release-prerequisites skip", "RT_REVERT restored-pre-deploy-config", "RT_REVERT restore-pre-deploy-config-failed"]) {
+      expect({ line, inBody: b.includes(`say "${line}"`) }).toEqual({ line, inBody: true });
+      expect(resultRe.test(line)).toBe(true);
+    }
+  });
+
+  itBash("G-Prereq: skips an older bundle, passes a ready one, and stops on a missing key or prerequisite", () => {
+    const runGate = (opts: { checkEnv: boolean; sql: boolean; failOn?: string }): { status: number | null; out: string; calls: string[] } => {
+      const dir = mkdtempSync(join(tmpdir(), "rt1603-prereq-")).replace(/\\/g, "/");
+      for (const sub of ["deploy", "docs/operations/sql"]) mkdirSync(join(dir, sub), { recursive: true });
+      writeFileSync(join(dir, "deploy", "apply-domain-grants.sh"), opts.checkEnv ? 'case "$1" in\n  --check-env)\n' : 'case "$1" in\n  --list)\n');
+      if (opts.sql) writeFileSync(join(dir, "docs", "operations", "sql", "release-prerequisites.sql"), "DO $$ BEGIN END $$;\n");
+      const script = [
+        "set -euo pipefail",
+        'stop() { echo "STOP:$1"; exit 3; }',
+        'say() { echo "$*"; }',
+        'pass() { say "RT_GATE $1 pass"; }',
+        `TGT_DIR='${dir}' GRANTS_ENV=/root/rt-lab-secrets/grants.env PSQL_IMAGE=postgres:16 FAIL_ON='${opts.failOn ?? ""}'`,
+        // the real psql_client runs docker: this one records the call and fails on request
+        `docker() { echo "$*" >> '${dir}/calls'; if [ -n "$FAIL_ON" ] && [[ "$*" == *"$FAIL_ON"* ]]; then return 4; fi; }`,
+        prereq,
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      let calls: string[] = [];
+      try {
+        calls = readFileSync(join(dir, "calls"), "utf8").trim().split("\n").filter(Boolean);
+      } catch {
+        calls = [];
+      }
+      rmSync(dir, { recursive: true, force: true });
+      return { status: r.status, out: r.stdout.trim(), calls };
+    };
+
+    const old = runGate({ checkEnv: false, sql: false });
+    expect(old).toEqual({ status: 0, out: "RT_GATE grants-env skip\nRT_GATE release-prerequisites skip\nRT_GATE G-Prereq pass", calls: [] });
+
+    const ready = runGate({ checkEnv: true, sql: true });
+    expect(ready.status).toBe(0);
+    expect(ready.out).toBe("RT_GATE grants-env pass\nRT_GATE release-prerequisites pass\nRT_GATE G-Prereq pass");
+    expect(ready.calls).toHaveLength(2);
+    expect(ready.calls[0]).toMatch(/^run --rm --network host --env-file \/root\/rt-lab-secrets\/grants\.env .* postgres:16 bash deploy\/apply-domain-grants\.sh --check-env$/);
+    expect(ready.calls[1]).toMatch(/ postgres:16 psql -X -q -1 -v ON_ERROR_STOP=1 -c SET TRANSACTION READ ONLY -f docs\/operations\/sql\/release-prerequisites\.sql$/);
+
+    const missingKey = runGate({ checkEnv: true, sql: true, failOn: "--check-env" });
+    expect(missingKey).toEqual({ status: 3, out: "STOP:grants-env-incomplete", calls: [expect.stringContaining("--check-env")] });
+
+    const missingRole = runGate({ checkEnv: true, sql: true, failOn: "release-prerequisites.sql" });
+    expect(missingRole.status).toBe(3);
+    expect(missingRole.out).toBe("RT_GATE grants-env pass\nSTOP:release-prerequisite-missing");
+  });
+
+  it("marks the swap window: set before the first move, cleared right before up -d", () => {
+    // initial value, the restore helper clearing it, the swap, and the end of the window
+    expect([...b.matchAll(/^\s*CONFIG_SWAPPED=(yes|no)$/gm)].map((m) => m[1])).toEqual(["no", "no", "yes", "no"]);
+    const swapAt = b.indexOf("CONFIG_SWAPPED=yes");
+    expect(swapAt).toBeGreaterThan(b.indexOf("pass arm-revert"));
+    expect(swapAt).toBeLessThan(b.indexOf('mv "$RUN_DIR/dc.next"'));
+    // a failed move in the swap stops (and so restores); `a && b` alone would let set -e pass it
+    expect(b).toContain('{ mv "$RUN_DIR/dc.next" "$DC.next" && mv "$DC.next" "$DC"; } || stop "config-swap-failed"');
+    expect(b).toContain('{ cp -p "$RUN_DIR/backend.env.next" "$BACKEND_ENV.next" && mv "$BACKEND_ENV.next" "$BACKEND_ENV"; } || stop "config-swap-failed"');
+    // the last code line before `up -d` ends the window
+    const beforeUp = b.slice(0, b.indexOf('"$DC" up -d </dev/null || stop "compose-up-failed"')).trimEnd().split("\n").filter((l) => !l.trim().startsWith("#"));
+    expect(beforeUp[beforeUp.length - 1]?.trim()).toBe("CONFIG_SWAPPED=no");
+    expect(b).toContain("trap 'restore_if_swapped; rm -rf \"$WORK\"' EXIT");
+  });
+
+  itBash("restores the pre-deploy wrapper and env only for a run that ends between the swap and up -d", () => {
+    const helpers = b.slice(b.indexOf("CONFIG_SWAPPED=no\n"), b.indexOf("\n", b.indexOf("stop() {")));
+    expect(helpers).toContain("restore_if_swapped() {");
+    const swap = b.slice(b.indexOf("CONFIG_SWAPPED=yes"), b.indexOf('"$DC" run --rm migrate'));
+    type Result = { out: string; dc: string; env: string; outcome: string | null; systemctl: string[] };
+    const run = (scenario: string, setup = ""): Result => {
+      const dir = mkdtempSync(join(tmpdir(), "rt1603-swap-")).replace(/\\/g, "/");
+      const script = [
+        "set -euo pipefail",
+        // as in the document: RT_* lines on fd 3, everything else to the (here discarded) log
+        "exec 3>&1 >/dev/null",
+        "say() { printf '%s\\n' \"$*\" >&3; }",
+        `GATE=G-Migrate T='${dir}' UNIT=rt-deploy-revert-20261125T000000Z STOP_RC=0`,
+        'RUN_DIR="$T/run" DC="$T/dc" BACKEND_ENV="$T/backend.env"',
+        'mkdir -p "$RUN_DIR"; printf old-dc > "$DC"; printf old-env > "$BACKEND_ENV"',
+        'cp -p "$DC" "$RUN_DIR/dc"; cp -p "$BACKEND_ENV" "$RUN_DIR/backend.env"',
+        'printf new-dc > "$RUN_DIR/dc.next"; printf new-env > "$RUN_DIR/backend.env.next"',
+        // the armed timer: `stop` succeeds unless STOP_RC says otherwise, and leaves it inactive
+        'systemctl() { echo "$*" >> "$T/systemctl"; case "$1" in stop) return "$STOP_RC" ;; is-active) return 1 ;; esac; }',
+        setup,
+        helpers,
+        "trap 'restore_if_swapped' EXIT",
+        scenario,
+      ].join("\n");
+      const r = spawnSync("bash", ["-c", script], { encoding: "utf8" });
+      const readOr = (f: string): string | null => {
+        try {
+          return readFileSync(join(dir, f), "utf8").trim();
+        } catch {
+          return null;
+        }
+      };
+      const out: Result = {
+        out: r.stdout.trim(),
+        dc: readOr("dc") ?? "",
+        env: readOr("backend.env") ?? "",
+        outcome: readOr("run/outcome/by"),
+        systemctl: (readOr("systemctl") ?? "").split("\n").filter(Boolean),
+      };
+      rmSync(dir, { recursive: true, force: true });
+      return out;
+    };
+    const unit = "rt-deploy-revert-20261125T000000Z";
+    const restored = "RT_REVERT restored-pre-deploy-config";
+    const cancelled = `RT_REVERT cancelled-after-restore unit=${unit}`;
+    const timerStop = [`stop ${unit}.timer`, `is-active --quiet ${unit}.timer`];
+    // before the swap: nothing to restore, the revert stays armed
+    expect(run('stop "grants-env-incomplete"')).toEqual({
+      out: "RT_FAIL gate=G-Migrate reason=grants-env-incomplete", dc: "old-dc", env: "old-env", outcome: null, systemctl: [],
+    });
+    // inside the window: a stop claims the outcome, restores, stops the timer, then reports the failure
+    expect(run(`${swap}\nstop "migrate-failed"`)).toEqual({
+      out: `${restored}\n${cancelled}\nRT_FAIL gate=G-Migrate reason=migrate-failed`, dc: "old-dc", env: "old-env", outcome: "restore", systemctl: timerStop,
+    });
+    // inside the window: an exit that is not a stop (set -e) does the same through the EXIT trap
+    expect(run(`${swap}\nfalse`)).toEqual({ out: `${restored}\n${cancelled}`, dc: "old-dc", env: "old-env", outcome: "restore", systemctl: timerStop });
+    // the revert claimed first: restore the files, but leave its outcome and its timer alone
+    expect(run(`${swap}\nstop "migrate-failed"`, 'mkdir -p "$RUN_DIR/outcome"; echo revert > "$RUN_DIR/outcome/by"')).toEqual({
+      out: `${restored}\nRT_FAIL gate=G-Migrate reason=migrate-failed`, dc: "old-dc", env: "old-env", outcome: "revert", systemctl: [],
+    });
+    // the timer stop fails: say so; the claim stays, so the revert can only exit as a no-op
+    expect(run(`${swap}\nstop "migrate-failed"`, "STOP_RC=5")).toEqual({
+      out: `${restored}\nRT_REVERT not-cancelled-after-restore unit=${unit}\nRT_FAIL gate=G-Migrate reason=migrate-failed`,
+      dc: "old-dc", env: "old-env", outcome: "restore", systemctl: [`stop ${unit}.timer`],
+    });
+    // the restore fails: give the claim back and leave the timer armed, so the revert can still run
+    expect(run(`${swap}\nrm -f "$RUN_DIR/dc"\nstop "migrate-failed"`)).toEqual({
+      out: "RT_REVERT restore-pre-deploy-config-failed\nRT_FAIL gate=G-Migrate reason=migrate-failed", dc: "new-dc", env: "new-env", outcome: null, systemctl: [],
+    });
+    // once up -d is invoked the auto-revert owns the rollback: no restore, no claim, no timer stop
+    expect(run(`${swap}\nCONFIG_SWAPPED=no\nstop "compose-up-failed"`)).toEqual({
+      out: "RT_FAIL gate=G-Migrate reason=compose-up-failed", dc: "new-dc", env: "new-env", outcome: null, systemctl: [],
+    });
+  });
+
+  it("the restore path uses the same outcome claim as revert.sh and the cancel step", () => {
+    const helper = b.slice(b.indexOf("restore_if_swapped() {"), b.indexOf("stop() {"));
+    expectInOrder(helper, [
+      'mkdir "$RUN_DIR/outcome" 2>/dev/null',
+      'echo restore > "$RUN_DIR/outcome/by"',
+      'cp -p "$RUN_DIR/dc" "$DC.restore"',
+      'rm -f "$RUN_DIR/outcome/by"; rmdir "$RUN_DIR/outcome"',
+      '[ "$claimed" = yes ] || return 0',
+      'systemctl stop "$UNIT.timer" && ! systemctl is-active --quiet "$UNIT.timer"',
+    ]);
+    // revert.sh claims the same directory first and exits when it is taken
+    expect(b).toContain('mkdir "$RUN_DIR/outcome" 2>/dev/null || exit 0');
   });
 });
 

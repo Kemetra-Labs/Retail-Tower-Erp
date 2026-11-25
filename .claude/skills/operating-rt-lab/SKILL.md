@@ -72,6 +72,37 @@ of that product or by the owner (README steps 1a and 7).
 - Dry run first; the live run needs the owner's `aws-lab` approval. New required env keys on lab-01
   and SSM document or IAM changes are owner steps.
 
+## Release prerequisites and a stopped Backend-Core deploy
+
+Found on 2026-11-25 (RT-2 comments 18831, 18839; fixed by RT-1603). The `lab-2026.11.14` run stopped
+twice on a missing release prerequisite: the role migration 0132 needs, then `LOOKUP_DB_ROLE` in
+lab-01 `grants.env` (RT-1558). The document had already swapped the wrapper and `backend.env`, so
+each rerun was refused at G-Host (`wrapper-does-not-use-the-current-release`) until the files were
+restored by hand.
+- Before a release whose migrations or grants step need something new, read the target release's
+  `docs/operations/database-roles.md` and `deploy/grants.env.example`. Superuser steps and new
+  `grants.env` keys are owner steps on lab-02 and lab-01, done before the live run.
+- From RT-1603 on, the G-Prereq gate checks both read-only, from the target bundle, before anything
+  changes: `RT_FAIL gate=G-Prereq reason=grants-env-incomplete` or `release-prerequisite-missing`
+  means nothing on the host moved. The missing item is named only in lab-01's root-only
+  `/var/log/rt-deploy/deploy-<run>.log`, read with the owner's yes. `RT_GATE ... skip` means the
+  target bundle predates the checks, so nothing was checked.
+- A new superuser prerequisite belongs in `docs/operations/sql/release-prerequisites.sql` in the
+  same PR as its migration (a spec ties every migration whose HINT says "As a superuser" to a check).
+  The document runs whatever the bundle ships, so no new SSM document version is needed.
+- A stop after the swap but before `up -d` now restores the wrapper and env
+  (`RT_REVERT restored-pre-deploy-config`) and stops that run's revert timer
+  (`RT_REVERT cancelled-after-restore`), so a rerun needs nothing on the host. Migrations that ran
+  stay applied. Without the `cancelled-after-restore` line (the revert claimed first, or the stop
+  failed), G-Host refuses while any `rt-deploy-revert-*` unit is active or elapsed
+  (`an-earlier-auto-revert-is-armed-or-elapsed`): check `systemctl list-units --all
+  'rt-deploy-revert-*'` before a rerun. On 2026-11-25 the fired units cleared themselves.
+- `restore-pre-deploy-config-failed`, or a document version older than RT-1603: the pre-deploy
+  copies are in `/var/lib/rt-deploy/<run>/` (`dc`, `backend.env`). The owner restores them and
+  compares them with `cmp`.
+- A change to the document lands only when the owner publishes it (`system/releases/README.md` step 7).
+  Until then the lab runs the old version. Check the default version before you rely on a new gate.
+
 ## Datadog "No Data" is not "lab down"
 
 The lab agent sends to the **EU** site (`datadoghq.eu`), and since RT-1276 so do the repo defaults
@@ -201,3 +232,5 @@ poller was refused each minute until the owner re-issued it.
 - Launching the POS without `DESCOPE_PROJECT_ID` or the feature flags.
 - Reading a Cloudflare 403 from an IPv6 probe as a lab fault.
 - Starting a k6 run while the cashier is still signed in on a POS till.
+- Starting a live Backend-Core run before the owner has done the target release's superuser and
+  `grants.env` prerequisites.
