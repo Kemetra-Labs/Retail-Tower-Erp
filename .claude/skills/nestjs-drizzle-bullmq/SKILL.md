@@ -40,6 +40,11 @@ Repo docs are authoritative. Read `services/backend-core/docs/idempotency/strate
 - db-integration `57P01 terminating connection due to administrator command` on a random unrelated suite is the known Testcontainers/Ryuk flake. Confirm the victim is unrelated AND the signature matches, then `gh run rerun --failed`. `--runInBand` is a no-op on 2-vCPU runners. Never `--admin` past it.
 - Coverage floors come from the **CI-measured** baseline, not a local reading.
 - ts-jest passes a type error that `tsc` rejects. Before the first push of a Backend-Core change, run `(cd services/backend-core/apps/api && npx tsc -p tsconfig.build.json --noEmit --incremental false)` (build `@data-pulse-2/shared`, `db` and `auth` first). RT-1367: a `new Map(rows.map(... as const))` keyed by a template literal passed every spec and failed the Docker image build (`pnpm -r run build`), so `e2e/smoke` went red; annotate such maps `new Map<string, bigint>(...)`.
+- **A `worker_threads` heap cap does not hold under a process-wide heap flag (RT-1598).**
+  - **Symptom:** a Worker's `resourceLimits.maxOldGenerationSizeMb` is ignored when the parent process has `--max-old-space-size`. CircleCI api-jest sets `NODE_OPTIONS=--max-old-space-size=4096`. A 232 MB cap still reported `heap_size_limit` 4,120 MB on Node 24.
+  - **What does not fix it:** passing `execArgv: []`, or clearing `NODE_OPTIONS` in the Worker's `env`.
+  - **For a real memory bound in a spec:** spawn a child `node` with `--max-old-space-size=232 --max-semi-space-size=8` (limit exactly 256 MB) and `NODE_OPTIONS` cleared. See `test/inventory/redistribution/benchmark.unit.spec.ts`.
+  - **For production:** if compute moves off-thread (RT-1600), do not rely on Worker `resourceLimits` as a cap while the API runs with a heap flag.
 
 ## AI Gateway feature routes (RT-1539, Manager Sales)
 - **`@Auditable` fires on every 2xx and cannot skip.** A route that audits only some 200 outcomes (an `answer`, not a `refusal`) enqueues the event itself through `AUDIT_JOB_ENQUEUER` (`audit/index.ts`), fire-and-forget with the error class logged, and keeps the action out of `audit-action-kinds.ts` (GET-only, drift-guarded).
