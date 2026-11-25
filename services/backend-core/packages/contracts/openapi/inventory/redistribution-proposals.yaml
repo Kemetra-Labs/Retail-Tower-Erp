@@ -1,0 +1,1198 @@
+openapi: 3.1.0
+info:
+  title: Data-Pulse-2 Inventory — Store Redistribution Proposals API
+  version: "1.0.0-draft"
+  description: >
+    RT-1599 (W9 slice A, candidate N2 of the RT-1596 master plan; [GATED: contract]; approved under the owner's
+    delegation in chat on 2026-11-25). The contract for store-to-store redistribution PROPOSALS, published before any
+    consumer is built. A new file, additive to every other contract: no existing operation or schema changes. The
+    runtime is RT-1600 and the Console screen RT-1601; until RT-1600 lands every operation is marked
+    `x-runtime-status: contract-only`.
+
+
+    WHAT A PROPOSAL IS. On request, Backend-Core reads the tenant's stores (the W3 availability snapshot, open
+    transfer quantities and each store's device freshness), runs the deterministic rule `reorder_gap_greedy` 1.0.0
+    (RT-1598) and its independent validator, and stores the result as a proposal: lines that each move a quantity of
+    one product from a source store to a destination store that is below its reorder level. A proposal is advice. It
+    changes no stock, reserves nothing and never posts to the ERP. Only an explicit accept turns chosen lines into W3
+    shipment transfers in `draft`; it never approves, dispatches or receives one (the W3 transfer workflow owns those).
+
+
+    WHO. Owner or tenant_admin of the tenant. Every other role, another tenant's proposal, an unknown id, and a tenant
+    for which the feature is off all receive the same non-disclosing 404 `not_found`; the four are indistinguishable
+    by design. 403 is only `origin_rejected` (RT-430).
+
+
+    PHASES. The feature ships dark. A tenant on the SHADOW allowlist may compute, list, read, review and reject:
+    review records "would accept" / "would reject" per line and creates nothing. A tenant on the LIVE allowlist, with
+    W3 shipment transfers activated, may also accept. `acceptEnabled` on a proposal tells the client which phase
+    applies; for a tenant where it is false, accept answers the non-disclosing 404.
+
+
+    STATES. `open` (just computed), `reviewed` (at least one review decision recorded), `partially_accepted` (some
+    lines accepted, others still undecided), `accepted` (every line accepted), `rejected`, `expired` (24 hours after
+    `createdAt` without a terminal decision) and `superseded` (a newer compute replaced it). `accepted`, `rejected`,
+    `expired` and `superseded` are terminal. A tenant has at most one non-terminal proposal: a new compute supersedes
+    it.
+
+
+    FRESHNESS. A store is excluded as a SOURCE (never as a destination) when any active device of the store has an
+    unknown queue, dead-letter or held sales, or a stale heartbeat; an inactive store is excluded both ways. The
+    exclusion and the per-store read time are on the proposal. Accept re-reads stock and open drafts line by line: a
+    line whose source can no longer give the quantity is reduced or dropped, and the outcome records both quantities.
+
+
+    QUANTITIES are exact-decimal strings (`numeric(19,4)`), never floats. There is no money or currency on this
+    surface.
+
+
+    IDEMPOTENCY. Every command requires `Idempotency-Key` (`x-idempotency: required`), resolved by the shared
+    `IdempotencyInterceptor`: an identical retry replays the stored response with `Idempotent-Replayed: true`, key
+    reuse with a different body is 409 `idempotency_key_conflict`, a key still being processed is 425
+    `idempotency_in_progress`, a missing key is 400 `idempotency_key_required` and a malformed one 400
+    `idempotency_key_malformed`.
+
+
+    ERRORS use the canonical envelope `{ error: { code, message, request_id } }`. Codes on this surface:
+    `validation_error`, `idempotency_key_required`, `idempotency_key_malformed` (400); `unauthorized` (401);
+    `origin_rejected` (403); `not_found` (404); `idempotency_key_conflict`, `proposal_superseded`,
+    `proposal_expired`, `proposal_state_conflict`, `proposal_line_already_decided`, `proposal_stale` (409);
+    `redistribution_too_large`, `redistribution_deadline_exceeded`, `redistribution_plan_invalid` (422);
+    `idempotency_in_progress` (425); `rate_limited` (429); `internal_error` (5xx).
+
+
+    ENGINE FIELDS (ratifying the RT-1598 README deviations). The engine's `stores[].tenantId`, `rows[].tracked` and
+    input rows are internal and not on the wire. On the wire: a nullable reorder level is reported as the warning
+    `reorder_level_missing`; the buffer policy is echoed; warnings and validator violations are structured
+    `{code, ...}` objects; per-move warnings sit on each line; an inactive store is excluded both as source and as
+    destination. A stored proposal always has a non-null objective and a passed validator report: a compute whose
+    result is not `proposed` is never stored.
+
+servers:
+  - url: https://api.example.com
+
+tags:
+  - name: inventory-redistribution
+    description: >
+      W9 store redistribution proposals: compute, list, read, review (shadow), accept to W3 draft transfers (live) and
+      reject (RT-1599).
+
+paths:
+  /api/inventory/v1/redistribution-proposals:
+    post:
+      operationId: createRedistributionProposal
+      tags: [inventory-redistribution]
+      summary: Compute a redistribution proposal for the tenant.
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      x-idempotency: required
+      description: >
+        Computes a proposal on demand over the tenant's active stores, or over `storeIds` when given (at least two).
+        The result is stored only when the rule proposes at least one line: 201 with the new proposal, which
+        supersedes the tenant's non-terminal proposal, if any. When nothing needs to move, 200 with the outcome and
+        nothing is stored or superseded. A store set above the limits is 422 `redistribution_too_large`, a compute
+        over its deadline is 422 `redistribution_deadline_exceeded`, and a plan the independent validator rejects
+        is 422 `redistribution_plan_invalid`; none of the three stores or supersedes anything. Owner or tenant_admin
+        on the shadow or live allowlist; otherwise the non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ComputeRedistributionProposalCommand"
+      responses:
+        "200":
+          description: Nothing to move. Nothing was stored and no proposal was superseded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionNothingToMove"
+        "201":
+          description: Proposal computed, stored in state `open`, and the previous non-terminal one superseded.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionProposal"
+        "400": { $ref: "#/components/responses/WriteValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "409": { $ref: "#/components/responses/IdempotencyKeyConflict" }
+        "422": { $ref: "#/components/responses/ComputeRefused" }
+        "425": { $ref: "#/components/responses/IdempotencyInProgress" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+    get:
+      operationId: listRedistributionProposals
+      tags: [inventory-redistribution]
+      summary: List the tenant's redistribution proposals, newest first, in keyset pages.
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      description: >
+        The tenant's proposals newest first (`createdAt DESC, id DESC`), optionally filtered by `state`, as summaries
+        without lines. An opaque `cursor` bound to this operation, the tenant and the filter; a value the server did
+        not issue, or one reused with another filter, is 400 `validation_error`. A proposal past `expiresAt` is
+        reported `expired` even before any sweep. Owner or tenant_admin on the shadow or live allowlist; otherwise
+        the non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - name: state
+          in: query
+          required: false
+          schema:
+            $ref: "#/components/schemas/RedistributionProposalState"
+        - $ref: "#/components/parameters/Cursor"
+        - $ref: "#/components/parameters/Limit"
+      responses:
+        "200":
+          description: A page of proposal summaries, newest first.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionProposalList"
+        "400": { $ref: "#/components/responses/ReadValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/redistribution-proposals/{proposalId}:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    get:
+      operationId: getRedistributionProposal
+      tags: [inventory-redistribution]
+      summary: Read one redistribution proposal with its lines.
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      description: >
+        The proposal with its lines, per-store read times and exclusions, objective, validator report and warnings,
+        plus each line's review decision and accept outcome. Owner or tenant_admin on the shadow or live allowlist;
+        another tenant's proposal, an unknown id, another role and a tenant with the feature off are the same
+        non-disclosing 404.
+      security:
+        - cookieAuth: []
+      responses:
+        "200":
+          description: The proposal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionProposal"
+              examples:
+                open:
+                  summary: Just computed; no decision yet.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a1"
+                    state: open
+                    acceptEnabled: false
+                    createdAt: "2026-11-26T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T08:00:00.000Z"
+                    decidedAt: null
+                    supersededBy: null
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b2", readAt: "2026-11-26T07:59:59.300Z", eligibleAsSource: false, exclusion: device_heartbeat_stale }
+                    objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                    validator: { passed: true, violations: [] }
+                    warnings:
+                      - { code: store_excluded_as_source, storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b2" }
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: null
+                reviewed:
+                  summary: Shadow phase; one line marked "would accept".
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a2"
+                    state: reviewed
+                    acceptEnabled: false
+                    createdAt: "2026-11-26T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T08:00:00.000Z"
+                    decidedAt: null
+                    supersededBy: null
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: [{ code: source_near_reorder_level }]
+                        reviewDecision: { decision: would_accept, note: null, decidedAt: "2026-11-26T08:05:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                        acceptOutcome: null
+                partially_accepted:
+                  summary: Live phase; one line accepted (reduced), one still undecided.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a3"
+                    state: partially_accepted
+                    acceptEnabled: true
+                    createdAt: "2026-11-26T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T08:00:00.000Z"
+                    decidedAt: null
+                    supersededBy: null
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "20.0000", deficitAfter: "4.0000", storePairs: 1, lines: 2 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: { outcome: reduced, proposedQuantity: "8.0000", createdQuantity: "5.0000", transferId: "0190f5a2-3b4c-7d8e-9f01-0000000000f1", reason: source_available_insufficient, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d2"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e2"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: null
+                accepted:
+                  summary: Every line accepted; one created, one dropped.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a4"
+                    state: accepted
+                    acceptEnabled: true
+                    createdAt: "2026-11-26T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T08:00:00.000Z"
+                    decidedAt: "2026-11-26T08:10:00.000Z"
+                    supersededBy: null
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "20.0000", deficitAfter: "4.0000", storePairs: 1, lines: 2 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: { outcome: created, proposedQuantity: "8.0000", createdQuantity: "8.0000", transferId: "0190f5a2-3b4c-7d8e-9f01-0000000000f1", reason: null, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d2"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e2"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: { outcome: dropped, proposedQuantity: "8.0000", createdQuantity: null, transferId: null, reason: source_not_fresh, decidedAt: "2026-11-26T08:10:00.000Z", decidedBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1" }
+                rejected:
+                  summary: Rejected with a reason.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a5"
+                    state: rejected
+                    acceptEnabled: false
+                    createdAt: "2026-11-26T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T08:00:00.000Z"
+                    decidedAt: "2026-11-26T09:00:00.000Z"
+                    supersededBy: null
+                    rejectReason: Seasonal stock is already on order.
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: null
+                expired:
+                  summary: Not decided within 24 hours.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a6"
+                    state: expired
+                    acceptEnabled: true
+                    createdAt: "2026-11-25T08:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-26T08:00:00.000Z"
+                    decidedAt: null
+                    supersededBy: null
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-25T08:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-25T07:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: null
+                superseded:
+                  summary: Replaced by a newer compute.
+                  value:
+                    id: "0190f5a2-3b4c-7d8e-9f01-0000000000a7"
+                    state: superseded
+                    acceptEnabled: false
+                    createdAt: "2026-11-26T07:00:00.000Z"
+                    createdBy: "0190f5a2-3b4c-7d8e-9f01-0000000000c1"
+                    expiresAt: "2026-11-27T07:00:00.000Z"
+                    decidedAt: "2026-11-26T08:00:00.000Z"
+                    supersededBy: "0190f5a2-3b4c-7d8e-9f01-0000000000a1"
+                    rejectReason: null
+                    rule: { name: reorder_gap_greedy, version: "1.0.0" }
+                    computedAt: "2026-11-26T07:00:00.000Z"
+                    limits: { maxStores: 50, maxRows: 20000, deadlineMs: 5000, maxLinesPerTransfer: 100 }
+                    buffer: { minimum: "1.0000", percentOfReorderLevel: 10, rounding: scale }
+                    stores:
+                      - { storeId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1", readAt: "2026-11-26T06:59:59.120Z", eligibleAsSource: true, exclusion: null }
+                    objective: { deficitBefore: "12.0000", deficitAfter: "4.0000", storePairs: 1, lines: 1 }
+                    validator: { passed: true, violations: [] }
+                    warnings: []
+                    lines:
+                      - id: "0190f5a2-3b4c-7d8e-9f01-0000000000d1"
+                        productId: "0190f5a2-3b4c-7d8e-9f01-0000000000e1"
+                        sourceStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b1"
+                        destinationStoreId: "0190f5a2-3b4c-7d8e-9f01-0000000000b3"
+                        quantity: "8.0000"
+                        stockingUnit: piece
+                        warnings: []
+                        reviewDecision: null
+                        acceptOutcome: null
+        "400": { $ref: "#/components/responses/ReadValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/redistribution-proposals/{proposalId}/review:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    post:
+      operationId: reviewRedistributionProposal
+      tags: [inventory-redistribution]
+      summary: Record "would accept" / "would reject" decisions on lines (shadow phase).
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      x-idempotency: required
+      description: >
+        Records a review decision for each listed line; a later decision on the same line replaces the earlier one.
+        Creates nothing and changes no stock. Allowed while the proposal is `open`, `reviewed` or
+        `partially_accepted` and on a line with no accept outcome; the proposal becomes `reviewed` unless it is
+        already `partially_accepted`. A line id that is not on this proposal is 400 `validation_error`. A terminal
+        proposal is 409 `proposal_superseded`, `proposal_expired` or `proposal_state_conflict`; an accepted line is
+        409 `proposal_line_already_decided`. Owner or tenant_admin on the shadow or live allowlist; otherwise the
+        non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/ReviewRedistributionProposalCommand"
+      responses:
+        "200":
+          description: Decisions recorded; the updated proposal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionProposal"
+        "400": { $ref: "#/components/responses/WriteValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "409": { $ref: "#/components/responses/ProposalConflict" }
+        "425": { $ref: "#/components/responses/IdempotencyInProgress" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/redistribution-proposals/{proposalId}/accept:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    post:
+      operationId: acceptRedistributionProposal
+      tags: [inventory-redistribution]
+      summary: Accept lines into W3 shipment transfers in `draft` (live phase).
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      x-idempotency: required
+      description: >
+        In ONE transaction: re-reads the source stock and open draft transfers for each listed line, drops or
+        reduces lines that can no longer be given in full, groups the rest by store pair, splits a pair at 100 lines
+        (the W3 transfer limit) and creates one W3 shipment transfer in `draft` per group through the W3 create
+        command, with reason `Redistribution proposal <id>`. Every W3 rule of that command applies. It never
+        approves, dispatches or reserves. Either every listed line gets an outcome and its transfers exist, or
+        nothing is written. Each listed line reports `created`, `reduced` (both quantities) or `dropped` (with a
+        reason). When every listed line would be dropped, nothing is written and the answer is 409
+        `proposal_stale`: compute a new proposal. The proposal becomes `accepted` when every line has an outcome,
+        otherwise `partially_accepted`. A line id not on this proposal is 400 `validation_error`; a line that
+        already has an outcome is 409 `proposal_line_already_decided`. Allowed while the proposal is `open`,
+        `reviewed` or `partially_accepted`. Owner or tenant_admin on the LIVE allowlist with W3 shipment transfers
+        activated; otherwise (including a shadow-only tenant) the non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AcceptRedistributionProposalCommand"
+      responses:
+        "200":
+          description: Lines accepted; the per-line outcomes, the created draft transfer ids and the updated proposal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionAcceptResult"
+        "400": { $ref: "#/components/responses/WriteValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "409": { $ref: "#/components/responses/ProposalConflict" }
+        "425": { $ref: "#/components/responses/IdempotencyInProgress" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+  /api/inventory/v1/redistribution-proposals/{proposalId}/reject:
+    parameters:
+      - $ref: "#/components/parameters/ProposalId"
+    post:
+      operationId: rejectRedistributionProposal
+      tags: [inventory-redistribution]
+      summary: Reject the proposal with a reason.
+      x-runtime-status: contract-only
+      x-runtime-note: Served by the RT-1600 runtime (W9 slice A, N3).
+      x-idempotency: required
+      description: >
+        Moves the proposal to `rejected` with the given reason. Lines that already have an accept outcome keep it
+        and their draft transfers are untouched; lines without one are never accepted. Allowed while the proposal is
+        `open`, `reviewed` or `partially_accepted`; a terminal proposal is 409 `proposal_superseded`,
+        `proposal_expired` or `proposal_state_conflict`. Owner or tenant_admin on the shadow or live allowlist;
+        otherwise the non-disclosing 404.
+      security:
+        - cookieAuth: []
+      parameters:
+        - $ref: "#/components/parameters/IdempotencyKey"
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RejectRedistributionProposalCommand"
+      responses:
+        "200":
+          description: Proposal rejected; the updated proposal.
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RedistributionProposal"
+        "400": { $ref: "#/components/responses/WriteValidationFailure" }
+        "401": { $ref: "#/components/responses/Unauthorized" }
+        "403": { $ref: "#/components/responses/OriginRejected" }
+        "404": { $ref: "#/components/responses/NotFoundNonDisclosing" }
+        "409": { $ref: "#/components/responses/ProposalConflict" }
+        "425": { $ref: "#/components/responses/IdempotencyInProgress" }
+        "429": { $ref: "#/components/responses/TooManyRequests" }
+        "5XX": { $ref: "#/components/responses/SystemFailure" }
+
+components:
+  securitySchemes:
+    cookieAuth:
+      type: apiKey
+      in: cookie
+      name: dp2_session
+
+  parameters:
+    IdempotencyKey:
+      name: Idempotency-Key
+      in: header
+      required: true
+      description: >
+        REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared
+        `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored
+        response with `Idempotent-Replayed: true`; key reuse with a different body is 409
+        `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is
+        400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`.
+      schema:
+        type: string
+        minLength: 16
+        maxLength: 128
+        pattern: "^[\\x21-\\x7E]{16,128}$"
+    ProposalId:
+      name: proposalId
+      in: path
+      required: true
+      description: The proposal id. A malformed id is 400 `validation_error`.
+      schema: { type: string, format: uuid }
+    Cursor:
+      name: cursor
+      in: query
+      required: false
+      description: >
+        Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and the filter. A
+        value the server did not issue, or one reused with another filter, is 400 `validation_error`.
+      schema: { type: string, minLength: 1, maxLength: 1024 }
+    Limit:
+      name: limit
+      in: query
+      required: false
+      schema: { type: integer, minimum: 1, maximum: 100, default: 20 }
+
+  headers:
+    ConsoleRetryAfter:
+      description: >
+        Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound,
+        1 to 3600.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 3600
+    RetryAfterInProgress:
+      description: >
+        Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. The shared
+        `IdempotencyInterceptor` always sends it.
+      required: true
+      schema:
+        type: integer
+        minimum: 1
+
+  schemas:
+    # ----- Commands (request bodies): strict; tenant, store scope and actor come from the session, never the body.
+    ComputeRedistributionProposalCommand:
+      type: object
+      additionalProperties: false
+      description: >
+        Optional store scope. Without `storeIds`, every active store of the tenant is considered. Tenant, actor and
+        read times are server-owned and never accepted.
+      properties:
+        storeIds:
+          type: array
+          minItems: 2
+          maxItems: 50
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    ReviewRedistributionProposalCommand:
+      type: object
+      additionalProperties: false
+      required: [lineDecisions]
+      properties:
+        lineDecisions:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          items:
+            type: object
+            additionalProperties: false
+            required: [lineId, decision]
+            properties:
+              lineId: { type: string, format: uuid }
+              decision:
+                $ref: "#/components/schemas/RedistributionReviewDecisionValue"
+              note:
+                type: string
+                minLength: 1
+                maxLength: 500
+    AcceptRedistributionProposalCommand:
+      type: object
+      additionalProperties: false
+      required: [lineIds]
+      properties:
+        lineIds:
+          type: array
+          minItems: 1
+          maxItems: 1000
+          uniqueItems: true
+          items: { type: string, format: uuid }
+    RejectRedistributionProposalCommand:
+      type: object
+      additionalProperties: false
+      required: [reason]
+      properties:
+        reason:
+          type: string
+          minLength: 1
+          maxLength: 500
+
+    # ----- Shared values
+    PositiveDecimalQuantity:
+      type: string
+      pattern: '^(?!0+(?:\.0+)?$)[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: Strictly positive exact-decimal quantity as a STRING (`numeric(19,4)`).
+    NonNegativeDecimalQuantity:
+      type: string
+      pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+      description: Non-negative exact-decimal quantity as a STRING (`numeric(19,4)`).
+    RedistributionProposalState:
+      type: string
+      enum: [open, reviewed, partially_accepted, accepted, rejected, expired, superseded]
+      description: >
+        `accepted`, `rejected`, `expired` and `superseded` are terminal. A tenant has at most one proposal in
+        `open`, `reviewed` or `partially_accepted`.
+    RedistributionReviewDecisionValue:
+      type: string
+      enum: [would_accept, would_reject]
+    RedistributionRule:
+      type: object
+      additionalProperties: false
+      required: [name, version]
+      properties:
+        name: { type: string, const: reorder_gap_greedy }
+        version: { type: string, pattern: '^[0-9]+\.[0-9]+\.[0-9]+$' }
+    RedistributionLimits:
+      type: object
+      additionalProperties: false
+      required: [maxStores, maxRows, deadlineMs, maxLinesPerTransfer]
+      properties:
+        maxStores: { type: integer, minimum: 1 }
+        maxRows: { type: integer, minimum: 1 }
+        deadlineMs: { type: integer, minimum: 1 }
+        maxLinesPerTransfer: { type: integer, minimum: 1, maximum: 100 }
+    RedistributionBufferPolicy:
+      type: object
+      additionalProperties: false
+      required: [minimum, percentOfReorderLevel, rounding]
+      description: >
+        The safety buffer kept at a source above its reorder level: the larger of `minimum` and
+        `percentOfReorderLevel` percent of the level, rounded per `rounding`.
+      properties:
+        minimum: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+        percentOfReorderLevel: { type: integer, minimum: 0, maximum: 100 }
+        rounding: { type: string, enum: [scale, whole_unit] }
+    RedistributionStoreExclusion:
+      type: string
+      enum: [pos_queue_unknown, pos_queue_dead_letter_or_held, device_heartbeat_stale, inactive]
+      description: >
+        Why a store may not give stock. `inactive` also bars it as a destination; the others bar it only as a source.
+    RedistributionProposalStore:
+      type: object
+      additionalProperties: false
+      required: [storeId, readAt, eligibleAsSource, exclusion]
+      properties:
+        storeId: { type: string, format: uuid }
+        readAt:
+          type: string
+          format: date-time
+          description: When this store's stock was read for the compute.
+        eligibleAsSource: { type: boolean }
+        exclusion:
+          oneOf:
+            - $ref: "#/components/schemas/RedistributionStoreExclusion"
+            - type: "null"
+    RedistributionObjective:
+      type: object
+      additionalProperties: false
+      required: [deficitBefore, deficitAfter, storePairs, lines]
+      description: >
+        Total quantity below reorder level across destination rows before and after the proposed moves, and the size
+        of the plan.
+      properties:
+        deficitBefore: { $ref: "#/components/schemas/NonNegativeDecimalQuantity" }
+        deficitAfter: { $ref: "#/components/schemas/NonNegativeDecimalQuantity" }
+        storePairs: { type: integer, minimum: 0 }
+        lines: { type: integer, minimum: 0 }
+    RedistributionViolation:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code: { type: string, minLength: 1 }
+        productId: { type: string, format: uuid }
+        storeId: { type: string, format: uuid }
+        sourceStoreId: { type: string, format: uuid }
+        destinationStoreId: { type: string, format: uuid }
+        detail: { type: string }
+    RedistributionValidatorReport:
+      type: object
+      additionalProperties: false
+      required: [passed, violations]
+      description: The independent validator's report. A stored proposal always passed, with no violations.
+      properties:
+        passed: { type: boolean, const: true }
+        violations:
+          type: array
+          maxItems: 0
+          items: { $ref: "#/components/schemas/RedistributionViolation" }
+    RedistributionWarning:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum:
+            - store_excluded_as_source
+            - negative_available_to_sell
+            - reorder_level_missing
+            - tracked_product_skipped
+            - stocking_unit_mismatch
+        storeId: { type: string, format: uuid }
+        productId: { type: string, format: uuid }
+        count: { type: integer, minimum: 1 }
+        detail: { type: string }
+    RedistributionLineWarning:
+      type: object
+      additionalProperties: false
+      required: [code]
+      properties:
+        code:
+          type: string
+          enum: [source_near_reorder_level]
+        detail: { type: string }
+    RedistributionReviewDecision:
+      type: object
+      additionalProperties: false
+      required: [decision, note, decidedAt, decidedBy]
+      properties:
+        decision: { $ref: "#/components/schemas/RedistributionReviewDecisionValue" }
+        note:
+          oneOf:
+            - { type: string, minLength: 1, maxLength: 500 }
+            - type: "null"
+        decidedAt: { type: string, format: date-time }
+        decidedBy: { type: string, format: uuid }
+    RedistributionLineDropReason:
+      type: string
+      enum: [source_not_fresh, source_available_insufficient, destination_gap_closed, product_not_sellable]
+      description: >
+        Why accept reduced or dropped a line: the source store is no longer fresh, its available stock (net of open
+        drafts) can no longer give the quantity, the destination is no longer below its reorder level, or the
+        product is no longer sellable at one of the stores.
+    RedistributionAcceptOutcome:
+      type: object
+      additionalProperties: false
+      required: [outcome, proposedQuantity, createdQuantity, transferId, reason, decidedAt, decidedBy]
+      description: >
+        `created`: the full quantity is on the draft transfer. `reduced`: a smaller positive quantity is, with the
+        reason. `dropped`: nothing was created for the line, with the reason.
+      properties:
+        outcome: { type: string, enum: [created, reduced, dropped] }
+        proposedQuantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+        createdQuantity:
+          oneOf:
+            - $ref: "#/components/schemas/PositiveDecimalQuantity"
+            - type: "null"
+        transferId:
+          oneOf:
+            - { type: string, format: uuid }
+            - type: "null"
+        reason:
+          oneOf:
+            - $ref: "#/components/schemas/RedistributionLineDropReason"
+            - type: "null"
+        decidedAt: { type: string, format: date-time }
+        decidedBy: { type: string, format: uuid }
+    RedistributionProposalLine:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - productId
+        - sourceStoreId
+        - destinationStoreId
+        - quantity
+        - stockingUnit
+        - warnings
+        - reviewDecision
+        - acceptOutcome
+      properties:
+        id: { type: string, format: uuid }
+        productId: { type: string, format: uuid }
+        sourceStoreId: { type: string, format: uuid }
+        destinationStoreId: { type: string, format: uuid }
+        quantity: { $ref: "#/components/schemas/PositiveDecimalQuantity" }
+        stockingUnit: { type: string, minLength: 1, maxLength: 64 }
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionLineWarning" }
+        reviewDecision:
+          oneOf:
+            - $ref: "#/components/schemas/RedistributionReviewDecision"
+            - type: "null"
+        acceptOutcome:
+          oneOf:
+            - $ref: "#/components/schemas/RedistributionAcceptOutcome"
+            - type: "null"
+
+    # ----- Responses
+    RedistributionProposal:
+      type: object
+      additionalProperties: false
+      required:
+        - id
+        - state
+        - acceptEnabled
+        - createdAt
+        - createdBy
+        - expiresAt
+        - decidedAt
+        - supersededBy
+        - rejectReason
+        - rule
+        - computedAt
+        - limits
+        - buffer
+        - stores
+        - objective
+        - validator
+        - warnings
+        - lines
+      properties:
+        id: { type: string, format: uuid }
+        state: { $ref: "#/components/schemas/RedistributionProposalState" }
+        acceptEnabled:
+          type: boolean
+          description: >
+            True when the tenant is in the live phase (live allowlist and W3 shipment transfers activated), so accept
+            is available; false in the shadow phase.
+        createdAt: { type: string, format: date-time }
+        createdBy: { type: string, format: uuid }
+        expiresAt:
+          type: string
+          format: date-time
+          description: 24 hours after `createdAt`.
+        decidedAt:
+          description: When the proposal reached a terminal state other than `expired`; null otherwise.
+          oneOf:
+            - { type: string, format: date-time }
+            - type: "null"
+        supersededBy:
+          description: The proposal that superseded this one; null unless `superseded`.
+          oneOf:
+            - { type: string, format: uuid }
+            - type: "null"
+        rejectReason:
+          oneOf:
+            - { type: string, minLength: 1, maxLength: 500 }
+            - type: "null"
+        rule: { $ref: "#/components/schemas/RedistributionRule" }
+        computedAt: { type: string, format: date-time }
+        limits: { $ref: "#/components/schemas/RedistributionLimits" }
+        buffer: { $ref: "#/components/schemas/RedistributionBufferPolicy" }
+        stores:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionProposalStore" }
+        objective: { $ref: "#/components/schemas/RedistributionObjective" }
+        validator: { $ref: "#/components/schemas/RedistributionValidatorReport" }
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionWarning" }
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/RedistributionProposalLine" }
+    RedistributionNothingToMove:
+      type: object
+      additionalProperties: false
+      required: [result, rule, computedAt, stores, warnings]
+      description: The compute found no line to propose. Nothing was stored.
+      properties:
+        result: { type: string, const: nothing_to_move }
+        rule: { $ref: "#/components/schemas/RedistributionRule" }
+        computedAt: { type: string, format: date-time }
+        stores:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionProposalStore" }
+        warnings:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionWarning" }
+    RedistributionProposalSummary:
+      type: object
+      additionalProperties: false
+      required: [id, state, acceptEnabled, createdAt, expiresAt, computedAt, objective, lineCount, excludedStoreCount, warningCount]
+      properties:
+        id: { type: string, format: uuid }
+        state: { $ref: "#/components/schemas/RedistributionProposalState" }
+        acceptEnabled: { type: boolean }
+        createdAt: { type: string, format: date-time }
+        expiresAt: { type: string, format: date-time }
+        computedAt: { type: string, format: date-time }
+        objective: { $ref: "#/components/schemas/RedistributionObjective" }
+        lineCount: { type: integer, minimum: 1 }
+        excludedStoreCount: { type: integer, minimum: 0 }
+        warningCount: { type: integer, minimum: 0 }
+    RedistributionProposalList:
+      type: object
+      additionalProperties: false
+      required: [items, nextCursor]
+      properties:
+        items:
+          type: array
+          items: { $ref: "#/components/schemas/RedistributionProposalSummary" }
+        nextCursor:
+          oneOf:
+            - { type: string, minLength: 1, maxLength: 1024 }
+            - type: "null"
+    RedistributionAcceptLineResult:
+      type: object
+      additionalProperties: false
+      required: [lineId, outcome]
+      properties:
+        lineId: { type: string, format: uuid }
+        outcome: { $ref: "#/components/schemas/RedistributionAcceptOutcome" }
+    RedistributionAcceptResult:
+      type: object
+      additionalProperties: false
+      required: [lines, transferIds, proposal]
+      properties:
+        lines:
+          type: array
+          minItems: 1
+          items: { $ref: "#/components/schemas/RedistributionAcceptLineResult" }
+        transferIds:
+          type: array
+          description: The W3 shipment transfers created in `draft` by this accept, one per store pair and 100 lines.
+          items: { type: string, format: uuid }
+        proposal: { $ref: "#/components/schemas/RedistributionProposal" }
+    IdempotencyInProgressBody:
+      type: object
+      additionalProperties: false
+      required: [error, retryAfterSec]
+      description: The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope).
+      properties:
+        error: { type: string, const: idempotency_in_progress }
+        retryAfterSec: { type: integer, minimum: 1 }
+    Error:
+      type: object
+      required: [error]
+      description: >
+        Canonical error envelope, identical to the shared shape in `auth.openapi.yaml` and `inventory.yaml`.
+        Refusals are non-disclosing: they never enumerate the underlying cause.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              description: Stable machine-readable error code.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data, no cause enumeration.
+            request_id:
+              type: string
+              format: uuid
+              description: Server-side correlation id; the actual cause is recorded server-side.
+
+  responses:
+    ReadValidationFailure:
+      description: >
+        400 `validation_error`: a malformed path id or query parameter, or a cursor the server did not issue.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            validation_error:
+              value: { error: { code: validation_error, message: Invalid request., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000101" } }
+    WriteValidationFailure:
+      description: >
+        400: `validation_error` (a malformed path id or body, an unknown key, a line id not on the proposal, fewer
+        than two `storeIds`), `idempotency_key_required` or `idempotency_key_malformed`.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            validation_error:
+              value: { error: { code: validation_error, message: Invalid request., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000102" } }
+            idempotency_key_required:
+              value: { error: { code: idempotency_key_required, message: Idempotency-Key is required., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000103" } }
+            idempotency_key_malformed:
+              value: { error: { code: idempotency_key_malformed, message: Idempotency-Key is malformed., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000104" } }
+    Unauthorized:
+      description: "401 `unauthorized`: no valid session."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            unauthorized:
+              value: { error: { code: unauthorized, message: Unauthorized., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000105" } }
+    OriginRejected:
+      description: >
+        403 `origin_rejected` (RT-430): the request is authenticated by the `dp2_session` cookie and its `Origin`
+        header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A role outside owner
+        and tenant_admin is NOT a 403: it is the non-disclosing 404.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            origin_rejected:
+              value: { error: { code: origin_rejected, message: Forbidden., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000106" } }
+    NotFoundNonDisclosing:
+      description: >
+        404 `not_found`, non-disclosing: the proposal does not exist, belongs to another tenant, the caller's role
+        is not owner or tenant_admin, or the feature is off for the tenant (not on the shadow or live allowlist; for
+        accept, not on the live allowlist or W3 shipment transfers not activated). The cases are indistinguishable
+        by design.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            not_found:
+              value: { error: { code: not_found, message: Not Found, request_id: "0190f5a2-3b4c-7d8e-9f01-000000000107" } }
+    IdempotencyKeyConflict:
+      description: "409 `idempotency_key_conflict`: the `Idempotency-Key` was already used with a different body."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            idempotency_key_conflict:
+              value: { error: { code: idempotency_key_conflict, message: Idempotency key reused with a different request., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000108" } }
+    ProposalConflict:
+      description: >
+        409. `proposal_superseded`: a newer compute replaced the proposal. `proposal_expired`: it is past
+        `expiresAt`. `proposal_state_conflict`: it is `accepted` or `rejected`. `proposal_line_already_decided`: a
+        listed line already has an accept outcome. `proposal_stale` (accept only): every listed line would be
+        dropped against current stock; nothing was written, compute a new proposal. `idempotency_key_conflict`: the
+        `Idempotency-Key` was already used with a different body. Nothing is written.
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            proposal_superseded:
+              value: { error: { code: proposal_superseded, message: The proposal was superseded., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000109" } }
+            proposal_expired:
+              value: { error: { code: proposal_expired, message: The proposal has expired., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010a" } }
+            proposal_state_conflict:
+              value: { error: { code: proposal_state_conflict, message: The proposal is already decided., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010b" } }
+            proposal_line_already_decided:
+              value: { error: { code: proposal_line_already_decided, message: A line is already decided., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010c" } }
+            proposal_stale:
+              value: { error: { code: proposal_stale, message: The proposal no longer matches current stock., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010d" } }
+            idempotency_key_conflict:
+              value: { error: { code: idempotency_key_conflict, message: Idempotency key reused with a different request., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010e" } }
+    ComputeRefused:
+      description: >
+        422, nothing stored or superseded. `redistribution_too_large`: the store or row count is above the limits.
+        `redistribution_deadline_exceeded`: the compute ran past its deadline. `redistribution_plan_invalid`: the
+        independent validator rejected the plan (the violations are recorded server-side under `request_id`).
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            redistribution_too_large:
+              value: { error: { code: redistribution_too_large, message: Too many stores or rows for one proposal., request_id: "0190f5a2-3b4c-7d8e-9f01-00000000010f" } }
+            redistribution_deadline_exceeded:
+              value: { error: { code: redistribution_deadline_exceeded, message: The compute took too long., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000110" } }
+            redistribution_plan_invalid:
+              value: { error: { code: redistribution_plan_invalid, message: The plan failed validation., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000111" } }
+    IdempotencyInProgress:
+      description: >
+        425 `idempotency_in_progress`: the first request with this `Idempotency-Key` is still being processed. Retry
+        after `Retry-After` seconds with the same key and body.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/RetryAfterInProgress"
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/IdempotencyInProgressBody" }
+          examples:
+            idempotency_in_progress:
+              value: { error: idempotency_in_progress, retryAfterSec: 1 }
+    TooManyRequests:
+      description: >
+        429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is
+        the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id`
+        equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a
+        401: it never means the session ended. The console limit is server-configured and may not be enforced, so a
+        client must handle a 429 but must not expect one.
+      headers:
+        Retry-After:
+          $ref: "#/components/headers/ConsoleRetryAfter"
+        Cache-Control:
+          description: Always `no-store` on a 429.
+          required: true
+          schema:
+            type: string
+            enum: [no-store]
+        X-Request-Id:
+          description: >
+            The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a
+            well-formed UUID, otherwise a server-minted one.
+          required: true
+          schema:
+            type: string
+            format: uuid
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            rate_limited:
+              value: { error: { code: rate_limited, message: Too many requests., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000112" } }
+    SystemFailure:
+      description: "5xx `internal_error`: internal failure; the cause is recorded server-side under `request_id`."
+      content:
+        application/json:
+          schema: { $ref: "#/components/schemas/Error" }
+          examples:
+            internal_error:
+              value: { error: { code: internal_error, message: Internal error., request_id: "0190f5a2-3b4c-7d8e-9f01-000000000113" } }
