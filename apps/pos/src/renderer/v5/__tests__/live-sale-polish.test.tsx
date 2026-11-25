@@ -303,11 +303,17 @@ describe('v5 Sale polish — product flags read at 12px', () => {
 });
 
 // RT-1177 AC2 and AC3, as stylesheet guards (the cloud session has no display, so no capture was taken).
+const liveSaleCss = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
+/** Body of the first `<selector> { ... }` rule in live-sale.css; the selector is fully regex-escaped. */
+const liveSaleRule = (selector: string): string =>
+  new RegExp(`${selector.replace(/[.*+?^$(){}|[\]\\-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(
+    liveSaleCss,
+  )?.[1] ?? '';
+
 describe('v5 Sale polish — product flags cannot grow the cart row', () => {
-  const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
   const sale = readFileSync(resolve(__dirname, '../sale/sale-direction-b.css'), 'utf8');
-  const flag = /\.v5-live-flag\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
-  const flags = /\.v5-live-flags\s*\{([^}]*)\}/.exec(css)?.[1] ?? '';
+  const flag = liveSaleRule('.v5-live-flag');
+  const flags = liveSaleRule('.v5-live-flags');
 
   it('keeps the row floor on the shared token: 60px comfortable, 52px compact', () => {
     expect(sale).toMatch(/\.v5-sale-cart-table\s*\{[^}]*--v5-fit-row-size:\s*60px;/);
@@ -337,9 +343,7 @@ describe('v5 Sale polish — product flags cannot grow the cart row', () => {
 });
 
 describe('v5 Sale polish — product flags in forced-colours mode', () => {
-  const css = readFileSync(resolve(__dirname, '../sale/live-sale.css'), 'utf8');
-  const rule = (selector: string): string =>
-    new RegExp(`${selector.replace(/[.[\]-]/g, '\\$&')}\\s*\\{([^}]*)\\}`).exec(css)?.[1] ?? '';
+  const rule = liveSaleRule;
 
   it('leaves the Rx and controlled flags to the UA: token colours only, no forced-color-adjust opt-out', () => {
     for (const name of ['.v5-live-flag', '.v5-live-flag--controlled', '.v5-live-flag--rx']) {
