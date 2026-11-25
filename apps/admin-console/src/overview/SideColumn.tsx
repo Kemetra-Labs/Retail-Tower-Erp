@@ -1,10 +1,11 @@
 /**
- * RT-993 the Overview side column (DESIGN.md §12.4, D-V7): quick actions, the
- * attention list (RT-559, kept from v2), stores today and low stock.
+ * RT-993 the Overview side column (DESIGN.md §12.4, D-V7): the attention list
+ * (RT-559, kept from v2), stores today and low stock.
  *
- * - Quick actions: at most four, one colour family, each a destination that
- *   exists and that the role may open (the same gates as the navigation), with
- *   a one-line description of what it opens. None performs an action.
+ * Modern concept 1/6: quick actions moved to a bar at the top of the main
+ * column (`OverviewPanels.tsx` renders the exported `QuickActions` there);
+ * the destinations, gates and copy are unchanged.
+ *
  * - Stores today has no backing read wired yet. By owner decision 2026-11-01
  *   (RT-993 comment 15088, amending §12.8.6) it renders its frame with a clear
  *   «قريبًا» state and no invented figure (read: RT-1053).
@@ -65,13 +66,23 @@ function QuickAction({ to, label, note }: Readonly<{ to: string; label: string; 
   );
 }
 
-function QuickActions({ role }: Readonly<{ role: string | null }>): React.JSX.Element | null {
+/**
+ * Quick actions: at most four, one colour family, each a destination that
+ * exists and that the role may open (the same gates as the navigation), with
+ * a one-line description of what it opens. None performs an action. Rendered
+ * as a bar at the top of the main column (modern concept 1/6, rule 2); the
+ * `className` is the bar's hook (`overview__quick`).
+ */
+export function QuickActions({
+  role,
+  className,
+}: Readonly<{ role: string | null; className?: string }>): React.JSX.Element | null {
   const t = useT();
   const titleId = useId();
   const actions = QUICK_ACTIONS.filter((a) => a.gate(role)).slice(0, 4);
   if (actions.length === 0) return null;
   return (
-    <nav className="section-panel" aria-labelledby={titleId}>
+    <nav className={className ? `section-panel ${className}` : "section-panel"} aria-labelledby={titleId}>
       <div className="section-panel__head">
         <h2 id={titleId} className="section-panel__title">
           {t("overview.quick.title")}
@@ -116,7 +127,6 @@ export function SideColumn({
   const t = useT();
   return (
     <section className="overview__side" aria-label={t("overview.side.label")}>
-      <QuickActions role={session.role} />
       {attention}
       <ComingSoon title="overview.stores.title" note="overview.stores.soon" />
       <LowStockPanel session={session} />
