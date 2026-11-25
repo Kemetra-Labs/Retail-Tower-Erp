@@ -26,8 +26,8 @@ import type { SalesSummary } from "@/lib/sales-summary-queries";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { useId } from "react";
 import { Link } from "react-router";
-import { glanceDay, postingSplit } from "./glanceLogic";
 import { useLowStock } from "./LowStockPanel";
+import { glanceDay, postingSplit } from "./glanceLogic";
 import type { OverviewSession } from "./useOverviewPanels";
 import type { PanelState } from "./usePanelQuery";
 

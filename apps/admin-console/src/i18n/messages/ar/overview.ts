@@ -121,6 +121,7 @@ export const overview = {
   // --- Modern concept 1/6: the smart insight (rule 4) -------------------------
   "overview.insight.title": "ما يهم اليوم",
   "overview.insight.failedPosting": {
+    zero: "لا توجد مبيعات فشل ترحيلها إلى ERPNext اليوم.",
     one: "مبيعة واحدة فشل ترحيلها إلى ERPNext اليوم.",
     two: "مبيعتان فشل ترحيلهما إلى ERPNext اليوم.",
     few: "{count} مبيعات فشل ترحيلها إلى ERPNext اليوم.",
@@ -128,6 +129,7 @@ export const overview = {
     other: "{count} مبيعة فشل ترحيلها إلى ERPNext اليوم.",
   },
   "overview.insight.needsRepair": {
+    zero: "لا توجد مبيعات تحتاج إلى إصلاح.",
     one: "مبيعة واحدة تحتاج إلى إصلاح.",
     two: "مبيعتان تحتاجان إلى إصلاح.",
     few: "{count} مبيعات تحتاج إلى إصلاح.",
@@ -135,6 +137,7 @@ export const overview = {
     other: "{count} مبيعة تحتاج إلى إصلاح.",
   },
   "overview.insight.criticalStock": {
+    zero: "لا توجد أصناف بمخزون حرج.",
     one: "صنف واحد بمخزون حرج.",
     two: "صنفان بمخزون حرج.",
     few: "{count} أصناف بمخزون حرج.",

@@ -82,7 +82,10 @@ export function QuickActions({
   const actions = QUICK_ACTIONS.filter((a) => a.gate(role)).slice(0, 4);
   if (actions.length === 0) return null;
   return (
-    <nav className={className ? `section-panel ${className}` : "section-panel"} aria-labelledby={titleId}>
+    <nav
+      className={className ? `section-panel ${className}` : "section-panel"}
+      aria-labelledby={titleId}
+    >
       <div className="section-panel__head">
         <h2 id={titleId} className="section-panel__title">
           {t("overview.quick.title")}

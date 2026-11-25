@@ -16,14 +16,14 @@
  *
  * Modern concept 1/6 (rule 3): every card carries a sparkline, not just the
  * hero — the same 14 business days from the same summary read, one series per
- * card (transactions and voids count their days; returns takes the first
- * currency's totals, as the hero does). A missing day is a gap, never 0.
+ * card (transactions and voids count their days; returns takes its own first
+ * currency's totals, as its card does). A missing day is a gap, never 0.
  */
 import { ReceiptCard } from "@/components/ReceiptCard";
 import { DIRECTION, DateTime, Money, useLocale, useT } from "@/i18n";
 import type { SalesSummary } from "@/lib/sales-summary-queries";
 import { type MetricId, type SalesKpis, deltaTone } from "@/metrics/metricRegistry";
-import { addDays, reportModel, type ReportModel } from "@/sales-daily/dailyLogic";
+import { type ReportModel, addDays, reportModel } from "@/sales-daily/dailyLogic";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId } from "react";
 import { Link } from "react-router";
@@ -195,9 +195,7 @@ function HeroSpark({
   const values = comparisonModel(reportModel(summary), date, TREND_DAYS, currency).map(
     (p) => p.current,
   );
-  return (
-    <Spark values={values} label={t("overview.kpi.sparkSummary", { currency })} tone="hero" />
-  );
+  return <Spark values={values} label={t("overview.kpi.sparkSummary", { currency })} tone="hero" />;
 }
 
 function CountCard({
@@ -267,6 +265,14 @@ function MoneyCard({
   );
 }
 
+/**
+ * The returns card shows its own first currency, so its trend follows that
+ * currency, not the received-sales one.
+ */
+function returnsSparkCurrency(day: Ready, fallback: string | undefined): string | undefined {
+  return amountsOf(day.today?.returns ?? null, day.previous?.returns ?? null)?.[0] ?? fallback;
+}
+
 function Row({
   day,
   summary,
@@ -281,14 +287,11 @@ function Row({
   const transactionsSpark = seriesOf(model, day.date, (kpis) =>
     kpis ? String(kpis.receivedSales.count) : null,
   );
-  const returnsSpark = sparkCurrency
-    ? seriesOf(model, day.date, (kpis) =>
-        kpis ? totalIn(kpis.returns, sparkCurrency) : null,
-      )
+  const returnsCurrency = returnsSparkCurrency(day, sparkCurrency);
+  const returnsSpark = returnsCurrency
+    ? seriesOf(model, day.date, (kpis) => (kpis ? totalIn(kpis.returns, returnsCurrency) : null))
     : undefined;
-  const voidsSpark = seriesOf(model, day.date, (kpis) =>
-    kpis ? String(kpis.voids.count) : null,
-  );
+  const voidsSpark = seriesOf(model, day.date, (kpis) => (kpis ? String(kpis.voids.count) : null));
   return (
     <>
       <p id={contextId} className="receipt-row__context">
