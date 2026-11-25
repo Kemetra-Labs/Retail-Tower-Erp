@@ -29,6 +29,7 @@ import {
 import type { ManagerActionKind } from '../../shared/operator/manager-action-kinds.js';
 import { MANAGER_PIN_PATTERN, MANAGER_REF_PATTERN } from '../../shared/shift-cashup/types.js';
 import type { ManagerApprovalService } from '../operator/manager-approval-service.js';
+import { closed, createIpcRunner } from './validation.js';
 
 const INVALID = { kind: 'refused', reason: 'invalid_input' } as const;
 const SUBJECT_REF_PATTERN = /^[A-Za-z0-9_-]{1,128}$/;
@@ -43,15 +44,6 @@ const REQUEST_KEYS = [
   'pin',
 ] as const;
 
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false;
-  return !Array.isArray(value);
-}
-
-function isClosedShape(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isRecord(value) && Object.keys(value).every((key) => keys.includes(key));
-}
-
 function isString(value: unknown, pattern: RegExp): value is string {
   return typeof value === 'string' && pattern.test(value);
 }
@@ -60,7 +52,7 @@ function isString(value: unknown, pattern: RegExp): value is string {
 export function readListApproversRequest(
   value: unknown,
 ): { action_kind: ManagerActionKind } | null {
-  if (!isClosedShape(value, LIST_KEYS)) return null;
+  if (!closed(value, LIST_KEYS)) return null;
   const kind = value['action_kind'];
   return isManagerActionKind(kind) ? { action_kind: kind } : null;
 }
@@ -86,7 +78,7 @@ function hasRequiredFields(value: Record<string, unknown>): boolean {
 
 /** The approval request's closed shape, or null. */
 export function readApprovalRequest(value: unknown): ManagerApprovalRequest | null {
-  if (!isClosedShape(value, REQUEST_KEYS) || !hasRequiredFields(value)) return null;
+  if (!closed(value, REQUEST_KEYS) || !hasRequiredFields(value)) return null;
   const note = readNote(value['reason_note']);
   if (note === null) return null;
   const { action_kind, subject_ref, reason_code, approver_ref, pin } =
@@ -99,19 +91,16 @@ export interface ManagerApprovalIpcDeps {
   logger: Pick<Logger, 'warn'>;
 }
 
-function errorName(error: unknown): string {
-  return error instanceof Error ? error.name : typeof error;
-}
-
 export function registerManagerApprovalHandlers(
   ipcMain: Pick<IpcMain, 'handle'>,
   deps: ManagerApprovalIpcDeps,
 ): void {
   const { service, logger } = deps;
-  const unavailable = (op: string, error: unknown) => {
-    logger.warn({ op, error: errorName(error) }, 'approval:failed');
-    return { kind: 'refused', reason: 'approval_unavailable' } as const;
-  };
+  const { unavailable } = createIpcRunner(
+    logger,
+    'approval:failed',
+    () => ({ kind: 'refused', reason: 'approval_unavailable' }) as const,
+  );
 
   ipcMain.handle(
     MANAGER_APPROVAL_IPC_CHANNELS.LIST_APPROVERS,

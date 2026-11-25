@@ -23,13 +23,10 @@ import type {
   ReceiptsManualOverrideRequest,
   ReceiptsManualOverrideResponse,
 } from '../../shared/bridge-api.js';
+import { isObjectLike } from './validation.js';
 
 export interface ReceiptsIpcDeps {
   receiptsBridge: ReceiptsBridge;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object';
 }
 
 export function registerReceiptsHandlers(ipcMain: IpcMain, deps: ReceiptsIpcDeps): void {
@@ -38,7 +35,7 @@ export function registerReceiptsHandlers(ipcMain: IpcMain, deps: ReceiptsIpcDeps
   ipcMain.handle(
     RECEIPTS_IPC_CHANNELS.PREVIEW,
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<ReceiptsPreviewResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return receiptsBridge.preview(request as unknown as ReceiptsPreviewRequest);
     },
   );
@@ -46,7 +43,7 @@ export function registerReceiptsHandlers(ipcMain: IpcMain, deps: ReceiptsIpcDeps
   ipcMain.handle(
     RECEIPTS_IPC_CHANNELS.RETRY_PRINT,
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<ReceiptsRetryPrintResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return receiptsBridge.retryPrint(request as unknown as ReceiptsRetryPrintRequest);
     },
   );
@@ -54,7 +51,7 @@ export function registerReceiptsHandlers(ipcMain: IpcMain, deps: ReceiptsIpcDeps
   ipcMain.handle(
     RECEIPTS_IPC_CHANNELS.REPRINT,
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<ReceiptsReprintResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return receiptsBridge.reprint(request as unknown as ReceiptsReprintRequest);
     },
   );
@@ -65,7 +62,7 @@ export function registerReceiptsHandlers(ipcMain: IpcMain, deps: ReceiptsIpcDeps
       _event: IpcMainInvokeEvent,
       request: unknown,
     ): Promise<ReceiptsManualOverrideResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return receiptsBridge.manualOverride(request as unknown as ReceiptsManualOverrideRequest);
     },
   );

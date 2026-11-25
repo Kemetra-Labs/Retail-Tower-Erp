@@ -21,18 +21,12 @@ import {
   type SaleVoidRequest,
 } from '../../shared/sale-void/types.js';
 import type { SaleVoidService } from '../sale-void/sale-void-service.js';
+import { closed, createIpcRunner } from './validation.js';
 
 const INVALID: SaleVoidRefused = { kind: 'refused', reason: 'invalid_input' };
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const APPROVAL_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const SALE_NUMBER_MAX_LENGTH = 64;
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-function closed(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isPlainObject(value) && Object.keys(value).every((key) => keys.includes(key));
-}
 
 const isId = (v: unknown): v is string => typeof v === 'string' && ID.test(v);
 
@@ -91,20 +85,10 @@ export function registerSaleVoidHandlers(
   deps: SaleVoidIpcDeps,
 ): void {
   const { service, logger } = deps;
-  const unavailable = (op: string, error: unknown): SaleVoidRefused => {
-    logger.warn(
-      { op, error: error instanceof Error ? error.name : typeof error },
-      'sale_void:failed',
-    );
-    return { kind: 'refused', reason: 'void_unavailable' };
-  };
-  const run = async <T>(op: string, fn: () => Promise<T>): Promise<T | SaleVoidRefused> => {
-    try {
-      return await fn();
-    } catch (error) {
-      return unavailable(op, error);
-    }
-  };
+  const { runIpc: run } = createIpcRunner<SaleVoidRefused>(logger, 'sale_void:failed', () => ({
+    kind: 'refused',
+    reason: 'void_unavailable',
+  }));
 
   ipcMain.handle(SALE_VOID_IPC_CHANNELS.LOOKUP, (_event, request: unknown) => {
     const req = readLookup(request);

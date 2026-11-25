@@ -18,6 +18,7 @@ import {
   type SaleHistoryZoneStatusRequest,
 } from '../../shared/sale-history/types.js';
 import type { SaleHistoryService } from '../sale-history/sale-history-service.js';
+import { createIpcRunner, isPlainObject } from './validation.js';
 
 const INVALID: SaleHistoryRefused = { kind: 'refused', reason: 'invalid_request' };
 const UNAVAILABLE: SaleHistoryRefused = { kind: 'refused', reason: 'unavailable' };
@@ -27,25 +28,16 @@ export interface SaleHistoryIpcDeps {
   readonly logger: Pick<Logger, 'warn'>;
 }
 
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
 export function registerSaleHistoryHandlers(
   ipcMain: Pick<IpcMain, 'handle'>,
   deps: SaleHistoryIpcDeps,
 ): void {
   const { service, logger } = deps;
-  const run = async <T>(op: string, fn: () => Promise<T>): Promise<T | SaleHistoryRefused> => {
-    try {
-      return await fn();
-    } catch (error) {
-      logger.warn(
-        { op, error: error instanceof Error ? error.name : typeof error },
-        'sale_history:failed',
-      );
-      return UNAVAILABLE;
-    }
-  };
+  const { runIpc: run } = createIpcRunner<SaleHistoryRefused>(
+    logger,
+    'sale_history:failed',
+    () => UNAVAILABLE,
+  );
 
   ipcMain.handle(SALE_HISTORY_IPC_CHANNELS.LIST, (_event, request: unknown) =>
     isPlainObject(request)

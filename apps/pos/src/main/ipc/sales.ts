@@ -49,17 +49,10 @@ import type {
   SalesReadForHandoffRequest,
   SalesReadForHandoffResponse,
 } from '../../shared/bridge-api.js';
+import { isObjectLike, isPlainObject } from './validation.js';
 
 export interface SalesIpcDeps {
   salesBridge: SalesBridge;
-}
-
-function isObject(v: unknown): v is Record<string, unknown> {
-  return v !== null && typeof v === 'object';
-}
-
-function isPlainObject(v: unknown): v is Record<string, unknown> {
-  return isObject(v) && !Array.isArray(v);
 }
 
 export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): void {
@@ -68,7 +61,7 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
   ipcMain.handle(
     SALES_IPC_CHANNELS.READ,
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesReadResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return salesBridge.read(request as unknown as SalesReadRequest);
     },
   );
@@ -76,7 +69,7 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
   ipcMain.handle(
     SALES_IPC_CHANNELS.FIND_BY_NUMBER,
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesFindByNumberResponse> => {
-      if (!isObject(request)) return { kind: 'refused', reason: 'sale_not_found' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'sale_not_found' };
       return salesBridge.findByNumber(request as unknown as SalesFindByNumberRequest);
     },
   );
@@ -86,7 +79,7 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesSubscribeResponse> => {
       // subscribe is a stub returning not_implemented; a malformed request
       // maps to the same terminal refusal without invoking the handler.
-      if (!isObject(request)) return { kind: 'refused', reason: 'not_implemented' };
+      if (!isObjectLike(request)) return { kind: 'refused', reason: 'not_implemented' };
       return salesBridge.subscribe(request as unknown as SalesSubscribeRequest);
     },
   );
@@ -96,7 +89,7 @@ export function registerSalesHandlers(ipcMain: IpcMain, deps: SalesIpcDeps): voi
     async (_event: IpcMainInvokeEvent, request: unknown): Promise<SalesUnsubscribeResponse> => {
       // unsubscribe is an idempotent no-op stub; a malformed request is the
       // same no-op ok the bridge would return.
-      if (!isObject(request)) return { kind: 'ok' };
+      if (!isObjectLike(request)) return { kind: 'ok' };
       return salesBridge.unsubscribe(request as unknown as SalesUnsubscribeRequest);
     },
   );
