@@ -18,42 +18,23 @@
  *     `erp_state = 'not_emitted'` and no work item is emitted.
  *   - One person may create, approve and dispatch: each step is audited with its actor (owner decision 2026-11-19).
  */
-import {
-  BadRequestException,
-  ConflictException,
-  ForbiddenException,
-  Inject,
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, NotFoundException } from '@nestjs/common';
 import { lockPostingFeedSequence, runWithTenantContext, type InventoryStatus } from '@data-pulse-2/db';
 import { newId } from '@data-pulse-2/shared';
 import type { Pool, PoolClient } from 'pg';
 
-import { trackingModesOfProducts } from '../../catalog';
-import { InvalidCursorError } from '../../common/cursor/opaque-cursor';
 import { formatQuantity, parseQuantity } from '../../common/quantity/decimal-quantity';
-import {
-  MembershipRepository,
-  callerStoreScope,
-  findCallerRoleCode,
-  type StoreScope,
-  type TenantContextRequest,
-} from '../../context';
+import { MembershipRepository } from '../../context';
 import { PG_POOL } from '../../database';
 import { recordInventoryNegativeBalance } from '../../observability/metrics/api.metrics';
 import {
-  assertReferencesInTenant,
-  assertUnitMatchesEstablished,
   emitMovementCreated,
   flagIfNegativeOnHand,
   insertMovementRow,
   recordNotPosted,
   resolvePosition,
 } from '../inventory-write.helpers';
-import { authorizeDestinationStoreAccess } from '../destination-store-access';
 import { MOVEMENT_COLUMNS } from '../inventory.types';
-import { writeAudit } from '../position-events/position-event.writer';
 import {
   decodeTransferCursor,
   encodeTransferCursor,
@@ -65,20 +46,33 @@ import {
   lineRefs,
   releaseReceiptLegs,
 } from './shipment-transfer.posting';
+import {
+  TENANT_WIDE_ROLES,
+  assertShipmentTransfersEnabled,
+  auditTransfer,
+  inScope,
+  lockedTransferOr404,
+  readAccess,
+  requireStoreAuthority,
+  tenantOnlyLegalEntity,
+  toHttp,
+  transferBodyOr404,
+  type Access,
+  type CreateTransferInput,
+  type TransferCaller,
+} from './shipment-transfer.access';
+import { assertDraftInputShape, createDraftTransfer } from './shipment-transfer.draft';
 import { TRANSFER_ERP_PORT, type TransferErpPort } from './transfer-erp.port';
 import {
-  TRANSFER_LINE_MAX,
   TRANSFER_SOURCE_SYSTEM,
   TransferRuleError,
   applyCommand,
-  assertErpQuantity,
   assertSameLegalEntity,
   dispatchExternalId,
   planClose,
   planReceipt,
   receiptExternalId,
   stateAfterReceipt,
-  type LegalEntityOf,
   type LineQuantities,
   type TransferState,
 } from './shipment-transfer.rules';
@@ -89,38 +83,17 @@ import {
   receiptBodies,
   receiptBodyOf,
   transferBodies,
-  transferBodyOf,
   type LineRow,
   type ReceiptBody,
   type TransferBody,
   type TransferRow,
 } from './shipment-transfer.store';
 
-const AUDIT_TARGET = 'shipment_transfer';
 /** A sort key as UTC text with six fractional digits: the pg driver's `Date` keeps only milliseconds and would repeat or skip rows. */
 const CURSOR_KEY_SQL = (column: string): string => `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.US"Z"')`;
-const TENANT_WIDE_ROLES: ReadonlySet<string> = new Set(['owner', 'tenant_admin']);
 const DISPOSITIONS: ReadonlySet<string> = new Set(['sellable', 'damaged']);
 
-export type TransferContext = NonNullable<TenantContextRequest['context']>;
-
-export interface TransferCaller {
-  readonly tenantId: string;
-  readonly userId: string;
-  readonly context: TransferContext;
-}
-
-export interface CreateTransferInput {
-  readonly sourceStoreId: string;
-  readonly destinationStoreId: string;
-  readonly reason: string | null;
-  readonly lines: readonly {
-    readonly tenantProductRef: string;
-    readonly quantity: string;
-    readonly stockingUnit: string;
-    readonly trackingIdentityId: string | null;
-  }[];
-}
+export type { CreateTransferInput, TransferCaller, TransferContext } from './shipment-transfer.access';
 
 export interface ReceiptInput {
   readonly lines: readonly {
@@ -142,26 +115,6 @@ export interface ListFilters {
   readonly direction: 'outbound' | 'inbound' | 'any';
   readonly state: TransferState | null;
 }
-
-interface Access {
-  readonly role: string;
-  readonly scope: StoreScope;
-}
-
-const inScope = (scope: StoreScope, storeId: string): boolean =>
-  scope.kind === 'tenant' || scope.storeIds.includes(storeId.toLowerCase());
-
-/** Map a rule refusal to the HTTP error of the existing envelope. */
-function toHttp(err: unknown): unknown {
-  if (err instanceof InvalidCursorError) return new BadRequestException({ code: 'validation_error', message: err.message });
-  if (!(err instanceof TransferRuleError)) return err;
-  if (err.code === 'validation_error') return new BadRequestException({ code: 'validation_error', message: err.message });
-  if (err.code === 'forbidden') return new ForbiddenException({ code: 'forbidden', message: err.message });
-  return new ConflictException({ code: err.code, message: err.message });
-}
-
-/** V1: a store's legal entity is its tenant (see `assertSameLegalEntity`). */
-const tenantOnlyLegalEntity = (tenantId: string): LegalEntityOf => () => tenantId;
 
 @Injectable()
 export class ShipmentTransfersService {
@@ -191,10 +144,7 @@ export class ShipmentTransfersService {
   }
 
   private async access(client: PoolClient, caller: TransferCaller): Promise<Access> {
-    const role = await findCallerRoleCode(this.memberships, client, { tenantId: caller.tenantId, context: caller.context });
-    if (role === null) throw new NotFoundException('Not Found');
-    const scope = await callerStoreScope(client, this.memberships, { tenantId: caller.tenantId, context: caller.context });
-    return { role, scope };
+    return await readAccess(client, this.memberships, caller);
   }
 
   /** A Transfer outside the caller's scope (neither store in it) is the non-disclosing 404. */
@@ -208,13 +158,7 @@ export class ShipmentTransfersService {
 
   /** The authority to act on one store: owner / tenant_admin everywhere, a store_manager inside its scope. */
   private requireStore(a: Access, storeId: string, other?: string): void {
-    if (TENANT_WIDE_ROLES.has(a.role) && a.scope.kind === 'tenant') return;
-    if (inScope(a.scope, storeId)) return;
-    // A caller that cannot see this store but can see the Transfer through the other one: forbidden, not hidden.
-    if (other !== undefined && inScope(a.scope, other)) {
-      throw new TransferRuleError('forbidden', 'The caller has no authority over this store of the Transfer.');
-    }
-    throw new NotFoundException('Not Found');
+    requireStoreAuthority(a, storeId, other);
   }
 
   private async audit(
@@ -224,26 +168,11 @@ export class ShipmentTransfersService {
     transfer: TransferRow,
     metadata: Record<string, unknown>,
   ): Promise<void> {
-    await writeAudit(client, {
-      tenantId: caller.tenantId,
-      userId: caller.userId,
-      action: `inventory.shipment_transfer.${action}`,
-      targetType: AUDIT_TARGET,
-      targetId: transfer.id,
-      metadata: {
-        sourceStoreId: transfer.source_store_id,
-        destinationStoreId: transfer.destination_store_id,
-        // The same person may create, approve and dispatch: the audit names each actor and says so (2026-11-19).
-        selfActioned: transfer.created_by === caller.userId,
-        ...metadata,
-      },
-    });
+    await auditTransfer(client, caller, action, transfer, metadata);
   }
 
   private async lockedTransfer(client: PoolClient, id: string): Promise<TransferRow> {
-    const row = await loadTransferRow(client, id, true);
-    if (!row) throw new NotFoundException('Not Found');
-    return row;
+    return await lockedTransferOr404(client, id);
   }
 
   /** The Transfer, locked, visible to the caller, in a state the source-store command allows, and the caller's authority. */
@@ -283,9 +212,7 @@ export class ShipmentTransfersService {
   }
 
   private async bodyOrThrow(client: PoolClient, id: string): Promise<TransferBody> {
-    const body = await transferBodyOf(client, id);
-    if (!body) throw new NotFoundException('Not Found');
-    return body;
+    return await transferBodyOr404(client, id);
   }
 
   // ---- reservation expiry (797, 798) ---------------------------------------------------------------------------
@@ -339,98 +266,18 @@ export class ShipmentTransfersService {
 
   // ---- create (800-802, 962, 963, G7-4) ------------------------------------------------------------------------
 
+  /**
+   * The Draft is created by the RT-1597 port (`createDraftTransfer`), in this command's own transaction. The pure input
+   * rules still run before any transaction is opened, as before; the port repeats them (pure, no database).
+   */
   async create(caller: TransferCaller, input: CreateTransferInput): Promise<TransferBody> {
-    if (input.sourceStoreId === input.destinationStoreId) {
-      throw new BadRequestException({ code: 'validation_error', message: 'source and destination stores must differ' });
-    }
-    if (input.lines.length < 1 || input.lines.length > TRANSFER_LINE_MAX) {
-      throw new BadRequestException({ code: 'validation_error', message: `a Transfer has 1..${TRANSFER_LINE_MAX} lines` });
-    }
-    const keys = new Set<string>();
-    for (const l of input.lines) {
-      const key = `${l.tenantProductRef}:${l.trackingIdentityId ?? ''}`;
-      if (keys.has(key)) {
-        throw new BadRequestException({ code: 'validation_error', message: 'a product (and identity) may appear once per Transfer' });
-      }
-      keys.add(key);
-      if (l.stockingUnit.trim().length === 0) {
-        throw new BadRequestException({ code: 'validation_error', message: 'stockingUnit is required' });
-      }
-    }
-    return await this.tx(caller, async (client, a) => {
-      // Both stores resolve inside the tenant (RLS): a store of another tenant is the non-disclosing 404.
-      await assertReferencesInTenant(client, { storeIds: [input.sourceStoreId, input.destinationStoreId] });
-      // Authority over BOTH stores (962): the source in the caller's scope, the destination within its membership.
-      this.requireStore(a, input.sourceStoreId);
-      authorizeDestinationStoreAccess(caller.context, input.destinationStoreId);
-      assertSameLegalEntity(tenantOnlyLegalEntity(caller.tenantId), input.sourceStoreId, input.destinationStoreId);
-
-      const parsed = input.lines.map((l) => {
-        const q = parseQuantity(l.quantity, 'quantity');
-        if (q <= 0n) throw new BadRequestException({ code: 'validation_error', message: 'quantity must be strictly positive' });
-        assertErpQuantity(q, 'quantity');
-        return { ...l, scaled: q, stockingUnit: l.stockingUnit.trim() };
-      });
-      await this.assertTrackingShape(client, parsed);
-      for (const l of parsed) {
-        await assertReferencesInTenant(client, { storeIds: [input.sourceStoreId], tenantProductRef: l.tenantProductRef });
-        await assertUnitMatchesEstablished(client, input.sourceStoreId, l.tenantProductRef, l.stockingUnit);
-        await assertUnitMatchesEstablished(client, input.destinationStoreId, l.tenantProductRef, l.stockingUnit);
-      }
-
-      const id = newId();
-      await client.query(
-        `INSERT INTO shipment_transfers (id, tenant_id, source_store_id, destination_store_id, state, reason, created_by)
-         VALUES ($1, $2, $3, $4, 'draft', $5, $6)`,
-        [id, caller.tenantId, input.sourceStoreId, input.destinationStoreId, input.reason, caller.userId],
+    assertDraftInputShape(input);
+    try {
+      return await runWithTenantContext(this.pool, { tenantId: caller.tenantId, isPlatformAdmin: false }, (client) =>
+        createDraftTransfer(client, caller, input, { memberships: this.memberships }),
       );
-      for (let i = 0; i < parsed.length; i += 1) {
-        const l = parsed[i]!;
-        await client.query(
-          `INSERT INTO shipment_transfer_lines
-             (id, tenant_id, transfer_id, line_seq, tenant_product_ref, stocking_unit, tracking_identity_id, quantity)
-           VALUES ($1, $2, $3, $4, $5, $6, $7, $8::numeric(19,4))`,
-          [newId(), caller.tenantId, id, i + 1, l.tenantProductRef, l.stockingUnit, l.trackingIdentityId, formatQuantity(l.scaled)],
-        );
-      }
-      const row = await this.lockedTransfer(client, id);
-      await this.audit(client, caller, 'create', row, { lineCount: parsed.length });
-      return await this.bodyOrThrow(client, id);
-    });
-  }
-
-  /** G7-4: one tracking identity per tracked line; serial is refused until the serial gate. */
-  private async assertTrackingShape(
-    client: PoolClient,
-    lines: readonly { tenantProductRef: string; trackingIdentityId: string | null }[],
-  ): Promise<void> {
-    const ids = [...new Set(lines.map((l) => l.tenantProductRef))];
-    const mode = await trackingModesOfProducts(client, ids);
-    if (mode.size !== ids.length) throw new NotFoundException('Not Found');
-    for (const l of lines) {
-      const m = mode.get(l.tenantProductRef)!;
-      if (m === 'serial') {
-        throw new TransferRuleError('serial_transfer_not_supported', 'Serial products cannot be transferred until the serial gate.');
-      }
-      if (m === 'batch' && l.trackingIdentityId === null) {
-        throw new TransferRuleError('tracking_identity_required', 'A tracked product needs one tracking identity per line.');
-      }
-      if (m === 'none' && l.trackingIdentityId !== null) {
-        throw new TransferRuleError('validation_error', 'trackingIdentityId must be null for an untracked product.');
-      }
-    }
-    const identityIds = lines.flatMap((l) => (l.trackingIdentityId ? [l.trackingIdentityId] : []));
-    if (identityIds.length > 0) {
-      const found = await client.query<{ id: string; tenant_product_ref: string }>(
-        `SELECT id, tenant_product_ref FROM tracking_identities WHERE id = ANY($1::uuid[])`,
-        [identityIds],
-      );
-      const owner = new Map(found.rows.map((r) => [r.id, r.tenant_product_ref] as const));
-      for (const l of lines) {
-        if (l.trackingIdentityId !== null && owner.get(l.trackingIdentityId) !== l.tenantProductRef) {
-          throw new TransferRuleError('validation_error', "trackingIdentityId is not an identity of the line's product.");
-        }
-      }
+    } catch (err) {
+      throw toHttp(err);
     }
   }
 
@@ -866,14 +713,4 @@ function toQuantities(l: LineRow): LineQuantities {
     receivedQuantity: l.received_quantity,
     shortClosedQuantity: l.short_closed_quantity,
   };
-}
-
-/** Dark by default: until the tenant is switched on, every operation is the non-disclosing 404. */
-async function assertShipmentTransfersEnabled(client: PoolClient, tenantId: string): Promise<void> {
-  await client.query(`SELECT pg_advisory_xact_lock_shared(hashtextextended('tenant_inventory_settings:' || $1::text, 0))`, [tenantId]);
-  const r = await client.query<{ on: boolean }>(
-    `SELECT shipment_transfers_enabled AS on FROM tenant_inventory_settings WHERE tenant_id = $1`,
-    [tenantId],
-  );
-  if (r.rows[0]?.on !== true) throw new NotFoundException('Not Found');
 }
