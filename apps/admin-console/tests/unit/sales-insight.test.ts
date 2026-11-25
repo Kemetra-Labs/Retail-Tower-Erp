@@ -1,5 +1,5 @@
-import { describe, expect, test } from "vitest";
 import { salesInsightOf } from "@/sales/SalesInsight";
+import { describe, expect, test } from "vitest";
 import { item } from "./sale-fixtures";
 
 describe("salesInsightOf (modern concept 2/6, rule 4)", () => {

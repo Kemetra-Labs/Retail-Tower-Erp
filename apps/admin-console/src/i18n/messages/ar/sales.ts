@@ -58,6 +58,7 @@ export const sales = {
   // still be going. No "all clear" line: a quiet list claims nothing.
   "sales.insight.title": "ما يهم في هذه القائمة",
   "sales.insight.failedPosting": {
+    zero: "لا توجد مبيعات معروضة فشل ترحيلها إلى ERPNext.",
     one: "مبيعة واحدة معروضة فشل ترحيلها إلى ERPNext.",
     two: "مبيعتان معروضتان فشل ترحيلهما إلى ERPNext.",
     few: "{count} مبيعات معروضة فشل ترحيلها إلى ERPNext.",
@@ -65,6 +66,7 @@ export const sales = {
     other: "{count} مبيعة معروضة فشل ترحيلها إلى ERPNext.",
   },
   "sales.insight.needsRepair": {
+    zero: "لا توجد مبيعات معروضة تحتاج إلى إصلاح.",
     one: "مبيعة واحدة معروضة تحتاج إلى إصلاح.",
     two: "مبيعتان معروضتان تحتاجان إلى إصلاح.",
     few: "{count} مبيعات معروضة تحتاج إلى إصلاح.",

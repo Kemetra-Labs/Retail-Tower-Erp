@@ -26,10 +26,10 @@ import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { useEffect } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { SaleFilterBar } from "./SaleFilterBar";
-import { SalesInsight } from "./SalesInsight";
 import { Unavailable } from "./SalePager";
 import { BusinessDateRange } from "./SaleParts";
 import { QueryPrompt, Results } from "./SaleResults";
+import { SalesInsight } from "./SalesInsight";
 import {
   type FilterErrors,
   type SaleFilters,
