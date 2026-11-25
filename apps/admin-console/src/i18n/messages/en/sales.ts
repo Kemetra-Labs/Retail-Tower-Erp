@@ -47,6 +47,19 @@ export const sales: MessagesOf<typeof ar> = {
   "sales.list.col.total": "Total",
   "sales.list.col.status": "Status",
 
+  // --- Modern concept 2/6: the smart insight (rule 4) -------------------------
+  // Counts are of the rows shown, never of the whole range: the walk may
+  // still be going. No "all clear" line: a quiet list claims nothing.
+  "sales.insight.title": "What matters in this list",
+  "sales.insight.failedPosting": {
+    one: "1 sale shown failed to post to ERPNext.",
+    other: "{count} sales shown failed to post to ERPNext.",
+  },
+  "sales.insight.needsRepair": {
+    one: "1 sale shown needs repair.",
+    other: "{count} sales shown need repair.",
+  },
+
   // --- Recorded values -------------------------------------------------------
   "sales.value.notRecorded": "Not recorded",
   "sales.value.currentName": "{name} (current name)",

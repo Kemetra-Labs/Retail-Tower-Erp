@@ -53,6 +53,25 @@ export const sales = {
   "sales.list.col.total": "الإجمالي",
   "sales.list.col.status": "الحالة",
 
+  // --- Modern concept 2/6: the smart insight (rule 4) -------------------------
+  // Counts are of the rows shown, never of the whole range: the walk may
+  // still be going. No "all clear" line: a quiet list claims nothing.
+  "sales.insight.title": "ما يهم في هذه القائمة",
+  "sales.insight.failedPosting": {
+    one: "مبيعة واحدة معروضة فشل ترحيلها إلى ERPNext.",
+    two: "مبيعتان معروضتان فشل ترحيلهما إلى ERPNext.",
+    few: "{count} مبيعات معروضة فشل ترحيلها إلى ERPNext.",
+    many: "{count} مبيعة معروضة فشل ترحيلها إلى ERPNext.",
+    other: "{count} مبيعة معروضة فشل ترحيلها إلى ERPNext.",
+  },
+  "sales.insight.needsRepair": {
+    one: "مبيعة واحدة معروضة تحتاج إلى إصلاح.",
+    two: "مبيعتان معروضتان تحتاجان إلى إصلاح.",
+    few: "{count} مبيعات معروضة تحتاج إلى إصلاح.",
+    many: "{count} مبيعة معروضة تحتاج إلى إصلاح.",
+    other: "{count} مبيعة معروضة تحتاج إلى إصلاح.",
+  },
+
   // --- Recorded values -------------------------------------------------------
   "sales.value.notRecorded": "غير مسجَّل",
   "sales.value.currentName": "{name} (الاسم الحالي)",
