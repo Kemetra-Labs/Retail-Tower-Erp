@@ -2,9 +2,9 @@ import { QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter, Route, Routes } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
+import { ZERO_KPIS } from "./metric-claim-fixtures";
 import { ctx, stores } from "./sale-fixtures";
 import { CAIRO, EGP_USD_DAY, storeSummary, zeroDays } from "./sales-daily-fixtures";
-import { ZERO_KPIS } from "./metric-claim-fixtures";
 
 const consoleGetSalesSummary = vi.fn();
 vi.mock("@/lib/sales-summary-queries", async (importOriginal) => {
@@ -147,9 +147,9 @@ describe("PostingHealth", () => {
     expect(within(foot).getByText("70")).toBeDefined();
     expect(within(foot).getAllByText("3")).toHaveLength(2);
     expect(within(foot).getByText("1")).toBeDefined();
-    expect(
-      screen.getByRole("link", { name: "Sales needing repair" }).getAttribute("href"),
-    ).toBe("/sales-needing-repair");
+    expect(screen.getByRole("link", { name: "Sales needing repair" }).getAttribute("href")).toBe(
+      "/sales-needing-repair",
+    );
   });
 
   test("a date missing from the read is Unknown, never 0", async () => {
@@ -157,9 +157,7 @@ describe("PostingHealth", () => {
       ok(
         storeSummary({
           ...cairoStore(),
-          days: zeroDays("2026-10-16", "2026-10-23").filter(
-            (d) => d.businessDate !== "2026-10-19",
-          ),
+          days: zeroDays("2026-10-16", "2026-10-23").filter((d) => d.businessDate !== "2026-10-19"),
         }),
       ),
     );

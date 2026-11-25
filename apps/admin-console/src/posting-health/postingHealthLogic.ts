@@ -27,7 +27,7 @@ export type PostingVerdict =
   /** The day has not begun for any store. */
   | "notBegun";
 
-export interface PostingDayRow {
+interface PostingDayRow {
   date: string;
   state: DayRow["state"];
   /** The day's served counts; null when the day is missing from the read. */
@@ -50,13 +50,19 @@ export interface PostingHealthModel {
   totals: { posted: number; pending: number; failed: number; unknown: number } | null;
   /** Some row is not complete, so the totals include a day still running. */
   partial: boolean;
+  /** False when more stores exist than the read returned: some zones may be missing. */
+  zonesComplete: boolean;
+  /** Stores the read returned, for the partial-zones note. */
+  readStores: number;
   asOf: string;
 }
 
 export function verdictOf(row: DayRow): PostingVerdict {
-  if (row.state !== "complete") return row.state === "so-far" ? "running" : "notBegun";
+  if (row.state === "not-begun") return "notBegun";
   const kpis = row.kpis;
+  // A started day with no bucket is unknown, never "running" or 0.
   if (!kpis) return "noData";
+  if (row.state === "so-far") return "running";
   const e = kpis.erpPosting;
   if (e.pending > 0 || e.failed > 0) return "needsAttention";
   if (e.unknown > 0) return "unknownRows";
@@ -86,6 +92,8 @@ export function postingHealthModel(model: ReportModel): PostingHealthModel {
     daysWithFailures: completed.filter((r) => (r.failed ?? 0) > 0).length,
     totals: model.totals ? { ...model.totals.erpPosting } : null,
     partial: model.partial,
+    zonesComplete: model.zonesComplete,
+    readStores: model.stores.length,
     asOf: model.asOf,
   };
 }

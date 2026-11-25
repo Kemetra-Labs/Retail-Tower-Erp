@@ -1,6 +1,7 @@
 /** النصوص العربية لتقرير صحة الترحيل عبر الأيام. */
 export const postingHealth = {
   // --- Band ---------------------------------------------------------------
+  "postingHealth.backLinks": "صفحات ذات صلة",
   "postingHealth.band.subStore": "{store} · {tenant}",
   "postingHealth.band.subScope": "كل متاجر النطاق · {tenant}",
   "postingHealth.band.subTenant": "{tenant}",
@@ -11,6 +12,16 @@ export const postingHealth = {
   "postingHealth.retry": "إعادة المحاولة",
   "postingHealth.rateLimited": "طلبات كثيرة جدًا. أعد المحاولة عند انتهاء الانتظار.",
   "postingHealth.rateLimitedHint": "يعرض الشريط أعلى الصفحة وقت الانتظار المتبقي.",
+
+  // --- Read context -------------------------------------------------------
+  "postingHealth.context.zonesPartial": {
+    zero: "لم تُقرأ مناطق أي متجر؛ قد تنقص الأيام.",
+    one: "تتبع الأيام منطقة أول متجر فقط؛ لم تُقرأ باقي المتاجر.",
+    two: "تتبع الأيام مناطق أول متجرين فقط؛ لم تُقرأ باقي المتاجر.",
+    few: "تتبع الأيام مناطق أول {count} متاجر فقط؛ لم تُقرأ باقي المتاجر.",
+    many: "تتبع الأيام مناطق أول {count} متجرًا فقط؛ لم تُقرأ باقي المتاجر.",
+    other: "تتبع الأيام مناطق أول {count} متجر فقط؛ لم تُقرأ باقي المتاجر.",
+  },
 
   // --- Table ---------------------------------------------------------------
   "postingHealth.table.caption": "الترحيل حسب اليوم",

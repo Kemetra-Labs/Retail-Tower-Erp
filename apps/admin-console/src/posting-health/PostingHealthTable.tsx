@@ -1,11 +1,10 @@
 import { DataTableScroll, useCaptionId } from "@/components/DataTableScroll";
 import { SectionIndex } from "@/components/SectionIndex";
-import { formatNumber, type MessageKey, useT } from "@/i18n";
-import { BusinessDate } from "@/sales/SaleParts";
-import { STATE_MARK } from "@/sales-daily/DailyCells";
+import { DateTime, type MessageKey, formatNumber, useT } from "@/i18n";
+import { DayHeader } from "@/sales-daily/DailyCells";
 import { useId } from "react";
 import { Link } from "react-router";
-import type { PostingDayRow, PostingHealthModel, PostingVerdict } from "./postingHealthLogic";
+import type { PostingHealthModel, PostingVerdict } from "./postingHealthLogic";
 
 const VERDICT_KEY: Record<PostingVerdict, MessageKey> = {
   fullyPosted: "postingHealth.verdict.fullyPosted",
@@ -28,15 +27,16 @@ function Count({ value }: Readonly<{ value: number | null }>): React.JSX.Element
   return <span className="posting-table__count">{formatNumber(value, t.locale)}</span>;
 }
 
-function DayCell({ row }: Readonly<{ row: PostingDayRow }>): React.JSX.Element {
+/** When the read was taken, and whether every store's zone was read. */
+function ReadContext({ model }: Readonly<{ model: PostingHealthModel }>): React.JSX.Element {
   const t = useT();
   return (
-    <th scope="row">
-      <BusinessDate value={row.date} />
-      {row.state === "complete" ? null : (
-        <span className="posting-table__mark"> {t(STATE_MARK[row.state])}</span>
+    <p className="posting-report__context">
+      {t.rich("metrics.context.asOf", { asOf: <DateTime value={model.asOf} /> })}
+      {model.zonesComplete ? null : (
+        <> {t("postingHealth.context.zonesPartial", { count: model.readStores })}</>
       )}
-    </th>
+    </p>
   );
 }
 
@@ -63,17 +63,22 @@ export function PostingHealthTable({
       <p id={hintId} className="posting-report__hint">
         {t("postingHealth.table.hint")}
       </p>
+      <ReadContext model={model} />
       <p className="posting-report__summary">
-        {t("postingHealth.summary.days", {
-          fully: formatNumber(model.fullyPostedDays, t.locale),
-          total: formatNumber(model.completedDays, t.locale),
-        })}
+        <span>
+          {t("postingHealth.summary.days", {
+            fully: formatNumber(model.fullyPostedDays, t.locale),
+            total: formatNumber(model.completedDays, t.locale),
+          })}
+        </span>
         {model.daysWithFailures > 0 ? (
           <>
             {" "}
-            {t("postingHealth.summary.failures", {
-              days: formatNumber(model.daysWithFailures, t.locale),
-            })}
+            <span>
+              {t("postingHealth.summary.failures", {
+                days: formatNumber(model.daysWithFailures, t.locale),
+              })}
+            </span>
           </>
         ) : null}
       </p>
@@ -95,11 +100,19 @@ export function PostingHealthTable({
           <tbody>
             {model.rows.map((row) => (
               <tr key={row.date} data-business-date={row.date}>
-                <DayCell row={row} />
-                <td><Count value={row.posted} /></td>
-                <td><Count value={row.pending} /></td>
-                <td><Count value={row.failed} /></td>
-                <td><Count value={row.unknown} /></td>
+                <DayHeader date={row.date} state={row.state} markClassName="posting-table__mark" />
+                <td>
+                  <Count value={row.posted} />
+                </td>
+                <td>
+                  <Count value={row.pending} />
+                </td>
+                <td>
+                  <Count value={row.failed} />
+                </td>
+                <td>
+                  <Count value={row.unknown} />
+                </td>
                 <td>{t(VERDICT_KEY[row.verdict])}</td>
               </tr>
             ))}
@@ -109,10 +122,18 @@ export function PostingHealthTable({
               <th scope="row">
                 {t(model.partial ? "postingHealth.row.totalSoFar" : "postingHealth.row.total")}
               </th>
-              <td><Count value={model.totals?.posted ?? null} /></td>
-              <td><Count value={model.totals?.pending ?? null} /></td>
-              <td><Count value={model.totals?.failed ?? null} /></td>
-              <td><Count value={model.totals?.unknown ?? null} /></td>
+              <td>
+                <Count value={model.totals?.posted ?? null} />
+              </td>
+              <td>
+                <Count value={model.totals?.pending ?? null} />
+              </td>
+              <td>
+                <Count value={model.totals?.failed ?? null} />
+              </td>
+              <td>
+                <Count value={model.totals?.unknown ?? null} />
+              </td>
               <td>—</td>
             </tr>
           </tfoot>

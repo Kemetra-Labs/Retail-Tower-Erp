@@ -4,6 +4,7 @@ import type { MessagesOf } from "../types";
 /** English copy for the posting-health report. */
 export const postingHealth: MessagesOf<typeof ar> = {
   // --- Band ---------------------------------------------------------------
+  "postingHealth.backLinks": "Related pages",
   "postingHealth.band.subStore": "{store} · {tenant}",
   "postingHealth.band.subScope": "All stores in scope · {tenant}",
   "postingHealth.band.subTenant": "{tenant}",
@@ -14,6 +15,13 @@ export const postingHealth: MessagesOf<typeof ar> = {
   "postingHealth.retry": "Retry",
   "postingHealth.rateLimited": "Too many requests. Try again when the wait ends.",
   "postingHealth.rateLimitedHint": "The banner at the top of the page shows the time left.",
+
+  // --- Read context -------------------------------------------------------
+  "postingHealth.context.zonesPartial": {
+    one: "The days follow the zone of the first store only; the other stores were not read.",
+    other:
+      "The days follow the zones of the first {count} stores only; the other stores were not read.",
+  },
 
   // --- Table ---------------------------------------------------------------
   "postingHealth.table.caption": "Posting by day",

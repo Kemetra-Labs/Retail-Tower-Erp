@@ -1,3 +1,4 @@
+import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 /**
  * RT-1020 (v4.0) the reports index catalogue: what the Console can open today
  * and what is only proposed. Pure data and role gates, no React.
@@ -13,7 +14,6 @@
  * (UX-09). The nav is not an authorization decision: the API still answers.
  */
 import type { MessageKey } from "@/i18n";
-import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
 import { canReadShiftCloses } from "@/shift-closes/shiftCloseLogic";

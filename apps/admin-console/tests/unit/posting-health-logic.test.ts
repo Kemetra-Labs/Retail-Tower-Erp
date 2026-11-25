@@ -1,12 +1,6 @@
 import { describe, expect, test } from "vitest";
 import { ZERO_KPIS } from "./metric-claim-fixtures";
-import {
-  CAIRO,
-  EGP_USD_DAY,
-  RANGE_TOTALS,
-  storeSummary,
-  zeroDays,
-} from "./sales-daily-fixtures";
+import { CAIRO, EGP_USD_DAY, RANGE_TOTALS, storeSummary, zeroDays } from "./sales-daily-fixtures";
 
 import type { SalesKpis } from "@/metrics/metricRegistry";
 import { postingHealthModel, verdictOf } from "@/posting-health/postingHealthLogic";
@@ -35,20 +29,18 @@ describe("one verdict per day, from the served counts", () => {
   test("pending or failed is needs-attention; unknown alone is unknown-rows", () => {
     const model = postingHealthModel(
       reportModel(
-        storeSummary(
-          {
-            ref: CAIRO,
-            timeZone: "Africa/Cairo",
-            currentBusinessDate: "2026-10-23",
-            days: zeroDays("2026-10-16", "2026-10-23", {
-              // received 5, posted 2, pending 1, unknown 2.
-              "2026-10-16": EGP_USD_DAY,
-              "2026-10-17": postedDay(3, { posted: 3, pending: 0, failed: 0, unknown: 0 }),
-              "2026-10-18": postedDay(2, { posted: 1, pending: 0, failed: 1, unknown: 0 }),
-              "2026-10-19": postedDay(2, { posted: 1, pending: 0, failed: 0, unknown: 1 }),
-            }),
-          },
-        ),
+        storeSummary({
+          ref: CAIRO,
+          timeZone: "Africa/Cairo",
+          currentBusinessDate: "2026-10-23",
+          days: zeroDays("2026-10-16", "2026-10-23", {
+            // received 5, posted 2, pending 1, unknown 2.
+            "2026-10-16": EGP_USD_DAY,
+            "2026-10-17": postedDay(3, { posted: 3, pending: 0, failed: 0, unknown: 0 }),
+            "2026-10-18": postedDay(2, { posted: 1, pending: 0, failed: 1, unknown: 0 }),
+            "2026-10-19": postedDay(2, { posted: 1, pending: 0, failed: 0, unknown: 1 }),
+          }),
+        }),
       ),
     );
     expect(model.rows.map((r) => [r.date, r.verdict])).toEqual([
@@ -74,9 +66,7 @@ describe("one verdict per day, from the served counts", () => {
           ref: CAIRO,
           timeZone: "Africa/Cairo",
           currentBusinessDate: "2026-10-22",
-          days: zeroDays("2026-10-16", "2026-10-23").filter(
-            (d) => d.businessDate !== "2026-10-19",
-          ),
+          days: zeroDays("2026-10-16", "2026-10-23").filter((d) => d.businessDate !== "2026-10-19"),
         }),
       ),
     );
@@ -89,10 +79,27 @@ describe("one verdict per day, from the served counts", () => {
 
   test("the verdict follows the day's state before its counts", () => {
     expect(verdictOf({ date: "2026-10-23", state: "so-far", kpis: ZERO_KPIS })).toBe("running");
-    expect(verdictOf({ date: "2026-10-24", state: "not-begun", kpis: ZERO_KPIS })).toBe(
-      "notBegun",
-    );
+    expect(verdictOf({ date: "2026-10-24", state: "not-begun", kpis: ZERO_KPIS })).toBe("notBegun");
     expect(verdictOf({ date: "2026-10-22", state: "complete", kpis: null })).toBe("noData");
+  });
+
+  test("a running day the read has no bucket for is no-data, never 'running'", () => {
+    expect(verdictOf({ date: "2026-10-23", state: "so-far", kpis: null })).toBe("noData");
+    expect(verdictOf({ date: "2026-10-24", state: "not-begun", kpis: null })).toBe("notBegun");
+  });
+
+  test("the read's time and zone completeness pass through to the report", () => {
+    const summary = storeSummary({
+      ref: CAIRO,
+      timeZone: "Africa/Cairo",
+      currentBusinessDate: "2026-10-23",
+    });
+    const complete = postingHealthModel(reportModel(summary));
+    expect(complete.asOf).toBe(summary.asOf);
+    expect(complete.zonesComplete).toBe(true);
+    expect(complete.readStores).toBe(1);
+    const paged = postingHealthModel(reportModel({ ...summary, nextCursor: "next" }));
+    expect(paged.zonesComplete).toBe(false);
   });
 });
 

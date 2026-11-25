@@ -25,10 +25,10 @@ import {
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId } from "react";
 import {
+  DayHeader,
   MONEY_METRICS,
   MoneyCell,
   type MoneyMetric,
-  STATE_MARK,
   STATUS_METRICS,
   StatusCell,
   Zones,
@@ -36,20 +36,8 @@ import {
 import { DailyChart } from "./DailyChart";
 import { DayPanel } from "./DayPanel";
 import { ExportButton } from "./ExportButton";
-import type { DayRow, ReportModel } from "./dailyLogic";
+import type { ReportModel } from "./dailyLogic";
 import { dayRowId } from "./dayRowId";
-
-function DayHeader({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
-  const t = useT();
-  return (
-    <th scope="row">
-      <BusinessDate value={row.date} />
-      {row.state === "complete" ? null : (
-        <span className="daily-table__mark"> {t(STATE_MARK[row.state])}</span>
-      )}
-    </th>
-  );
-}
 
 interface TableSpec {
   captionKey: MessageKey;
@@ -123,7 +111,7 @@ function DailyTable({
                 data-business-date={row.date}
                 className={row.state === "complete" ? undefined : "daily-table__row--partial"}
               >
-                <DayHeader row={row} />
+                <DayHeader date={row.date} state={row.state} markClassName="daily-table__mark" />
                 {spec.metrics.map((m) => (
                   <td key={m}>{spec.cell(row.kpis, m)}</td>
                 ))}

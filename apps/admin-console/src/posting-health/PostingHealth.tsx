@@ -13,13 +13,17 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import { useT } from "@/i18n";
 import type { SalesSummaryErrorRender } from "@/lib/sales-summary-queries";
-import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
+import {
+  buildSummaryQuery,
+  defaultRange,
+  proposalZones,
+  reportModel,
+} from "@/sales-daily/dailyLogic";
 import { Notice, Unavailable } from "@/sales/SalePager";
-import { type SaleScope, useSaleScope } from "@/sales/useSales";
-import { buildSummaryQuery, defaultRange, reportModel } from "@/sales-daily/dailyLogic";
-import type { StoreDirectory } from "@/shift-closes/useShiftCloses";
+import { useSaleScope } from "@/sales/useSales";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
 import { Link } from "react-router";
 import { PostingHealthTable } from "./PostingHealthTable";
@@ -28,11 +32,6 @@ import { usePostingHealth } from "./usePostingHealth";
 import "./posting-health.css";
 import "../shell/surface.css";
 
-function proposalZones(scope: SaleScope, directory: StoreDirectory): string[] {
-  if (scope.activeStoreId) return [directory.timeZoneOf(scope.activeStoreId) ?? "UTC"];
-  return directory.stores.map((s) => s.timezone ?? "UTC");
-}
-
 function Shell({
   subtitle,
   children,
@@ -40,7 +39,7 @@ function Shell({
   const t = useT();
   return (
     <div className="surface surface--v4 posting-surface">
-      <nav className="back-links" aria-label={t("sales.backList")}>
+      <nav className="back-links" aria-label={t("postingHealth.backLinks")}>
         <Link to="/reports" className="back-links__link">
           <BackArrow />
           {t("reports.nav.label")}
@@ -73,11 +72,7 @@ function Failure({
   if (error.kind === "not-found") return <Unavailable />;
   if (error.kind === "rate-limited") {
     return (
-      <Notice
-        tone="warning"
-        heading={t("postingHealth.rateLimited")}
-        body={t("postingHealth.rateLimitedHint")}
-      />
+      <Notice message={t("postingHealth.rateLimited")} hint={t("postingHealth.rateLimitedHint")} />
     );
   }
   return (
@@ -99,7 +94,7 @@ function Body({
 }: Readonly<{
   range: ReturnType<typeof defaultRange> | null;
   health: ReturnType<typeof usePostingHealth>;
-}>): React.JSX.Element {
+}>): React.JSX.Element | null {
   const model =
     health.summary && !health.isLoading && !health.error
       ? postingHealthModel(reportModel(health.summary))
@@ -119,14 +114,14 @@ export function PostingHealth(): React.JSX.Element {
   const query = permitted && range ? buildSummaryQuery(range, scope.activeStoreId) : null;
   const health = usePostingHealth(scope, query);
 
-  const subtitle = scope.activeStoreId
-    ? directory.nameOf(scope.activeStoreId)
-      ? t("postingHealth.band.subStore", {
-          store: directory.nameOf(scope.activeStoreId) ?? "",
-          tenant: scope.tenantName ?? "",
-        })
-      : t("postingHealth.band.subTenant", { tenant: scope.tenantName ?? "" })
-    : t("postingHealth.band.subScope", { tenant: scope.tenantName ?? "" });
+  const tenant = scope.tenantName ?? "";
+  const storeName = scope.activeStoreId ? directory.nameOf(scope.activeStoreId) : null;
+  let subtitle = t("postingHealth.band.subScope", { tenant });
+  if (scope.activeStoreId) {
+    subtitle = storeName
+      ? t("postingHealth.band.subStore", { store: storeName, tenant })
+      : t("postingHealth.band.subTenant", { tenant });
+  }
 
   if (!scope.tenantId) {
     return (
@@ -135,16 +130,10 @@ export function PostingHealth(): React.JSX.Element {
       </div>
     );
   }
-  if (!permitted) {
-    return (
-      <Shell subtitle={subtitle}>
-        <Unavailable />
-      </Shell>
-    );
-  }
+  // A refused role reads nothing: the server would answer the same 404.
   return (
     <Shell subtitle={subtitle}>
-      <Body range={range} health={health} />
+      {permitted ? <Body range={range} health={health} /> : <Unavailable />}
     </Shell>
   );
 }

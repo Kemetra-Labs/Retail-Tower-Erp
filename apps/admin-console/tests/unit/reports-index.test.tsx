@@ -16,11 +16,7 @@ import { ReportsIndex } from "@/reports/ReportsIndex";
  * «not available yet» in words, is not a link, and carries no figure.
  */
 
-const PROPOSED = [
-  "Sales by hour",
-  "Shortage and overage trend",
-  "Stock movement by type",
-];
+const PROPOSED = ["Sales by hour", "Shortage and overage trend", "Stock movement by type"];
 
 function renderIndex(): void {
   render(
