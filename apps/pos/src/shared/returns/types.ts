@@ -333,6 +333,11 @@ export type ReturnsResolveResponse =
        * it has not been told about). Not part of the three counts above.
        */
       readonly executionsOpen?: number;
+      /**
+       * RT-1606: refund executions Backend-Core refused (409/422). Final, so not part of
+       * `executionsOpen`; counted so a refusal is not invisible.
+       */
+      readonly executionsRefused?: number;
     }
   | ReturnsRefused;
 
