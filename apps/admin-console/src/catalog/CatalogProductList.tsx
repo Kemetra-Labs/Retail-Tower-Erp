@@ -2,25 +2,29 @@
  * RT-765 — Catalog product list «الأصناف» (CAT-C1a, RT-752 AC 2 and AC 4),
  * read-only. The tenant's products, keyset paged, in the server's order (name
  * A to Z, exact code matches first with a search). With a store in scope the
- * list is requested with `store_id` and the price and availability columns show
+ * list is requested with `store_id` and the price and availability show
  * the server-resolved store values; with "All stores" they are the tenant's.
  * Filters live in the URL, and a tenant change resets them. A role the API refuses gets the
- * non-disclosing not-available state and no form. Opening a row goes to the
+ * non-disclosing not-available state and no form. Opening a card goes to the
  * product detail (CAT-C1b).
  *
- * RT-1010 (v4.0): the band carries no facts. The list page serves only its rows
+ * RT-1010 (v4.0): the band carries no facts. The list page serves only its cards
  * and a cursor (no store, period or read time to echo, no total), and the
  * active store's name comes from the client's scope, so it stays in the note
  * below the band. Every result state sits in one panel (`catalog-v4`).
+ *
+ * Modern concept 2/6 (Catalog): the rows are cards (`CatalogResults`), and the
+ * category chips sit between the filter bar and the results
+ * (`CatalogCategoryChips`). The band's one action stays the import link — there
+ * is no "new item" flow to promote (RT-752 D9).
  */
 import { type BrandListState, useCatalogBrands } from "@/brands/useBrands";
 import { CatalogImportLink } from "@/catalog-import/CatalogImportLink";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
-import type { CatalogProduct } from "@/lib/catalog-queries";
 import { Fragment, useEffect } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
-import { CatalogFilterBar } from "./CatalogFilterBar";
+import { CatalogCategoryChips, CatalogFilterBar } from "./CatalogFilterBar";
 import { Unavailable } from "./CatalogPager";
 import { Results } from "./CatalogResults";
 import {
@@ -196,13 +200,13 @@ function CatalogContent({
 }>): React.JSX.Element {
   const t = useT();
   const [search, setSearch] = useSearchParams();
-  const navigate = useNavigate();
   const { filters, errors, query } = useAppliedFilters(scope, search, filtersOwned);
   const list = useCatalogList(scope, query);
   const categories = useCatalogCategories(tenantId, true);
   const brands = useCatalogBrands(tenantId, true);
   const stamp = stampFor(tenantId);
   const clearFilters = () => setSearch(new URLSearchParams(), stamp);
+  const applyFilters = (next: CatalogFilters) => setSearch(filtersToSearch(next), stamp);
   return (
     <Shell scope={scope}>
       <CatalogFilterBar
@@ -214,8 +218,13 @@ function CatalogContent({
         brandsLoading={brands.isLoading}
         brandsFailed={brands.failed}
         initialErrors={errors}
-        onApply={(next) => setSearch(filtersToSearch(next), stamp)}
+        onApply={applyFilters}
         onClear={clearFilters}
+      />
+      <CatalogCategoryChips
+        applied={filters}
+        categories={categories.categories}
+        onApply={applyFilters}
       />
       {query ? (
         <Results
@@ -229,7 +238,6 @@ function CatalogContent({
             t,
           )}
           searching={filters.q !== ""}
-          onOpen={(row: CatalogProduct) => navigate(`/catalog/products/${row.productId}`)}
           onClearFilters={clearFilters}
         />
       ) : null}

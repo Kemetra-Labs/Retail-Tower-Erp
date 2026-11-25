@@ -8,11 +8,15 @@ import { type Page, expect, test } from "./fixtures";
  * S2: search text is sent verbatim; status and category go to the URL and the
  *     request; Load more walks the cursor and de-duplicates by product id.
  * S3: store_staff has no entry; a direct URL reads as not available, no read.
- * S4: a store in scope adds the availability column and the store's values.
- * S5: narrow widths drop the metadata columns first.
+ * S4: a store in scope adds the availability badges and the store's values.
+ * S5: narrow widths keep every card readable: name, status and price stay,
+ *     the metadata stays behind the card's details disclosure.
  * S6: keyboard walk with a real outline in normal and forced-colors modes.
  * RT-399: runs in both locales; copy comes from the catalog (`t`). axe (WCAG
  * 2.1 A/AA) runs on the loaded list, an empty list and an error state.
+ *
+ * Modern concept 2/6 (Catalog): the list is a card grid, not a table — the
+ * old column-drop tests (S5/S7, RT-1236) are replaced by card-layout checks.
  */
 const CAIRO = "0190f000-0000-7000-8000-0000000007a1";
 const P1 = "0190f000-0000-7000-8000-0000000007b1";
@@ -127,10 +131,10 @@ test("S1: owner → Items → list in server order; console catalog routes only"
   await p.getByRole("link", { name: t("catalog.nav.label"), exact: true }).click();
   await expect(p).toHaveURL(/\/catalog\/products$/);
   await expect(p.getByRole("heading", { name: t("catalog.list.title") })).toBeVisible();
-  const table = p.getByRole("table");
-  await expect(table.getByText("Mineral water 1.5L")).toBeVisible();
-  await expect(table.getByText("Loose tea")).toBeVisible();
-  await expect(table.getByText(t("catalog.value.noPrice"))).toBeVisible();
+  const grid = p.locator(".catalog-grid");
+  await expect(grid.getByText("Mineral water 1.5L")).toBeVisible();
+  await expect(grid.getByText("Loose tea")).toBeVisible();
+  await expect(grid.getByText(t("catalog.value.noPrice"))).toBeVisible();
   await expect(p.getByRole("link", { name: t("catalog.nav.label"), exact: true })).toHaveAttribute(
     "aria-current",
     "page",
@@ -171,10 +175,12 @@ test("S2: search is verbatim, filters reach the URL and the request, Load more d
   };
   const queries = await mockList(p, [first], { c1: second });
   await p.goto("/catalog/products");
-  await expect(p.getByRole("table").getByText("Alpha", { exact: true })).toBeVisible();
+  await expect(p.locator(".catalog-grid").getByText("Alpha", { exact: true })).toBeVisible();
 
   await p.getByLabel(t("catalog.filter.q")).fill(" 0012 ");
   await p.getByLabel(t("catalog.filter.status"), { exact: true }).selectOption("any");
+  // The category select sits behind «More filters».
+  await p.getByRole("button", { name: t("filter.more"), exact: true }).click();
   await p.getByLabel(t("catalog.filter.category")).selectOption(CATEGORY);
   await p.getByRole("button", { name: t("filter.apply"), exact: true }).click();
   await expect.poll(() => queries.length).toBe(2);
@@ -189,10 +195,10 @@ test("S2: search is verbatim, filters reach the URL and the request, Load more d
   await p.getByRole("button", { name: t("catalog.list.loadMore") }).click();
   await expect.poll(() => queries.length).toBe(3);
   expect(queries[2].get("cursor")).toBe("c1");
-  const table = p.getByRole("table");
-  await expect(table.getByText("Charlie")).toBeVisible();
-  await expect(table.getByText("Alpha renamed")).toBeVisible();
-  await expect(table.getByText("Alpha", { exact: true })).toHaveCount(0);
+  const grid = p.locator(".catalog-grid");
+  await expect(grid.getByText("Charlie")).toBeVisible();
+  await expect(grid.getByText("Alpha renamed")).toBeVisible();
+  await expect(grid.getByText("Alpha", { exact: true })).toHaveCount(0);
   await expect(p.getByText(t("catalog.list.ended"))).toBeFocused();
 });
 
@@ -234,12 +240,10 @@ test("S4: a store in scope sends store_id and shows the server-resolved store va
     { items: [product({ storeView: storeView() })], nextCursor: null },
   ]);
   await p.goto("/catalog/products");
-  const table = p.getByRole("table");
-  await expect(
-    table.getByRole("columnheader", { name: t("catalog.list.col.availability") }),
-  ).toBeVisible();
-  await expect(table.getByText("12.00 EGP")).toBeVisible();
-  await expect(table.getByText(t("catalog.availability.override"))).toBeVisible();
+  const grid = p.locator(".catalog-grid");
+  await expect(grid.getByText(t("catalog.availability.yes"))).toBeVisible();
+  await expect(grid.getByText("12.00 EGP")).toBeVisible();
+  await expect(grid.getByText(t("catalog.availability.override"))).toBeVisible();
   expect(queries[0].get("store_id")).toBe(CAIRO);
   await expectNoAxeViolations(p, "catalog list with a store");
 });
@@ -268,20 +272,28 @@ test("S4c: a first-page failure is a banner with Retry; axe is clean", async ({ 
   await expectNoAxeViolations(p, "catalog error state");
 });
 
-test("S5: narrow widths drop the metadata columns first", async ({ page: p, t }) => {
+test("S5: narrow widths keep every card readable: name, status and price stay", async ({
+  page: p,
+  t,
+}) => {
   await mockBase(p, "owner");
   await mockList(p, [{ items: [product()], nextCursor: null }]);
   await p.setViewportSize({ width: 1400, height: 900 });
   await p.goto("/catalog/products");
-  const header = (key: Parameters<typeof t>[0]) =>
-    p.getByRole("columnheader", { name: t(key), exact: true });
-  await expect(header("catalog.list.col.updatedAt")).toBeVisible();
-  await expect(header("catalog.list.col.taxCategory")).toBeVisible();
+  const card = p.locator(".catalog-card").first();
+  await expect(card.getByText("Mineral water 1.5L")).toBeVisible();
+  await expect(card.getByText("10.50 EGP")).toBeVisible();
+  // The metadata is behind the card's details disclosure at every width.
+  await expect(card.getByText(t("catalog.detail.field.taxCategory"))).toHaveCount(0);
+  await card.getByRole("button", { name: t("catalog.list.cardMore") }).click();
+  await expect(card.getByText(t("catalog.detail.field.taxCategory"))).toBeVisible();
+  await expect(card.getByText("standard")).toBeVisible();
   await p.setViewportSize({ width: 1000, height: 900 });
-  await expect(header("catalog.list.col.updatedAt")).toBeHidden();
-  await expect(header("catalog.list.col.taxCategory")).toBeHidden();
-  await expect(header("catalog.list.col.item")).toBeVisible();
-  await expect(header("catalog.list.col.price")).toBeVisible();
+  await expect(card.getByText("Mineral water 1.5L")).toBeVisible();
+  await expect(card.getByText("10.50 EGP")).toBeVisible();
+  expect(await p.evaluate(() => document.documentElement.scrollWidth)).toBeLessThanOrEqual(
+    await p.evaluate(() => document.documentElement.clientWidth),
+  );
 });
 
 for (const forced of [false, true]) {
@@ -295,12 +307,13 @@ for (const forced of [false, true]) {
     ]);
     if (forced) await p.emulateMedia({ forcedColors: "active" });
     await p.goto("/catalog/products");
-    await expect(p.getByRole("table")).toBeVisible();
+    await expect(p.locator(".catalog-grid")).toBeVisible();
 
-    // Filter form (4 fields, Search, Clear), the table scroll region (RT-826), both rows, then Load more.
+    // Filter form (search, status, More filters, Clear, Apply), the category
+    // chips, both cards (name link, then details), then Load more.
     await p.getByLabel(t("catalog.filter.q")).focus();
     const stops: { label: string; outlineStyle: string; outlineWidth: number }[] = [];
-    for (let i = 0; i < 10; i++) {
+    for (let i = 0; i < 12; i++) {
       stops.push(
         await p.evaluate(() => {
           const el = document.activeElement as HTMLElement;
@@ -318,19 +331,20 @@ for (const forced of [false, true]) {
       expect(stop.outlineStyle, stop.label).not.toBe("none");
       expect(stop.outlineWidth, stop.label).toBeGreaterThan(0);
     }
-    // The walk really reached the rows and Load more, not only the form.
+    // The walk really reached the cards and Load more, not only the form.
     expect(stops.some((s) => s.label.includes("Loose tea"))).toBe(true);
     expect(stops.at(-1)?.label).toContain(t("catalog.list.loadMore"));
   });
 }
 
 /**
- * RT-1236: the list anchors numbers and flexes identity (UX-10). A cell that
- * holds a number, a code or a date never breaks across lines; when the columns do
- * not fit, the item name takes the squeeze and metadata drops first (S5). Rows are
- * measured from the rendered text, so a wrapped cell cannot pass by being short:
- * a cell is wrapped when its text spans more than one line box. The Item cell is
- * left out of that count: a name wraps to two lines by design.
+ * RT-1236, cards edition: the list anchors numbers and flexes identity (UX-10).
+ * A card's price never breaks across lines; the item name keeps room beside
+ * the thumb; the grid stays inside its panel and the page never scrolls
+ * sideways. Cards are measured from the rendered text, so a wrapped price
+ * cannot pass by being short: a price is wrapped when its text spans more
+ * than one line box. The codes may wrap inside their card (overflow-wrap);
+ * only the price is guarded.
  */
 const TEN_ROWS = Array.from({ length: 10 }, (_, i) => {
   const id = `0190f000-0000-7000-8000-0000000008${String(i).padStart(2, "0")}`;
@@ -347,13 +361,9 @@ const TEN_ROWS = Array.from({ length: 10 }, (_, i) => {
   });
 });
 
-/** Per visible body cell: its column header and whether its text spans one line box. */
-async function measureCells(p: Page, itemHeader: string) {
-  return p.evaluate((itemHeader) => {
-    const heads = [...document.querySelectorAll(".catalog-table th")].map((th) => ({
-      th: th as HTMLElement,
-      text: th.textContent?.trim() ?? "",
-    }));
+/** Per card: name width, whether any price wraps, grid inside panel, page scroll. */
+async function measureCards(p: Page) {
+  return p.evaluate(() => {
     const lines = (el: Element) => {
       const range = document.createRange();
       range.selectNodeContents(el);
@@ -366,103 +376,72 @@ async function measureCells(p: Page, itemHeader: string) {
       }
       return count;
     };
-    const rows = [...document.querySelectorAll(".catalog-table tbody tr")];
-    const region = document.querySelector(".data-table__scroll") as HTMLElement | null;
+    const cards = [...document.querySelectorAll(".catalog-grid .catalog-card")];
+    const grid = document.querySelector(".catalog-grid") as HTMLElement | null;
     const panel = document.querySelector(".catalog-results") as HTMLElement | null;
     const page = document.documentElement;
     return {
-      headers: heads.filter((h) => h.th.offsetParent !== null).map((h) => h.text),
-      rowHeights: rows.map((r) => Math.round(r.getBoundingClientRect().height)),
-      wrapped: rows.flatMap((r) =>
-        [...r.children]
-          .map((td, i) => ({ td: td as HTMLElement, head: heads[i]?.text ?? "" }))
-          .filter(
-            ({ td, head }) => head !== itemHeader && td.offsetParent !== null && lines(td) > 1,
-          )
-          .map(({ head }) => head),
+      cardCount: cards.length,
+      nameWidth: Math.round(
+        cards[0]?.querySelector(".catalog-card__name")?.getBoundingClientRect().width ?? 0,
       ),
-      regionScrolls: region ? region.scrollWidth > region.clientWidth + 1 : false,
-      regionInsidePanel:
-        region && panel
-          ? region.getBoundingClientRect().right <= panel.getBoundingClientRect().right + 1 &&
-            region.getBoundingClientRect().left >= panel.getBoundingClientRect().left - 1
+      wrappedPrices: cards.filter(
+        (c) => lines(c.querySelector(".catalog-card__price") as Element) > 1,
+      ).length,
+      gridInsidePanel:
+        grid && panel
+          ? grid.getBoundingClientRect().right <= panel.getBoundingClientRect().right + 1 &&
+            grid.getBoundingClientRect().left >= panel.getBoundingClientRect().left - 1
           : false,
-      itemWidth: Math.round(rows[0]?.firstElementChild?.getBoundingClientRect().width ?? 0),
       pageScrolls: page.scrollWidth > page.clientWidth,
     };
-  }, itemHeader);
+  });
 }
-
-const MUST_SURVIVE = [
-  "catalog.list.col.item",
-  "catalog.list.col.status",
-  "catalog.list.col.price",
-] as const;
 
 /** The item name keeps room to read: a few words, not a sliver (S7 and S7b). */
 const MIN_ITEM_WIDTH = 120;
 
 for (const width of [1440, 1280, 1200]) {
-  test(`S7: with a store in scope, SKU and price stay on one line at ${width}`, async ({
+  test(`S7: with a store in scope, price stays on one line at ${width}`, async ({
     page: p,
-    t,
   }) => {
     await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
     await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
     await p.setViewportSize({ width, height: 900 });
     await p.goto("/catalog/products");
-    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+    await expect(p.locator(".catalog-grid").getByText("Item number 2")).toBeVisible();
 
-    const m = await measureCells(p, t("catalog.list.col.item"));
-    expect(m.wrapped).toEqual([]);
-    expect(m.regionScrolls, "the results panel does not scroll sideways").toBe(false);
-    expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
-    // Single-line rows from 1280. At 1200 the availability chips may stack (two
-    // chips, 89px: CI's fonts are wider than the laptop's); they flex-wrap by design
-    // and are not the cells this test guards, so only a sane height is asserted.
-    expect(Math.max(...m.rowHeights)).toBeLessThanOrEqual(width >= 1280 ? 60 : 100);
-    for (const key of [...MUST_SURVIVE, "catalog.list.col.sku"] as const) {
-      expect(m.headers).toContain(t(key));
-    }
-    // Metadata goes first, in the existing order: tax category and tracking at
-    // 1600px and below, updated-at last (1380px and below). So updated-at is a
-    // measured single-line cell at 1440 only; at 1280 and 1200 it is dropped.
-    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(width === 1440);
-    expect(m.headers).not.toContain(t("catalog.list.col.taxCategory"));
-    expect(m.headers).not.toContain(t("catalog.list.col.tracking"));
+    const m = await measureCards(p);
+    expect(m.cardCount).toBe(10);
+    expect(m.wrappedPrices).toBe(0);
+    expect(m.gridInsidePanel, "the grid stays inside its panel").toBe(true);
+    expect(m.pageScrolls, "the page does not scroll sideways").toBe(false);
+    expect(m.nameWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
   });
 }
 
-// The drop boundaries themselves: tax category and tracking go at 1600px and
-// below, updated-at at 1380px and below.
-for (const [width, taxAndTracking, updatedAt] of [
-  [1601, true, true],
-  [1600, false, true],
-  [1381, false, true],
-  [1380, false, false],
-] as const) {
-  test(`S7a: with a store in scope, metadata drops at the ${width}px boundary`, async ({
+for (const width of [1600, 1380, 1101, 1024]) {
+  test(`S7a: with a store in scope, cards keep name and price at ${width}`, async ({
     page: p,
-    t,
   }) => {
     await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
     await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
     await p.setViewportSize({ width, height: 900 });
     await p.goto("/catalog/products");
-    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+    await expect(p.locator(".catalog-grid").getByText("Item number 2")).toBeVisible();
 
-    const m = await measureCells(p, t("catalog.list.col.item"));
-    expect(m.headers.includes(t("catalog.list.col.taxCategory"))).toBe(taxAndTracking);
-    expect(m.headers.includes(t("catalog.list.col.tracking"))).toBe(taxAndTracking);
-    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(updatedAt);
-    expect(m.wrapped).toEqual([]);
+    const m = await measureCards(p);
+    expect(m.cardCount).toBe(10);
+    expect(m.wrappedPrices).toBe(0);
+    expect(m.gridInsidePanel, "the grid stays inside its panel").toBe(true);
+    expect(m.pageScrolls, "the page does not scroll sideways").toBe(false);
+    expect(m.nameWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
   });
 }
 
 for (const width of [1440, 1280, 1200, 1101, 1024]) {
-  test(`S7b: tenant scope at ${width} keeps single-line rows and a readable item name`, async ({
+  test(`S7b: tenant scope at ${width} keeps single-line prices and a readable item name`, async ({
     page: p,
-    t,
   }) => {
     await mockBase(p, "owner");
     await mockList(p, [
@@ -470,22 +449,19 @@ for (const width of [1440, 1280, 1200, 1101, 1024]) {
     ]);
     await p.setViewportSize({ width, height: 900 });
     await p.goto("/catalog/products");
-    await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+    await expect(p.locator(".catalog-grid").getByText("Item number 2")).toBeVisible();
 
-    const m = await measureCells(p, t("catalog.list.col.item"));
-    expect(m.wrapped).toEqual([]);
-    expect(m.regionScrolls, "the results panel does not scroll sideways").toBe(false);
-    expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
-    expect(Math.max(...m.rowHeights)).toBeLessThanOrEqual(60);
-    for (const key of MUST_SURVIVE) expect(m.headers).toContain(t(key));
-    // All three metadata columns at 1440, none at 1380px and below.
-    expect(m.headers.includes(t("catalog.list.col.updatedAt"))).toBe(width === 1440);
+    const m = await measureCards(p);
+    expect(m.cardCount).toBe(10);
+    expect(m.wrappedPrices).toBe(0);
+    expect(m.gridInsidePanel, "the grid stays inside its panel").toBe(true);
+    expect(m.pageScrolls, "the page does not scroll sideways").toBe(false);
+    expect(m.nameWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
   });
 }
 
 test("S7d: a very long SKU cannot squeeze the item name below its floor at 1101", async ({
   page: p,
-  t,
 }) => {
   await mockBase(p, "owner");
   await mockList(p, [
@@ -500,29 +476,29 @@ test("S7d: a very long SKU cannot squeeze the item name below its floor at 1101"
   ]);
   await p.setViewportSize({ width: 1101, height: 900 });
   await p.goto("/catalog/products");
-  await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+  await expect(p.locator(".catalog-grid").getByText("Item number 2")).toBeVisible();
 
-  const m = await measureCells(p, t("catalog.list.col.item"));
-  expect(m.itemWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
-  // The table is wider than its panel, so the panel's scroll region takes it.
-  expect(m.regionScrolls).toBe(true);
-  expect(m.regionInsidePanel).toBe(true);
+  const m = await measureCards(p);
+  expect(m.nameWidth).toBeGreaterThanOrEqual(MIN_ITEM_WIDTH);
+  // The long code wraps inside its card; the grid stays inside its panel and
+  // the page does not scroll.
+  expect(m.gridInsidePanel).toBe(true);
   expect(m.pageScrolls).toBe(false);
 });
 
 test("S7c: a store in scope at 1024 keeps item, status and price and never clips the panel", async ({
   page: p,
-  t,
 }) => {
   await mockBase(p, "store_manager", { id: CAIRO, name: "Cairo Festival" });
   await mockList(p, [{ items: TEN_ROWS, nextCursor: null }]);
   await p.setViewportSize({ width: 1024, height: 900 });
   await p.goto("/catalog/products");
-  await expect(p.getByRole("table").getByText("Item number 2")).toBeVisible();
+  const grid = p.locator(".catalog-grid");
+  await expect(grid.getByText("Item number 2")).toBeVisible();
+  await expect(grid.locator(".catalog-card").first().getByText("Active")).toBeVisible();
 
-  const m = await measureCells(p, t("catalog.list.col.item"));
-  for (const key of MUST_SURVIVE) expect(m.headers).toContain(t(key));
-  // The scroll region may scroll (RT-826) but stays inside its panel, and the page does not.
-  expect(m.regionInsidePanel).toBe(true);
+  const m = await measureCards(p);
+  expect(m.wrappedPrices).toBe(0);
+  expect(m.gridInsidePanel).toBe(true);
   expect(m.pageScrolls).toBe(false);
 });

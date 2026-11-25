@@ -1,32 +1,202 @@
 /* RT-765 catalog product list. Built from existing tokens only; no new colour,
  * font or dependency. Status carries its meaning in text. Logical properties
- * throughout (RTL by structure). */
+ * throughout (RTL by structure).
+ *
+ * Modern concept 2/6 (Catalog): the list is a card grid, not a table — the
+ * name, status and price at a glance, the category and the primary codes under
+ * them, the metadata behind each card's details disclosure. The old table
+ * rules (column dropping at 1380/1600px, RT-1236) are gone with the table. */
 
-/* The item name wraps to two lines, then clips: the number columns keep their
- * width ("flex identity, anchor numbers", UX-10). */
-.catalog-item {
+/* The card grid: cards fill the row, at least 260px wide each, so a card keeps
+ * room for its name beside the 44px thumb. */
+.catalog-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+  gap: var(--space-4);
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+/* The caption states the server order (name A to Z, exact code matches first
+ * with a search): a muted line above the grid, and the grid's accessible
+ * name. */
+.catalog-grid__caption {
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+/* One item as a card: a section panel (§12.5), so it shares the one resting
+ * elevation with the results panel around it. */
+.catalog-card {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-2);
+  padding: var(--space-4);
+}
+.catalog-card__main {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--space-3);
+}
+/* The thumb: the name's first letter (the contract has no product image), on
+ * the sunken surface. */
+.catalog-card__thumb {
+  flex: none;
+  display: grid;
+  place-items: center;
+  inline-size: 44px;
+  block-size: 44px;
+  border-radius: var(--radius-field-lg);
+  background: var(--color-surface-sunken);
+  color: var(--color-text-muted);
+  font: var(--weight-strong) var(--text-control) / var(--leading-tight) var(--font-sans);
+}
+.catalog-card__head {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  min-inline-size: 0;
+}
+/* The item name wraps to two lines, then clips, so the thumb and the badges
+ * keep their room. */
+.catalog-card__name {
+  margin: 0;
   display: -webkit-box;
   -webkit-box-orient: vertical;
   -webkit-line-clamp: 2;
   line-clamp: 2;
   overflow: hidden;
   overflow-wrap: anywhere;
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+}
+.catalog-card__name a {
+  color: var(--color-text);
+  text-decoration: none;
+}
+.catalog-card__name a:hover {
+  text-decoration: underline;
+}
+.catalog-card__badges {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+}
+.catalog-card__price {
+  margin: 0;
+  font: var(--weight-strong) var(--text-control) / var(--leading-title) var(--font-sans);
+  white-space: nowrap;
+}
+.catalog-card__meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-1) var(--space-3);
+  margin: 0;
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+.catalog-card__category {
+  overflow-wrap: anywhere;
+}
+.catalog-card__codes {
+  display: inline-flex;
+  flex-wrap: wrap;
+  gap: var(--space-1);
+  overflow-wrap: anywhere;
+}
+.catalog-card__code {
+  overflow-wrap: anywhere;
+}
+/* The metadata behind the disclosure: a fact list, term and value apart. */
+.catalog-card__more {
+  border-block-start: 1px dashed var(--color-border);
+  padding-block-start: var(--space-2);
+}
+.catalog-card__more-btn {
+  padding: 0;
+  border: 0;
+  background: transparent;
+  color: var(--color-text-muted);
+  font: var(--weight-regular) var(--text-meta) / var(--leading-tight) var(--font-sans);
+  cursor: pointer;
+}
+.catalog-card__more-btn:hover {
+  text-decoration: underline;
+}
+.catalog-card__facts {
+  display: grid;
+  gap: var(--space-1);
+  margin: var(--space-2) 0 0;
+  font-size: var(--text-meta);
+}
+.catalog-card__facts > div {
+  display: flex;
+  justify-content: space-between;
+  gap: var(--space-3);
+}
+.catalog-card__facts dt {
+  color: var(--color-text-muted);
+}
+.catalog-card__facts dd {
+  margin: 0;
+  text-align: end;
+}
+/* Loading skeleton: flat placeholder bars in the grid's shape. */
+.catalog-card__bar {
+  display: block;
+  block-size: 14px;
+  border-radius: 4px;
+  background: var(--color-surface-sunken);
+}
+.catalog-card__bar--name {
+  inline-size: 70%;
+}
+.catalog-card__bar--price {
+  inline-size: 40%;
+}
+.catalog-card__bar--meta {
+  inline-size: 85%;
 }
 
-/* Numbers, codes and dates do not break across lines above 1100px (RT-1236): when
- * the columns do not fit, the metadata columns drop (below) and the item name takes
- * what is left (it wraps, then clips, above), never a price, a code or a date. At
- * 1100px and below the table keeps its earlier wrapping: with a store in scope the
- * seven columns left leave the item name no room to give. */
+/* The category chips row: one chip per category plus "All categories", as a
+ * segmented group (§12.6: the pressed chip is the action-fill pair, with a
+ * stronger weight, so it differs from its siblings by more than colour). The
+ * row scrolls sideways instead of wrapping: a tenant with many categories
+ * keeps the page's height. */
+.catalog-chips-row {
+  display: flex;
+  gap: var(--space-2);
+  overflow-x: auto;
+  padding-block: var(--space-1);
+}
+.catalog-chip {
+  flex: none;
+  min-block-size: 32px;
+  padding: 0 var(--space-3);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text);
+  font: var(--weight-regular) var(--text-control) / var(--leading-tight) var(--font-sans);
+  white-space: nowrap;
+  cursor: pointer;
+}
+.catalog-chip[aria-pressed="true"] {
+  background: var(--color-action-fill);
+  border-color: var(--color-action-fill);
+  color: var(--color-on-action-fill);
+  font-weight: var(--weight-strong);
+}
+
+/* Numbers, codes and dates do not break across lines above 1100px (RT-1236):
+ * the price and the codes keep their width, and the item name takes what is
+ * left (it wraps to two lines, then clips, above). At 1100px and below the
+ * price keeps its earlier wrapping, and a long code wraps inside its card
+ * instead of overflowing it. */
 @media (min-width: 1101px) {
   .catalog-nowrap {
     white-space: nowrap;
-  }
-  /* A long code can still make the table wider than its panel; the panel's scroll
-   * region then takes the overflow, and the name keeps room to read: a 120px cell,
-   * less the cell's own padding. */
-  .catalog-item {
-    min-inline-size: calc(120px - 2 * var(--space-4));
   }
 }
 
@@ -53,28 +223,6 @@
   gap: var(--space-3);
   color: var(--color-text-muted);
   font-size: var(--text-control);
-}
-
-/* Narrow widths drop the metadata first: tax category, tracking and updated-at
- * are always the last three columns (CatalogResults builds them last). RT-1236: the
- * three go at 1380px and below, not 1100px. Nine columns, with the unbreakable
- * numbers, codes and dates, need about 860px beside the item name, and the sidebar
- * leaves a 1280 viewport 954px and a 1366 viewport 1040px, so a later rule left the
- * item name about 65px wide, or the table scrolling sideways. */
-@media (max-width: 1380px) {
-  .catalog-table .data-table :is(th, td):nth-last-child(-n + 3) {
-    display: none;
-  }
-}
-
-/* RT-1236: with a store in scope the availability column joins the contextual ones
- * (ten columns), so the same metadata-first order starts earlier for the first two
- * of the three: tax category and tracking go at 1600px and below, with updated-at
- * (the rule above) the last to go. */
-@media (max-width: 1600px) {
-  .catalog-table--store .data-table :is(th, td):nth-last-child(n + 2):nth-last-child(-n + 3) {
-    display: none;
-  }
 }
 
 /* RT-766 product detail. Same tokens; logical properties; no new colour. */
@@ -324,25 +472,13 @@
   box-shadow: var(--shadow-resting);
 }
 
-/* The list's results: one panel holding every state, the rows ruled (the rows
- * open an item, so a selectable table keeps its ruled rows). */
+/* The list's results: one panel holding every state. The cards are panels
+ * themselves, so they sit inset with the panel's own padding. */
 .catalog-results {
   display: flex;
   flex-direction: column;
   gap: var(--space-3);
   padding: var(--space-4) var(--space-5);
-}
-.catalog-results > .catalog-table {
-  margin-inline: calc(var(--space-5) * -1);
-}
-.catalog-results .data-table :is(th, td):first-child {
-  padding-inline-start: var(--space-5);
-}
-.catalog-results .data-table :is(th, td):last-child {
-  padding-inline-end: var(--space-5);
-}
-.catalog-results .data-table thead th {
-  background: var(--color-surface);
 }
 .catalog-results > .catalog-pager {
   padding-block-start: var(--space-3);
@@ -444,6 +580,20 @@
   }
   .catalog-v4 .catalog-retire {
     border-color: CanvasText;
+  }
+  /* The pressed chip is the system selection pair, like the Overview's
+   * segmented control; the thumb keeps a boundary. */
+  .catalog-chip {
+    border-color: ButtonText;
+  }
+  .catalog-chip[aria-pressed="true"] {
+    forced-color-adjust: none;
+    background: Highlight;
+    border-color: Highlight;
+    color: HighlightText;
+  }
+  .catalog-card__thumb {
+    border: 1px solid CanvasText;
   }
 }
 
