@@ -12,14 +12,41 @@
  * The band carries no facts: the catalogue's own counts are not figures the
  * server serves for a set (C1), so they are left out rather than invented.
  * Nothing is read from Backend-Core here.
+ *
+ * Modern concept 2/6 — presentation only, same reads (none), routes, role
+ * gates and copy:
+ * - Wider rhythm: the page, group and grid gaps and the card padding grow one
+ *   token step each (rule 1, less crowded), and cards widen to 20rem so fewer
+ *   sit on a row. The cards keep the DESIGN v4 panel radius, resting shadow
+ *   and existing colour roles; the root drops the dead `surface--v4` class (no
+ *   CSS rule defines it anywhere — the Overview's root is plain `surface`).
+ * - A status filter below the band (the band holds no filters, RT-995): All /
+ *   Available / Review screens / Proposed, a segmented switch in the
+ *   TrendPanel pattern (`fieldset` + `aria-pressed`). It filters only the
+ *   catalogue this page already renders for the role — no new read, no new
+ *   route, no new report. Default is All, so the page on load is unchanged.
+ * - Deliberately NOT added, because the page has nothing to compute them
+ *   from: no smart insight (rule 4 — the page makes no Backend-Core read),
+ *   no KPI strip (rule 3 — no figure is served for this set), no main action
+ *   (rule 2 — the screen has no action; its cards are the navigation, and the
+ *   band takes no `actions` and no `facts`). Sales by hour stays proposed:
+ *   no contract serves hourly buckets (see the `reportsLogic.ts` note PR #869
+ *   adds), so no hourly chart and no new report. No link to `/search` or
+ *   `/alerts` (they exist only on unmerged PR #873).
  */
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { SectionIndex } from "@/components/SectionIndex";
 import { type MessageKey, useT } from "@/i18n";
 import { useSaleScope } from "@/sales/useSales";
-import { useId } from "react";
+import { useId, useState } from "react";
 import { Link } from "react-router";
-import { type ReportItem, canOpenAnyReport, reportGroups } from "./reportsLogic";
+import {
+  type ReportGroup,
+  type ReportItem,
+  type ReportKind,
+  canOpenAnyReport,
+  reportGroups,
+} from "./reportsLogic";
 import "../shell/surface.css";
 import "./reports.css";
 
@@ -28,6 +55,46 @@ const STATUS_KEY: Record<ReportItem["kind"], MessageKey> = {
   review: "reports.status.review",
   proposed: "reports.status.proposed",
 };
+
+/** The status filter: `all` is the page as it loads; the rest narrow the catalogue. */
+type ReportFilter = "all" | ReportKind;
+
+const FILTER_KEY: Record<ReportFilter, MessageKey> = {
+  all: "reports.filter.all",
+  available: "reports.filter.available",
+  review: "reports.filter.review",
+  proposed: "reports.filter.proposed",
+};
+
+const FILTERS: readonly ReportFilter[] = ["all", "available", "review", "proposed"];
+
+/**
+ * The status filter, below the band: a segmented switch (TrendPanel's
+ * `fieldset` + `aria-pressed` pattern). It narrows only what is already on
+ * the page for the role; switching reads nothing.
+ */
+function ReportsFilter({
+  value,
+  onChange,
+}: Readonly<{ value: ReportFilter; onChange: (next: ReportFilter) => void }>): React.JSX.Element {
+  const t = useT();
+  return (
+    <fieldset className="reports-filter">
+      <legend className="sr-only">{t("reports.filter.label")}</legend>
+      {FILTERS.map((filter) => (
+        <button
+          key={filter}
+          type="button"
+          className="reports-filter__btn"
+          aria-pressed={value === filter}
+          onClick={() => onChange(filter)}
+        >
+          {t(FILTER_KEY[filter])}
+        </button>
+      ))}
+    </fieldset>
+  );
+}
 
 function CardBody({
   item,
@@ -87,6 +154,7 @@ export function ReportsIndex(): React.JSX.Element {
   const t = useT();
   const scope = useSaleScope();
   const sectionId = useId();
+  const [filter, setFilter] = useState<ReportFilter>("all");
   if (!scope.tenantId) {
     return (
       <div className="surface">
@@ -95,17 +163,28 @@ export function ReportsIndex(): React.JSX.Element {
     );
   }
   const groups = reportGroups(scope.role);
+  // The filter narrows the role's catalogue; an emptied group leaves the page.
+  const visible: ReportGroup[] =
+    filter === "all"
+      ? groups
+      : groups
+          .map((group) => ({ ...group, items: group.items.filter((item) => item.kind === filter) }))
+          .filter((group) => group.items.length > 0);
   return (
-    <div className="surface surface--v4 reports">
+    <div className="surface reports">
       <ListHeaderBand
         group={t("shell.nav.section.daily")}
         title={t("reports.nav.label")}
         subtitle={t.rich("reports.index.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
       />
-      {canOpenAnyReport(scope.role) ? null : (
+      <ReportsFilter value={filter} onChange={setFilter} />
+      {filter === "all" && !canOpenAnyReport(scope.role) ? (
         <p className="content__sub">{t("reports.index.noneOpen")}</p>
-      )}
-      {groups.map((group, index) => {
+      ) : null}
+      {filter !== "all" && visible.length === 0 ? (
+        <p className="content__sub">{t("reports.filter.none")}</p>
+      ) : null}
+      {visible.map((group, index) => {
         const headingId = `${sectionId}-${group.id}`;
         return (
           <section key={group.id} className="reports-group" aria-labelledby={headingId}>

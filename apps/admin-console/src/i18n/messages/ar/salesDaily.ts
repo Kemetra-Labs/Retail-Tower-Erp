@@ -100,6 +100,13 @@ export const salesDaily = {
   "reports.answers": "يجيب عن:",
   "reports.open.report": "فتح التقرير",
   "reports.open.screen": "فتح الشاشة",
+  // Modern concept 2/6: the status filter below the band (client-side only).
+  "reports.filter.label": "تصفية حسب الحالة",
+  "reports.filter.all": "الكل",
+  "reports.filter.available": "المتاحة",
+  "reports.filter.review": "شاشات المراجعة",
+  "reports.filter.proposed": "المقترحة",
+  "reports.filter.none": "لا توجد عناصر بهذه الحالة لدورك.",
   "reports.item.daily.q":
     "كم استلم الخادم من مبيعات وإلغاءات ومرتجعات في كل يوم عمل، وأين وصلت مزامنتها وترحيلها إلى ERPNext الآن؟",
   "reports.item.shiftVariance.title": "فروقات النقد في الورديات",

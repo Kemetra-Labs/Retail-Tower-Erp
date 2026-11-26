@@ -1,4 +1,4 @@
-import { cleanup, render, screen, within } from "@testing-library/react";
+import { cleanup, fireEvent, render, screen, within } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 import { ctx } from "./sale-fixtures";
@@ -16,7 +16,11 @@ import { ReportsIndex } from "@/reports/ReportsIndex";
  * «not available yet» in words, is not a link, and carries no figure.
  */
 
-const PROPOSED = ["Sales by hour", "Shortage and overage trend", "Stock movement by type"];
+const PROPOSED = [
+  "Sales by hour",
+  "Shortage and overage trend",
+  "Stock movement by type",
+];
 
 function renderIndex(): void {
   render(
@@ -104,5 +108,75 @@ describe("ReportsIndex (RT-1020)", () => {
     renderIndex();
     expect(screen.getByText(/select a tenant/i)).toBeDefined();
     expect(within(document.body).queryByRole("heading", { level: 2 })).toBeNull();
+  });
+
+  /**
+   * Modern concept 2/6: the status filter below the band narrows only the
+   * catalogue already on the page for the role — no new read, no new route.
+   * Default is All, so the page on load is the catalogue above.
+   */
+  function filterButton(name: string): HTMLElement {
+    return screen.getByRole("button", { name });
+  }
+
+  test("the filter is a pressed-state switch, All pressed on load", () => {
+    renderIndex();
+    expect(filterButton("All").getAttribute("aria-pressed")).toBe("true");
+    for (const name of ["Available", "Review screens", "Proposed"]) {
+      expect(filterButton(name).getAttribute("aria-pressed")).toBe("false");
+    }
+    fireEvent.click(filterButton("Proposed"));
+    expect(filterButton("Proposed").getAttribute("aria-pressed")).toBe("true");
+    expect(filterButton("All").getAttribute("aria-pressed")).toBe("false");
+    fireEvent.click(filterButton("All"));
+    expect(filterButton("All").getAttribute("aria-pressed")).toBe("true");
+    expect(screen.getAllByText("Proposed, not available yet")).toHaveLength(PROPOSED.length);
+  });
+
+  test("Available shows only the three built reports, in the Sales and ERPNext groups", () => {
+    renderIndex();
+    fireEvent.click(filterButton("Available"));
+    expect(hrefOf("Daily received sales")).toBe("/sales-daily");
+    expect(hrefOf("Sales by store")).toBe("/sales-by-store");
+    expect(hrefOf("Posting health across days")).toBe("/posting-health");
+    expect(screen.queryByRole("link", { name: "Sales needing repair" })).toBeNull();
+    expect(screen.getByRole("region", { name: "Sales" })).toBeDefined();
+    expect(screen.getByRole("region", { name: "ERPNext integration" })).toBeDefined();
+    expect(screen.queryByRole("region", { name: "Cash and shifts" })).toBeNull();
+    expect(screen.queryByRole("region", { name: "Inventory" })).toBeNull();
+    expect(screen.queryAllByText("Proposed, not available yet")).toHaveLength(0);
+  });
+
+  test("Review screens shows the three review screens and no built report", () => {
+    renderIndex();
+    fireEvent.click(filterButton("Review screens"));
+    expect(hrefOf("Cash variance in shifts")).toBe("/shift-closes");
+    expect(hrefOf("ERPNext stock discrepancies")).toBe("/stock-discrepancies");
+    expect(hrefOf("Sales needing repair")).toBe("/sales-needing-repair");
+    expect(screen.queryByRole("link", { name: "Daily received sales" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Sales by store" })).toBeNull();
+    expect(screen.queryByRole("link", { name: "Posting health across days" })).toBeNull();
+  });
+
+  test("Proposed shows only the three proposed cards, with no link and no figure", () => {
+    renderIndex();
+    fireEvent.click(filterButton("Proposed"));
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getAllByText("Proposed, not available yet")).toHaveLength(PROPOSED.length);
+    for (const title of PROPOSED) {
+      const card = screen.getByText(title).closest("[data-report]") as HTMLElement;
+      expect(card.tagName).not.toBe("A");
+      expect(card.textContent).not.toMatch(/\d/);
+    }
+  });
+
+  test("a role that can open nothing, filtered to Available, gets the filter note only", () => {
+    activeContext.mockReturnValue(ctx("store_staff", "t1"));
+    renderIndex();
+    fireEvent.click(filterButton("Available"));
+    expect(screen.queryAllByRole("link")).toHaveLength(0);
+    expect(screen.getByText("No items with this status for your role.")).toBeDefined();
+    // The role note stays for the unfiltered view; it never doubles up.
+    expect(screen.queryByText(/no report or review screen/i)).toBeNull();
   });
 });
