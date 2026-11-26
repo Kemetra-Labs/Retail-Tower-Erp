@@ -45,9 +45,8 @@ import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
 import { OutboxAuditEnqueuerModule } from "../audit/outbox-audit-enqueuer.module";
-import { AuthModule } from "../auth/auth.module";
 import { REDIS_CLIENT, RedisModule } from "../redis";
-import { PG_POOL } from "../database";
+import { DatabaseModule, PG_POOL } from "../database";
 import { createApiLogger } from "../common/api-logger";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { INFLIGHT_REDIS, InProgressMarker, type InflightRedis } from "./in-progress-marker";
@@ -110,7 +109,7 @@ const idempotencyInterceptorProvider: Provider = {
 };
 
 @Module({
-  imports: [AuthModule, RedisModule, OutboxAuditEnqueuerModule],
+  imports: [DatabaseModule, RedisModule, OutboxAuditEnqueuerModule],
   providers: [
     {
       provide: ROOT_LOGGER,
