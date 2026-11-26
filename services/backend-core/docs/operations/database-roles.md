@@ -946,7 +946,7 @@ A script without the marker, such as the owner-gated
   tables for now (the API's boot check still requires them); revoking them from
   the domain role is a separate follow-up.
 
-- **Migration `0134_redistribution_proposals` (RT-1600).** Run
+- **Migration `0135_redistribution_proposals` (RT-1600).** Run
   [`sql/redistribution-proposals-domain-grants.sql`](sql/redistribution-proposals-domain-grants.sql)
   after `migrate up` and before the API starts, in the same step 2 of
   [`deploy/README.md`](../../deploy/README.md#deploy), with the same

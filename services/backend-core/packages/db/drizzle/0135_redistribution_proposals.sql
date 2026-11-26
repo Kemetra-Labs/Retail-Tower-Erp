@@ -1,4 +1,4 @@
--- 0134_redistribution_proposals.sql
+-- 0135_redistribution_proposals.sql
 --
 -- RT-1600 (W9 slice A, N3 of the RT-1596 master plan) — `[GATED: migration]`.
 -- Owner authority: Jira RT-1600 (Implementation, owner-authorized): the slice A
@@ -48,7 +48,7 @@
 -- NO payload, NO secret. Retained for the life of the tenant.
 -- ---------------------------------------------------------------------------
 --
--- Reversal: 0134_redistribution_proposals.down.sql drops both tables. Losing
+-- Reversal: 0135_redistribution_proposals.down.sql drops both tables. Losing
 -- them loses only the advice history: a W3 draft Transfer an accept created is a
 -- W3 document of its own and stays. Roll back the API first.
 --

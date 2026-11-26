@@ -1,5 +1,5 @@
 /**
- * RT-1600 — the SQL of the W9 redistribution proposals (migration 0134), on the caller's tenant-scoped client (RLS FORCE
+ * RT-1600 — the SQL of the W9 redistribution proposals (migration 0135), on the caller's tenant-scoped client (RLS FORCE
  * on both tables). Nothing here opens a transaction or decides a rule: the service does. The W3 reads (established
  * unit, shipment-transfers switch) are W3's own helpers, not copies.
  *

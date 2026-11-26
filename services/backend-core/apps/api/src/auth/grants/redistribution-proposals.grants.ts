@@ -1,5 +1,5 @@
 /**
- * RT-1600 (0134): the W9 redistribution proposals. A proposal and its lines change state (supersede, review, accept,
+ * RT-1600 (0135): the W9 redistribution proposals. A proposal and its lines change state (supersede, review, accept,
  * reject), so both hold SELECT, INSERT and UPDATE. Never DELETE or TRUNCATE (history is kept; TRUNCATE ignores row
  * security). The W3 draft Transfers an accept creates use the shipment Transfer grants, not new ones.
  * The auth lookup role has BYPASSRLS, so any grant would expose every tenant's rows.

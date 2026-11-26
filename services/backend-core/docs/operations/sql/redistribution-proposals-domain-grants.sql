@@ -1,7 +1,7 @@
--- Domain-role grants for the W9 redistribution proposals (RT-1600, migration 0134).
+-- Domain-role grants for the W9 redistribution proposals (RT-1600, migration 0135).
 -- See docs/operations/database-roles.md.
 --
--- Run ONCE per environment, AFTER `migrate up` has applied 0134 and BEFORE the
+-- Run ONCE per environment, AFTER `migrate up` has applied 0135 and BEFORE the
 -- API image that needs it is rolled, as the migration owner. This file holds
 -- NO credential. Give psql the connection through libpq environment variables
 -- (PGHOST/PGUSER/PGPASSWORD/...; see deploy/grants.env.example), never as a URL

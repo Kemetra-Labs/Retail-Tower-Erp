@@ -1,5 +1,5 @@
 /**
- * RT-1600 (W9 slice A, N3): `0134_redistribution_proposals` ([GATED: migration]) on a real PostgreSQL 16
+ * RT-1600 (W9 slice A, N3): `0135_redistribution_proposals` ([GATED: migration]) on a real PostgreSQL 16
  * (Testcontainers), applied on top of every earlier migration.
  *
  * Proves:
@@ -24,8 +24,8 @@ import { applyMigrationsBefore, asApp, asMigrationOwner, errorCode, startPgEnvOr
 import { ensureAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
-const UP = "0134_redistribution_proposals.sql";
-const DOWN = "0134_redistribution_proposals.down.sql";
+const UP = "0135_redistribution_proposals.sql";
+const DOWN = "0135_redistribution_proposals.down.sql";
 const sql = (name: string): string => readFileSync(resolve(DRIZZLE_DIR, name), "utf8");
 const OWNER_ROLE = "rt1600_mig_owner";
 const NEW_TABLES = ["redistribution_proposals", "redistribution_proposal_lines"] as const;
@@ -154,7 +154,7 @@ beforeAll(async () => {
   const started = await startPgEnvOrSkip(startPgEnv, process.env["MIGRATION_TEST_ALLOW_SKIP"] === "1");
   if (started.env === null) {
     // eslint-disable-next-line no-console
-    console.warn(`\n[0134-redistribution-proposals.spec] Docker NOT AVAILABLE — skipping: ${started.skipReason}\n`);
+    console.warn(`\n[0135-redistribution-proposals.spec] Docker NOT AVAILABLE — skipping: ${started.skipReason}\n`);
     return;
   }
   env = started.env;
@@ -185,7 +185,7 @@ afterAll(async () => {
   if (env) await stopPgEnv(env);
 }, 60_000);
 
-describe("0134 — up as the NOSUPERUSER migration owner", () => {
+describe("0135 — up as the NOSUPERUSER migration owner", () => {
   it("is absent before, and applies with the tenant GUC set to ''", async () => {
     if (skip()) return;
     expect(await tableCount()).toBe(0);
@@ -203,7 +203,7 @@ describe("0134 — up as the NOSUPERUSER migration owner", () => {
   });
 });
 
-describe("0134 — tenant isolation through the app role", () => {
+describe("0135 — tenant isolation through the app role", () => {
   it("a tenant sees its own proposal and line; another tenant and an empty GUC see nothing", async () => {
     if (skip()) return;
     const e = pg();
@@ -227,7 +227,7 @@ describe("0134 — tenant isolation through the app role", () => {
   });
 });
 
-describe("0134 — keys and checks", () => {
+describe("0135 — keys and checks", () => {
   it.each([
     ["a store of another tenant as source", { source: STORE_B1 }, "fk_redistribution_proposal_lines_source"],
     ["a store of another tenant as destination", { destination: STORE_B1 }, "fk_redistribution_proposal_lines_destination"],
@@ -290,7 +290,7 @@ describe("0134 — keys and checks", () => {
   });
 });
 
-describe("0134 — down and up again, as the migration owner", () => {
+describe("0135 — down and up again, as the migration owner", () => {
   it("drops both tables, and the up re-applies cleanly", async () => {
     if (skip()) return;
     expect(await runAsOwner(DOWN)).toBeNull();
