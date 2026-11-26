@@ -39,11 +39,11 @@ import { createSellingUserIdResolver } from './selling-user-id.js';
 
 /** The closed-set log lines of the device path. */
 export const DEVICE_TOKEN_UNREADABLE_LOG = 'sale_sync:device_token_unreadable';
-export const SELLING_USER_UNRESOLVED_LOG = 'sale_sync:selling_user_unresolved';
-export const SELLING_USER_LOOKUP_FAILED_LOG = 'sale_sync:selling_user_lookup_failed';
-export const DEVICE_UNAUTHORIZED_LOG = 'sale_sync:device_unauthorized';
-export const DEVICE_TERMINAL_CHANGED_LOG = 'sale_sync:device_terminal_changed';
-export const DEPENDENCY_FAILURE_LOG = 'sale_sync:dependency_failure';
+const SELLING_USER_UNRESOLVED_LOG = 'sale_sync:selling_user_unresolved';
+const SELLING_USER_LOOKUP_FAILED_LOG = 'sale_sync:selling_user_lookup_failed';
+const DEVICE_UNAUTHORIZED_LOG = 'sale_sync:device_unauthorized';
+const DEVICE_TERMINAL_CHANGED_LOG = 'sale_sync:device_terminal_changed';
+const DEPENDENCY_FAILURE_LOG = 'sale_sync:dependency_failure';
 
 export interface SaleSyncDevicePathDeps {
   db: DatabaseHandle;

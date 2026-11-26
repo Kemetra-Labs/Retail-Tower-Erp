@@ -42,7 +42,7 @@ import type {
 } from './repositories/sales.repository.js';
 
 /** M-N6: the newest 300 are shown; the rest need a search by number. */
-export const RECENT_SALES_CAP = 300;
+const RECENT_SALES_CAP = 300;
 
 const ALLOWED_KEYS: ReadonlySet<string> = new Set(['short_number']);
 

@@ -10,8 +10,8 @@ import type { RefuseKind } from './scan-messages.js';
  * declares itself with `data-scan-refuse`, which always wins.
  */
 
-export const SCAN_REFUSE_ATTR = 'data-scan-refuse';
-export const SCAN_TARGET_ATTR = 'data-scan-target';
+const SCAN_REFUSE_ATTR = 'data-scan-refuse';
+const SCAN_TARGET_ATTR = 'data-scan-target';
 
 export type ScanField = HTMLInputElement | HTMLTextAreaElement;
 

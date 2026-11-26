@@ -1,15 +1,15 @@
 {
   "$comment": "RT-1198 code-health ratchet. Lower is better; counts may only go down.",
   "knipUnusedFiles": 0,
-  "knipUnusedExports": 112,
-  "knipUnusedTypes": 345,
+  "knipUnusedExports": 91,
+  "knipUnusedTypes": 344,
   "knipUnusedDependencies": 6,
   "knipUnlistedDependencies": 2,
   "knipDuplicateExports": 1,
   "jscpdClones": 113,
-  "jscpdDuplicatedLines": 1397,
+  "jscpdDuplicatedLines": 1388,
   "eslintComplexity": 9,
   "eslintMaxLinesPerFunction": 32,
   "eslintMaxLines": 2,
-  "testsTypeErrors": 39
+  "testsTypeErrors": 0
 }

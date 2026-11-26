@@ -100,7 +100,7 @@ function clusters(text: string): string[] {
 }
 
 /** Width in printed columns: display cells per grapheme cluster, never code points or UTF-16 units. */
-export function columnWidth(text: string): number {
+function columnWidth(text: string): number {
   return clusters(text).reduce((cells, c) => cells + clusterWidth(c), 0);
 }
 

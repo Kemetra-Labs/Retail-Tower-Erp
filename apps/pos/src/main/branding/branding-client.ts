@@ -25,10 +25,10 @@
 import { createBackendTransport, type FetchLike } from '../http/transport.js';
 import { readBrandingBody, type WireBranding } from './branding-wire.js';
 
-export const BRANDING_PATH = '/api/pos/v1/tenant/branding';
-export const BRANDING_REQUEST_TIMEOUT_MS = 15_000;
+const BRANDING_PATH = '/api/pos/v1/tenant/branding';
+const BRANDING_REQUEST_TIMEOUT_MS = 15_000;
 /** 8 base64 screen renditions plus the receipt: far under this cap. */
-export const BRANDING_MAX_BODY_BYTES = 4 * 1024 * 1024;
+const BRANDING_MAX_BODY_BYTES = 4 * 1024 * 1024;
 
 export type BrandingReadOutcome =
   | { readonly kind: 'ok'; readonly branding: WireBranding }
