@@ -292,4 +292,21 @@ describe('RT-1209 returns wire: answers', () => {
       });
     }
   });
+
+  it('a response body over the transport 2 MB cap is a non-success unknown outcome', async () => {
+    // Built at run time: 2 000 001 bytes, one over the cap.
+    const big = 'x'.repeat(2_000_001);
+    const created = clientWith(() => Promise.resolve(new Response(big, { status: 201 })));
+    expect(await created.client.recordReturn(RETURN_REQUEST, TOKEN)).toEqual({
+      kind: 'unknown',
+      cause: 'unreadable_body',
+    });
+    const forbidden = clientWith(() => Promise.resolve(new Response(big, { status: 403 })));
+    expect(await forbidden.client.recordReturn({ ...RETURN_REQUEST, resend: true }, TOKEN)).toEqual(
+      {
+        kind: 'unknown',
+        cause: 'pre_replay_403',
+      },
+    );
+  });
 });
