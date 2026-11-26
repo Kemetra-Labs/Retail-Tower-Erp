@@ -373,6 +373,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: OFFER_PACK_MODULE, fetchCallSites: 0, surface: offerPackClient },
   // RT-1231: the D-2 audit upload (device attestation in the body, on the shared transport).
   { module: AUDIT_SYNC_MODULE, fetchCallSites: 0, surface: auditSyncClient },
+  // RT-1209: on the shared transport. The one fetch site is a pass-through that keeps the response
+  // the fetch resolved with, so an answer whose body cannot be read is still mapped from its status.
   { module: SHIFT_SYNC_CLIENT, fetchCallSites: 1, surface: shiftSyncClient },
   { module: `${VOUCHER_DIR}/validate.ts`, fetchCallSites: 1 },
   { module: `${VOUCHER_DIR}/redeem.ts`, fetchCallSites: 1 },

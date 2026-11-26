@@ -101,7 +101,7 @@ These come from the constitution and are repeated here for quick agent reference
 - Older clients move onto the transport only when they are touched for another reason, one per
   PR, with characterization tests first and unchanged public signatures. Migrated so far:
   `sale-history/sale-history-client.ts`, `sale-void/sale-void-client.ts` (RT-1209),
-  `returns/returns-client.ts` (RT-1209).
+  `returns/returns-client.ts` (RT-1209), `shift-cashup/shift-sync-client.ts` (RT-1209).
 
 ## Useful commands
 
