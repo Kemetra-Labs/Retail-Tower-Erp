@@ -35,7 +35,17 @@
  * never parsed, ordered, constructed or logged. Backend-Core sends it from
  * #708 (`689e164`) on; an `admitted` without it is outside the contract and is
  * `rejected` like any other malformed 200, so Backend-Core deploys first.
+ *
+ * RT-1209: the HTTP exchange (bearer, timeout, bounded body, transport faults) runs on the shared
+ * Backend-Core transport (`../http/transport.ts`); the outcome mapping is unchanged. The transport
+ * reads every answer body and reports a body that cannot be read as `null`, the same as no answer
+ * at all. This client reads the body only on a 200, so it keeps the response the fetch resolved with
+ * and maps a body-read failure from that status (a 200 whose body is unreadable: `rejected`).
+ * Two deliberate differences: a 200 body over 2 MB (declared or streamed) is not read, so it is
+ * `rejected`; and every answer body is now read before mapping, so a slow body delays the result
+ * (still bounded by the request timeout, which the pending-end wait relies on), never changes it.
  */
+import { createBackendTransport, type BackendAnswer, type FetchLike } from '../http/transport.js';
 
 /** RT-215: exported so the device-401 detector matches the same routes. */
 export const ADMISSIONS_PATH = '/api/pos/v1/cashier-admissions';
@@ -47,6 +57,8 @@ const ROSTER_PATH = '/api/pos/v1/cashier-admissions/roster';
  */
 export const ADMISSION_REQUEST_TIMEOUT_MS = 15_000;
 const DEFAULT_TIMEOUT_MS = ADMISSION_REQUEST_TIMEOUT_MS;
+/** The largest answer body read, in bytes (an admission or a roster is a few KB at most). */
+const ADMISSION_MAX_BODY_BYTES = 2_000_000;
 
 /** `PosCashierAdmissionOnlineRequest`. */
 export interface CashierAdmissionOnlineRequest {
@@ -170,21 +182,36 @@ export interface CashierAdmissionClient {
 export interface CreateCashierAdmissionClientDeps {
   /** Backend-Core base URL. */
   baseUrl: string;
-  fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  fetch: FetchLike;
   /** The paired terminal's device token, or null when none is held. */
   getDeviceToken: () => Promise<string | null>;
   timeoutMs?: number;
 }
 
+/** One HTTP answer: the status and the parsed body (undefined when unread or not JSON). */
+interface AdmissionAnswer {
+  readonly status: number;
+  readonly json: unknown;
+}
+
 type Sent =
-  | { kind: 'response'; response: Response }
+  | { kind: 'response'; answer: AdmissionAnswer }
   | { kind: 'no_connection' }
   | { kind: 'no_token' };
+
+/**
+ * The answer of one exchange: the transport's; else (its body could not be read) the status of the
+ * response the fetch resolved with, body unread; no_connection when none arrived.
+ */
+function sentOf(answer: BackendAnswer | null, arrived: Response | undefined): Sent {
+  if (answer !== null) return { kind: 'response', answer };
+  if (arrived === undefined) return { kind: 'no_connection' };
+  return { kind: 'response', answer: { status: arrived.status, json: undefined } };
+}
 
 export function createCashierAdmissionClient(
   deps: CreateCashierAdmissionClientDeps,
 ): CashierAdmissionClient {
-  const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? DEFAULT_TIMEOUT_MS;
 
   /** The device token, or null when none can be read (a throwing read included). */
@@ -200,17 +227,26 @@ export function createCashierAdmissionClient(
   async function send(path: string, method: 'GET' | 'POST', body?: unknown): Promise<Sent> {
     const token = await readToken();
     if (token === null) return { kind: 'no_token' };
-    const headers: Record<string, string> = { Authorization: `Bearer ${token}` };
-    const init: RequestInit = { method, headers, signal: AbortSignal.timeout(timeoutMs) };
-    if (body !== undefined) {
-      headers['Content-Type'] = 'application/json';
-      init.body = JSON.stringify(body);
-    }
-    try {
-      return { kind: 'response', response: await deps.fetch(`${root}${path}`, init) };
-    } catch {
-      return { kind: 'no_connection' };
-    }
+    // Keep the response the fetch resolved with: an answer whose body breaks is still an answer.
+    const probe: { arrived?: Response } = {};
+    const transport = createBackendTransport({
+      baseUrl: deps.baseUrl,
+      fetch: async (url, init) => {
+        probe.arrived = await deps.fetch(url, init);
+        return probe.arrived;
+      },
+      timeoutMs,
+      maxBodyBytes: ADMISSION_MAX_BODY_BYTES,
+    });
+    const answer = await transport.send({
+      method,
+      path,
+      bearer: token,
+      ...(body === undefined
+        ? {}
+        : { headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) }),
+    });
+    return sentOf(answer, probe.arrived);
   }
 
   return {
@@ -222,8 +258,7 @@ export function createCashierAdmissionClient(
         idempotency_key: req.idempotency_key,
       } satisfies CashierAdmissionOnlineRequest);
       if (sent.kind !== 'response') return notSent(sent);
-      if (sent.response.status === 200) return interpretAdmission(await readJson(sent.response));
-      return { kind: statusOutcome(sent.response.status, ADMISSION_STATUS) };
+      return admissionOutcome(sent.answer);
     },
 
     async reconcile(req) {
@@ -234,8 +269,7 @@ export function createCashierAdmissionClient(
         idempotency_key: req.idempotency_key,
       } satisfies CashierAdmissionReconcileRequest);
       if (sent.kind !== 'response') return notSent(sent);
-      if (sent.response.status === 200) return interpretAdmission(await readJson(sent.response));
-      return { kind: statusOutcome(sent.response.status, ADMISSION_STATUS) };
+      return admissionOutcome(sent.answer);
     },
 
     async end(admissionId, admissionGeneration) {
@@ -245,16 +279,22 @@ export function createCashierAdmissionClient(
       if (sent.kind !== 'response') return notSent(sent);
       // Every non-401 answer is informational: `end` is idempotent and the
       // local tear-down is authoritative.
-      return { kind: endOutcome(sent.response) };
+      return { kind: endOutcome(sent.answer.status) };
     },
 
     async listRoster() {
       const sent = await send(ROSTER_PATH, 'GET');
       if (sent.kind !== 'response') return notSent(sent);
-      if (sent.response.status === 200) return interpretRoster(await readJson(sent.response));
-      return { kind: statusOutcome(sent.response.status, DEVICE_ONLY_STATUS) };
+      if (sent.answer.status === 200) return interpretRoster(sent.answer.json);
+      return { kind: statusOutcome(sent.answer.status, DEVICE_ONLY_STATUS) };
     },
   };
+}
+
+/** posCreateCashierAdmission: a 200 by its body, any other status by the table. */
+function admissionOutcome(answer: AdmissionAnswer): CashierAdmissionResult {
+  if (answer.status === 200) return interpretAdmission(answer.json);
+  return { kind: statusOutcome(answer.status, ADMISSION_STATUS) };
 }
 
 /** Outcome when no response arrived: no device token, or a transport failure. */
@@ -287,8 +327,10 @@ function statusOutcome<K extends string>(
   return table[status] ?? (status >= 500 ? 'unavailable' : 'rejected');
 }
 
-function endOutcome(response: Response): CashierAdmissionEndResult['kind'] {
-  return response.ok ? 'ended' : statusOutcome(response.status, DEVICE_ONLY_STATUS);
+function endOutcome(status: number): CashierAdmissionEndResult['kind'] {
+  // `Response.ok`: a 2xx status.
+  const ok = status >= 200 && status <= 299;
+  return ok ? 'ended' : statusOutcome(status, DEVICE_ONLY_STATUS);
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -370,12 +412,4 @@ function interpretRoster(parsed: unknown): CashierRosterResult {
   const cashiers = parsed['cashiers'].map(parseRosterEntry);
   if (cashiers.includes(null)) return { kind: 'rejected' };
   return { kind: 'roster', cashiers: cashiers as CashierRosterEntry[] };
-}
-
-async function readJson(response: Response): Promise<unknown> {
-  try {
-    return (await response.json()) as unknown;
-  } catch {
-    return undefined;
-  }
 }
