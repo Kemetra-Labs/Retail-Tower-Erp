@@ -25,7 +25,7 @@ const LIKE_ESCAPE = '\\';
  * Escape LIKE metacharacters (`%`, `_`) and the escape char itself in a folded
  * query, so the query is matched as a literal substring under `LIKE … ESCAPE`.
  */
-export function escapeLike(folded: string): string {
+function escapeLike(folded: string): string {
   return folded.replaceAll(/[\\%_]/g, (ch) => `${LIKE_ESCAPE}${ch}`);
 }
 
