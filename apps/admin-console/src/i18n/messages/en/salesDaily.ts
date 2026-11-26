@@ -103,6 +103,13 @@ export const salesDaily: MessagesOf<typeof ar> = {
   "reports.answers": "Answers:",
   "reports.open.report": "Open the report",
   "reports.open.screen": "Open the screen",
+  // Modern concept 2/6: the status filter below the band (client-side only).
+  "reports.filter.label": "Filter by status",
+  "reports.filter.all": "All",
+  "reports.filter.available": "Available",
+  "reports.filter.review": "Review screens",
+  "reports.filter.proposed": "Proposed",
+  "reports.filter.none": "No items with this status for your role.",
   "reports.item.daily.q":
     "How many sales, voids and returns did the server receive each business day, and where are their sync and ERPNext posting now?",
   "reports.item.shiftVariance.title": "Cash variance in shifts",
