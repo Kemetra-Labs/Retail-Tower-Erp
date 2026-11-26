@@ -18,6 +18,7 @@
 import { apiClient } from "@/generated/client";
 import type { components } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
+import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
 import { rateLimitSeqOf } from "./rate-limit";
 
 // --- Typed operation wrappers -------------------------------------------------
@@ -134,17 +135,12 @@ export const rf2QueryKeys = {
 
 // --- Typed error mapping ------------------------------------------------------
 
-/** Backend error envelope: { error: { code, message, request_id } } (schema Error). */
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
-
 /** Which resource family raised the error — disambiguates 409 field + 401 meaning. */
 export type Rf2Resource = "tenant" | "store";
 
 export interface Rf2ErrorContext {
   status: number;
-  error?: BackendError;
+  error?: ErrorEnvelope;
   context: Rf2Resource;
 }
 
@@ -182,10 +178,6 @@ const COPY = {
   generic: "errors.generic",
 } as const satisfies Record<string, MessageKey>;
 
-function requestIdOf(input: Rf2ErrorContext): string | undefined {
-  return input.error?.error?.request_id;
-}
-
 /**
  * RT-401 store time zone errors, keyed by the backend `error.code`. They share
  * statuses with older store errors (a 409 was always the code conflict), so the
@@ -193,7 +185,7 @@ function requestIdOf(input: Rf2ErrorContext): string | undefined {
  */
 function timezoneErrorRender(input: Rf2ErrorContext): Rf2ErrorRender | undefined {
   if (input.context !== "store") return undefined;
-  const requestId = requestIdOf(input);
+  const requestId = requestIdOf(input.error);
   switch (input.error?.error?.code) {
     case "invalid_timezone":
       return { kind: "field-error", field: "timezone", messageKey: COPY.timezoneInvalid };
@@ -217,7 +209,7 @@ function timezoneErrorRender(input: Rf2ErrorContext): Rf2ErrorRender | undefined
  */
 function unauthorizedRender(input: Rf2ErrorContext): Rf2ErrorRender {
   if (input.context === "store") return { kind: "scope-required", messageKey: COPY.scopeRequired };
-  return { kind: "generic", messageKey: COPY.generic, requestId: requestIdOf(input) };
+  return { kind: "generic", messageKey: COPY.generic, requestId: requestIdOf(input.error) };
 }
 
 /** A 409 with no time zone code: the unique slug (tenant) or code (store). */
@@ -236,7 +228,7 @@ function conflictRender(input: Rf2ErrorContext): Rf2ErrorRender {
 export function mapRf2Error(input: Rf2ErrorContext): Rf2ErrorRender {
   const timezoneError = timezoneErrorRender(input);
   if (timezoneError) return timezoneError;
-  const requestId = requestIdOf(input);
+  const requestId = requestIdOf(input.error);
   switch (input.status) {
     case 401:
       return unauthorizedRender(input);

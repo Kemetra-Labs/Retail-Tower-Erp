@@ -14,6 +14,7 @@
  * refusal, never a success (owner, comment 15245).
  */
 import type { MessageKey } from "@/i18n";
+import { errorBodyOf } from "@/lib/backend-envelope";
 import type {
   BindResolutionCommand,
   CorrectExpiryCommand,
@@ -251,10 +252,6 @@ export function keyFor(held: KeyedCommand | null, command: unknown): KeyedComman
 
 // --- Outcome ----------------------------------------------------------------------
 
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
-
 export type WriteOutcome =
   | { kind: "recorded" }
   /** No response at all: whether it was recorded is unknown. */
@@ -276,7 +273,7 @@ export function classifyWrite(result: {
   retryAfter?: number;
 }): WriteOutcome {
   if ((result.status === 200 || result.status === 201) && result.data) return { kind: "recorded" };
-  const body = (result.error as BackendError | undefined)?.error;
+  const body = errorBodyOf(result.error);
   return {
     kind: "rejected",
     status: result.status,

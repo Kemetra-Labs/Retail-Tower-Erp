@@ -7,6 +7,7 @@
  * at render so a locale switch re-renders them.
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 import type { CloseKind, ShiftCashMovement, ShiftClosePage } from "@/lib/shift-close-queries";
 
 /** Roles the API lets read the shift-close review (RT-383). */
@@ -16,8 +17,6 @@ export const READ_ROLES = ["owner", "tenant_admin", "store_manager"] as const;
 export function canReadShiftCloses(role: string | null | undefined): boolean {
   return (READ_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A route id that is not a UUID would be a contract 400: it renders as not-found. */
 export function isShiftId(value: string | undefined): value is string {
@@ -101,7 +100,3 @@ export function reasonCodeKey({ reasonCode }: { reasonCode: string }): MessageKe
 }
 
 // --- Errors --------------------------------------------------------------------
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as { error?: { request_id?: string } } | undefined)?.error?.request_id;
-}

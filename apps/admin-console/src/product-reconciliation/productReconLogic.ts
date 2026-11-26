@@ -19,6 +19,7 @@
  */
 import type { StatusView } from "@/erp-status/erpStatusLogic";
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN, requestIdOf, statusKindOf } from "@/lib/backend-envelope";
 import type {
   BacklogClass,
   BacklogItem,
@@ -36,8 +37,6 @@ export const RECON_ROLES = ["owner", "tenant_admin"] as const;
 export function canUseProductReconciliation(role: string | null | undefined): boolean {
   return (RECON_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** The `:runId` route segment: a UUID, or the request would be a contract 400. */
 export function isRunId(value: string | undefined): value is string {
@@ -286,14 +285,6 @@ export function newIdempotencyKey(): string {
 
 // --- Errors and outcomes ------------------------------------------------------------------
 
-interface ErrorEnvelope {
-  error?: { code?: string; message?: string; request_id?: string };
-}
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as ErrorEnvelope | undefined)?.error?.request_id;
-}
-
 /** A failed read. A 404 is the API's non-disclosing refusal (role, or a run out of scope). */
 export interface ReadError {
   kind: "session" | "forbidden" | "not-found" | "rejected" | "rate-limited" | "generic";
@@ -318,7 +309,7 @@ export interface ApiResult<P> {
 
 export function readErrorOf(result: ApiResult<unknown>): ReadError {
   return {
-    kind: READ_STATUS_KINDS[result.status] ?? "generic",
+    kind: statusKindOf(READ_STATUS_KINDS, result.status),
     requestId: requestIdOf(result.error),
     retryAfterSeconds: result.retryAfterSeconds,
   };

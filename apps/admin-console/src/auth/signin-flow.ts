@@ -10,16 +10,12 @@
  * translates it at render, so a locale switch re-renders it.
  */
 import type { MessageKey } from "@/i18n";
-
-/** Backend error envelope: { error: { code, message, request_id } } (schema Error). */
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
+import type { ErrorEnvelope } from "@/lib/backend-envelope";
 
 export interface SignInInput {
   status: number;
   data?: { memberships?: Array<{ tenant_id: string; tenant_name?: string }> };
-  error?: BackendError;
+  error?: ErrorEnvelope;
   retryAfterSeconds?: number;
 }
 

@@ -26,24 +26,11 @@
  * Copy is a catalog key; the server's message never shows, the request id does.
  */
 import type { MessageKey } from "@/i18n";
-
-interface ErrorBody {
-  error?: { code?: string; request_id?: string } | string;
-}
+import { errorCodeOf, requestIdOf } from "@/lib/backend-envelope";
 
 export interface WrapperResult {
   status: number;
   error?: unknown;
-}
-
-function codeOf(result: WrapperResult): string | undefined {
-  const inner = (result.error as ErrorBody | undefined)?.error;
-  return typeof inner === "object" ? inner?.code : undefined;
-}
-
-export function requestIdOf(result: WrapperResult): string | undefined {
-  const inner = (result.error as ErrorBody | undefined)?.error;
-  return typeof inner === "object" ? inner?.request_id : undefined;
 }
 
 /** A fresh Idempotency-Key (v4 UUID, inside `^[\x21-\x7E]{16,128}$`): one per issue attempt, one per voucher cancel. */
@@ -60,8 +47,8 @@ export type IssueOutcome =
 const ISSUE_404: MessageKey = "vouchers.issue.errors.storeUnavailable";
 
 export function classifyIssueOutcome(result: WrapperResult): IssueOutcome {
-  const requestId = requestIdOf(result);
-  const code = codeOf(result);
+  const requestId = requestIdOf(result.error);
+  const code = errorCodeOf(result.error);
   switch (result.status) {
     case 201:
       return { kind: "issued" };
@@ -96,8 +83,8 @@ export type CancelOutcome =
 export function classifyCancelOutcome(
   result: WrapperResult & { data?: { already_cancelled?: boolean } },
 ): CancelOutcome {
-  const requestId = requestIdOf(result);
-  const code = codeOf(result);
+  const requestId = requestIdOf(result.error);
+  const code = errorCodeOf(result.error);
   if (result.status === 200) {
     return { kind: "cancelled", alreadyCancelled: result.data?.already_cancelled === true };
   }

@@ -7,6 +7,7 @@
  * render so a locale switch re-renders them (RT-399).
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 import type { CatalogListQuery, CatalogProduct, CatalogStatusFilter } from "@/lib/catalog-queries";
 
 /** Roles the API lets read the catalog (RT-752 AC 1). */
@@ -22,8 +23,6 @@ export const CATALOG_PAGE_SIZE = 50;
 
 /** The contract's limit on the search text. */
 export const MAX_QUERY_LENGTH = 100;
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // --- Keyset paging -----------------------------------------------------------
 

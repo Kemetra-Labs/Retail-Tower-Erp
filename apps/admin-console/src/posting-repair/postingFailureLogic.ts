@@ -17,6 +17,7 @@
  * RT-399: helpers return catalog message keys, never copy.
  */
 import type { MessageKey } from "@/i18n";
+import { errorBodyOf } from "@/lib/backend-envelope";
 import type { PostingRepairResult, RecordedRepair } from "@/lib/erp-posting-repair-queries";
 import type { SaleDetail } from "@/lib/sale-queries";
 
@@ -170,12 +171,6 @@ export interface PostingRepairOutcome {
   retryAfter?: number;
 }
 
-interface ErrorEnvelope {
-  error?: { code?: string; request_id?: string };
-}
-
-const envelope = (error: unknown) => (error as ErrorEnvelope | undefined)?.error;
-
 type Refusal = Pick<PostingRepairOutcome, "kind" | "messageKey" | "variant">;
 
 const REFUSALS: Record<string, Refusal> = {
@@ -251,7 +246,7 @@ export function classifyPostingRepair(result: PostingRepairResult): PostingRepai
     if (recorded) return recorded;
     return UNCONFIRMED;
   }
-  const { code, request_id: requestId } = envelope(result.error) ?? {};
+  const { code, request_id: requestId } = errorBodyOf(result.error) ?? {};
   if (result.status === 429) {
     return {
       kind: "rate-limited",

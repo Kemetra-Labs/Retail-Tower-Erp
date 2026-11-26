@@ -1,3 +1,4 @@
+import { dataOrThrow, requestIdOf, statusKindOf } from "@/lib/backend-envelope";
 /**
  * RT-372 hooks for the pending pairing codes: the live list (keyset paged,
  * newest first, never a code or its hash) and the cancel. Scope-keyed by the
@@ -11,7 +12,6 @@ import {
   consoleListPairingCodes,
 } from "@/lib/device-queries";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { requestIdOf } from "./deviceLogic";
 import type { DeviceError, DeviceScope } from "./useDevices";
 
 export const CODES_PAGE_SIZE = 50;
@@ -49,13 +49,14 @@ function errorOf(error: unknown): DeviceError | undefined {
 /** One page, or the typed error: a refusal is never an empty list. */
 async function fetchPage(cursor: string | undefined): Promise<PairingCodePage> {
   const res = await consoleListPairingCodes({ page_size: CODES_PAGE_SIZE, cursor });
-  if (res.status >= 400 || !res.data) {
-    throw new CodesFetchError({
-      kind: STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return res.data;
+  return dataOrThrow(
+    res,
+    (r) =>
+      new CodesFetchError({
+        kind: statusKindOf(STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
 }
 
 /** The server's order, never re-sorted; a code seen twice across pages is shown once. */

@@ -19,15 +19,12 @@
  * benefit is backend time-ordering, which has no client-correctness value.
  */
 
-/** Backend error envelope: { error: { code, message, request_id } }. */
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
+import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
 
 export interface InviteCallResult {
   status: number;
   headers: Headers;
-  error?: BackendError;
+  error?: ErrorEnvelope;
 }
 
 export type InviteOutcome =
@@ -55,13 +52,9 @@ function codeOf(result: InviteCallResult): string | undefined {
   return result.error?.error?.code;
 }
 
-function requestIdOf(result: InviteCallResult): string | undefined {
-  return result.error?.error?.request_id;
-}
-
 /** Pure classifier; no React, no fetch. Drives the SF5-2 outcome rendering. */
 export function classifyInviteOutcome(result: InviteCallResult): InviteOutcome {
-  const requestId = requestIdOf(result);
+  const requestId = requestIdOf(result.error);
 
   if (result.status === 201) {
     return result.headers.get("Idempotent-Replayed") === "true"

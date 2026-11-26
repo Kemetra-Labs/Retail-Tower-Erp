@@ -1,3 +1,4 @@
+import type { ApiResult } from "@/lib/backend-envelope";
 /**
  * RT-1515 (PR 2, PR 3) the shipment-Transfer write hooks. One POST per submit, with
  * the Idempotency-Key held while the operator's input is unchanged: a retry
@@ -35,13 +36,6 @@ import {
   isKeyConflict,
 } from "./transferWriteLogic";
 
-interface ApiResult {
-  status: number;
-  data?: unknown;
-  error?: unknown;
-  retryAfter?: number;
-}
-
 interface TransferWriteResult {
   outcome: WriteOutcome;
   /** The Transfer the server returned, on a recorded write. */
@@ -60,7 +54,7 @@ export interface TransferWrite<C> {
   reset: () => void;
 }
 
-type Send<C> = (command: C, key: string, signal: AbortSignal) => Promise<ApiResult>;
+type Send<C> = (command: C, key: string, signal: AbortSignal) => Promise<ApiResult<unknown>>;
 
 interface Attempt<C> {
   input: unknown;

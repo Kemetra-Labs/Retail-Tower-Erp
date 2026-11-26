@@ -25,6 +25,7 @@
 import { apiClient } from "@/generated/client";
 import type { ConsoleSalesByStoreSchema } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
+import type { BackendError } from "@/lib/backend-envelope";
 import { type SalesSummaryRangeProblem, salesSummaryRangeProblem } from "./sales-summary-queries";
 
 type Schemas = ConsoleSalesByStoreSchema.components["schemas"];
@@ -51,9 +52,6 @@ export async function consoleGetSalesByStore(query: SalesByStoreQuery) {
 }
 
 // --- Typed error mapping ------------------------------------------------------
-
-/** Backend error envelope: { error: { code, message, request_id } } (generated schema Error). */
-type BackendError = Schemas["Error"];
 
 export interface SalesByStoreErrorContext {
   status: number;
