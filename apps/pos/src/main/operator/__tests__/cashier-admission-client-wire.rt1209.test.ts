@@ -200,23 +200,31 @@ describe('RT-1209 cashier-admission wire: an answer whose body cannot be read', 
     await expect(CALLS[name](client)).resolves.toEqual({ kind });
   });
 
-  it('a 200 whose body stalls past the timeout → rejected, never no_connection', async () => {
-    const { client } = clientWith(
-      (_url, init) => {
-        // The body never ends; the request signal errors it, as a real fetch does on abort.
-        const body = new ReadableStream<Uint8Array>({
-          start(controller) {
-            init.signal?.addEventListener('abort', () => {
-              controller.error(init.signal?.reason);
-            });
-          },
-        });
-        return Promise.resolve(new Response(body, { status: 200 }));
-      },
-      { timeoutMs: 30 },
-    );
-    await expect(CALLS.admit(client)).resolves.toEqual({ kind: 'rejected' });
-  });
+  it.each([
+    ['admit', 200, { kind: 'rejected' }],
+    ['admit', 401, { kind: 'device_unauthorized' }],
+    ['end', 503, { kind: 'unavailable' }],
+    ['end', 200, { kind: 'ended' }],
+  ] as const)(
+    '%s %i whose body stalls past the timeout → %j, bounded by the timeout',
+    async (name, status, expected) => {
+      const { client } = clientWith(
+        (_url, init) => {
+          // The body never ends; the request signal errors it, as a real fetch does on abort.
+          const body = new ReadableStream<Uint8Array>({
+            start(controller) {
+              init.signal?.addEventListener('abort', () => {
+                controller.error(init.signal?.reason);
+              });
+            },
+          });
+          return Promise.resolve(new Response(body, { status }));
+        },
+        { timeoutMs: 30 },
+      );
+      await expect(CALLS[name](client)).resolves.toEqual(expected);
+    },
+  );
 });
 
 describe('RT-1209 cashier-admission wire: response classes', () => {
