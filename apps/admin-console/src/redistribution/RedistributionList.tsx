@@ -3,7 +3,9 @@
  * and «Compute a proposal». A compute that finds something opens the new proposal; one that finds
  * nothing says so (and that any open proposal was replaced). The Console decides nothing about stock.
  *
- * Access: owner or tenant_admin with every store in scope. Anyone else gets NoAccess and nothing is
+ * Access: owner or tenant_admin with every store in scope. Other roles get NoAccess; a store-scoped
+ * owner or tenant_admin gets the same "not available" view as a tenant with the feature off (a 404 also
+ * hides rows cached from an earlier read). In every refused case nothing is
  * requested; no active tenant → a scope prompt. While the feature is off for the tenant the API
  * answers the non-disclosing 404: the screen says "not available", never why.
  */
@@ -138,14 +140,14 @@ export function RedistributionList(): React.JSX.Element {
   const t = useT();
   const signOut = useSignOut();
   const navigate = useNavigate();
-  const { tenantId, allowed } = useRedistributionScope();
+  const { tenantId, roleAllowed, allowed } = useRedistributionScope();
   const list = useRedistributionList(tenantId, undefined, allowed);
   const action = useComputeAction(tenantId);
 
   if (!tenantId) return <ScopePrompt message={t("redistribution.scopePrompt")} />;
-  if (!allowed) return <NoAccess onSignOut={signOut} />;
+  if (!roleAllowed) return <NoAccess onSignOut={signOut} />;
 
-  const off = list.error?.kind === "notAvailable";
+  const off = !allowed || list.error?.kind === "notAvailable";
   const computeButton = off ? undefined : (
     <BusyButton
       type="button"
@@ -166,10 +168,16 @@ export function RedistributionList(): React.JSX.Element {
       />
       <p className="field__hint">{t("redistribution.note.advice")}</p>
       <NoticeBanner notice={action.notice} />
-      <ListBody list={list} onOpen={(id) => navigate(`/inventory/redistribution/${id}`)} />
+      {off ? (
+        <ReadFailed error={list.error ?? NOT_AVAILABLE} />
+      ) : (
+        <ListBody list={list} onOpen={(id) => navigate(`/inventory/redistribution/${id}`)} />
+      )}
     </div>
   );
 }
+
+const NOT_AVAILABLE = { kind: "notAvailable" } as const;
 
 function ListBody({
   list,

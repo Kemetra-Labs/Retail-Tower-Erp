@@ -135,7 +135,7 @@ function ProposalBody({
             <button
               type="button"
               className="btn-primary"
-              disabled={lines.chosen.length === 0}
+              disabled={lines.chosen.length === 0 || lines.reviewing !== null}
               onClick={() => setDialog("accept")}
             >
               {lines.chosen.length === 0
@@ -143,7 +143,12 @@ function ProposalBody({
                 : t("redistribution.accept.open", { count: lines.chosen.length })}
             </button>
           ) : null}
-          <button type="button" className="btn-danger-quiet" onClick={() => setDialog("reject")}>
+          <button
+            type="button"
+            className="btn-danger-quiet"
+            disabled={lines.reviewing !== null}
+            onClick={() => setDialog("reject")}
+          >
             {t("redistribution.reject.open")}
           </button>
         </div>
@@ -194,12 +199,14 @@ export function RedistributionPage(): React.JSX.Element {
   const t = useT();
   const signOut = useSignOut();
   const { proposalId } = useParams();
-  const { tenantId, allowed } = useRedistributionScope();
+  const { tenantId, roleAllowed, allowed } = useRedistributionScope();
   const read = useRedistributionProposal(tenantId, proposalId, allowed);
 
   if (!tenantId) return <ScopePrompt message={t("redistribution.scopePrompt")} />;
-  if (!allowed) return <NoAccess onSignOut={signOut} />;
-  const proposal = read.proposal;
+  if (!roleAllowed) return <NoAccess onSignOut={signOut} />;
+  const error = allowed ? read.error : ({ kind: "notAvailable" } as const);
+  // A 404 hides a proposal cached from an earlier read, with its decision controls.
+  const proposal = error?.kind === "notAvailable" ? undefined : read.proposal;
   return (
     <div className="surface redistribution">
       <BackLink to="/inventory/redistribution" label={t("redistribution.back")} />
@@ -208,15 +215,17 @@ export function RedistributionPage(): React.JSX.Element {
         title={t("redistribution.detail.title")}
         actions={proposal ? <ProposalStateBadge state={proposal.state} /> : undefined}
       />
-      {read.error ? (
+      {error ? (
         <ReadFailed
-          error={read.error}
+          error={error}
           onRetry={read.reload}
           notAvailableKey="redistribution.error.notAvailable"
         />
       ) : null}
       {read.isLoading ? <output className="content__sub">{t("common.loading")}</output> : null}
-      {proposal ? <ProposalBody proposal={proposal} tenantId={tenantId} /> : null}
+      {proposal ? (
+        <ProposalBody key={`${tenantId}:${proposal.id}`} proposal={proposal} tenantId={tenantId} />
+      ) : null}
     </div>
   );
 }

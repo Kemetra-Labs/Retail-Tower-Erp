@@ -118,8 +118,7 @@ describe("role visibility", () => {
   test.each([
     ["store_manager", { store_access_kind: "specific" }],
     ["store_staff", { store_access_kind: "specific" }],
-    ["owner", { store_access_kind: "specific" }],
-    ["tenant_admin", { store_access_kind: "specific" }],
+    ["cashier", { store_access_kind: "all" }],
   ])("%s with %o gets NoAccess and nothing is requested", async (role, membership) => {
     activeContext.mockReturnValue(asRole(role, membership));
     renderAt("/inventory/redistribution");
@@ -127,10 +126,28 @@ describe("role visibility", () => {
     expect(listRedistributionProposals).not.toHaveBeenCalled();
   });
 
+  test.each(["owner", "tenant_admin"])(
+    "a store-scoped %s gets the non-disclosing view, no compute, nothing requested",
+    async (role) => {
+      activeContext.mockReturnValue(asRole(role, { store_access_kind: "specific" }));
+      renderAt("/inventory/redistribution");
+      expect(
+        await screen.findByText(
+          "Redistribution proposals are not available for this organization.",
+        ),
+      ).toBeTruthy();
+      expect(screen.queryByRole("button", { name: "Compute a new proposal" })).toBeNull();
+      expect(listRedistributionProposals).not.toHaveBeenCalled();
+    },
+  );
+
   test("the detail page is gated the same way", async () => {
     activeContext.mockReturnValue(asRole("store_manager", { store_access_kind: "specific" }));
     renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
     expect(await screen.findByText("No assigned access")).toBeTruthy();
+    activeContext.mockReturnValue(asRole("owner", { store_access_kind: "specific" }));
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    expect(await screen.findByText("This proposal or this action is not available.")).toBeTruthy();
     expect(getRedistributionProposal).not.toHaveBeenCalled();
   });
 
@@ -239,22 +256,24 @@ describe("proposal: shadow phase", () => {
   });
 
   test("review sends one decision per line", async () => {
-    reviewRedistributionProposal.mockResolvedValue({
-      status: 200,
-      data: proposal({
-        state: "reviewed",
-        lines: [
-          line({
-            reviewDecision: {
-              decision: "would_accept",
-              note: null,
-              decidedAt: "2026-11-26T08:05:00.000Z",
-              decidedBy: "u",
-            },
-          }),
-          line({ id: LINE_2 }),
-        ],
-      }),
+    const reviewed = proposal({
+      state: "reviewed",
+      lines: [
+        line({
+          reviewDecision: {
+            decision: "would_accept",
+            note: null,
+            decidedAt: "2026-11-26T08:05:00.000Z",
+            decidedBy: "u",
+          },
+        }),
+        line({ id: LINE_2 }),
+      ],
+    });
+    reviewRedistributionProposal.mockImplementation(async () => {
+      // The server now holds the decision: the re-read after the command returns it too.
+      getRedistributionProposal.mockResolvedValue({ status: 200, data: reviewed });
+      return { status: 200, data: reviewed };
     });
     renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
     const group = await screen.findByRole("group", { name: /Review the Mineral water line/ });
@@ -318,16 +337,19 @@ describe("proposal: live phase", () => {
         line({ id: LINE_2, acceptOutcome: droppedOutcome }),
       ],
     });
-    acceptRedistributionProposal.mockResolvedValue({
-      status: 200,
-      data: {
-        lines: [
-          { lineId: LINE_1, outcome: createdOutcome },
-          { lineId: LINE_2, outcome: droppedOutcome },
-        ],
-        transferIds: [TRANSFER_1],
-        proposal: after,
-      },
+    acceptRedistributionProposal.mockImplementation(async () => {
+      getRedistributionProposal.mockResolvedValue({ status: 200, data: after });
+      return {
+        status: 200,
+        data: {
+          lines: [
+            { lineId: LINE_1, outcome: createdOutcome },
+            { lineId: LINE_2, outcome: droppedOutcome },
+          ],
+          transferIds: [TRANSFER_1],
+          proposal: after,
+        },
+      };
     });
     renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
     const open = await screen.findByRole("button", { name: "Accept selected lines" });

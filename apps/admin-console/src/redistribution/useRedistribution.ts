@@ -29,25 +29,37 @@ import { KeyedAttempt, errorRequestIdOf } from "@/lib/write-outcome";
 import type { ScopeMembership } from "@/shell/scope-stores";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import { canUseRedistribution, dedupeById, nextCursor } from "./redistributionLogic";
+import {
+  canReadRedistribution,
+  canUseRedistribution,
+  dedupeById,
+  nextCursor,
+} from "./redistributionLogic";
 import {
   type RedistributionOutcome,
   UNCERTAIN,
   classifyRedistributionResult,
 } from "./redistributionOutcomes";
 
-/** The active tenant, and whether this user may use proposals there (role and all-store access). */
+/**
+ * The active tenant and this user's access there. `roleAllowed`: owner or tenant_admin (any other role
+ * gets NoAccess). `allowed`: also every store in scope; a store-scoped owner or tenant_admin gets the
+ * same non-disclosing "not available" view as a tenant with the feature off, and nothing is requested.
+ */
 export function useRedistributionScope(): {
   tenantId: string | null;
+  roleAllowed: boolean;
   allowed: boolean;
 } {
   const { context } = useActiveContextValue();
   const tenantId = context?.active_tenant?.id ?? null;
   const own = context?.memberships?.find((m) => m.tenant_id === tenantId);
   const access = storeAccessOf(context, own as ScopeMembership | undefined);
+  const role = roleCodeOf(context);
   return {
     tenantId,
-    allowed: canUseRedistribution(roleCodeOf(context), access),
+    roleAllowed: canReadRedistribution(role),
+    allowed: canUseRedistribution(role, access),
   };
 }
 
@@ -225,7 +237,12 @@ export function useRedistributionWrites(tenantId: string | null): Redistribution
     }
     if (outcome.kind === "ok") {
       const proposal = proposalIn(outcome.data);
-      if (proposal) qc.setQueryData(keys.detail(tenantId, proposal.id), proposal);
+      if (proposal) {
+        // Show the answer at once, then re-read: an Idempotency-Key replay returns the proposal as
+        // it was when the first request succeeded, which may predate a later decision.
+        qc.setQueryData(keys.detail(tenantId, proposal.id), proposal);
+        void qc.invalidateQueries({ queryKey: keys.detail(tenantId, proposal.id) });
+      }
       void qc.invalidateQueries({ queryKey: list });
       return;
     }
