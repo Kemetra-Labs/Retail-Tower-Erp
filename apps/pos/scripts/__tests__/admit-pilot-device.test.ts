@@ -195,6 +195,10 @@ describe.runIf(process.platform === 'win32')(
         >;
         expect(results['good']).toBe('pass');
         expect(results['pin in lower case with a copied U+200E mark']).toBe('pass');
+        // The damaged file must exercise the guarded case: Windows reads UnknownError and still names the pinned signer.
+        expect(results['damaged signature block: windows status']).toBe(
+          'UnknownError naming the pinned signer',
+        );
         const refusals: Record<string, RegExp> = {
           'same subject, another key': /not the pinned pilot leaf/,
           'wrong sha256': /SHA-256 is/,
@@ -205,7 +209,7 @@ describe.runIf(process.platform === 'win32')(
           'not valid yet': /not valid before|no intact signature/,
           unsigned: /no intact signature/,
           'changed after signing': /no intact signature|SHA-256 is/,
-          'damaged signature block': /signature is invalid|no intact signature/,
+          'damaged signature block': /signature is invalid \(Windows says:/,
         };
         for (const [name, reason] of Object.entries(refusals)) {
           expect(results[name], name).toMatch(/^refused: /);

@@ -73,10 +73,25 @@ try {
   $dirs = if ([BitConverter]::ToUInt16($bytes, $pe + 24) -eq 0x20b) { $pe + 24 + 112 } else { $pe + 24 + 96 }
   $secOff = [BitConverter]::ToInt32($bytes, $dirs + 32)
   $secLen = [BitConverter]::ToInt32($bytes, $dirs + 36)
-  $i = $secOff + [int]($secLen * 0.5)
-  $bytes[$i] = $bytes[$i] -bxor 0x01
-  [IO.File]::WriteAllBytes($exe, $bytes)
-  $results['damaged signature block'] = Invoke-Case $exe $good.Thumbprint
+  # Find a damaged byte that gives exactly the case this guards: UnknownError, still naming the pinned signer.
+  $damaged = Join-Path $WorkDir 'damaged-copy.exe'
+  $hit = 'none'
+  # In a small file the certificate fills most of the block, so most single-byte changes alter the signer
+  # instead; scan the block until one leaves the signer intact (in practice the PKCS#7 header area, ~10%).
+  foreach ($step in 1..39) {
+    $copy = [byte[]]$bytes.Clone()
+    $i = $secOff + [int]($secLen * $step / 40)
+    $copy[$i] = $copy[$i] -bxor 0x01
+    [IO.File]::WriteAllBytes($damaged, $copy)
+    $sig = Get-AuthenticodeSignature -LiteralPath $damaged
+    if ([string]$sig.Status -eq 'UnknownError' -and $sig.SignerCertificate.Thumbprint -eq $good.Thumbprint -and
+        $sig.StatusMessage.TrimEnd('.') -ne [ComponentModel.Win32Exception]::new([int]0x800B0109).Message.TrimEnd('.')) {
+      $hit = 'UnknownError naming the pinned signer'
+      break
+    }
+  }
+  $results['damaged signature block: windows status'] = $hit
+  $results['damaged signature block'] = Invoke-Case $damaged $good.Thumbprint
 } finally {
   foreach ($t in $made) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$t" -DeleteKey -ErrorAction SilentlyContinue }
 }
