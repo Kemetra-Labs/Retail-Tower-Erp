@@ -189,8 +189,14 @@ describe('contract-set source (RT-869)', () => {
     // with the contract but never called: the conformance registry refuses any unregistered route.
     // RT-1339: `offers.openapi.yaml` holds `posGetOfferPack` next to the eleven Console offer
     // operations (a dashboard session, never the till). Same rule: generated, never called.
+    // RT-388: `cash-variance-policy.openapi.yaml` holds `posGetCashVariancePolicy` next to the four
+    // Console policy operations (a dashboard session, never the till). Same rule: generated, never called.
     // Exactly these, and nothing else outside `/api/pos/v1/`.
     expect(nonPos).toEqual([
+      '/api/v1/stores/{store_id}/cash-variance-policy',
+      '/api/v1/stores/{store_id}/cash-variance-policy/revisions',
+      '/api/v1/tenants/{tenant_id}/cash-variance-policy',
+      '/api/v1/tenants/{tenant_id}/cash-variance-policy/revisions',
       '/api/v1/offers',
       '/api/v1/offers/{offer_id}',
       '/api/v1/offers/{offer_id}/archive',
