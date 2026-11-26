@@ -170,16 +170,19 @@ CREATE TABLE IF NOT EXISTS redistribution_proposal_lines (
     CHECK (accept_outcome IS NULL OR accept_outcome IN ('created', 'reduced', 'dropped')),
   CONSTRAINT redistribution_proposal_lines_outcome_actor
     CHECK ((accept_outcome IS NULL) = (accepted_at IS NULL) AND (accept_outcome IS NULL) = (accepted_by IS NULL)),
+  -- COALESCE(..., false): with accept_outcome NULL the `= 'created'` arms are NULL, not false, and a CHECK
+  -- passes on NULL; without it a line with no outcome but a reason (or a quantity) would be accepted.
   CONSTRAINT redistribution_proposal_lines_outcome_shape
-    CHECK (
+    CHECK (COALESCE(
       (accept_outcome IS NULL AND accept_created_quantity IS NULL AND accept_transfer_id IS NULL AND accept_reason IS NULL)
       OR (accept_outcome = 'created' AND accept_created_quantity = quantity
           AND accept_transfer_id IS NOT NULL AND accept_reason IS NULL)
       OR (accept_outcome = 'reduced' AND accept_created_quantity > 0 AND accept_created_quantity < quantity
           AND accept_transfer_id IS NOT NULL AND accept_reason IS NOT NULL)
       OR (accept_outcome = 'dropped' AND accept_created_quantity IS NULL
-          AND accept_transfer_id IS NULL AND accept_reason IS NOT NULL)
-    ),
+          AND accept_transfer_id IS NULL AND accept_reason IS NOT NULL),
+      false
+    )),
   CONSTRAINT redistribution_proposal_lines_reason_length
     CHECK (accept_reason IS NULL OR char_length(accept_reason) BETWEEN 1 AND 64)
 );
