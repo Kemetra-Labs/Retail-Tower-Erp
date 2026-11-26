@@ -80,6 +80,17 @@ export const saleLines = pgTable(
     sellerUserId: uuid("seller_user_id"),
     sellerStoreId: uuid("seller_store_id"),
     sellerRoleId: uuid("seller_role_id"),
+    // RT-1571 (0134, RT-285 F-7): the line's one manual discount (`CaptureSaleLineDiscount`, RT-740), kept as
+    // sent: kind, value, amount, reason code, authority source and approver role all NULL (no manual discount;
+    // every line captured before 0134 reads "not recorded") or all set; the approver's user id is an optional,
+    // unverified till claim (no FK).
+    discountKind: text("discount_kind"),
+    discountValue: numeric("discount_value", { precision: 19, scale: 4 }),
+    discountAmount: numeric("discount_amount", { precision: 19, scale: 4 }),
+    discountReasonCode: text("discount_reason_code"),
+    discountAuthoritySource: text("discount_authority_source"),
+    discountApproverRole: text("discount_approver_role"),
+    discountApproverUserId: uuid("discount_approver_user_id"),
   },
   (t) => [
     check(
@@ -132,6 +143,20 @@ export const saleLines = pgTable(
     check(
       "sale_lines_seller_snapshot_whole",
       sql`(${t.sellerUserId} IS NULL) = (${t.sellerStoreId} IS NULL) AND (${t.sellerUserId} IS NULL) = (${t.sellerRoleId} IS NULL)`,
+    ),
+    // RT-1571 (0134, NOT VALID): the manual discount is whole or absent, in the contract's vocabularies, and
+    // its magnitude follows its kind.
+    check(
+      "sale_lines_discount_whole",
+      sql`(${t.discountKind} IS NULL) = (${t.discountValue} IS NULL) AND (${t.discountKind} IS NULL) = (${t.discountAmount} IS NULL) AND (${t.discountKind} IS NULL) = (${t.discountReasonCode} IS NULL) AND (${t.discountKind} IS NULL) = (${t.discountAuthoritySource} IS NULL) AND (${t.discountKind} IS NULL) = (${t.discountApproverRole} IS NULL) AND (${t.discountApproverUserId} IS NULL OR ${t.discountKind} IS NOT NULL)`,
+    ),
+    check(
+      "sale_lines_discount_vocabulary",
+      sql`${t.discountKind} IS NULL OR (${t.discountKind} IN ('percent', 'amount') AND ${t.discountReasonCode} IN ('promotion', 'loyal_or_contract_customer', 'near_expiry_or_damaged', 'price_correction') AND ${t.discountAuthoritySource} IN ('cashier_approval', 'manager_session') AND ${t.discountApproverRole} IN ('manager', 'admin'))`,
+    ),
+    check(
+      "sale_lines_discount_magnitude",
+      sql`${t.discountKind} IS NULL OR (${t.discountValue} <> 'NaN'::numeric AND ${t.discountAmount} <> 'NaN'::numeric AND ${t.discountValue} > 0 AND ${t.discountAmount} >= 0 AND (${t.discountKind} <> 'percent' OR (${t.discountValue} = trunc(${t.discountValue}) AND ${t.discountValue} <= 100)) AND (${t.discountKind} <> 'amount' OR ${t.discountValue} = ${t.discountAmount}))`,
     ),
     index("idx_sale_lines_sale").on(t.saleId),
     index("idx_sale_lines_tenant_store").on(t.tenantId, t.storeId),

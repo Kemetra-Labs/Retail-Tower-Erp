@@ -34,6 +34,7 @@
 import { apiClient } from "@/generated/client";
 import type { components, operations } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
+import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
 
 // --- Generated projections (no hand-typed shapes) -----------------------------
 
@@ -203,11 +204,6 @@ export function resolutionActionKey(
 
 // --- Typed error mapping ------------------------------------------------------
 
-/** Backend error envelope: { error: { code, message, request_id } } (schema Error). */
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string | null };
-}
-
 /** Which op raised the error — disambiguates which statuses are documented. */
 export type UnknownItemOp =
   | "list"
@@ -220,7 +216,7 @@ export type UnknownItemOp =
 
 export interface UnknownItemErrorContext {
   status: number;
-  error?: BackendError;
+  error?: ErrorEnvelope<string | null>;
   op: UnknownItemOp;
 }
 
@@ -277,10 +273,6 @@ const NOT_FOUND_OPS: ReadonlySet<UnknownItemOp> = new Set([
 /** Ops carrying an `Idempotency-Key` (they document 409 key conflicts and 425). */
 const KEYED_OPS: ReadonlySet<UnknownItemOp> = new Set(["reopen", "bulkDismiss"]);
 
-function requestIdOf(input: UnknownItemErrorContext): string | undefined {
-  return input.error?.error?.request_id ?? undefined;
-}
-
 function codeOf(input: UnknownItemErrorContext): string | undefined {
   return input.error?.error?.code;
 }
@@ -294,7 +286,7 @@ function forbiddenKey(input: UnknownItemErrorContext): MessageKey {
 
 /** 400: a refused body is form-level on the write ops; anything else is generic. */
 function mapBadRequest(input: UnknownItemErrorContext): UnknownItemErrorRender {
-  const requestId = requestIdOf(input);
+  const requestId = requestIdOf(input.error) ?? undefined;
   if (input.op === "createProduct") {
     return { kind: "validation", messageKey: COPY.createValidation, requestId };
   }
@@ -328,7 +320,7 @@ function mapReconciliationConflict(
 
 /** 409: the documented `error.code` decides; the conflicting product is never named. */
 function mapConflict(input: UnknownItemErrorContext): UnknownItemErrorRender {
-  const requestId = requestIdOf(input);
+  const requestId = requestIdOf(input.error) ?? undefined;
   const code = codeOf(input);
   if (KEYED_OPS.has(input.op) && code === "idempotency_key_conflict") {
     return { kind: "key-conflict", messageKey: COPY.keyConflict, requestId };
@@ -382,7 +374,7 @@ function mapConflict(input: UnknownItemErrorContext): UnknownItemErrorRender {
  * AS-5 restraint).
  */
 export function mapUnknownItemError(input: UnknownItemErrorContext): UnknownItemErrorRender {
-  const requestId = requestIdOf(input);
+  const requestId = requestIdOf(input.error) ?? undefined;
   switch (input.status) {
     case 400:
       return mapBadRequest(input);

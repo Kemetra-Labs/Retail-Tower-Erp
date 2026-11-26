@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Data-Pulse-2 POS Sales — Transaction Capture API
-  version: "1.29.0-draft"
+  version: "1.30.0-draft"
   description: >
     Spec 008 Sales / Transaction Capture contract surface. Defines the first
     sale fact the SaaS owns: an immutable `sales` header + frozen `sale_lines`
@@ -702,6 +702,26 @@ info:
     `return-eligibility` after `readSale`; a 404 or an unreachable read is
     `returns_unavailable` and nothing is sent. No runtime, migration, POS or
     Console change.
+
+    RT-1571 (1.30.0-draft; [GATED: contract] authorized under the owner's
+    delegation, RT-1588 comment 18881 item 9 and RT-1571 comment 18901; RT-285
+    F-7, owner decision OQ-8 in RT-285 comment 18526, RT-740 lineage): MANUAL
+    DISCOUNT KIND, REASON AND APPROVER STORED ON THE SALE LINE. Additive, read
+    side only. The request is unchanged: `CaptureSaleLineDiscount` keeps every
+    field, rule and refusal, and it stays part of the payload hash exactly as
+    before, so no existing payload hashes differently, and a same-key or
+    provenance replay is decided exactly as before. What changes is that a
+    captured line's `discount` is now stored as sent (migration 0134) and
+    returned as `SaleLine.discount` (`SaleLineDiscount`) on `captureSale` and
+    `readSale`, present only when recorded: a line captured before this
+    version has none, even when its net is below its gross ("not recorded").
+    The approver's `approverUserId`, when the till sent one, is stored and
+    returned here as a recorded claim, never verified and never used for
+    authorization; the requester of the discount is the sale's Transaction
+    Operator (`created_by`), a separate fact. The sale history
+    (`sale-history.yaml` 1.2.0-draft) and the console detail
+    (`console-sales.openapi.yaml` 1.4.0-draft) return the same facts without
+    the approver's user id. Every other field is unchanged.
 
     RT-1565 (1.29.0-draft; [GATED: contract] owner approval on RT-1565 comments
     18562 and 18563, "Approved, build it"; RT-285 F-1, owner decisions OQ-1,
@@ -3205,15 +3225,18 @@ components:
         400 (`recordReturn` is unchanged).
 
 
-        Storage (this version): the object is validated and hashed into the
-        sale's payload hash and the `Idempotency-Key` fingerprint, but it is
-        not stored, so it does not round-trip: `SaleLine` (`readSale`,
-        `captureSale`), the sale history and detail and the reprint do not
-        return it. Only the net `lineAmount` is stored. The discount amount
-        can be derived as `unitPrice × quantity − lineAmount`, but its kind,
-        reason and approver are not kept on the sale. The till's
-        `cart.discount.manager_authorized` audit event records the kind and
-        reason, but Backend-Core cannot join it to the sale line today
+        Storage (from 1.30.0-draft, RT-1571): the object is validated and
+        hashed into the sale's payload hash and the `Idempotency-Key`
+        fingerprint, as before, and it is now also stored on the line as sent
+        (every field, `approverUserId` included when present; money at the
+        stored scale, so `9.00` reads as `9.0000`), so it round-trips: `SaleLine.discount` (`readSale`, `captureSale`) returns it,
+        and the sale history and the console detail return it without
+        `approverUserId`. The reprint does not. A replay never rewrites it: the
+        first capture's facts stand. Lines captured before 1.30.0-draft kept
+        only the net `lineAmount` (the discount can be derived as `unitPrice ×
+        quantity − lineAmount`) and read with no `discount` ("not recorded").
+        The till's `cart.discount.manager_authorized` audit event records the
+        kind and reason, but Backend-Core cannot join it to the sale line
         (`lineRef` is server-generated and the event names the till's cart
         line), and the ingest does not persist the event's approver.
 
@@ -3269,8 +3292,8 @@ components:
             `cashier_approval` means a cashier's add consumed a manager
             approval, and `manager_session` means a manager or admin session
             applied it directly (D2). A client claim: the server does not check
-            it against the operator envelope or the device path, and does not
-            store it.
+            it against the operator envelope or the device path; from
+            1.30.0-draft it is stored as sent (RT-1571).
         approverRole:
           type: string
           enum: [manager, admin]
@@ -3278,7 +3301,7 @@ components:
             The approver's POS operator role (the `PosOperatorSummary.role`
             vocabulary). On the till every manual discount is authorized by a
             manager or an admin (RT-608). A client claim: the server does not
-            verify or store it.
+            verify it; from 1.30.0-draft it is stored as sent (RT-1571).
         approverUserId:
           type: string
           format: uuid
@@ -3286,10 +3309,12 @@ components:
             Optional. The approver's `users.id`, the provider-neutral user
             identity that RT-224 uses for `operatorUserId`. It is never a Clerk
             subject, a PIN or a credential. This is a provenance claim only: it
-            is hashed with the sale, but it is not verified, not stored and
-            never used for authorization or attribution. The sale's
-            attribution stays the authenticated operator (or, on the `device`
-            path, the RT-224 cashier).
+            is hashed with the sale and, from 1.30.0-draft (RT-1571), stored
+            as sent and returned by `readSale`, but it is not verified (an
+            unknown id is not refused) and never used for authorization or
+            attribution. The sale's attribution stays the authenticated
+            operator (or, on the `device` path, the RT-224 cashier), recorded
+            separately as the sale's Transaction Operator.
     CaptureSaleLineTracking:
       type: object
       additionalProperties: false
@@ -4160,6 +4185,62 @@ components:
           $ref: "#/components/schemas/SaleLinePromotion"
         seller:
           $ref: "#/components/schemas/SaleLineSeller"
+        discount:
+          $ref: "#/components/schemas/SaleLineDiscount"
+    SaleLineDiscount:
+      type: object
+      additionalProperties: false
+      required: [kind, value, amount, reasonCode, authoritySource, approverRole]
+      description: >
+        RT-1571 (1.30.0-draft; RT-285 F-7, RT-740 lineage): the line's manual
+        discount as captured (`CaptureSaleLineDiscount`), stored on the line
+        and echoed as recorded. Present only when recorded: absent on a line
+        without a manual discount and on every line captured before
+        1.30.0-draft, even a discounted one ("not recorded"; its net
+        `lineAmount` is below `unitPrice × quantity`). Optional, never in
+        `SaleLine.required`. Immutable: a later change of the approver's role
+        or membership never changes it, and a replay never rewrites it.
+        `lineAmount` stays the net (`unitPrice × quantity − amount`).
+      properties:
+        kind:
+          type: string
+          enum: [percent, amount]
+        value:
+          type: string
+          pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+          description: >
+            For `percent`: the whole percent as sent, `1` to `100`. For
+            `amount`: the money taken off, an exact decimal at the stored
+            scale (`5.00` reads as `5.0000`), equal to `amount`.
+        amount:
+          $ref: "#/components/schemas/NonNegativeDecimalAmount"
+          description: >
+            The money taken off the line, in the line currency, at the stored
+            scale (`9.00` reads as `9.0000`).
+        reasonCode:
+          type: string
+          enum:
+            - promotion
+            - loyal_or_contract_customer
+            - near_expiry_or_damaged
+            - price_correction
+          description: The RT-740 closed reason code (OD-28-9), never free text.
+        authoritySource:
+          type: string
+          enum: [cashier_approval, manager_session]
+          description: How the till says the discount was authorized; a client claim, recorded as sent.
+        approverRole:
+          type: string
+          enum: [manager, admin]
+          description: The approver's POS operator role as the till sent it; a client claim, recorded as sent.
+        approverUserId:
+          type: string
+          format: uuid
+          description: >
+            The approver's Backend-Core user id, present only when the till
+            sent one. A recorded claim: never verified, never used for
+            authorization. Separate from the sale's Transaction Operator, who
+            requested the discount.
     SaleLineSeller:
       type: object
       additionalProperties: false

@@ -55,7 +55,7 @@ import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
 import { TenantsModule } from "../../src/tenants/tenants.module";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
   startPgEnv,

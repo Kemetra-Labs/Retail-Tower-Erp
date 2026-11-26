@@ -16,6 +16,7 @@
  * the page reads the item again when the drawer closes.
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { type ApiResult, errorCodeOf, requestIdOf } from "@/lib/backend-envelope";
 import {
   type CatalogIdentifierKey,
   type CatalogProductDetail,
@@ -23,7 +24,6 @@ import {
   consoleRetireProductIdentifier,
 } from "@/lib/catalog-queries";
 import { type ScopeMembership, scopeMenuStores } from "@/shell/scope-stores";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
@@ -38,15 +38,7 @@ export type IdentifierWriteResult =
   | { ok: true; detail: CatalogProductDetail }
   | { ok: false; render: IdentifierWriteRender };
 
-interface WriteResponse {
-  status: number;
-  data?: CatalogProductDetail;
-  error?: unknown;
-}
-
-function codeOf(error: unknown): string | undefined {
-  return (error as { error?: { code?: string } } | undefined)?.error?.code;
-}
+type WriteResponse = ApiResult<CatalogProductDetail>;
 
 function resultOf(op: IdentifierWriteOp, res: WriteResponse): IdentifierWriteResult {
   if (res.status < 400 && res.data) return { ok: true, detail: normalizeProduct(res.data) };
@@ -55,7 +47,7 @@ function resultOf(op: IdentifierWriteOp, res: WriteResponse): IdentifierWriteRes
     render: mapIdentifierWriteError({
       op,
       status: res.status,
-      code: codeOf(res.error),
+      code: errorCodeOf(res.error),
       requestId: requestIdOf(res.error),
     }),
   };

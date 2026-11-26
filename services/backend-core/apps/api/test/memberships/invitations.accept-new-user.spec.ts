@@ -33,7 +33,7 @@ import { PG_POOL } from "../../src/database";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";
 import { OPERATOR_TOKEN_VERIFIER } from "../../src/auth/operator-token-verifier";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { ContextModule } from "../../src/context/context.module";
 import { InvitationsService } from "../../src/memberships/invitations.service";
 import { MembershipsModule } from "../../src/memberships/memberships.module";

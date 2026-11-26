@@ -18,7 +18,7 @@
  */
 import { SetMetadata } from "@nestjs/common";
 
-import type { POS_WRITE_RATE_LIMIT_BUCKETS } from "./rate-limit";
+import type { POS_WRITE_RATE_LIMIT_BUCKETS } from "../common/rate-limit/rate-limit";
 
 export type PosWriteBucketName = keyof typeof POS_WRITE_RATE_LIMIT_BUCKETS;
 

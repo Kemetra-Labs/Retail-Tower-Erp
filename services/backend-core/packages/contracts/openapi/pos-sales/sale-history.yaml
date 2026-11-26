@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core POS Sale History — store-scoped history, detail and reprint
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     RT-537 (RT-534 S1; [GATED] approval Jira RT-537 comment 12057, owner,
     2026-10-16; design comments 12054-12056; owner decisions OD-534-1..8 in
@@ -50,6 +50,14 @@ info:
     `voucher`, matching `SaleTender.method` of `sales.yaml` (RT-1114). The
     runtime already returned the stored method unfiltered; the contract now
     says so. No other wire change.
+
+    1.2.0-draft (RT-1571, RT-285 F-7, RT-740 lineage; additive to a response,
+    `[GATED: contract]` authorized under the owner's delegation, RT-1588
+    comment 18881 item 9 and RT-1571 comment 18901): `SaleHistoryLine` gains
+    an optional `discount`, the line's manual discount as stored from
+    `pos-sales/sales.yaml` 1.30.0-draft (migration 0134), without the
+    approver's user id. Absent when none was recorded, including every line
+    captured before that version. No request or other wire change.
 
 servers:
   - url: https://api.example.com
@@ -790,6 +798,45 @@ components:
               minimum: 1
             discountAmount:
               $ref: "#/components/schemas/DecimalAmount"
+        discount:
+          type: object
+          additionalProperties: false
+          required: [kind, value, amount, reasonCode, authoritySource, approverRole]
+          description: >
+            RT-1571 (RT-285 F-7, RT-740 lineage): the line's manual discount as
+            captured (`CaptureSaleLineDiscount` of `pos-sales/sales.yaml`),
+            echoed as stored, WITHOUT the approver's user id (least
+            disclosure, like `VoidSummary`, which names the approver's role
+            only; `readSale` returns the id). Present only when recorded:
+            absent on a line without a manual discount and on every line
+            captured before `pos-sales/sales.yaml` 1.30.0-draft, even a
+            discounted one ("not recorded"). Optional, never in `required`;
+            `lineAmount` stays the net.
+          properties:
+            kind:
+              type: string
+              enum: [percent, amount]
+            value:
+              type: string
+              pattern: '^[0-9]{1,15}(\.[0-9]{1,4})?$'
+              description: >
+                For `percent`, the whole percent (`1` to `100`); for `amount`,
+                the money taken off at the stored scale, equal to `amount`.
+            amount:
+              $ref: "#/components/schemas/DecimalAmount"
+            reasonCode:
+              type: string
+              enum:
+                - promotion
+                - loyal_or_contract_customer
+                - near_expiry_or_damaged
+                - price_correction
+            authoritySource:
+              type: string
+              enum: [cashier_approval, manager_session]
+            approverRole:
+              type: string
+              enum: [manager, admin]
 
     SaleTenderView:
       type: object

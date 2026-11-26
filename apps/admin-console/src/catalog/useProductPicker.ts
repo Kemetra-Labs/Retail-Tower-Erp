@@ -1,3 +1,4 @@
+import { dataOrThrow, requestIdOf, statusKindOf } from "@/lib/backend-envelope";
 /**
  * RT-767 query for the shared product picker: one page of ACTIVE products from
  * `consoleListCatalogProducts`, keyed by tenant and by the search text. The key
@@ -9,7 +10,6 @@
  * walks past its first page; a longer list is narrowed by searching.
  */
 import { type CatalogProduct, consoleListCatalogProducts } from "@/lib/catalog-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { useQuery } from "@tanstack/react-query";
 import { PICKER_STATUS_KINDS, type PickerErrorKind, buildPickerQuery } from "./productPickerLogic";
 
@@ -37,13 +37,15 @@ interface PickerPage {
 
 async function readPage(q: string): Promise<PickerPage> {
   const res = await consoleListCatalogProducts(buildPickerQuery(q));
-  if (res.status >= 400 || !res.data) {
-    throw new PickerFetchError({
-      kind: PICKER_STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return { products: res.data.items ?? [], hasMore: res.data.nextCursor != null };
+  const data = dataOrThrow(
+    res,
+    (r) =>
+      new PickerFetchError({
+        kind: statusKindOf(PICKER_STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
+  return { products: data.items ?? [], hasMore: data.nextCursor != null };
 }
 
 export interface ProductPickerState {

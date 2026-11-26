@@ -21,7 +21,7 @@
 // ---------------------------------------------------------------------------
 // Imports
 // ---------------------------------------------------------------------------
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
 
 // ---------------------------------------------------------------------------
 // Mock ioredis client factory (plain object, no real connection)

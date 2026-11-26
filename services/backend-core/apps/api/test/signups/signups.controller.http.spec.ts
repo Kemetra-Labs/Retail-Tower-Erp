@@ -11,7 +11,7 @@ import type { INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 
-import { RateLimiter } from "../../src/auth/rate-limit";
+import { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { SignupsController } from "../../src/signups/signups.controller";
 import { SIGNUP_INVALID_MESSAGE } from "../../src/signups/signup.dto";

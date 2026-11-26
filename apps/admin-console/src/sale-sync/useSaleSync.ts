@@ -1,3 +1,8 @@
+import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+} from "@/lib/backend-envelope";
 import type { SaleDetail } from "@/lib/sale-queries";
 /**
  * RT-726 query hooks for the sale sync-ops surfaces: the sync status and the
@@ -37,7 +42,6 @@ import {
   newIdempotencyKey,
   nextRepairCursor,
   readErrorKind,
-  requestIdOf,
 } from "./saleSyncLogic";
 
 export type SyncError = { kind: ReadErrorKind; requestId?: string; retryAfter?: number };
@@ -79,22 +83,16 @@ function errorOf(error: unknown): SyncError | undefined {
   return error instanceof SyncFetchError ? error.detail : { kind: "generic" };
 }
 
-export interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-  retryAfter?: number;
-}
-
 export function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) {
-    throw new SyncFetchError({
-      kind: readErrorKind(res.status),
-      requestId: requestIdOf(res.error),
-      retryAfter: res.retryAfter,
-    });
-  }
-  return res.data;
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new SyncFetchError({
+        kind: readErrorKind(r.status),
+        requestId: requestIdOf(r.error),
+        retryAfter: r.retryAfter,
+      }),
+  );
 }
 
 export interface ReadState<T> {

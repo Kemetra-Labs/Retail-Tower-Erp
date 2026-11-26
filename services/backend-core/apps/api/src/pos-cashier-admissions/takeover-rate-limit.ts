@@ -18,7 +18,7 @@
  */
 import type { Logger } from "@data-pulse-2/shared";
 
-import type { RateLimitBucket, RateLimiter } from "../auth/rate-limit";
+import type { RateLimitBucket, RateLimiter } from "../common/rate-limit/rate-limit";
 import { DEFAULT_TAKEOVER_LIMITER_TIMEOUT_MS } from "./cashier-admissions.config";
 
 export const TAKEOVER_BUCKET_NAME = "cashierAdmissionTakeover";

@@ -5,7 +5,7 @@
  * Docker-free: the limiter is a stub whose decision the test controls. The
  * HTTP shape (a 401 stays a 401, never a 429) is in preauth-rate-limit.http.spec.ts.
  */
-import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import type { AuthedRequest } from "../../src/auth/auth.guard";
 import * as metrics from "../../src/observability/metrics/preauth-rate-limit.metrics";
 import {

@@ -23,7 +23,7 @@ import { Controller, Get, HttpCode, HttpStatus, Post, Req, Res, UseGuards } from
 import type { Request, Response } from "express";
 
 import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
-import { RateLimiter } from "../auth/rate-limit";
+import { RateLimiter } from "../common/rate-limit/rate-limit";
 import { DeviceBearer } from "../auth/route-auth";
 import { readForwardEnvelope, withinTelemetryBudget } from "../console-telemetry/tunnel-request";
 import type { TenantContextRequest } from "../context/types";

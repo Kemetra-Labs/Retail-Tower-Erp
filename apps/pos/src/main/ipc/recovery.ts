@@ -20,18 +20,12 @@ import {
   type RecoveryRefusal,
 } from '../../shared/operator/recovery.js';
 import type { ManagerRecovery } from '../recovery/manager-recovery.js';
+import { closed, createIpcRunner } from './validation.js';
 
 const INVALID: RecoveryRefusal = { kind: 'refused', reason: 'invalid_input' };
 const ID = /^[A-Za-z0-9_-]{1,128}$/;
 const APPROVAL_ID = /^[0-9a-f-]{36}$/;
 const MAX_CASH_MINOR = 1_000_000_000;
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-function closed(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isPlainObject(value) && Object.keys(value).every((key) => keys.includes(key));
-}
 
 const isId = (v: unknown): v is string => typeof v === 'string' && ID.test(v);
 const isApprovalId = (v: unknown): v is string => typeof v === 'string' && APPROVAL_ID.test(v);
@@ -125,20 +119,10 @@ export function registerRecoveryHandlers(
   deps: RecoveryIpcDeps,
 ): void {
   const { recovery, logger } = deps;
-  const unavailable = (op: string, error: unknown): RecoveryRefusal => {
-    logger.warn(
-      { op, error: error instanceof Error ? error.name : typeof error },
-      'recovery:failed',
-    );
-    return { kind: 'refused', reason: 'recovery_unavailable' };
-  };
-  const run = async <T>(op: string, fn: () => T | Promise<T>): Promise<T | RecoveryRefusal> => {
-    try {
-      return await fn();
-    } catch (error) {
-      return unavailable(op, error);
-    }
-  };
+  const { runIpc: run } = createIpcRunner<RecoveryRefusal>(logger, 'recovery:failed', () => ({
+    kind: 'refused',
+    reason: 'recovery_unavailable',
+  }));
 
   ipcMain.handle(RECOVERY_IPC_CHANNELS.LIST_HELD, (_event, request: unknown) =>
     request === undefined ? run('listHeld', () => recovery.listHeld()) : INVALID,

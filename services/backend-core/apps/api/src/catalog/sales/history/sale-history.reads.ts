@@ -13,6 +13,7 @@
  */
 import type { PoolClient } from "pg";
 
+import { DISCOUNT_SELECT_SQL } from "../sale-line-discount";
 import {
   toSaleHistoryDetail,
   type DetailLineRow,
@@ -68,7 +69,8 @@ const LINES_SQL = `
          (SELECT COALESCE(SUM(rl.quantity), 0)::numeric(19,6)
             FROM sale_return_lines rl WHERE rl.sale_line_id = sl.id)::text AS returned_quantity,
          lp.offer_id::text AS promotion_offer_id, lp.offer_version AS promotion_offer_version,
-         lp.pack_revision::text AS promotion_pack_revision, lp.discount_amount::text AS promotion_discount_amount
+         lp.pack_revision::text AS promotion_pack_revision, lp.discount_amount::text AS promotion_discount_amount,
+         ${DISCOUNT_SELECT_SQL}
     FROM sale_lines sl
     LEFT JOIN sale_line_promotions lp ON lp.sale_line_id = sl.id
    WHERE sl.sale_id = $1 AND sl.tenant_id = $2 AND sl.store_id = $3

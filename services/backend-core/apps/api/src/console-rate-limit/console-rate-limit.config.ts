@@ -17,7 +17,7 @@
  * Enabling `report` or `enforce` in any environment is RT-622 (owner,
  * production configuration); merging this module changes no behaviour.
  */
-import type { RateLimitBucket } from "../auth/rate-limit";
+import type { RateLimitBucket } from "../common/rate-limit/rate-limit";
 
 export const CONSOLE_COST_CLASSES = [
   "cheapRead",

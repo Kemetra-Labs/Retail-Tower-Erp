@@ -161,6 +161,17 @@ const BUSINESS_CLASS_COLUMNS: ReadonlyArray<{
       "seller_user_id",
       "seller_store_id",
       "seller_role_id",
+      // RT-1571 (0134) — reviewed under SI-012: the line's manual discount as the till sent it (RT-740): closed
+      // codes (kind, reason, authority source, approver role), two exact-decimal magnitudes, and the approver's
+      // opaque user UUID (an unverified claim, the same actor-reference class as `sales.created_by`). The
+      // reason is a code, never free text; no name, email or other personal data is stored.
+      "discount_kind",
+      "discount_value",
+      "discount_amount",
+      "discount_reason_code",
+      "discount_authority_source",
+      "discount_approver_role",
+      "discount_approver_user_id",
     ],
   },
   {

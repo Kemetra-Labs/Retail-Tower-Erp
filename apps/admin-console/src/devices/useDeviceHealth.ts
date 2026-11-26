@@ -1,3 +1,8 @@
+import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+} from "@/lib/backend-envelope";
 /**
  * RT-1312 query hooks over the device-health reads, for the till's unsent sales.
  *
@@ -20,7 +25,7 @@ import {
 } from "@/lib/device-health-queries";
 import { useQuery } from "@tanstack/react-query";
 import type { DeviceFilters } from "./deviceFilters";
-import { isUuid, requestIdOf } from "./deviceLogic";
+import { isUuid } from "./deviceLogic";
 import {
   type HealthStatus,
   type SaleQueueState,
@@ -45,11 +50,11 @@ class HealthReadError extends Error {
   }
 }
 
-function dataOrThrow<P>(res: { status: number; data?: P; error?: unknown }): P {
-  if (res.status >= 400 || !res.data) {
-    throw new HealthReadError(res.status === 403 || res.status === 404, requestIdOf(res.error));
-  }
-  return res.data;
+function dataOrThrow<P>(res: ApiResult<P>): P {
+  return sharedDataOrThrow(
+    res,
+    (r) => new HealthReadError(r.status === 403 || r.status === 404, requestIdOf(r.error)),
+  );
 }
 
 function statusOf(result: { isLoading: boolean; error: unknown; data?: unknown }): HealthStatus {

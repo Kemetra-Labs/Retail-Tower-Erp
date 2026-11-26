@@ -8,6 +8,7 @@
  * components translate at render so a locale switch re-renders them.
  */
 import { type Locale, type MessageKey, type Params, formatDuration } from "@/i18n";
+import { UUID_PATTERN, requestIdOf } from "@/lib/backend-envelope";
 import type { SnapshotStatusCode, StockSnapshotStatus } from "@/lib/stock-discrepancy-queries";
 
 /** Roles the API lets read the negative on-hand surface (RT-177 `@Roles`). */
@@ -196,8 +197,6 @@ export function pagesShareSnapshot(pages: readonly { snapshot: StockSnapshotStat
   return pages.every((page) => snapshotIdentity(page.snapshot) === identity);
 }
 
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
-
 /**
  * Route `:storeId` shape check. The contract's `storeId` is a UUID; anything
  * else would be a 400, which the view treats as the store not being found.
@@ -214,10 +213,6 @@ export function isStoreId(value: string | undefined): value is string {
  */
 export function newSnapshotRequestKey(): string {
   return crypto.randomUUID();
-}
-
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
 }
 
 export interface TriggerResult {
@@ -237,7 +232,7 @@ export type TriggerOutcome =
  * the next click generates a new key.
  */
 export function classifyTriggerOutcome(result: TriggerResult): TriggerOutcome {
-  const requestId = (result.error as BackendError | undefined)?.error?.request_id;
+  const requestId = requestIdOf(result.error);
   if (result.status === 200 || result.status === 201) return { kind: "requested" };
   if (result.status === 404) return { kind: "not-found", requestId };
   if (result.status === 409) return { kind: "key-conflict", requestId };
@@ -272,6 +267,3 @@ export function outcomeBannerView(outcome: TriggerOutcome): OutcomeBannerView | 
 }
 
 /** Request id from a backend error envelope, for banners. */
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as BackendError | undefined)?.error?.request_id;
-}

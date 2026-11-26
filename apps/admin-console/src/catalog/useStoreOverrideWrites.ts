@@ -1,3 +1,4 @@
+import { type ApiResult, errorCodeOf, requestIdOf } from "@/lib/backend-envelope";
 /**
  * RT-770 mutation hooks for the two store-override writes (CAT-C2c): upsert
  * (PUT) and retire (POST). Neither takes an Idempotency-Key in the contract:
@@ -20,7 +21,6 @@ import {
   consoleRetireStoreOverride,
   consoleUpsertStoreOverride,
 } from "@/lib/catalog-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { type QueryClient, useMutation, useQueryClient } from "@tanstack/react-query";
 import {
   type OverrideWriteOp,
@@ -33,15 +33,7 @@ export type OverrideWriteResult =
   | { ok: true; detail: CatalogProductDetail }
   | { ok: false; render: OverrideWriteRender };
 
-interface WriteResponse {
-  status: number;
-  data?: CatalogProductDetail;
-  error?: unknown;
-}
-
-function codeOf(error: unknown): string | undefined {
-  return (error as { error?: { code?: string } } | undefined)?.error?.code;
-}
+type WriteResponse = ApiResult<CatalogProductDetail>;
 
 function resultOf(op: OverrideWriteOp, res: WriteResponse): OverrideWriteResult {
   if (res.status < 400 && res.data) return { ok: true, detail: normalizeProduct(res.data) };
@@ -50,7 +42,7 @@ function resultOf(op: OverrideWriteOp, res: WriteResponse): OverrideWriteResult 
     render: mapOverrideWriteError({
       op,
       status: res.status,
-      code: codeOf(res.error),
+      code: errorCodeOf(res.error),
       requestId: requestIdOf(res.error),
     }),
   };

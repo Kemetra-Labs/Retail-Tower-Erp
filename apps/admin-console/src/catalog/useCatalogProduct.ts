@@ -1,3 +1,4 @@
+import { dataOrThrow, requestIdOf, statusKindOf } from "@/lib/backend-envelope";
 /**
  * RT-766 query hook: one product's detail through `consoleGetCatalogProduct`
  * (read-only). Keyed by the active tenant and the product id; the detail takes
@@ -7,7 +8,6 @@
  * shared clock behind the gated Retry owns the countdown, RT-621).
  */
 import { type CatalogProductDetail, consoleGetCatalogProduct } from "@/lib/catalog-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { useQuery } from "@tanstack/react-query";
 import { storeNameMap } from "./catalogDetailLogic";
@@ -72,13 +72,16 @@ export function useCatalogProduct(
     retry: false,
     queryFn: async () => {
       const res = await consoleGetCatalogProduct(productId as string);
-      if (res.status >= 400 || !res.data) {
-        throw new ProductFetchError({
-          kind: STATUS_KINDS[res.status] ?? "generic",
-          requestId: requestIdOf(res.error),
-        });
-      }
-      return normalizeProduct(res.data);
+      return normalizeProduct(
+        dataOrThrow(
+          res,
+          (r) =>
+            new ProductFetchError({
+              kind: statusKindOf(STATUS_KINDS, r.status),
+              requestId: requestIdOf(r.error),
+            }),
+        ),
+      );
     },
   });
   return {

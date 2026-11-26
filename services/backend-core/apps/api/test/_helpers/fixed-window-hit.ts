@@ -4,7 +4,7 @@
  * old TTL has passed), seed the TTL when the key has none, and return the
  * count with the remaining TTL.
  */
-import type { WindowHit } from "../../src/auth/rate-limit";
+import type { WindowHit } from "../../src/common/rate-limit/rate-limit";
 
 export interface FixedWindowEntry {
   value: number;

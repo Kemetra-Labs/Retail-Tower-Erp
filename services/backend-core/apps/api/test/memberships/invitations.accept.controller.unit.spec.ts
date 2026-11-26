@@ -27,8 +27,8 @@ import {
   type AcceptInvitationInput,
   type AcceptInvitationResult,
 } from "../../src/memberships/invitations.service";
-import { RateLimiter } from "../../src/auth/rate-limit";
-import type { RateLimitDecision } from "../../src/auth/rate-limit";
+import { RateLimiter } from "../../src/common/rate-limit/rate-limit";
+import type { RateLimitDecision } from "../../src/common/rate-limit/rate-limit";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 

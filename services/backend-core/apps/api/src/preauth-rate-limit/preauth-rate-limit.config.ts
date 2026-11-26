@@ -25,7 +25,7 @@
  * telemetry before any enforce decision. Invalid values fall back to the
  * defaults; merging this module changes no behaviour (mode `off`).
  */
-import type { RateLimitBucket } from "../auth/rate-limit";
+import type { RateLimitBucket } from "../common/rate-limit/rate-limit";
 
 export const PREAUTH_RATE_LIMIT_MODES = ["off", "report"] as const;
 export type PreAuthRateLimitMode = (typeof PREAUTH_RATE_LIMIT_MODES)[number];

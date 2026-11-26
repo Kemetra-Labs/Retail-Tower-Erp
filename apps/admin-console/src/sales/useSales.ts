@@ -12,13 +12,18 @@
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+  statusKindOf,
+} from "@/lib/backend-envelope";
+import {
   type SaleDetail,
   type SaleListQuery,
   type SalePage,
   consoleGetSale,
   consoleListSales,
 } from "@/lib/sale-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { isSaleRef, listEnded, nextSaleCursor } from "./saleLogic";
 
@@ -72,21 +77,16 @@ function errorOf(error: unknown): SaleError | undefined {
   return error instanceof SaleFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-}
-
 /** Unwrap one wrapper result: its payload, or the typed error. */
 function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) {
-    throw new SaleFetchError({
-      kind: STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return res.data;
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new SaleFetchError({
+        kind: statusKindOf(STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
 }
 
 const FIRST_PAGE: string | undefined = undefined;

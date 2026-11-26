@@ -35,7 +35,7 @@ import request from "supertest";
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../../../src/audit/audit-job.types";
 import { AuthModule } from "../../../../src/auth/auth.module";
-import { RateLimiter, type RateLimitDecision } from "../../../../src/auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../../../../src/common/rate-limit/rate-limit";
 import { FailClosedAuthGuard } from "../../../../src/auth/fail-closed-auth.guard";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";

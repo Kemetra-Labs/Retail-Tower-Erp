@@ -29,7 +29,7 @@ import { SignupsRepository } from "../../src/signups/signups.repository";
 import { SignupsService } from "../../src/signups/signups.service";
 import type { SignupsStore } from "../../src/signups/signups.store";
 import { applyAllUpAndCreateAppRole, startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
-import type { RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import type { ExternalCredentialPort } from "../../src/auth/external-credential.port";
 import { FakeAudit, FakeEmails, FakeExternal, FakeHumanProof, FakeLimiter, FakeSessions, REQUEST } from "./signups.fakes";
 

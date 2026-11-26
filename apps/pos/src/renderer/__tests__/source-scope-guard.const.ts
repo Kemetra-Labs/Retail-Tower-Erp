@@ -940,3 +940,25 @@ export function isRt1587AvailabilityRepinExemptFile(branch: string, file: string
     (RT_1587_AVAILABILITY_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * RT-388 (shift variance policy fetch/cache, closing gap): the repin of the POS contract PIN to the `main` commit
+ * 3f3e96e7e that adds `cash-variance-policy.openapi.yaml` regenerates `src/shared/api-types.ts` (additive types only;
+ * no other pinned contract moves).
+ *
+ * Authority: the owner-directed RT-388 reconciliation item ("vendor cash-variance-policy.openapi.yaml into the POS
+ * contract pin"). Exactly ONE file on exactly ONE branch (exact name, no `startsWith`). Narrowness is asserted by
+ * `source-scope-guard-rt388.test.ts`.
+ */
+export const RT_388_VARIANCE_POLICY_REPIN_BRANCH = 'ccr-bea21095-o3cxj5-rt388' as const;
+export const RT_388_VARIANCE_POLICY_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-388 repin exemption allows on `branch`. */
+export function isRt388VariancePolicyRepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_388_VARIANCE_POLICY_REPIN_BRANCH &&
+    (RT_388_VARIANCE_POLICY_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}

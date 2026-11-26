@@ -26,7 +26,7 @@ import {
   type ExternalCredentialPort,
 } from "../../src/auth/external-credential.port";
 import { OPERATOR_TOKEN_VERIFIER } from "../../src/auth/operator-token-verifier";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { ContextModule } from "../../src/context/context.module";
 import { InvitationAcceptController } from "../../src/memberships/invitation-accept.controller";
 import { InvitationsService } from "../../src/memberships/invitations.service";

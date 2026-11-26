@@ -20,9 +20,13 @@ import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { type T, useT } from "@/i18n";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useClaimRateLimit } from "./rateLimitOwner";
-import { StartSessionDrawer, type StartTenant } from "./start/StartSessionDrawer";
+import {
+  type ReplacedSession,
+  StartSessionDrawer,
+  type StartTenant,
+} from "./start/StartSessionDrawer";
 import { SessionGoneNotice } from "./tenants/SessionGoneNotice";
 import { type DirectoryRow, directoryRows, filterTenants } from "./tenants/directoryLogic";
 import { type DirectoryError, useTenantDirectory } from "./tenants/useTenantDirectory";
@@ -137,11 +141,13 @@ function DirectoryTable({
 
 function DirectoryBody({
   query,
+  onClearSearch,
   onStart,
   onSwitch,
   directory,
 }: Readonly<{
   query: string;
+  onClearSearch: () => void;
   onStart: (row: DirectoryRow) => void;
   onSwitch: (tenantId: string) => void;
   directory: ReturnType<typeof useTenantDirectory>;
@@ -179,16 +185,23 @@ function DirectoryBody({
     );
   }
   const shown = directoryRows(filterTenants(tenants ?? [], query), context?.memberships ?? []);
+  // RT-932: no count under the no-match message (it only repeats "0 of N"); the way out is the action.
+  if (shown.length === 0) {
+    return (
+      <ListState
+        state="empty"
+        emptyMessage={t("platform.tenants.noMatch", { query: query.trim() })}
+        action={
+          <button type="button" className="btn-secondary" onClick={onClearSearch}>
+            {t("platform.tenants.search.clear")}
+          </button>
+        }
+      />
+    );
+  }
   return (
     <>
-      {shown.length === 0 ? (
-        <ListState
-          state="empty"
-          emptyMessage={t("platform.tenants.noMatch", { query: query.trim() })}
-        />
-      ) : (
-        <DirectoryTable rows={shown} onStart={onStart} onSwitch={onSwitch} />
-      )}
+      <DirectoryTable rows={shown} onStart={onStart} onSwitch={onSwitch} />
       <p className="platform-directory__count" aria-live="polite">
         {t("platform.tenants.count", { shown: shown.length, total: all.length })}
       </p>
@@ -196,11 +209,28 @@ function DirectoryBody({
   );
 }
 
+/** The session a new one would end, with the tenant name the operator knows it by (RT-932). */
+function replacedSession(
+  context: ReturnType<typeof useActiveContextValue>["context"],
+  tenants: readonly { id?: string; name?: string }[],
+): ReplacedSession | null {
+  const current = context?.support_session;
+  if (!current) return null;
+  const active = context?.active_tenant;
+  const tenantName =
+    (active?.id === current.tenant_id ? active.name : undefined) ??
+    tenants.find((x) => x.id === current.tenant_id)?.name ??
+    context?.memberships?.find((m) => m.tenant_id === current.tenant_id)?.tenant_name ??
+    current.tenant_id;
+  return { tenantName, purpose: current.purpose, ticketRef: current.ticket_ref };
+}
+
 export function PlatformTenants(): React.JSX.Element {
   const t = useT();
   const { context } = useActiveContextValue();
   const directory = useTenantDirectory();
   const [query, setQuery] = useState("");
+  const searchRef = useRef<HTMLInputElement>(null);
   const [starting, setStarting] = useState<StartTenant | null>(null);
   const {
     toTenant,
@@ -232,6 +262,7 @@ export function PlatformTenants(): React.JSX.Element {
             <label htmlFor="platform-tenant-search">{t("platform.tenants.search.label")}</label>
             <input
               id="platform-tenant-search"
+              ref={searchRef}
               className="input"
               type="search"
               autoComplete="off"
@@ -242,6 +273,10 @@ export function PlatformTenants(): React.JSX.Element {
 
           <DirectoryBody
             query={query}
+            onClearSearch={() => {
+              setQuery("");
+              searchRef.current?.focus();
+            }}
             directory={directory}
             onStart={(row) => {
               clearFailure();
@@ -256,7 +291,7 @@ export function PlatformTenants(): React.JSX.Element {
         <StartSessionDrawer
           key={starting.id}
           tenant={starting}
-          replacesSession={Boolean(context?.support_session)}
+          replaces={replacedSession(context, directory.tenants ?? [])}
           onClose={() => setStarting(null)}
           onNotAvailable={() => {
             setStarting(null);

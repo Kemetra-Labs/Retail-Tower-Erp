@@ -4,7 +4,7 @@
  */
 import type { Pool } from "pg";
 
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { HEALTH_CHECK_TIMEOUT_MS, HealthService } from "../../src/health/health.service";
 
 function pool(query: () => Promise<unknown>): Pool & { query: jest.Mock } {

@@ -55,7 +55,7 @@ import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
 import { StoresModule } from "../../src/stores/stores.module";
 import { PricingStoreLifecycleModule } from "../../src/pricing/pricing-store-lifecycle.module";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
   startPgEnv,

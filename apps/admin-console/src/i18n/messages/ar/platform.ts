@@ -76,6 +76,7 @@ export const platform = {
   "platform.tenants.action.switchFor": "فتح المؤسسة: {name}",
   "platform.tenants.count": "المعروض: {shown} من {total}",
   "platform.tenants.noMatch": "لا توجد مؤسسة تطابق «{query}».",
+  "platform.tenants.search.clear": "مسح البحث",
   "platform.tenants.error.failed": "تعذّر تحميل المؤسسات.",
   "platform.tenants.error.rateLimited":
     "تعذّر تحميل المؤسسات لأن الطلبات كثيرة جدًا. أعد المحاولة بعد انتهاء العدّ.",
@@ -101,8 +102,10 @@ export const platform = {
   "platform.start.ticket.label": "مرجع التذكرة",
   "platform.start.ticket.hint":
     "حتى 64 حرفًا: حروف إنجليزية وأرقام و . _ : # / - فقط، بدون مسافات. يظهر لمالك المؤسسة في سجل التدقيق، فلا تضع فيه بيانات العملاء.",
-  "platform.start.ticket.invalid":
-    "مرجع التذكرة غير صالح: ابدأ بحرف أو رقم، واستخدم حروفًا إنجليزية وأرقامًا و . _ : # / - فقط، حتى 64 حرفًا.",
+  "platform.start.ticket.invalid.space": "مرجع التذكرة يحتوي على مسافة.",
+  "platform.start.ticket.invalid.start": "يجب أن يبدأ مرجع التذكرة بحرف أو رقم.",
+  "platform.start.ticket.invalid.chars": "مرجع التذكرة يحتوي على حرف غير مسموح به.",
+  "platform.start.ticket.invalid.long": "مرجع التذكرة أطول من 64 حرفًا.",
   "platform.start.scope.label": "النطاق",
   "platform.start.scope.body":
     "تعمل في المؤسسة كالمعتاد. يُسجَّل كل إجراء تتخذه مع غرض هذه الجلسة ورقم تذكرتها.",
@@ -112,7 +115,10 @@ export const platform = {
   "platform.start.suspended.label": "مؤسسة موقوفة",
   "platform.start.suspended.body":
     "المؤسسة الموقوفة تُفتح مثل غيرها. يبقى مستخدموها ممنوعين من الدخول حتى يُعاد تفعيلها.",
-  "platform.start.replaces": "لديك جلسة دعم حالية. بدء هذه الجلسة يُنهي الجلسة الحالية.",
+  "platform.start.replaces":
+    "بدء هذه الجلسة يُنهي جلستك الحالية في {tenant} (الغرض: {purpose}، التذكرة: {ticket}). لن يتغير شيء في تلك المؤسسة.",
+  "platform.start.replacesNoTicket":
+    "بدء هذه الجلسة يُنهي جلستك الحالية في {tenant} (الغرض: {purpose}). لن يتغير شيء في تلك المؤسسة.",
   "platform.start.submit": "بدء جلسة الدعم",
   "platform.start.error.forbidden": "لا يمكن لحسابك فتح جلسة دعم. لم تبدأ أي جلسة.",
   "platform.start.error.failed": "تعذّر بدء الجلسة، ولم تبدأ أي جلسة. حاول مرة أخرى.",
@@ -123,5 +129,4 @@ export const platform = {
   "platform.start.notFound.back": "العودة إلى المؤسسات",
   "platform.start.member.title": "أنت عضو في هذه المؤسسة",
   "platform.start.member.body": "لا تحتاج إلى جلسة دعم لها، ولم تبدأ أي جلسة.",
-  "platform.start.member.switch": "استخدم تبديل المؤسسة العادي",
 } satisfies Messages;

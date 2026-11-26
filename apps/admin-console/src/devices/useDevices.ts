@@ -13,6 +13,12 @@
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+  statusKindOf,
+} from "@/lib/backend-envelope";
+import {
   type DeviceDetail,
   type DeviceListQuery,
   type DevicePage,
@@ -20,7 +26,7 @@ import {
   consoleListDevices,
 } from "@/lib/device-queries";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import { flattenDevicePages, isUuid, nextDeviceCursor, requestIdOf } from "./deviceLogic";
+import { flattenDevicePages, isUuid, nextDeviceCursor } from "./deviceLogic";
 
 export type DeviceError = {
   kind: "not-found" | "session" | "rejected" | "generic";
@@ -72,14 +78,15 @@ function errorOf(error: unknown): DeviceError | undefined {
 }
 
 /** Unwrap one wrapper result: its payload, or the typed error. */
-function dataOrThrow<P>(res: { status: number; data?: P; error?: unknown }): P {
-  if (res.status >= 400 || !res.data) {
-    throw new DeviceFetchError({
-      kind: STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return res.data;
+function dataOrThrow<P>(res: ApiResult<P>): P {
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new DeviceFetchError({
+        kind: statusKindOf(STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
 }
 
 const FIRST_PAGE: string | undefined = undefined;

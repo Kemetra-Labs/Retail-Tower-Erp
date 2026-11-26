@@ -25,7 +25,7 @@
  */
 import Redis from "ioredis";
 
-import type { WindowHit } from "./rate-limit";
+import type { WindowHit } from "../rate-limit/rate-limit";
 
 /**
  * RT-618: the fixed-window hit as one atomic script. INCR, then seed the

@@ -52,8 +52,8 @@ const captureLine = {
 };
 
 describe("pos-sales/sales.yaml — RT-1565 version and note", () => {
-  it("is 1.29.0-draft with a note citing the approval, the owner decisions and the hash rule", () => {
-    expect(sales.info?.version).toBe("1.29.0-draft");
+  it("was 1.29.0-draft (RT-1571 then moved it to 1.30.0-draft) with a note citing the approval, the owner decisions and the hash rule", () => {
+    expect(sales.info?.version).toBe("1.30.0-draft");
     const info = flat(sales.info?.description);
     expect(info).toContain("RT-1565 (1.29.0-draft; [GATED: contract] owner approval on RT-1565 comments 18562 and 18563");
     expect(info).toContain("OQ-1, OQ-2 and OQ-5");

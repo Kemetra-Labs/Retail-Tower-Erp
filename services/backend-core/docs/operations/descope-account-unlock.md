@@ -19,7 +19,7 @@ from the Descope console or with the key held only on the operator's machine.
 Read with the Descope MCP `GetPasswordSettings` (RT-943 comment 15850). A tenant can
 override these; re-read them if a tenant policy is ever set.
 
-Backend-Core has its own limits for Admin sign-in (`apps/api/src/auth/rate-limit.ts`):
+Backend-Core has its own limits for Admin sign-in (`apps/api/src/common/rate-limit/rate-limit.ts`):
 failed attempts per email and client IP (5) and per email (20), each per 15 minutes,
 and every attempt per client IP (30 per hour, all users together). The two
 failure limits are looser than Descope's, so for a Descope-linked user the Descope

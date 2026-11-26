@@ -12,7 +12,7 @@ import type {
   LoadUserResult,
   SetPasswordResult,
 } from "../../src/auth/external-credential.port";
-import type { RateLimitDecision, RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimitDecision, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import type { HumanProofInput, HumanProofResult, HumanProofVerifier } from "../../src/signups/human-proof.port";
 import { OwnTokenSignupLinkProvider } from "../../src/signups/own-token-signup-link.provider";
 import { SignupsService, type LinkState, type SignupsServiceDeps } from "../../src/signups/signups.service";

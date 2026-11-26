@@ -13,13 +13,18 @@
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+  statusKindOf,
+} from "@/lib/backend-envelope";
+import {
   type CatalogCategory,
   type CatalogListQuery,
   type CatalogProductPage,
   consoleListCatalogCategories,
   consoleListCatalogProducts,
 } from "@/lib/catalog-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { dedupeProducts, listEnded, nextCatalogCursor } from "./catalogLogic";
 
@@ -85,21 +90,16 @@ function errorOf(error: unknown): CatalogError | undefined {
   return error instanceof CatalogFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-}
-
 /** Unwrap one wrapper result: its payload, or the typed error. */
 function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) {
-    throw new CatalogFetchError({
-      kind: STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return res.data;
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new CatalogFetchError({
+        kind: statusKindOf(STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
 }
 
 /** A page with no `items` is an empty page: the walk, not the list, decides the end. */

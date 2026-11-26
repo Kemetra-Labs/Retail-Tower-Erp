@@ -1,3 +1,4 @@
+import type { ApiResult } from "@/lib/backend-envelope";
 /**
  * RT-455 the governed tracking commands as one hook per form. One POST per
  * submit. The Idempotency-Key is held while the command is unchanged, so a
@@ -52,13 +53,6 @@ export function withTimeout<T>(start: (signal: AbortSignal) => Promise<T>, ms: n
   return Promise.race([start(controller.signal), timeout]).finally(() => clearTimeout(timer));
 }
 
-interface ApiResult {
-  status: number;
-  data?: unknown;
-  error?: unknown;
-  retryAfter?: number;
-}
-
 export interface GovernedWrite<C> {
   outcome: WriteOutcome | null;
   pending: boolean;
@@ -68,7 +62,7 @@ export interface GovernedWrite<C> {
 }
 
 function useGovernedWrite<C>(
-  send: (command: C, key: string, signal: AbortSignal) => Promise<ApiResult>,
+  send: (command: C, key: string, signal: AbortSignal) => Promise<ApiResult<unknown>>,
 ): GovernedWrite<C> {
   const qc = useQueryClient();
   const held = useRef<KeyedCommand | null>(null);

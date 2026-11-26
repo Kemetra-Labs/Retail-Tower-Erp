@@ -10,7 +10,7 @@
 import { BadRequestException, HttpException, HttpStatus } from "@nestjs/common";
 import type { Request, Response } from "express";
 
-import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../auth/rate-limit";
+import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../common/rate-limit/rate-limit";
 import { MAX_ENVELOPE_BYTES, MAX_RETRY_AFTER_SECONDS } from "./console-telemetry.limits";
 import { EnvelopeMalformedError, buildForwardEnvelope, type ForwardStamp } from "./envelope";
 import { assertEnvelopeMediaType, readEnvelopeBody } from "./read-envelope-body";

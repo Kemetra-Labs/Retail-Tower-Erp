@@ -2567,17 +2567,18 @@ describe("pos-sales/sales.yaml — RT-740 per-line manual discount", () => {
     expect(d).toContain("a sale whose every line is discounted 100% has `posTotal` `0` and is accepted");
     expect(d).toContain("one `cash` entry of amount `0`");
     expect(d).toContain("the return sends one `cash` refund tender of amount `0`");
-    expect(d).toContain("Backend-Core cannot join it to the sale line today");
+    expect(d).toContain("Backend-Core cannot join it to the sale line");
     expect(d).toContain("a net of 2.99 over 3 units returns one unit as 0.9967");
     expect(d).toContain("never free text");
     expect(described(findOp("captureSale"))).toContain("`lineAmount = unitPrice × quantity − discount.amount`");
     expect(described(salesDoc.components?.responses?.["CaptureUnprocessable"])).toContain("`CaptureSaleLineDiscount`");
   });
 
-  it("changes no response schema: SaleLine stays closed without a discount field", () => {
+  it("RT-1571 (1.30.0-draft) adds only an OPTIONAL SaleLine.discount; SaleLine stays closed (pinned in manual-discount-provenance.contract.spec.ts)", () => {
     const saleLine = schema("SaleLine");
     expect(saleLine?.additionalProperties).toBe(false);
-    expect(Object.keys(saleLine?.properties ?? {})).not.toContain("discount");
+    expect(field("SaleLine", "discount")?.$ref).toBe("#/components/schemas/SaleLineDiscount");
+    expect(saleLine?.required ?? []).not.toContain("discount");
   });
 });
 
@@ -2594,8 +2595,8 @@ describe("pos-sales/sales.yaml — RT-1114 voucher tender", () => {
       | undefined;
 
   it("keeps the 1.23.0-draft note citing the authorization, decision 4A and the deployment gate", () => {
-    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft and RT-1565 to 1.29.0-draft; the RT-1114 note still stands.
-    expect(salesDoc.info?.version).toBe("1.29.0-draft");
+    // RT-1343 item 2 bumped the document to 1.24.0-draft, RT-1151 to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft, RT-1565 to 1.29.0-draft and RT-1571 to 1.30.0-draft; the RT-1114 note still stands.
+    expect(salesDoc.info?.version).toBe("1.30.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1114 (1.23.0-draft; [GATED: contract] owner authorization Jira RT-1114 comment 16670");
     expect(info).toContain("RT-1098 decision 4A");
@@ -2649,8 +2650,8 @@ describe("pos-sales/sales.yaml — RT-1343 credit-void voucher mirror", () => {
     CreditReversalRefundTenderSchema.safeParse({ amount: "2.5", ...t }).success;
 
   it("bumped to 1.24.0-draft with a note citing the owner decisions and migration 0107", () => {
-    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft and RT-1565 to 1.29.0-draft; the RT-1343 note still stands.
-    expect(salesDoc.info?.version).toBe("1.29.0-draft");
+    // RT-1151 (RT-282 PR-07) bumped the document to 1.25.0-draft, RT-1403 to 1.26.0-draft, RT-1544 to 1.27.0-draft RT-1548 to 1.28.0-draft, RT-1565 to 1.29.0-draft and RT-1571 to 1.30.0-draft; the RT-1343 note still stands.
+    expect(salesDoc.info?.version).toBe("1.30.0-draft");
     const info = flat(salesDoc.info?.description);
     expect(info).toContain("RT-1343 (1.24.0-draft; [GATED: contract, migration] owner decisions in chat 2026-11-12");
     expect(info).toContain("`CreditReversalRefundTender.method` gains `voucher`");

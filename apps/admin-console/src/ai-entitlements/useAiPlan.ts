@@ -8,6 +8,7 @@
  * caller's role by `toPanelModel`; nothing here decides entitlement.
  */
 import { consoleGetTenantAiEntitlements } from "@/lib/ai-entitlements-queries";
+import { requestIdStringOf } from "@/lib/backend-envelope";
 import { useQuery } from "@tanstack/react-query";
 import type { AiPlanView } from "./aiAccess";
 import { type PanelModel, toPanelModel } from "./aiLogic";
@@ -20,18 +21,11 @@ export type AiPlanResult =
   | { kind: "ok"; model: PanelModel }
   | { kind: "error"; status: number; requestId?: string };
 
-function requestIdOf(error: unknown): string | undefined {
-  const inner = (error as { error?: unknown } | undefined)?.error;
-  if (typeof inner !== "object" || inner === null) return undefined;
-  const id = (inner as { request_id?: unknown }).request_id;
-  return typeof id === "string" ? id : undefined;
-}
-
 async function fetchAiPlan(tenantId: string, view: AiPlanView): Promise<AiPlanResult> {
   try {
     const res = await consoleGetTenantAiEntitlements(tenantId);
     if (res.status >= 400) {
-      return { kind: "error", status: res.status, requestId: requestIdOf(res.error) };
+      return { kind: "error", status: res.status, requestId: requestIdStringOf(res.error) };
     }
     const model = toPanelModel(res.data, view);
     return model ? { kind: "ok", model } : { kind: "error", status: 0 };

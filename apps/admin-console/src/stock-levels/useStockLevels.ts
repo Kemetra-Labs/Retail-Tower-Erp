@@ -1,3 +1,10 @@
+import {
+  type ApiResult,
+  dataOrThrow,
+  errorCodeStringOf,
+  requestIdOf,
+  statusKindOf,
+} from "@/lib/backend-envelope";
 /**
  * RT-1074 query and mutation hooks over the five stock-levels operations.
  *
@@ -23,7 +30,6 @@ import {
   consoleSetStoreStockLevel,
   consoleSetTenantStockLevel,
 } from "@/lib/stock-level-queries";
-import { requestIdOf } from "@/shift-closes/shiftCloseLogic";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import {
   type LevelTarget,
@@ -85,13 +91,17 @@ export function useStockLevels(
     retry: false,
     queryFn: async () => {
       const res = await consoleGetProductStockLevels(productId);
-      if (res.status >= 400 || !res.data) {
-        throw new StockLevelsFetchError({
-          kind: STATUS_KINDS[res.status] ?? "generic",
-          requestId: requestIdOf(res.error),
-        });
-      }
-      return normalizeLevels(productId, res.data);
+      return normalizeLevels(
+        productId,
+        dataOrThrow(
+          res,
+          (r) =>
+            new StockLevelsFetchError({
+              kind: statusKindOf(STATUS_KINDS, r.status),
+              requestId: requestIdOf(r.error),
+            }),
+        ),
+      );
     },
   });
   return {
@@ -110,17 +120,7 @@ export type LevelWriteResult =
   | { ok: true; levels: ProductStockLevels; replayed: boolean }
   | { ok: false; status: number; render: LevelWriteRender };
 
-interface WriteResponse {
-  status: number;
-  data?: unknown;
-  error?: unknown;
-  replayed?: boolean;
-}
-
-function codeOf(error: unknown): string | undefined {
-  const code = (error as { error?: { code?: unknown } } | undefined)?.error?.code;
-  return typeof code === "string" ? code : undefined;
-}
+type WriteResponse = ApiResult<unknown> & { replayed?: boolean };
 
 function retryAfterOf(error: unknown): number | undefined {
   const value = (error as { retryAfterSec?: unknown } | undefined)?.retryAfterSec;
@@ -141,7 +141,7 @@ function resultOf(op: LevelWriteOp, productId: string, res: WriteResponse): Leve
     render: mapLevelWriteError({
       op,
       status: res.status,
-      code: codeOf(res.error),
+      code: errorCodeStringOf(res.error),
       requestId: requestIdOf(res.error),
       retryAfterSec: retryAfterOf(res.error),
     }),

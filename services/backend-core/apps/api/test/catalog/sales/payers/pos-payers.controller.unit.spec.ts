@@ -13,7 +13,7 @@ import { AUDITABLE_KEY } from "../../../../src/audit/auditable.decorator";
 import { POS_WRITE_RATE_LIMIT_BUCKET_KEY } from "../../../../src/auth/pos-write-rate-limit.decorator";
 import { PosOperatorEnvelopeSaleGuard } from "../../../../src/auth/pos-operator-envelope-sale.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
-import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../../../src/auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../../../src/common/rate-limit/rate-limit";
 import { DEVICE_BEARER_KEY } from "../../../../src/auth/route-auth";
 import { PosPayersController } from "../../../../src/catalog/sales/payers/pos-payers.controller";
 import type { PosPayersService } from "../../../../src/catalog/sales/payers/pos-payers.service";

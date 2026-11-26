@@ -47,18 +47,6 @@ export const KNOWN_VIOLATIONS: readonly KnownViolation[] = [
       'paths (RT-869). RT-1046 vendors it under its own exemption and deletes this entry.',
   },
   {
-    call: 'policyClient.read',
-    kind: 'endpoint-missing',
-    tickets: ['RT-388', 'RT-1046'],
-    note:
-      'GET /api/pos/v1/store/cash-variance-policy (posGetCashVariancePolicy, device bearer) is real ' +
-      '(RT-387, cash-variance-policy.openapi.yaml). It is not vendored: the file also holds the ' +
-      'Console /api/v1/tenants/{tenant_id}/cash-variance-policy routes, and pinning it regenerates ' +
-      'src/shared/api-types.ts (a forbidden path without an owner-approved branch exemption). Until ' +
-      'then policy-wire.ts reads the 200 body strictly against the contract text. Vendor the file ' +
-      'under its own exemption and delete this entry.',
-  },
-  {
     call: 'unknownItemCaptureClient.send',
     kind: 'endpoint-missing',
     tickets: ['RT-1490', 'RT-1046'],

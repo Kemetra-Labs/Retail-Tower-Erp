@@ -32,7 +32,7 @@ import { hashToken } from "@data-pulse-2/auth";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { AlwaysAllowRedis } from "../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
-import { RateLimiter } from "../../src/auth/rate-limit";
+import { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { PosDeviceAuthGuard } from "../../src/auth/pos-device-auth.guard";
 import { DeviceRepository } from "../../src/pos-operators/device.repository";
 import { PairingController } from "../../src/pos-terminal-pairing/pairing.controller";

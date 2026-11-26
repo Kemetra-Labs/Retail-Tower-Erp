@@ -49,8 +49,6 @@ export type SourceGap = Schemas["SourceGap"];
 export type AnswerRefusalCode = Schemas["AnswerRefusalCode"];
 export type GatewayUnavailableCode = Schemas["GatewayUnavailableCode"];
 export type TemplateId = Schemas["TemplateId"];
-export type BackendError = Schemas["Error"];
-
 // --- Typed operation wrapper --------------------------------------------------
 
 /** POST /api/v1/ai/manager-sales/explain. A refusal or an unavailable outcome is a 200 body. */

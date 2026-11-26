@@ -11,6 +11,7 @@
  * RT-399: helpers return catalog message keys, never copy.
  */
 import type { MessageKey } from "@/i18n";
+import { errorBodyOf } from "@/lib/backend-envelope";
 import type {
   CreateStatusMoveCommand,
   InventoryReasonCode,
@@ -167,10 +168,6 @@ export function keyFor(held: KeyedCommand | null, command: CreateStatusMoveComma
 
 // --- Outcome -------------------------------------------------------------------------
 
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
-
 export type MoveOutcome =
   | { kind: "recorded" }
   /** The request got no response at all: whether it was recorded is unknown. */
@@ -191,7 +188,7 @@ export function classifyMoveResult(result: {
   retryAfter?: number;
 }): MoveOutcome {
   if (result.status === 200 || result.status === 201) return { kind: "recorded" };
-  const body = (result.error as BackendError | undefined)?.error;
+  const body = errorBodyOf(result.error);
   return {
     kind: "rejected",
     status: result.status,

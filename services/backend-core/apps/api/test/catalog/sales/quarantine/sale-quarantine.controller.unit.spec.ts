@@ -12,7 +12,7 @@ import { AUDITABLE_KEY } from "../../../../src/audit/auditable.decorator";
 import { PosDeviceAuthGuard } from "../../../../src/auth/pos-device-auth.guard";
 import { POS_WRITE_RATE_LIMIT_BUCKET_KEY } from "../../../../src/auth/pos-write-rate-limit.decorator";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
-import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../../../src/auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../../../src/common/rate-limit/rate-limit";
 import { DEVICE_BEARER_KEY } from "../../../../src/auth/route-auth";
 import { SaleQuarantineController } from "../../../../src/catalog/sales/quarantine/sale-quarantine.controller";
 

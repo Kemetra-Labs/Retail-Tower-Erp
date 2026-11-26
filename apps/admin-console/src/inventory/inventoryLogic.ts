@@ -10,6 +10,7 @@
  * RT-399: helpers return catalog message keys, never copy.
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN, statusKindOf } from "@/lib/backend-envelope";
 import type { InventoryStatus, StockMovement } from "@/lib/inventory-queries";
 
 /**
@@ -30,8 +31,6 @@ export function canReadInventory(role: string | null | undefined): boolean {
 export function canReadTracking(role: string | null | undefined): boolean {
   return (TRACKING_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A route id that is not a UUID would be a contract 400: it renders as not-found. */
 export function isUuid(value: string | undefined): value is string {
@@ -162,21 +161,7 @@ const READ_KINDS: Record<number, ReadErrorKind> = {
 };
 
 export function readErrorKind(status: number): ReadErrorKind {
-  return READ_KINDS[status] ?? "generic";
-}
-
-interface ErrorEnvelope {
-  error?: { request_id?: string; code?: unknown };
-}
-
-/** The envelope's machine `error.code`, or undefined when the body carried none. */
-export function errorCodeOf(error: unknown): string | undefined {
-  const code = (error as ErrorEnvelope | undefined)?.error?.code;
-  return typeof code === "string" ? code : undefined;
-}
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as ErrorEnvelope | undefined)?.error?.request_id;
+  return statusKindOf(READ_KINDS, status);
 }
 
 /** A 403 or 404 on an optional section (tracking) means: not for this caller, omit it. */
