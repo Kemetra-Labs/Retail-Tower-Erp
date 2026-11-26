@@ -7,6 +7,7 @@ import type {
   AvailabilityStatusResponse,
 } from '../../shared/availability/types.js';
 import type { AvailabilityService } from '../availability/availability-service.js';
+import { UUID_ANYCASE_RE } from './validation.js';
 
 /**
  * RT-1578 (RT-1511 S3) — `availability:*` IPC registration. A thin wire-up: every handler first requires an
@@ -19,7 +20,6 @@ import type { AvailabilityService } from '../availability/availability-service.j
 
 /** The most product ids one `bands` call may ask about (a search page or a cart, with room to spare). */
 export const MAX_BAND_PRODUCT_IDS = 200;
-const UUID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface AvailabilityHandlerDeps {
   readonly service: Pick<AvailabilityService, 'freshness' | 'states' | 'refresh'>;
@@ -31,7 +31,7 @@ function productIdsOf(request: unknown): readonly string[] | null {
   if (typeof request !== 'object' || request === null) return null;
   const ids = (request as Record<string, unknown>)['product_ids'];
   if (!Array.isArray(ids) || ids.length > MAX_BAND_PRODUCT_IDS) return null;
-  const valid = ids.every((id): id is string => typeof id === 'string' && UUID.test(id));
+  const valid = ids.every((id): id is string => typeof id === 'string' && UUID_ANYCASE_RE.test(id));
   return valid ? ids : null;
 }
 

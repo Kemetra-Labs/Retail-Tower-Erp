@@ -47,6 +47,7 @@ import {
   type ReturnsResendRequest,
 } from '../../shared/returns/types.js';
 import { isUuid } from '../returns/returns-wire.js';
+import { closed } from './validation.js';
 
 export const RETURNS_INPUT_BOUNDS = {
   saleNumberMaxLength: 64,
@@ -66,16 +67,6 @@ const RESEND_KEYS = ['returnId'] as const;
 const ESCALATE_KEYS = ['returnId', 'approvalId'] as const;
 const READ_STATUS_KEYS = ['returnId'] as const;
 const CLOSE_KEYS = ['returnId', 'approvalId'] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false;
-  return !Array.isArray(value);
-}
-
-/** A plain object whose keys are all in `keys` (closed shape: nothing smuggled in). */
-function isClosedShape(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isRecord(value) && Object.keys(value).every((k) => keys.includes(k));
-}
 
 /** 1 ≤ n ≤ max — the one bound used for lengths, counts and quantities. */
 function isWithin(n: number, max: number): boolean {
@@ -109,7 +100,7 @@ export function readSaleNumber(value: unknown): string | null {
 }
 
 function readLine(value: unknown): ReturnLineInput | null {
-  if (!isClosedShape(value, LINE_KEYS)) return null;
+  if (!closed(value, LINE_KEYS)) return null;
   const { lineRef, quantity } = value;
   return isLineRef(lineRef) && isWholeQty(quantity) ? { lineRef, quantity } : null;
 }
@@ -124,14 +115,14 @@ export function readLines(value: unknown): ReturnLineInput[] | null {
 
 /** `{ saleNumber }` exactly, or null. */
 export function readLookupRequest(value: unknown): { saleNumber: string } | null {
-  if (!isClosedShape(value, LOOKUP_KEYS)) return null;
+  if (!closed(value, LOOKUP_KEYS)) return null;
   const saleNumber = readSaleNumber(value['saleNumber']);
   return saleNumber === null ? null : { saleNumber };
 }
 
 /** `{ saleNumber, lines }` exactly, or null. */
 export function readQuoteRequest(value: unknown): ReturnsQuoteRequest | null {
-  if (!isClosedShape(value, QUOTE_KEYS)) return null;
+  if (!closed(value, QUOTE_KEYS)) return null;
   const saleNumber = readSaleNumber(value['saleNumber']);
   const lines = readLines(value['lines']);
   return saleNumber === null || lines === null ? null : { saleNumber, lines };
@@ -147,49 +138,49 @@ function isPayoutAction(value: unknown): value is ReturnPayoutAction {
 
 /** `{ returnId, action }` exactly, or null. */
 export function readPayoutRequest(value: unknown): ReturnsPayoutRequest | null {
-  if (!isClosedShape(value, PAYOUT_KEYS)) return null;
+  if (!closed(value, PAYOUT_KEYS)) return null;
   const { returnId, action } = value;
   return isReturnId(returnId) && isPayoutAction(action) ? { returnId, action } : null;
 }
 
 /** `{ returnId }` exactly, or null. */
 export function readReprintRequest(value: unknown): ReturnsReprintRequest | null {
-  if (!isClosedShape(value, REPRINT_KEYS)) return null;
+  if (!closed(value, REPRINT_KEYS)) return null;
   const { returnId } = value;
   return isReturnId(returnId) ? { returnId } : null;
 }
 
 /** `{ returnId }` exactly (RT-1498 `resend`), or null. */
 export function readResendRequest(value: unknown): ReturnsResendRequest | null {
-  if (!isClosedShape(value, RESEND_KEYS)) return null;
+  if (!closed(value, RESEND_KEYS)) return null;
   const { returnId } = value;
   return isReturnId(returnId) ? { returnId } : null;
 }
 
 /** `{ returnId, approvalId }` exactly (RT-1498 `escalate`), or null. */
 export function readEscalateRequest(value: unknown): ReturnsEscalateRequest | null {
-  if (!isClosedShape(value, ESCALATE_KEYS)) return null;
+  if (!closed(value, ESCALATE_KEYS)) return null;
   const { returnId, approvalId } = value;
   return isReturnId(returnId) && isReturnId(approvalId) ? { returnId, approvalId } : null;
 }
 
 /** `{ returnId }` exactly (RT-1498 close slice `readStatus`), or null. */
 export function readStatusRequest(value: unknown): ReturnsReadStatusRequest | null {
-  if (!isClosedShape(value, READ_STATUS_KEYS)) return null;
+  if (!closed(value, READ_STATUS_KEYS)) return null;
   const { returnId } = value;
   return isReturnId(returnId) ? { returnId } : null;
 }
 
 /** `{ returnId, approvalId }` exactly (RT-1498 close slice `close`), or null. */
 export function readCloseRequest(value: unknown): ReturnsCloseRequest | null {
-  if (!isClosedShape(value, CLOSE_KEYS)) return null;
+  if (!closed(value, CLOSE_KEYS)) return null;
   const { returnId, approvalId } = value;
   return isReturnId(returnId) && isReturnId(approvalId) ? { returnId, approvalId } : null;
 }
 
 /** `resolve` / `list` accept no payload (undefined or `{}`). */
 function isEmptyPayload(value: unknown): boolean {
-  return value === undefined || isClosedShape(value, []);
+  return value === undefined || closed(value, []);
 }
 
 export interface ReturnsIpcDeps {
