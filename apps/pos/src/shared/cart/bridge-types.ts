@@ -2,6 +2,7 @@ import type { CartRefusal } from './refusal.js';
 import type { PaymentIntentEnvelope } from './handoff-envelope.js';
 import type { CartState } from './cart-state.js';
 import type { PromotionPreview } from '../offers/types.js';
+import type { CartParkBridgeAPI } from './park-types.js';
 
 // ── cart.create ───────────────────────────────────────────────────────────────
 
@@ -329,3 +330,100 @@ export interface CartSnapshot {
 export type CartSnapshotResponse =
   | { readonly kind: 'ok'; readonly snapshot: CartSnapshot }
   | CartRefusal;
+
+/**
+ * 005-sales-cart: typed cart.* namespace for the preload bridge.
+ * Every handler is role-gated on the main-process side (AD-1).
+ * Phase 2 stubs return refused/not_implemented.
+ */
+export interface CartBridgeAPI {
+  /** Creates a new draft cart bound to the current operator session. */
+  create(req: CartCreateRequest): Promise<CartCreateResponse>;
+  lines: {
+    /** Adds a line item; merges if same item_ref exists (Q4). */
+    add(req: CartLinesAddRequest): Promise<CartLinesAddResponse>;
+    /** Changes quantity of an existing line. */
+    update(req: CartLinesUpdateRequest): Promise<CartLinesUpdateResponse>;
+    /** Soft-removes a line. */
+    remove(req: CartLinesRemoveRequest): Promise<CartLinesRemoveResponse>;
+    /** Sets or clears the free-text note on a line. */
+    setNote(req: CartLinesSetNoteRequest): Promise<CartLinesSetNoteResponse>;
+  };
+  discountPlaceholders: {
+    /**
+     * Adds a discount placeholder; may require manager attribution. The
+     * approver is the authenticated session operator, never renderer-supplied.
+     */
+    add(req: CartDiscountPlaceholdersAddRequest): Promise<CartDiscountPlaceholdersAddResponse>;
+    /** Removes a discount placeholder; mirrors attribution rule of add. */
+    remove(
+      req: CartDiscountPlaceholdersRemoveRequest,
+    ): Promise<CartDiscountPlaceholdersRemoveResponse>;
+  };
+  /** Voids a pre-handoff cart. Main refuses a `frozen_handed_off` cart (`frozen`). */
+  void(req: CartVoidRequest): Promise<CartVoidResponse>;
+  /**
+   * Cancels a `frozen_handed_off` cart: the audited, manager-authorised
+   * post-handoff path. Main refuses a cashier and any cart with a started or
+   * settled payment. Optional on the TYPE only (same precedent as
+   * `snapshot?`): the production preload always wires it, and the sole
+   * caller fails closed when it is absent — never falling back to `void`.
+   */
+  cancelPostHandoff?(req: CartCancelPostHandoffRequest): Promise<CartCancelPostHandoffResponse>;
+  /**
+   * RT-26 — Checkout Back/Esc: returns the SAME `frozen_handed_off` cart to
+   * `editing`. Main refuses once any tender exists for the cart or a payment
+   * settled / was force-failed; a zero-funds started attempt is cancelled and
+   * the envelope invalidated in the same transaction. Optional on the TYPE
+   * only (same precedent as `cancelPostHandoff?`): the production preload
+   * always wires it, and the sole caller fails closed when it is absent.
+   */
+  returnToSale?(req: CartReturnToSaleRequest): Promise<CartReturnToSaleResponse>;
+  /**
+   * RT-26 — read-only: would main allow `returnToSale` for this cart and
+   * handoff now (no writes)? Checkout fails closed until it answers `true`.
+   * Optional on the TYPE only, like `returnToSale?`.
+   */
+  returnToSaleEligibility?(
+    req: CartReturnToSaleEligibilityRequest,
+  ): Promise<CartReturnToSaleEligibilityResponse>;
+  /**
+   * RT-1339 (RT-286 S7) — read-only: the automatic offers the cart earns now (main evaluates the
+   * Offer Pack; the renderer only shows the result). Optional on the TYPE only, like `returnToSale?`.
+   */
+  promotionPreview?(req: CartPromotionPreviewRequest): Promise<CartPromotionPreviewResponse>;
+  /**
+   * RT-254 — Undo the cart's LAST action (RT-245 contract). The renderer
+   * names only the action it just completed and a fresh idempotency key; main
+   * proves eligibility and chooses the inverse (remove / decrement / restore).
+   * `undo_not_available` means dismiss the affordance — never compose an
+   * inverse in the renderer. Optional on the TYPE only (same precedent as
+   * `returnToSale?`): the production preload always wires it.
+   */
+  undoLast?(req: CartUndoLastRequest): Promise<CartUndoLastResponse>;
+  /** Freezes the cart and constructs the PaymentIntentEnvelope. */
+  handoff(req: CartHandoffRequest): Promise<CartHandoffResponse>;
+  /** Push-style cart state updates (type-only in Phase 2; S1+ runtime). */
+  subscribe(req: CartSubscribeRequest): Promise<CartSubscribeResponse>;
+  /**
+   * V5 active cart read — read-only, session-gated, display-safe snapshot of
+   * a cart the renderer already holds. Never writes; never accepts identity.
+   *
+   * Optional on the TYPE only, following the additive-surface precedent of
+   * `payments?` / `sales?` / `receipts?`: the production preload always wires
+   * it, and the sole caller treats absence as a generic read failure (never an
+   * empty cart, never a replacement cart). This keeps every existing fake
+   * `CartBridgeAPI` in the legacy test suites compiling unchanged.
+   */
+  snapshot?(req: CartSnapshotRequest): Promise<CartSnapshotResponse>;
+  /**
+   * RT-440 (PK-2, spec 024 §3) — Park v1: park the current sale, list the
+   * operator's parked sales, preview and resume one. Main-authoritative.
+   * Optional on the TYPE only (the `snapshot?` precedent): the production
+   * preload always wires it; PK-3 is its first caller.
+   * RT-610: `previewResume` names each changed and unavailable line with its
+   * stored product name and quantity (display only; read in main, never taken
+   * from the renderer, never part of `diff_token`).
+   */
+  parked?: CartParkBridgeAPI;
+}
