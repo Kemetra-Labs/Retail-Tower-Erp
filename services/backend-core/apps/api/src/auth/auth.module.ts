@@ -74,8 +74,8 @@ import {
   NoOpEmailJobEnqueuer,
 } from "./email-job.enqueuer";
 import { EmailQueueProducer } from "./email-queue.producer";
-import { IoredisIdempotencyAdapter } from "./ioredis-idempotency-adapter";
-import { RateLimiter, type RedisLike, type WindowHit } from "./rate-limit";
+import { IoredisIdempotencyAdapter } from "../common/redis/ioredis-idempotency-adapter";
+import { RateLimiter, type RedisLike, type WindowHit } from "../common/rate-limit/rate-limit";
 import { SessionRepository } from "./session.repository";
 import { signInMembershipsReader } from "./signin-memberships";
 import { endSupportSessions } from "../platform-support-sessions/support-session.lifecycle";

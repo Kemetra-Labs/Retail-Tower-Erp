@@ -29,7 +29,7 @@ import { Inject, Injectable, Optional } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 
 import { readBearerToken, readSessionCookie, type AuthedRequest } from "../auth/auth.guard";
-import { RateLimiter, type RateLimitDecision } from "../auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../common/rate-limit/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { ConsoleRateLimitBreaker } from "../console-rate-limit/circuit-breaker";
 import {

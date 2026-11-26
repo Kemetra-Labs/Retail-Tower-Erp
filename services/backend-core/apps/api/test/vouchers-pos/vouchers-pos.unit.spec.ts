@@ -12,7 +12,7 @@ import "reflect-metadata";
 
 import { ForbiddenException, HttpException, HttpStatus } from "@nestjs/common";
 
-import { POS_WRITE_RATE_LIMIT_BUCKETS, type RateLimitDecision, type RateLimiter } from "../../src/auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS, type RateLimitDecision, type RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { withReplayOverrides } from "../../src/idempotency/idempotency.interceptor";
 import { VOUCHER_LOOKUP_BUCKET, VoucherLookupLimiter, VoucherLookupRateLimited } from "../../src/vouchers-pos/voucher-lookup-limit";
 import type { VoucherRequest } from "../../src/vouchers-pos/voucher-cashier-auth.guard";

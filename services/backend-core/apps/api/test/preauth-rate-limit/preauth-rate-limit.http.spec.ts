@@ -19,7 +19,7 @@ import request from "supertest";
 import { AuthGuard } from "../../src/auth/auth.guard";
 import { AuthTokenRepository } from "../../src/auth/auth-token.repository";
 import { FailClosedAuthGuard } from "../../src/auth/fail-closed-auth.guard";
-import { RateLimiter, type RedisLike, type WindowHit } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike, type WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { Public } from "../../src/auth/route-auth";
 import { SessionRepository } from "../../src/auth/session.repository";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";

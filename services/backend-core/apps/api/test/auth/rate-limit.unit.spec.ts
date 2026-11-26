@@ -30,7 +30,7 @@ import {
   type RedisLike,
   type RateLimitDecision,
   type WindowHit,
-} from "../../src/auth/rate-limit";
+} from "../../src/common/rate-limit/rate-limit";
 import { accountKey, clientIpKey, emailIpPairKey } from "../../src/auth/public-auth-keys";
 
 // ---------------------------------------------------------------------------

@@ -27,7 +27,7 @@ import request from "supertest";
 
 import { REDIS_CLIENT } from "../../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../src/database";
-import type { RedisLike } from "../../../src/auth/rate-limit";
+import type { RedisLike } from "../../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../../src/common/exception.filter";
 import { RequestIdInterceptor } from "../../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../../src/common/zod-validation.pipe";

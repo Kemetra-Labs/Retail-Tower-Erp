@@ -6,7 +6,7 @@
  */
 import type { Logger } from "@data-pulse-2/shared";
 
-import { RateLimiter, type RedisLike } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike } from "../../src/common/rate-limit/rate-limit";
 import {
   admissionAction,
   keyDigest,

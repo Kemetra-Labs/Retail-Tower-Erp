@@ -26,7 +26,7 @@ import Redis from "ioredis";
 import { IdempotencyKeyStore } from "@data-pulse-2/shared";
 
 import { AlwaysAllowRedis } from "../../src/auth/auth.module";
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
 import { InProgressMarker } from "../../src/idempotency/in-progress-marker";
 import { assertIdempotencyRedisRetains } from "./require-retaining-redis";
 

@@ -47,7 +47,7 @@ import {
   RATE_LIMIT_BUCKETS,
   RateLimiter,
   type RateLimitDecision,
-} from "./rate-limit";
+} from "../common/rate-limit/rate-limit";
 import { accountIdentifier, clientIpIdentifier, emailIpPairIdentifier } from "./public-auth-keys";
 import {
   checkWithin,

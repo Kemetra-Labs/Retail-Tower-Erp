@@ -20,7 +20,7 @@ import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { AuthService } from "../../src/auth/auth.service";
 import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";
-import { RateLimiter, type RedisLike } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { HUMAN_PROOF_VERIFIER } from "../../src/signups/human-proof.port";
 import { OwnTokenSignupLinkProvider } from "../../src/signups/own-token-signup-link.provider";
 import { SIGNUP_LINK_PROVIDER } from "../../src/signups/signup-link.port";

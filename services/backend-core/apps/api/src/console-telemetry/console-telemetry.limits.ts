@@ -3,7 +3,7 @@
  * the contract (`console-telemetry.openapi.yaml`); the buckets are tunable
  * starting values, far above a working Console's error rate.
  */
-import type { RateLimitBucket } from "../auth/rate-limit";
+import type { RateLimitBucket } from "../common/rate-limit/rate-limit";
 
 /** Byte cap of one envelope (contract: `Envelope.maxLength`, `413 envelope_too_large`). */
 export const MAX_ENVELOPE_BYTES = 64 * 1024;

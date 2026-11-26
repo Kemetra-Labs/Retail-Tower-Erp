@@ -21,9 +21,9 @@ import { AuthController } from "../../src/auth/auth.controller";
 import { AuthGuard } from "../../src/auth/auth.guard";
 import { AuthService } from "../../src/auth/auth.service";
 import { DashboardAuthGuard } from "../../src/auth/dashboard-auth.guard";
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
 import { PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS } from "../../src/auth/public-auth-limiter";
-import { RateLimiter, type RateLimitDecision } from "../../src/auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 

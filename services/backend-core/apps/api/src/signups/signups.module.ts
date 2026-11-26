@@ -19,7 +19,7 @@ import { AuthService } from "../auth/auth.service";
 import { EMAIL_JOB_ENQUEUER, type EmailJobEnqueuer } from "../auth/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "../auth/external-credential.port";
 import { readPublicAuthLimiterTimeoutMs } from "../auth/public-auth-limiter";
-import { RateLimiter } from "../auth/rate-limit";
+import { RateLimiter } from "../common/rate-limit/rate-limit";
 import { HUMAN_PROOF_VERIFIER, type HumanProofVerifier } from "./human-proof.port";
 import { OwnTokenSignupLinkProvider } from "./own-token-signup-link.provider";
 import { SIGNUP_LINK_PROVIDER, type SignupLinkProvider } from "./signup-link.port";

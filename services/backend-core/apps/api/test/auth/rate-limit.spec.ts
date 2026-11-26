@@ -32,7 +32,7 @@ import {
   RATE_LIMIT_BUCKETS,
   RateLimiter,
   type RedisLike,
-} from "../../src/auth/rate-limit";
+} from "../../src/common/rate-limit/rate-limit";
 
 class VirtualClock {
   constructor(private now = 0) {}

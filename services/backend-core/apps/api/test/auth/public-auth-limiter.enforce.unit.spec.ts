@@ -19,7 +19,7 @@ jest.mock("@data-pulse-2/shared", () => ({
 }));
 
 import { enforcePublicLimit } from "../../src/auth/public-auth-limiter";
-import type { RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 
 const HIT = {
   bucketName: "invitation_accept_ip",

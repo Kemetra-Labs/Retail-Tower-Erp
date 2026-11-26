@@ -32,7 +32,7 @@ import type { AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
 import type { ExternalCredentialPort } from "../auth/external-credential.port";
 import { accountIdentifier, clientIpIdentifier } from "../auth/public-auth-keys";
 import { checkWithin } from "../auth/public-auth-limiter";
-import { RATE_LIMIT_BUCKETS, type RateLimiter } from "../auth/rate-limit";
+import { RATE_LIMIT_BUCKETS, type RateLimiter } from "../common/rate-limit/rate-limit";
 import type { SessionStarter } from "../memberships/invitations.service";
 import { isDisposableEmail } from "./disposable-domains";
 import type { HumanProofVerifier } from "./human-proof.port";

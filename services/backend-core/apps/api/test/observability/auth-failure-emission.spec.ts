@@ -81,7 +81,7 @@ import { AuthController } from "../../src/auth/auth.controller";
 import {
   RateLimiter,
   type RateLimitDecision,
-} from "../../src/auth/rate-limit";
+} from "../../src/common/rate-limit/rate-limit";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
 import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";

@@ -23,7 +23,7 @@ import { AuthController } from "../../src/auth/auth.controller";
 import { AuthGuard } from "../../src/auth/auth.guard";
 import { DashboardAuthGuard } from "../../src/auth/dashboard-auth.guard";
 import { AuthService } from "../../src/auth/auth.service";
-import { RateLimiter, type RedisLike, type WindowHit } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike, type WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { InvitationAcceptController } from "../../src/memberships/invitation-accept.controller";

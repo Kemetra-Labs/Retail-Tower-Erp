@@ -78,7 +78,7 @@ import { LoggingInterceptor, ROOT_LOGGER } from "../../src/common/logging.interc
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
-import type { RedisLike, WindowHit } from "../../src/auth/rate-limit";
+import type { RedisLike, WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { fixedWindowHit } from "../_helpers/fixed-window-hit";
 import {
   applyAllUpAndCreateAppRole,

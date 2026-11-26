@@ -41,7 +41,7 @@ import {
 } from "@nestjs/common";
 import { ErrorCodes, type Logger } from "@data-pulse-2/shared";
 
-import { RateLimiter, type RateLimitDecision } from "../auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../common/rate-limit/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { REQUEST_ID_HEADER, resolveRequestId } from "../common/request-id.interceptor";
 import { routeTemplate } from "../common/route-template";
