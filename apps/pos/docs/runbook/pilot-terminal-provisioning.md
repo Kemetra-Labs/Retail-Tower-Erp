@@ -101,7 +101,7 @@ it does not, and is still provisioned through the environment (§2 to §5).
 | Main-process settings | Main is compiled with `tsc`, not Vite. It reads `process.env` directly (`src/main/index.ts`; flags in `src/main/app/feature-flags.ts`). The only values baked in at build time are the five lane fields above, read once at start-up (`src/main/config/lane-config.ts`). |
 | `.env` file | **Not read by any build.** No `dotenv` or `--env-file` exists. `.env` is gitignored and not in `electron-builder.yml` `files`. A `.env` placed next to the exe does nothing. |
 | Renderer | Gets settings only through the `app:config` bridge call (`window.api.appConfig()`), which main answers from its own `process.env` plus the baked lane (the resolved feature flags only, §1). No runtime `import.meta.env.VITE_*` value is inlined into the bundle, and the baked address, project id and update values never cross the bridge. |
-| Installer / auto-update | The `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment, then from the baked `updateOrigin` and `updateChannel` (§3.2, §4, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`); the pilot lane still ships no `app-update.yml` and so no updater. A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
+| Installer / auto-update | The pilot build is now the pilot-signed installer (§5.0, `electron-builder.pilot.yml`); it ships no `app-update.yml`, so it does not self-update either. The older `package:dir` pilot artifact has no installer and no pinned publisher (`electron-builder.yml` targets `dir`), so `UpdateService` refuses it with `publisher_not_pinned` even when the variables below are set; only the lab installer build (`electron-builder.lab.yml`) can self-update today. The service reads its origin and channel from the process environment, then from the baked `updateOrigin` and `updateChannel` (§3.2, §4, `ELECTRON_UPDATE_FEED_URL`, `POS_PULSE_UPDATE_CHANNEL`); the pilot lane still ships no `app-update.yml` and so no updater. A per-launch override did **not** survive the installer relaunch in the RT-772 drill, so Machine scope is the chosen source; that it survives the relaunch is **expected, not yet proven** (RT-322 S-D lab drill). |
 | In-app settings screen / DB | None for these settings. |
 | Device credential | **Not** an environment value. Pairing stores the device token in the local DB, encrypted with Electron `safeStorage` (DPAPI). Never put it, or any credential, in the environment. |
 
@@ -134,7 +134,7 @@ Rejected alternatives:
 | User-scope env vars (`HKCU\Environment`) | Any cashier can edit their own without admin rights. They are per Windows account, so a second cashier account would start with a different profile. |
 | Wrapper `.cmd` / `.ps1` launcher that sets vars and starts the exe | Bypassable. Starting the exe directly (Start menu, Explorer, a re-pinned taskbar icon) skips the wrapper. Edits to it are also untracked. |
 | A `.env` file beside the exe | Not read by any build (§1). Supporting it would be a code change, outside this Docs task. |
-| Settings baked in by an installer | No installer exists. Building one is a separate Implementation item. |
+| Settings baked in by an installer | When this was written no installer existed. The pilot-signed installer (§5.0) now bakes the lane fields (§1, RT-1347); the other settings in §3 still come from Machine scope. |
 
 > **Owner note.** RT-160 FU-2 left the mechanism as an owner choice. This runbook
 > records Machine scope as the recommended and documented path. If the owner picks
@@ -287,49 +287,76 @@ appears, the relaunch dropped the values.
 
 ## 5. Provisioning procedure (per terminal)
 
-### 5.0 Get and verify the pilot build (RT-1261)
+### 5.0 Get and verify the pilot build (RT-1006, RT-1290, RT-1294)
 
-The pilot build is the **unsigned Windows package** published with a
-`pos/vX.Y.Z` release as `POS-Pulse-<X.Y.Z>-win-x64.zip` (owner decision,
-RT-1006, 2026-11-07). Only releases made after RT-1261 carry it; `pos/v0.1.0`
-and `pos/v0.1.1` do not. Hand over only the release named as the pilot build in
-RT-1006. The `POS-Pulse-LAB-Setup-*.exe` in the same release is the lab-signed
-installer: **never** put it on a pilot terminal.
+The pilot build is the **pilot-signed installer** `POS-Pulse-Setup-<X.Y.Z>.exe`
+from a `pos-pilot/vX.Y.Z` release, signed with the private pilot certificate
+`CN=Kemetra POS PILOT` (owner decision, RT-1006, 2026-11-19: locally signed,
+local trust only). The approved pilot build is the one RT-1006 names:
+`pos-pilot/v0.1.6` since 2026-11-26 (RT-1006 c19021). How the installer is
+built and signed: [pilot-installer-signing.md](pilot-installer-signing.md).
 
-On a Kemetra machine with `gh` signed in, in a new empty folder:
+Never put these on a pilot terminal:
+
+- the unsigned `POS-Pulse-<X.Y.Z>-win-x64.zip` of a `pos/vX.Y.Z` release. It
+  was the pilot hand-off before 2026-11-19 and is superseded;
+- the lab installer `POS-Pulse-LAB-Setup-*.exe` (`LAB TEST` subject).
+
+**Before installing: the device must be admitted.** Windows trusts the pilot
+certificate only on a device where it was explicitly admitted. Admission is a
+separate step that the owner approves per named device, recording who holds
+local admin on it (RT-1290 P-6). Downloading does not grant it. Do not install
+on a device that is not on the owner's admitted list.
+
+**Get it from the Admin Console** (owner decision, RT-1006, 2026-11-26: the
+Download POS page is how a pilot operator receives the build). Sign in as a
+user of a pilot tenant, open **Devices → Download POS**, and note the
+**Version**, **SHA-256** and **Expected publisher** the page shows. Select
+**Download POS**. Each click creates a link that works for a few minutes. If
+the page says no download is available, the tenant is not on the pilot
+allowlist or no release is current: contact Kemetra, and do not take the file
+from anywhere else.
+
+**Verify the file** in the download folder, before running it:
 
 ```powershell
-$tag = 'pos/v<X.Y.Z>'
-$zip = 'POS-Pulse-<X.Y.Z>-win-x64.zip'
-gh release download $tag --repo Kemetra-Labs/Retail-Tower-Erp --pattern $zip --pattern release-manifest.json
-gh attestation verify $zip --repo Kemetra-Labs/Retail-Tower-Erp `
-  --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-pos.yml `
-  --source-ref "refs/tags/$tag"
-$m = Get-Content -Raw release-manifest.json | ConvertFrom-Json
-"sha256:$((Get-FileHash $zip -Algorithm SHA256).Hash.ToLower())" -eq ($m.artifacts | Where-Object name -eq 'pos-package').digest
+$exe = 'POS-Pulse-Setup-<X.Y.Z>.exe'
+(Get-FileHash $exe -Algorithm SHA256).Hash.ToLower()   # must equal the SHA-256 on the page
+$sig = Get-AuthenticodeSignature $exe
+$sig.Status                                            # Valid, on an admitted device
+$sig.SignerCertificate.Subject                         # CN=Kemetra POS PILOT
 ```
 
-The attestation must verify and the last line must print `True`; otherwise
-stop and do not hand the package over. Carry the zip and
-`release-manifest.json` to the terminal, extract the zip into the final folder,
-then check the executable against the build recorded in the manifest:
+The hash must equal the page's SHA-256, the status must be `Valid` and the
+subject must be `CN=Kemetra POS PILOT`. On a device that was not admitted, the
+status is not `Valid`: stop, the device is not ready. On any mismatch, delete
+the file and contact Kemetra.
+
+Optional extra check on a Kemetra machine with `gh` signed in. It proves the
+file came from the pilot release workflow at that tag:
 
 ```powershell
-"sha256:$((Get-FileHash '<final folder>\POS Pulse.exe' -Algorithm SHA256).Hash.ToLower())" -eq $m.notes.app_exe_sha256
+gh attestation verify $exe --repo Kemetra-Labs/Retail-Tower-Erp `
+  --signer-workflow Kemetra-Labs/Retail-Tower-Erp/.github/workflows/release-pos-pilot.yml `
+  --source-ref refs/tags/pos-pilot/v<X.Y.Z>
 ```
 
-It must print `True`. That hash is the **Build** recorded in §6.4.
+**Install as the cashier.** The installer is per user (one-click, not
+per-machine). Run it signed in as the **cashier's** Windows account, which is a
+standard user (see the prerequisites below). By default it installs to
+`%LOCALAPPDATA%\Programs\POS Pulse`. The SHA-256 of the installed
+`POS Pulse.exe` is the **Build** recorded in §6.4.
 
-- The build is **not code-signed**. Windows SmartScreen or an "unknown
-  publisher" warning on first launch is expected for this build. Continue
-  only when both checks above printed `True`.
-- It does **not** update itself: `UpdateService` refuses it with
-  `publisher_not_pinned` (§1). A new build, or a return to the previous one, is
-  a manual package swap done with Kemetra, verified with these same two checks
-  and followed by the §6 readiness check.
+- The installer carries its lane configuration (RT-1347): lane `pilot`, the
+  pilot Backend-Core address and the Descope project id. §1 says which
+  settings that covers and how the environment overrides them.
+- It does **not** update itself. It ships no update configuration, and
+  `UpdateService` refuses it with `publisher_not_pinned` (§1). A new version
+  reaches a terminal by installing the new pilot installer over the old one,
+  verified the same way, then the §6 readiness check.
 - Supported Windows: Windows 10 22H2 x64 and Windows 11 x64.
 
-Prerequisites: packaged build installed in its final folder, terminal not yet
+Prerequisites: the pilot installer installed and verified (§5.0), terminal not yet
 paired or already paired to the correct store, a separate local admin account,
 **every cashier Windows account a standard user (not a local administrator)**,
 and the pilot values from the deployment owner's secure channel (never from this
