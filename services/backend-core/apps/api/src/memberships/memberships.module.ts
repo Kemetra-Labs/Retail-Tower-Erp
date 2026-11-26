@@ -1,6 +1,7 @@
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../auth/auth.module";
+import { EmailModule } from "../email";
 import { ContextModule } from "../context/context.module";
 import { RolesGuard } from "../auth/roles.guard";
 import { MembershipsController } from "./memberships.controller";
@@ -16,7 +17,7 @@ import { operatorTokenVerifierFactory } from "../auth/identity-provider.factory"
 import { OPERATOR_TOKEN_VERIFIER } from "../auth/operator-token-verifier";
 
 @Module({
-  imports: [AuthModule, ContextModule, IdempotencyModule],
+  imports: [AuthModule, ContextModule, EmailModule, IdempotencyModule],
   controllers: [MembershipsController, InvitationsController, InvitationAcceptController],
   providers: [
     // RT-937: verifies the identity provider's session token during a NEW invitee's

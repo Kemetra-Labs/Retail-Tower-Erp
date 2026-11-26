@@ -28,7 +28,7 @@ import {
 import {
   EMAIL_JOB_ENQUEUER,
   type EmailJobEnqueuer,
-} from "../auth/email-job.enqueuer";
+} from "../email";
 import type { ResolvedContext } from "../context/types";
 import { roles, users, type InvitationRow } from "@data-pulse-2/db/schema";
 import type { MembershipDetail } from "../context/membership.repository";

@@ -34,12 +34,9 @@ jest.mock("bullmq", () => {
 
 // Import AFTER `jest.mock` so the factory's `new Queue(...)` resolves to the mock.
 // Use a require so the import is evaluated when the test file runs.
-import {
-  emailJobEnqueuerFactory,
-  EMAIL_QUEUE_NAME,
-} from "../../src/auth/auth.module";
-import { EmailQueueProducer } from "../../src/auth/email-queue.producer";
-import { NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import { emailJobEnqueuerFactory, EMAIL_QUEUE_NAME } from "../../src/email";
+import { EmailQueueProducer } from "../../src/email/email-queue.producer";
+import { NoOpEmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 
 const ORIGINAL_NODE_ENV = process.env["NODE_ENV"];
 const ORIGINAL_REDIS_URL = process.env["REDIS_URL"];

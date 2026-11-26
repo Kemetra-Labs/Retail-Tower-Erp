@@ -4,13 +4,13 @@
  * Registers the idempotency stack as a DI-managed global interceptor:
  *
  *   1. IDEMPOTENCY_KEY_STORE — IdempotencyKeyStore with 72h TTL override.
- *      Backed by REDIS_CLIENT from AuthModule (single Redis connection).
+ *      Backed by REDIS_CLIENT from RedisModule (single Redis connection).
  *      Postgres mirror: PgIdempotencyMirror against idempotency_keys
  *      (claim-before-handler + completion update). Redis remains the
  *      fast path; Postgres is the durable copy.
  *
  *   2. InProgressMarker — Redis-backed SET NX EX 60 in-flight marker.
- *      Also backed by REDIS_CLIENT from AuthModule.
+ *      Also backed by REDIS_CLIENT from RedisModule.
  *
  *   3. IdempotencyInterceptor — registered via APP_INTERCEPTOR (global,
  *      DI-managed). This mirrors AuditModule's APP_INTERCEPTOR pattern:
@@ -23,10 +23,10 @@
  *          that do not provide IdempotencyInterceptor's dependencies.
  *
  * Redis:
- *   AuthModule now exports REDIS_CLIENT. When REDIS_URL is set, REDIS_CLIENT
+ *   RedisModule (RT-1466; AuthModule before) provides REDIS_CLIENT. When REDIS_URL is set, REDIS_CLIENT
  *   is a real ioredis instance with get/set/del. When absent, it falls back to
  *   AlwaysAllowRedis (no-op stubs) so dev / CI machines without Redis still boot.
- *   IdempotencyModule imports AuthModule and injects REDIS_CLIENT for both
+ *   IdempotencyModule imports RedisModule and injects REDIS_CLIENT for both
  *   IDEMPOTENCY_KEY_STORE and InProgressMarker — one connection, no second client.
  *
  * TTL (T525): 72h override on IdempotencyKeyStore.defaultTtlMs.
@@ -45,7 +45,8 @@ import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../audit/audit-job.enqueuer";
 import { OutboxAuditEnqueuerModule } from "../audit/outbox-audit-enqueuer.module";
-import { AuthModule, REDIS_CLIENT } from "../auth/auth.module";
+import { AuthModule } from "../auth/auth.module";
+import { REDIS_CLIENT, RedisModule } from "../redis";
 import { PG_POOL } from "../database";
 import { createApiLogger } from "../common/api-logger";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
@@ -62,7 +63,7 @@ import { PgIdempotencyMirror } from "./pg-mirror";
 
 const inflightRedisProvider: Provider = {
   provide: INFLIGHT_REDIS,
-  // Reuse REDIS_CLIENT from AuthModule — single ioredis connection.
+  // Reuse REDIS_CLIENT from RedisModule — single ioredis connection.
   // The ioredis client satisfies both InflightRedis (set NX EX, del) and
   // StoreRedisLike (get, set PX) surfaces.
   useFactory: (redis: InflightRedis): InflightRedis => redis,
@@ -109,7 +110,7 @@ const idempotencyInterceptorProvider: Provider = {
 };
 
 @Module({
-  imports: [AuthModule, OutboxAuditEnqueuerModule],
+  imports: [AuthModule, RedisModule, OutboxAuditEnqueuerModule],
   providers: [
     {
       provide: ROOT_LOGGER,

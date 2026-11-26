@@ -89,7 +89,7 @@ import {
   type FakeMembershipHierarchy,
 } from "../_helpers/fake-membership-hierarchy";
 import type { InvitationsRepository } from "../../src/memberships/invitations.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { InvitationRow, UserRow } from "@data-pulse-2/db/schema";
 import type { ResolvedContext } from "../../src/context/types";
 import type { MembershipDetail } from "../../src/context/membership.repository";

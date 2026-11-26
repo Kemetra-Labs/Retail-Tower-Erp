@@ -23,7 +23,7 @@ import {
   EMAIL_JOB_NAMES,
   EmailQueueProducer,
   type QueueLike,
-} from "../../src/auth/email-queue.producer";
+} from "../../src/email/email-queue.producer";
 import {
   createTestTracerProvider,
   context,

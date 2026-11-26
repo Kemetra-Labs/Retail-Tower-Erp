@@ -68,7 +68,7 @@ export interface EmailJobEnqueuer {
 /**
  * `NoOpEmailJobEnqueuer` — explicitly, loudly does nothing.
  *
- * Wired by `AuthModule` until T112/T113 lands the BullMQ producer.
+ * Wired by `EmailModule` when `REDIS_URL` is absent outside production.
  * Tests substitute a Jest spy via NestJS's `overrideProvider`. Production
  * deployments MUST swap this out before going live; the class name is
  * deliberately unsubtle so a dependency graph reviewer will catch it.
@@ -96,7 +96,7 @@ export class NoOpEmailJobEnqueuer implements EmailJobEnqueuer {
 }
 
 /**
- * DI token for the enqueuer. AuthModule binds it to NoOpEmailJobEnqueuer.
+ * DI token for the enqueuer. EmailModule binds it (`emailJobEnqueuerFactory`).
  * Tests bind it to a Jest spy via `.overrideProvider(EMAIL_JOB_ENQUEUER)`.
  */
 export const EMAIL_JOB_ENQUEUER = "EMAIL_JOB_ENQUEUER";

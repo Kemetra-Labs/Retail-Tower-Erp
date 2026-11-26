@@ -58,7 +58,8 @@ import {
   type AuditJobEnqueuer,
 } from "../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../src/audit/audit-job.types";
-import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/redis";
 import { PG_POOL } from "../../src/database";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import {

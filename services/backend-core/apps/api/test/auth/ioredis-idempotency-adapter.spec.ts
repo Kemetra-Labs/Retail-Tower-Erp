@@ -250,10 +250,7 @@ jest.mock("ioredis", () => {
 });
 
 // Import AFTER jest.mock so the factory's `new Redis(url)` resolves to the mock.
-import {
-  redisClientFactory,
-  AlwaysAllowRedis,
-} from "../../src/auth/auth.module";
+import { redisClientFactory, AlwaysAllowRedis } from "../../src/redis";
 
 describe("redisClientFactory — REDIS_CLIENT provider wiring", () => {
   const ORIGINAL_REDIS_URL = process.env["REDIS_URL"];

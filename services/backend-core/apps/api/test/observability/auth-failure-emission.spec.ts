@@ -84,7 +84,7 @@ import {
 } from "../../src/common/rate-limit/rate-limit";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { AuditJobEnqueuer } from "../../src/audit/audit-job.enqueuer";
 import { verifyPassword } from "@data-pulse-2/auth";
 

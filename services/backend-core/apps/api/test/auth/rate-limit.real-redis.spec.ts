@@ -20,7 +20,7 @@
  */
 import Redis from "ioredis";
 
-import { AlwaysAllowRedis } from "../../src/auth/auth.module";
+import { AlwaysAllowRedis } from "../../src/redis";
 import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
 import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 

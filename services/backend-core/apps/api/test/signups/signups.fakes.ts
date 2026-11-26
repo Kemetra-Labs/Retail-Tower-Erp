@@ -5,7 +5,7 @@ import type { Pool, PoolClient } from "pg";
 
 import type { AuditJobEnqueuer } from "../../src/audit/audit-job.enqueuer";
 import type { AuditJobPayload } from "../../src/audit/audit-job.types";
-import type { SignupLinkEmailJob } from "../../src/auth/email-job.enqueuer";
+import type { SignupLinkEmailJob } from "../../src/email/email-job.enqueuer";
 import type {
   CreateUserResult,
   ExternalCredentialPort,

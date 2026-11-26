@@ -34,9 +34,10 @@ import request from "supertest";
 
 import { AuditModule } from "../../src/audit/audit.module";
 import { AUDIT_JOB_ENQUEUER, NoOpAuditJobEnqueuer } from "../../src/audit/audit-job.enqueuer";
-import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/redis";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
-import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";

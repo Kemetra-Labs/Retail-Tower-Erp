@@ -19,7 +19,7 @@ import { Test } from "@nestjs/testing";
 import {
   EmailQueueProducer,
   type QueueLike,
-} from "../../src/auth/email-queue.producer";
+} from "../../src/email/email-queue.producer";
 
 // ---------------------------------------------------------------------------
 // Hand-written doubles

@@ -17,10 +17,11 @@ import "reflect-metadata";
 import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
-import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/redis";
 import { PG_POOL } from "../../src/database";
 import { AuthService } from "../../src/auth/auth.service";
-import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
+import { EMAIL_JOB_ENQUEUER } from "../../src/email/email-job.enqueuer";
 import {
   EXTERNAL_CREDENTIAL_PORT,
   type ExternalCredentialPort,
