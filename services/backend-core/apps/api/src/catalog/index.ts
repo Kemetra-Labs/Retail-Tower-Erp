@@ -19,5 +19,6 @@ export { PRODUCT_SALE_LINES_PORT, type ProductSaleLinesPort } from "./tracking-p
 /**
  * RT-1577: one keyset page of a store's sellable catalogue with each product's low-stock level, read by the POS
  * availability snapshot (inventory) on the caller's client. The same product set as the catalogue read-down.
+ * RT-1600: `readStoreSellableProducts` applies the same rule to a few named products (the W9 accept re-check).
  */
-export { readStoreSellablePage } from "./store-resolution/store-sellable-page";
+export { readStoreSellablePage, readStoreSellableProducts } from "./store-resolution/store-sellable-page";

@@ -9,7 +9,7 @@
  *   4. The closed proposal state set and the error-code set the description promises.
  *   5. Request bodies are strict and take no tenant, actor or read-time authority.
  *   6. Every named example (each state, each error) validates against its schema.
- *   7. Until RT-1600 serves an operation, its contract-only marker names RT-1600.
+ *   7. RT-1600 serves every operation: no contract-only marker is left.
  */
 import 'reflect-metadata';
 
@@ -131,13 +131,12 @@ describe('redistribution-proposals — document and operations', () => {
     expect(doc.info?.description).toContain('[GATED: contract]');
   });
 
-  it('marks an operation contract-only only with a note naming the RT-1600 runtime', () => {
+  it('is served by the RT-1600 runtime: no operation is marked contract-only any more', () => {
     for (const id of Object.keys(OPERATIONS) as OperationId[]) {
       const o = op(id) as Json;
-      if (o['x-runtime-status'] === undefined) continue;
-      expect([id, o['x-runtime-status']]).toEqual([id, 'contract-only']);
-      expect(String(o['x-runtime-note'])).toContain('RT-1600');
+      expect([id, o['x-runtime-status'], o['x-runtime-note']]).toEqual([id, undefined, undefined]);
     }
+    expect(doc.info?.description).toContain('RT-1600 serves every operation');
   });
 });
 
@@ -340,5 +339,15 @@ describe('redistribution-proposals — examples validate against their schemas',
         acceptOutcome: null,
       }),
     ).toBe(false);
+  });
+});
+
+describe('redistribution-proposals — minimums a served response always meets (RT-1600)', () => {
+  it('a 200 accept names at least one draft Transfer; a stored objective has at least one store pair and line', () => {
+    const schemas = (doc.components as { schemas: Record<string, Json> }).schemas;
+    const accept = schemas['RedistributionAcceptResult']!['properties'] as Record<string, Json>;
+    expect(accept['transferIds']!['minItems']).toBe(1);
+    const objective = schemas['RedistributionObjective']!['properties'] as Record<string, Json>;
+    expect([objective['storePairs']!['minimum'], objective['lines']!['minimum']]).toEqual([1, 1]);
   });
 });
