@@ -23,9 +23,9 @@ import {
   consolePublishStoreCashVariancePolicyOverride,
   consolePublishTenantCashVariancePolicy,
 } from "@/lib/cash-variance-policy-queries";
+import { type KeyedAttempt, reuseOrNewKey } from "@/lib/idempotency-key";
 import { useInfiniteQuery, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
-import { type KeyedAttempt, reuseOrNewKey } from "./policyIdempotency";
 import { type PublishOutcome, type PublishResult, classifyPublishOutcome } from "./policyLogic";
 
 /** The tenant a policy belongs to, or the store whose override it is (an object, not a bare id). */

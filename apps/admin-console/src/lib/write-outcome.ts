@@ -4,17 +4,14 @@
  * key from the status and the machine `error.code`, and show the request id as a support handle.
  */
 
+import { type KeyedAttempt as HeldKey, reuseOrNewKey } from "@/lib/idempotency-key";
+
 export { errorCodeOf, requestIdOf as errorRequestIdOf } from "@/lib/backend-envelope";
 
 /** What every generated-client wrapper returns on a write: the HTTP status and the error body. */
 export interface WrapperResult {
   status: number;
   error?: unknown;
-}
-
-/** A fresh Idempotency-Key (a v4 UUID, inside the contract's 16 to 128 printable ASCII). */
-function newIdempotencyKey(): string {
-  return crypto.randomUUID();
 }
 
 /**
@@ -24,13 +21,11 @@ function newIdempotencyKey(): string {
  * `idempotency_key_conflict`).
  */
 export class KeyedAttempt {
-  private current: { fingerprint: string; key: string } | undefined;
+  private current: HeldKey | undefined;
 
   /** The key for this body: the held one while the body is unchanged, else a fresh one. */
   keyFor(fingerprint: string): string {
-    if (this.current?.fingerprint !== fingerprint) {
-      this.current = { fingerprint, key: newIdempotencyKey() };
-    }
+    this.current = reuseOrNewKey(this.current, fingerprint);
     return this.current.key;
   }
 
