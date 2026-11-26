@@ -339,6 +339,8 @@ const TELEMETRY_WIRING =
 export const CLIENT_MODULES: readonly ClientModule[] = [
   { module: BACKEND_CLIENT, fetchCallSites: 2, surface: backendClient },
   { module: 'src/main/pairing/network.ts', fetchCallSites: 1, surface: pairingNetwork },
+  // RT-1209: on the shared transport. The one fetch site is a pass-through that keeps the response
+  // the fetch resolved with, so an answer whose body cannot be read is still mapped from its status.
   { module: CASHIER_ADMISSION_CLIENT, fetchCallSites: 1, surface: cashierAdmissionClient },
   {
     module: 'src/main/catalogue/read-down/read-down-client.ts',
