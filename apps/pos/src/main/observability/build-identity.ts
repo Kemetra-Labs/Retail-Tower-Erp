@@ -47,8 +47,8 @@ export type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promis
  */
 export const RELEASE_APP_VERSION: string | null = null;
 
-export const COMMIT_HEADER = 'X-POS-Build-Commit';
-export const CONTRACT_PIN_HEADER = 'X-POS-Contract-Pin';
+const COMMIT_HEADER = 'X-POS-Build-Commit';
+const CONTRACT_PIN_HEADER = 'X-POS-Contract-Pin';
 /** Every header this module can send (the app version is deliberately absent). */
 export const BUILD_IDENTITY_HEADERS = [COMMIT_HEADER, CONTRACT_PIN_HEADER] as const;
 

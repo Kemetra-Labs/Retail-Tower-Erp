@@ -482,6 +482,7 @@ describe('the session goes away', () => {
       sessionManager: sessions,
       admission: fake.deps,
       onAdopted: (id) => adopted.push(id),
+      onLiveAdmissionRenewed: () => undefined,
       onConflict: () => undefined,
     });
     sessions.onStarted((r) => {

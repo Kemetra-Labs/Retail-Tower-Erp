@@ -35,9 +35,9 @@ export const TERMINAL_STATUS_GET_CACHE_MS = 1_000;
 /** How often the background refresh re-reads the sync aggregate. */
 export const TERMINAL_STATUS_SYNC_POLL_MS = 5_000;
 /** The background refresh cadence. */
-export const TERMINAL_STATUS_REFRESH_MS = 1_000;
+const TERMINAL_STATUS_REFRESH_MS = 1_000;
 
-export const TERMINAL_STATUS_SYNC_READ_FAILED_LOG = 'terminal_status:sync_read_failed';
+const TERMINAL_STATUS_SYNC_READ_FAILED_LOG = 'terminal_status:sync_read_failed';
 
 const EMPTY_SYNC: TerminalStatusSync = {
   pending: 0,
