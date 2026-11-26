@@ -74,6 +74,11 @@ export const V5_PAIRS = [
   ['text', 'primary-soft', 4.5], ['text', 'selection', 4.5], ['text-muted', 'selection', 4.5],
   ...['success', 'warning', 'danger'].flatMap((s) => [[s, `${s}-soft`, 4.5], [s, 'surface', 4.5]]),
   ['on-ink', 'topbar-field', 4.5], ['topbar-muted', 'topbar-field', 4.5], ['ink', 'attention', 4.5],
+  // The top-bar field's edge (a control boundary on Ink).
+  ['topbar-muted', 'ink', 3],
+  // §13.2: info and teal text carried over, re-measured on the new soft layers.
+  ...['primary-soft', 'selection', 'success-soft', 'warning-soft', 'danger-soft']
+    .flatMap((bg) => [['info', bg, 4.5], ['primary-emphasis', bg, 4.5]]),
   ['on-band', 'band', 4.5], ['ink-muted', 'band', 4.5],
   ['on-band-action-fill', 'band-action-fill', 4.5],
   ...LAYERS.flatMap((bg) => [['unknown-border', bg, 3], ['unknown-text', bg, 4.5]]),

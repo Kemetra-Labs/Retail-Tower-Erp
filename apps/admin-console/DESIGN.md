@@ -1024,6 +1024,9 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
 - **Control boundary:** inputs, filter chips and segmented tracks draw their edge with
   `--color-control-border` (≥ 3:1). *Known board difference:* the v3 boards draw these edges
   with `--color-border` (`#dfe3e0`, 1.30:1 on `--color-surface`). This rule wins over the boards.
+  The same holds on the Ink top bar: the search field and switchers draw their edge with
+  `--color-topbar-muted` (7.88:1 on the field, 10.0:1 on Ink, light). `--color-topbar-line`
+  (1.83:1 on Ink) is a decorative divider only (RT-1610 review).
 - **Dark theme:** the dark values above are the boards' values, and RT-1610 must confirm them
   with the token test. Ink keeps separating by edge on dark (§12.8 item 4).
 

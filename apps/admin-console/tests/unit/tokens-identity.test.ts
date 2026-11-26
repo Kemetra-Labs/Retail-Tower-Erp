@@ -511,13 +511,31 @@ describe("RT-1610 v5.0 roles", () => {
     const mapped = Object.fromEntries(
       [...body.matchAll(/(--color-[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
     );
-    for (const role of V5_COLOUR_ROLES) {
-      expect({ role, value: mapped[`--color-${role}`] }).toEqual({
-        role,
-        value: expect.stringMatching(
-          /^(CanvasText|GrayText|Canvas|Highlight|ButtonFace|ButtonText)$/,
-        ),
-      });
-    }
+    // Exact: surfaces Canvas, text CanvasText, secondary GrayText, the band
+    // action a button pair. No Highlight fill: the agent keeps text CanvasText.
+    const expected: Record<string, string> = {
+      selection: "Canvas",
+      "success-soft": "Canvas",
+      "warning-soft": "Canvas",
+      "danger-soft": "Canvas",
+      "unknown-border": "CanvasText",
+      "unknown-text": "CanvasText",
+      side: "Canvas",
+      "side-text": "CanvasText",
+      "side-muted": "GrayText",
+      "topbar-field": "Canvas",
+      "topbar-line": "CanvasText",
+      "topbar-muted": "GrayText",
+      attention: "Canvas",
+      band: "Canvas",
+      "on-band": "CanvasText",
+      "band-action-fill": "ButtonFace",
+      "on-band-action-fill": "ButtonText",
+      perforation: "GrayText",
+    };
+    expect(Object.keys(expected).sort()).toEqual([...V5_COLOUR_ROLES].sort());
+    expect(Object.fromEntries(V5_COLOUR_ROLES.map((r) => [r, mapped[`--color-${r}`]]))).toEqual(
+      expected,
+    );
   });
 });
