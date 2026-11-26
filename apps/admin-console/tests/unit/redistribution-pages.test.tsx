@@ -517,6 +517,50 @@ describe("warm cache and continuation", () => {
     expect((accept as HTMLButtonElement).disabled).toBe(true);
   });
 
+  test("a replayed answer, a failed re-read, then Retry shows the latest proposal", async () => {
+    const decision = (d: "would_accept" | "would_reject") => ({
+      decision: d,
+      note: null,
+      decidedAt: "2026-11-26T08:05:00.000Z",
+      decidedBy: "u",
+    });
+    // The replay is older than the server: it predates a later decision on line 2.
+    const replayed = proposal({
+      state: "reviewed",
+      lines: [line({ reviewDecision: decision("would_accept") }), line({ id: LINE_2 })],
+    });
+    const latest = proposal({
+      state: "reviewed",
+      lines: [
+        line({ reviewDecision: decision("would_accept") }),
+        line({ id: LINE_2, reviewDecision: decision("would_reject") }),
+      ],
+    });
+    reviewRedistributionProposal.mockImplementation(async () => {
+      getRedistributionProposal
+        .mockResolvedValueOnce({
+          status: 500,
+          error: { error: { code: "internal_error", message: "m", request_id: "r" } },
+        })
+        .mockResolvedValue({ status: 200, data: latest });
+      return { status: 200, data: replayed };
+    });
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    const group = await screen.findByRole("group", { name: /Review the Mineral water line/ });
+    fireEvent.click(within(group).getByRole("button", { name: "Would accept" }));
+    expect(await screen.findByText(/may be out of date/)).toBeTruthy();
+    fireEvent.click(screen.getByRole("button", { name: /Retry|Try again/ }));
+    await waitFor(() => expect(screen.queryByText(/may be out of date/)).toBeNull());
+    const second = screen.getAllByRole("group", { name: /Review the Mineral water line/ })[1];
+    if (!second) throw new Error("second line");
+    await waitFor(() =>
+      expect(
+        within(second).getByRole("button", { name: "Would reject" }).getAttribute("aria-pressed"),
+      ).toBe("true"),
+    );
+    expect(screen.queryByText(/may be out of date/)).toBeNull();
+  });
+
   test("a failed re-read keeps the proposal and says it may be out of date", async () => {
     reviewRedistributionProposal.mockImplementation(async () => {
       getRedistributionProposal.mockResolvedValue({
