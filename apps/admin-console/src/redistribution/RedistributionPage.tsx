@@ -85,7 +85,7 @@ function ProposalBody({
   const storeNames = useStoreNames(tenantId);
   const products = useProductNames(
     tenantId,
-    proposal.lines.map((l) => l.productId),
+    [...new Set(proposal.lines.map((l) => l.productId))],
     {},
   );
   const lines = useLineDecisions(proposal, writes);
