@@ -14,6 +14,7 @@
  *   - ERP state is read-only (OD-534-5, Q-4), never a fiscal claim.
  * Amounts are the stored `numeric` text, verbatim.
  */
+import { historyLineDiscountField, type DiscountRow, type SaleLineDiscountProjection } from "../sale-line-discount";
 import type { SaleSyncStatus } from "../sale-sync-status";
 
 export type ErpPostingState = "posted" | "pending" | "failed" | "unknown";
@@ -84,7 +85,7 @@ export interface SaleHistoryDetailRow extends SaleHistoryRow {
   readonly erp_document_ref: string | null;
 }
 
-export interface DetailLineRow {
+export interface DetailLineRow extends DiscountRow {
   readonly line_ref: string;
   readonly line_seq: number | null;
   readonly line_name: string;
@@ -185,6 +186,8 @@ export interface SaleHistoryDetail {
       readonly packRevision: number;
       readonly discountAmount: string;
     };
+    /** RT-1571: present only when a manual discount was recorded; never the approver's user id. */
+    readonly discount?: Omit<SaleLineDiscountProjection, "approverUserId">;
   }>;
   readonly lineOrder: "recorded" | "not_recorded";
   readonly tenderState: "recorded" | "unknown";
@@ -380,6 +383,7 @@ export function toSaleHistoryDetail(input: SaleHistoryDetailInput): SaleHistoryD
               discountAmount: l.promotion_discount_amount!,
             },
           }),
+      ...historyLineDiscountField(l),
     })),
     lineOrder: lines.every((l) => l.line_seq !== null) ? "recorded" : "not_recorded",
     tenderState: tenders.length > 0 ? "recorded" : "unknown",

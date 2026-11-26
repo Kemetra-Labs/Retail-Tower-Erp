@@ -352,3 +352,34 @@ describe("detail: receipt facts (RT-537 D-6) and reprint eligibility (OD-534-3/8
     expect(d.lines[1]?.returnedQuantity).toBe("1.000000");
   });
 });
+
+describe("RT-1571: a line's manual discount (sale-history.yaml 1.2.0-draft)", () => {
+  const discounted: DetailLineRow = {
+    ...line(LINE_1, 1),
+    discount_kind: "percent",
+    discount_value: "10",
+    discount_amount: "0.5000",
+    discount_reason_code: "promotion",
+    discount_authority_source: "cashier_approval",
+    discount_approver_role: "manager",
+    discount_approver_user_id: CASHIER,
+  };
+
+  it("returns the recorded discount without the approver's user id", () => {
+    const lines = detail({ lines: [discounted, line(LINE_2, 2)] }).lines;
+    expect(lines[0]!.discount).toEqual({
+      kind: "percent",
+      value: "10",
+      amount: "0.5000",
+      reasonCode: "promotion",
+      authoritySource: "cashier_approval",
+      approverRole: "manager",
+    });
+    expect(JSON.stringify(lines[0])).not.toContain(CASHIER);
+  });
+
+  it("omits it on a line with none recorded (no discount, or captured before 0134)", () => {
+    const lines = detail({ lines: [line(LINE_1, 1), { ...line(LINE_2, 2), discount_kind: null }] }).lines;
+    for (const l of lines) expect(l).not.toHaveProperty("discount");
+  });
+});

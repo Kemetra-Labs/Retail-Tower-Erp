@@ -10,6 +10,7 @@ import { newId } from "@data-pulse-2/shared";
 import type { CaptureSaleReceiptDto, CaptureSaleRequestDto } from "./dto/capture-sale-request.dto";
 import { SALE_SYNC_STATUS } from "./sale-sync-status";
 import type { SellerSnapshot } from "./sale-attribution";
+import { discountColumns } from "./sale-line-discount";
 import type { LineClassification } from "./tracked-lines/capture-tracking.rules";
 import type { CaptureSaleInput } from "./sales.service";
 
@@ -111,7 +112,8 @@ export async function insertSaleHeader(
 /**
  * Write the frozen line snapshot in the capture transaction. RT-539
  * (sales.yaml 1.9.0): each line's 1-based position in lines[] is stored as its
- * receipt sequence (line_seq).
+ * receipt sequence (line_seq). RT-1571 (0134): a line's manual `discount` is
+ * stored as sent ($24-$30), all null without one.
  */
 export async function insertSaleLines(
   client: PoolClient,
@@ -141,11 +143,14 @@ export async function insertSaleLines(
           tenant_product_ref, line_seq,
           tracking_identity_id, tracking_code, tracking_expiry_date, tracking_selection,
           tracking_validation_id, tracking_class, tracking_unresolved_reason,
-          seller_user_id, seller_store_id, seller_role_id)
+          seller_user_id, seller_store_id, seller_role_id,
+          discount_kind, discount_value, discount_amount, discount_reason_code,
+          discount_authority_source, discount_approver_role, discount_approver_user_id)
        VALUES ($1, $2, $3, $4, $5, $6::numeric, $7, $8::numeric,
                $9::numeric, $10, $11, $12, $13,
                $14, $15, $16::date, $17, $18, $19, $20,
-               $21::uuid, $22::uuid, $23::uuid)`,
+               $21::uuid, $22::uuid, $23::uuid,
+               $24, $25::numeric, $26::numeric, $27, $28, $29, $30::uuid)`,
       [
         id,
         sale.saleId,
@@ -170,6 +175,7 @@ export async function insertSaleLines(
         s?.userId ?? null,
         s?.storeId ?? null,
         s?.roleId ?? null,
+        ...discountColumns(line.discount),
       ],
     );
   }
