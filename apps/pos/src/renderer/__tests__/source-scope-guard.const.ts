@@ -918,3 +918,25 @@ export function isRt1578AvailabilityRepinExemptFile(branch: string, file: string
     (RT_1578_AVAILABILITY_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
   );
 }
+
+/**
+ * RT-1587 (follow-up to RT-1577/RT-1578): the repin of the POS contract PIN to the `main` commit 58e0b8691 that
+ * carries the `pos-availability.yaml` `nextCursor` `minLength: 1` and the closed-success-responses wording
+ * regenerates `src/shared/api-types.ts`.
+ *
+ * Authority: the owner-authored RT-1587 scope item 3 ("Repin POS ... with the source-scope guard exemption").
+ * Exactly ONE file on exactly ONE branch (exact name, no `startsWith`). Narrowness is asserted by
+ * `source-scope-guard-rt1587.test.ts`.
+ */
+export const RT_1587_AVAILABILITY_REPIN_BRANCH = 'ccr-bea21095-o3cxj5-rt1587' as const;
+export const RT_1587_AVAILABILITY_REPIN_EXEMPT_FILES = [
+  'src/shared/api-types.ts',
+] as const satisfies readonly string[];
+
+/** True when `file` is the file the RT-1587 repin exemption allows on `branch`. */
+export function isRt1587AvailabilityRepinExemptFile(branch: string, file: string): boolean {
+  return (
+    branch === RT_1587_AVAILABILITY_REPIN_BRANCH &&
+    (RT_1587_AVAILABILITY_REPIN_EXEMPT_FILES as readonly string[]).includes(file)
+  );
+}
