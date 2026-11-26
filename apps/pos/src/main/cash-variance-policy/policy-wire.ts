@@ -7,8 +7,9 @@
  *     a revision id exactly for source `tenant` / `store`, the `system` default
  *     always `none`, a `limit` with an exact-decimal amount
  *     (`^\d{1,15}(\.\d{1,4})?$`) and an ISO-4217-shaped currency. Anything else
- *     is `null`, and the caller keeps the policy it had. The contract is read by
- *     this validator, not by a pinned copy (the file is not in the POS pin yet).
+ *     is `null`, and the caller keeps the policy it had. The file is vendored in
+ *     the POS pin (RT-388) and the conformance suite checks the route; this validator reads the 200
+ *     body strictly, not through the generated types.
  *   • `frozenPolicyBody` — a policy as the open's `FrozenPolicy` object
  *     (`pos-shifts.openapi.yaml`).
  *
