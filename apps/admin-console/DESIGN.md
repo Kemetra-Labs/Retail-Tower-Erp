@@ -962,7 +962,7 @@ recorded and item 6 was amended for three widgets by owner decision on 2026-11-0
 ## 13. v5.0 "Console system v3" (owner decisions D7–D10, 2026-11-26; adopted target, shipping in slices)
 
 On 2026-11-26 the owner adopted «Console system v3» as the Admin Console target (RT-1608; decisions
-D7, D8 and D9 below). v5.0 is the documented authority for that target. **It is adopted, not
+D7 to D10 below). v5.0 is the documented authority for that target. **It is adopted, not
 shipped:** `main` renders v4.0 (§12) until the v3 slices in §13.11 land. Each slice moves one
 part. Until a slice lands, §12 remains the rule for the part it has not moved.
 
@@ -983,6 +983,8 @@ part. Until a slice lands, §12 remains the rule for the part it has not moved.
 | D8 | Seven areas with tabs replace the four menu groups (supersedes D4). Alerts, Search and the organisation switch move to the top bar. No page is removed, and role gates are unchanged. | RT-1608 comment 19028 |
 | D9 | Adopt Console system v3: the D8 navigation, the Understand → Decide → Act rhythm, the "Retail Tower Soft" look with the Ink band and receipt strip kept, and the truth rules in §13.7. | RT-1608 comment 19041 |
 | D10 | **System plumbing is shown by role only.** The v3 screens stay as designed; the store manager does not see the system's background processes, and the owner sees everything (§13.5a). Chosen over "hide from everyone, with a separate «النظام» area". | RT-1608 comment 19054 |
+| D10a | Devices under D10: the store manager keeps till management (pair, replace, move, revoke, download); only device ids, build identifiers and the per-till unsent-sale queue are hidden. | this PR; RT-1608 |
+| D10b | Stock differences (the ERPNext book comparison) are hidden from the store manager; physical counts stay. | this PR; RT-1608 |
 
 Earlier RT-1608 decisions still apply:
 - **D1:** the non-technical merchant owner is the primary user.
@@ -1090,8 +1092,9 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
   6. المحاسبة
   7. الإعدادات
 
-  The parent area stays selected on child routes (UX-09.14). Role gates are unchanged: an area
-  or tab the role cannot read is not rendered.
+  The parent area stays selected on child routes (UX-09.14). Role gates are unchanged, except
+  that D10 hides system plumbing from the store manager (§13.5a): an area or tab the role cannot
+  read is not rendered.
 - **Tabs:** each area's pages are tabs under the band: underline tabs, the active tab in
   weight 600 with a 2px `--color-action-fill` underline (Ink in light, Mint in dark), real links
   with `aria-current="page"`. Tab labels are proposed copy: each needs UX-12 review and a message
@@ -1127,16 +1130,16 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
   | `/inventory/transfers` | من داخل المخزون | المخزون | التحويلات | `canReadInventory` |  |
   | `/inventory/redistribution` | المخزون والأصناف · إعادة التوزيع | المخزون | إعادة التوزيع | `canReadRedistribution` |  |
   | `/tracking` | المخزون والأصناف · الحجز والاستدعاء | المخزون | الحجز والاستدعاء | `tracking gate` |  |
-  | `/stock-discrepancies` | المخزون والأصناف · فروقات المخزون | المخزون | الفروقات | `canReadStockDiscrepancies` |  |
+  | `/stock-discrepancies` | المخزون والأصناف · فروقات المخزون | المخزون | الفروقات | `canReadStockDiscrepancies` | D10: see §13.5a |
   | `/erp-connection` | التكامل · الاتصال والمزامنة | المحاسبة | حالة الربط | `canReadErpStatus` |  |
   | `/sales-needing-repair` | التكامل · مبيعات تحتاج إلى إصلاح | المحاسبة | مبيعات لم تصل للمحاسبة | `canUseSaleSyncOps` | label per D2 |
   | `/quarantined-sales` | التكامل · مبيعات تعذّر إرسالها | المحاسبة | لم تصل من الجهاز | `canUseSaleSyncOps` | label per D2 |
   | `/product-reconciliation` | التكامل · مطابقة المنتجات | المحاسبة | مطابقة المنتجات | `canUseProductReconciliation` |  |
   | `/posting-health` | مسار بلا عنصر قائمة | المحاسبة | صحة التسجيل | `?` | NEEDS VERIFICATION: tenant-facing? |
-  | `/audit` | التكامل · سجل التدقيق | الإعدادات | سجل التدقيق | `always` | moved out of Integration |
+  | `/audit` | التكامل · سجل التدقيق | الإعدادات | سجل التدقيق | `always` | moved out of Integration; D10: see §13.5a |
   | `/stores` | الإدارة · المتاجر | الإعدادات | المتاجر | `always` | store roles = RT-1289 S2 |
   | `/operators` | الإدارة · المستخدمون | الإعدادات | المستخدمون | `always` | store roles = RT-1289 S2 |
-  | `/devices` | اليومية · الأجهزة | الإعدادات | الأجهزة | `canReadDevices` | moved out of Daily |
+  | `/devices` | اليومية · الأجهزة | الإعدادات | الأجهزة | `canReadDevices` | moved out of Daily; D10: see §13.5a |
   | `/devices/pairing-codes` | Ctrl K فقط | الإعدادات | الأجهزة › رموز الربط | `canReadDevices` |  |
   | `/devices/download-pos` | Ctrl K فقط | الإعدادات | الأجهزة › تنزيل تطبيق البيع | `canReadDevices` |  |
   | `/settings` | الإدارة · الإعدادات | الإعدادات | إعدادات المؤسسة (الهوية، سياسة النقد، خطة الذكاء، البيع المتتبَّع) | `canOpenSettings` |  |
@@ -1149,52 +1152,89 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
 The store manager runs a store: sales, stock, staff and cash. How a sale travels from the till
 to the server and into ERPNext, and the machinery behind it, is background work that the
 **owner** follows. D10 makes that a visibility rule. It extends D2 (ERPNext terms only behind
-«تفاصيل فنية» for authorised roles) from wording to whole cards, columns and tabs.
+«تفاصيل فنية» for authorised roles) from wording to whole cards, columns, rows and tabs.
 
-- **System audience:** `owner` and `tenant_admin`, with a platform admin inside a tenant shown
-  as owner (RT-1468). They see every row below. The existing gates that already hide integration
-  pages from other roles use this same set (`canReadErpStatus`, `canUseSaleSyncOps`).
+**The decision (owner, RT-1608 comment 19054):**
+- Keep the v3 screens as designed.
+- Hide system plumbing from the **store manager**.
+- The **owner** sees everything, Home included.
+
+The decision names this plumbing:
+- the till → server → ERPNext pipeline
+- ERPNext posting and sync
+- devices
+- integrations
+- audit
+- technical details
+
+**Design readings.** These show how this section applies D10. Each is open to the owner's
+correction.
+- **System audience:** `owner` and `tenant_admin`. A platform admin inside a tenant counts as
+  owner (RT-1468). This is the set the existing integration gates already use
+  (`canReadErpStatus`, `canUseSaleSyncOps`). The decision names only the owner.
 - **Business audience:** `store_manager`. A row marked *Hidden* is not rendered for this role:
-  no placeholder, no «غير متاح», no empty frame. The layout closes the gap.
+  no placeholder, no «غير متاح» and no empty frame. The layout closes the gap.
 - **Presentation only.** D10 changes what the Console shows, not what the API allows. Server
   permissions and every API role list stay as they are. A store manager who opens a hidden
-  route's address gets the shared no-access state, which names who can open it (§13.6 «Permission shows who can act»).
-- **Problems still reach a person.** When plumbing fails, the decision card goes to the system
-  audience (Home «يحتاج قرارك», alerts). The store manager is not told about a posting
-  failure they cannot act on.
-- **One gate.** A single client predicate (for example `canSeeSystemDetail(role)` = the system
-  audience) drives every row, so the list cannot drift. Each row that is new here needs a test
-  for both audiences.
+  route's address gets a no-access state that names who can open it (§13.6 «Permission shows
+  who can act»). Today this differs by page: audit answers "forbidden", and devices answers
+  with a 404 that does not reveal the page exists. V3-11 makes them one.
+- **Problems still reach a person.** A plumbing failure becomes a decision card for the system
+  audience, on Home «يحتاج قرارك» and in alerts. The store manager is not told about a failure
+  they cannot act on.
+- **One gate.** One client predicate (proposed name `canSeeSystemDetail(role)`) drives every
+  row, so the list cannot drift. Every *new* row gets a test for both audiences.
 
-| Surface | Element | Store manager | Hidden today? |
+| Surface | Element | Store manager | Gated today? |
 | --- | --- | --- | --- |
-| Home | Pipeline strip «نقاط البيع ← الخادم ← ERPNext», its links and its device note | Hidden | No (new) |
+| Home | Pipeline strip «أجهزة البيع ← الخادم ← المحاسبة» (shipped as «نقاط البيع ← الخادم ← ERPNext»), its links and its device note | Hidden | No (new) |
 | Home | «مبيعات اليوم في ERPNext» (the posting ring) | Hidden | No (new) |
 | Home | The ERPNext column of «آخر العمليات» | Hidden (the column, not the table) | No (new) |
-| Home | «ما يهم اليوم» / «يحتاج قرارك» items about posting failures or repair | Hidden; the next business item is shown instead | No (new) |
+| Home | «ما يهم اليوم» / «يحتاج قرارك» items about posting failures or sales needing repair | Hidden; the next business item is shown instead | No (new; only the link is gated) |
+| Home | Attention row «فروقات المخزون · {متجر}» (ERPNext snapshot differences) | Hidden (D10b) | No (new) |
 | Home | «من غيّر ماذا» and the audit link | Hidden | Yes (`canOpenAudit`) |
 | Home | Quick action «مبيعات تحتاج إلى إصلاح» | Hidden | Yes (`canUseSaleSyncOps`) |
 | Shell | «حالة النظام» (server, sync, ERPNext connector, transfers) | Hidden | Yes (`canReadErpStatus`) |
-| Shell | الإعدادات › الأجهزة, رموز الربط, تنزيل تطبيق البيع (`/devices/**`) | Hidden; pairing a new till is done by the owner | No (new) |
-| Shell | الإعدادات › سجل التدقيق (`/audit`) | Hidden (the API already refuses it) | No (new; today a 403 page) |
-| Shell | The whole المحاسبة area (`/erp-connection`, `/sales-needing-repair`, `/quarantined-sales`, `/product-reconciliation`, `/posting-health`) | Hidden; with no readable tab the area is not rendered | Yes (B gates) |
-| المبيعات | Sales list: the ERPNext status column, the «الترحيل إلى ERPNext» filter and the failed-posting insight strip | Hidden | No (new) |
-| المبيعات | Sale detail: «الترحيل إلى ERPNext» (posting state, ERPNext document ids) and the ERP failure banner | Hidden | No (new) |
+| الإعدادات › الأجهزة | Till management (`/devices/**`): the till list and status, pairing codes, the POS app download, replace, move and revoke | **Kept** (D10a) | — |
+| الإعدادات › الأجهزة | The technical fields: device ids, app build and version identifiers, and each till's unsent-sale queue | Hidden (D10a) | No (new) |
+| Shell | الإعدادات › سجل التدقيق (`/audit`) | Hidden | No (new; the nav entry is `always` and the API answers 403) |
+| Shell | The whole المحاسبة area (`/erp-connection`, `/sales-needing-repair`, `/quarantined-sales`, `/product-reconciliation`, `/posting-health`) | Hidden; with no readable tab, the area is not rendered | Yes (owner and tenant_admin gates) |
+| المبيعات | The «الحالة» chips on the sales list and the sale header: the server-sync chip («متزامنة», «المزامنة قيد إعادة المحاولة», «تحتاج إلى إصلاح» and others) and the ERPNext chip | Hidden; the void and return chips stay | No (new) |
+| المبيعات | Sales list filters «حالة المزامنة» and «الترحيل إلى ERPNext» | Hidden | No (new) |
+| المبيعات | Sales list insight strip (failed posting and sales needing repair) | Hidden | No (new; only its link is gated) |
+| المبيعات | Sale detail: «الترحيل إلى ERPNext» (posting state and ERPNext document ids), the ERP failure banner, and the field «وقت الاستلام في الخادم» | Hidden | No (new) |
 | المبيعات | Sale detail: «مزامنة البيع مع الخادم» and «سجل المزامنة» | Hidden | Yes (`canUseSaleSyncOps`) |
-| المخزون | Movement ledger: the «حالة ERPNext» column (behind «عرض المزيد من التفاصيل») | Hidden | No (new) |
-| المخزون | Item stock page: «الرصيد الدفتري (لقطة ERPNext)» | Hidden | No (new) |
+| التقارير | Daily sales report (`/sales-daily`): the sync-status and ERPNext-posting rows | Hidden; the sales figures stay | No (new) |
 | التقارير | Posting health and sales needing repair | Hidden | Yes |
+| المخزون | Movement ledger: the «حالة ERPNext» column (behind «عرض المزيد من التفاصيل»), and the store note that points to the ERPNext book | Hidden | No (new) |
+| المخزون | Item stock page: «الرصيد الدفتري (لقطة ERPNext)» | Hidden | No (new) |
+| المخزون | Transfers list and drawer: «ترحيل الشحن في ERPNext», «ترحيل الاستلام في ERPNext» and their pills | Hidden; the transfer and its quantities stay | No (new) |
+| المخزون | Count session: the «حالة ERPNext» banner | Hidden; the count itself stays | No (new) |
+| المخزون | Stock differences (`/stock-discrepancies`): Retail Tower stock compared with the ERPNext book snapshot, fixed in ERPNext | Hidden (D10b) | No (new) |
 
-**Kept for the store manager** (business, unchanged): sales and receipts, shift closes and
-their variances, reports on sales, shifts and stock, items, unknown items, brands, inventory
-movements, stock differences, holds and recalls, offers, stores, users, low stock, the receipt
-strip, the trend chart, and latest sales without the ERPNext column.
+**Kept for the store manager** (business, unchanged):
+- sales and receipts, with their void and return status
+- shift closes and their variances
+- the sales, shift and stock reports, without the rows above
+- items, unknown items and brands
+- inventory movements, transfers and counts, without the ERPNext parts
+- holds and recalls, and offers
+- stores and users
+- low stock, the receipt strip and the trend chart
+- latest sales, without the ERPNext column
+- till management for their store (D10a)
 
-Open under D10:
-- **Devices for a store:** if a store manager must pair a till without the owner, a narrow
-  «إضافة جهاز» action may come back for them. That is a new owner decision, not a reading of D10.
-- `tenant_admin` is treated as system audience. If the owner wants it treated as business,
-  that is a one-line change to the gate.
+**Owner follow-up decisions (2026-11-26, same session):**
+- **D10a, Devices:** the store manager keeps till management. They can still pair, replace,
+  move and revoke tills, and download the POS app. Only the technical fields are hidden:
+  device ids, build identifiers and the per-till unsent-sale queue. No in-store task moves to
+  the owner. (The rejected option hid Devices entirely.)
+- **D10b, Stock differences:** hidden from the store manager. The page compares stock with the
+  ERPNext book and is fixed in ERPNext. Physical counts and their variances stay visible.
+  (The rejected option kept the page, in business wording.)
+
+**Still open:** `tenant_admin` is read as system audience. If the owner wants it treated as
+business, the gate changes in one place.
 
 ### 13.6 Page rhythm and patterns
 
@@ -1318,7 +1358,7 @@ pairs.
 §1 places the UX Constitution above this file. The rows below change rules that the Constitution
 backs, so they are Constitution amendments in the same way as §12.7 and §12.8 item 1. Each
 must be **recorded as an owner decision** before the slice that implements it merges (§13.10
-item 1). D9 adopted the v3 design, but the Constitution-level wording is not recorded yet.
+item 0). The owner approved all four on 2026-11-26 (Confluence 62816260 v10).
 
 | Earlier rule | v5.0 | Constitution rule |
 | --- | --- | --- |
@@ -1359,4 +1399,4 @@ item 1). D9 adopted the v3 design, but the Constitution-level wording is not rec
 | V3-8 | Reports list | not created |
 | V3-9 | Sales list + side drawer | not created |
 | V3-10 | Usability baseline, today vs v3 (Verification) | not created |
-| V3-11 | D10 visibility gate on today's Console: one `canSeeSystemDetail` predicate and the *new* rows of §13.5a, with tests for both audiences. It can ship before V3-4/V3-5, which then keep the gate. | not created |
+| V3-11 | D10 visibility gate on today's Console: one predicate and the *new* rows of §13.5a, including D10a and D10b, with tests for both audiences. It can ship before V3-4/V3-5, which then keep the gate. | not created |
