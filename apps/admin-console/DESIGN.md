@@ -9,31 +9,32 @@ description: >-
   v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
   v4.0 (owner decision 2026-10-30) adopts the "Ink & Receipt" look (canvas board v9) as the
   approved visual target (§12), shipping in slices; the slices already on main are listed in
-  §10 and §12.8. v5.0 (owner decisions D7–D9, 2026-11-26, RT-1608) adopts «Console system v3»
+  §10 and §12.8. v5.0 (owner decisions D7–D10, 2026-11-26, RT-1608) adopts «Console system v3»
   as the target (§13): seven areas with tabs, a light sidebar, an Ink top bar and area band, and
-  a receipt figure strip; it ships in slices (§13.11). The token block below stays shipped truth.
+  a receipt figure strip; it ships in slices (§13.11). The token block below stays shipped truth;
+  since RT-1610 its colours are the v5.0 §13.2 light values.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
 # shell tokens. Light is the default (RT-396); the approved dark theme (RT-392) ships as a
 # [data-theme="dark"] block with a top-bar switch (RT-398). The colors below are the light set.
 colors:
-  background: "#f7f9fa"
+  background: "#f3f4f2" # alias of the v5.0 canvas (RT-1610)
   surface: "#ffffff"
-  surface-sunken: "#eef2f6"
-  text: "#0f1d2e"
-  text-muted: "#53647a" # also the control boundary (control-border)
-  border: "#d8dfe7" # decorative dividers only
-  primary: "#0f766e" # Tower Teal: intent (action, selection, focus)
+  surface-sunken: "#f7f8f6"
+  text: "#14201f"
+  text-muted: "#56605e" # also the control boundary (control-border)
+  border: "#dfe3e0" # decorative dividers only
+  primary: "#007560" # Tower Teal: intent (action, selection, focus)
   primary-emphasis: "#0b5b55"
-  primary-soft: "#e6f4f1"
-  success: "#15774d"
-  warning: "#a35a00"
+  primary-soft: "#e2f2ee"
+  success: "#1f6f43"
+  warning: "#8f5300"
   danger: "#b3261e"
   info: "#1b6ca8"
   on-primary: "#ffffff" # alias of surface
-  control-border: "#53647a" # alias of text-muted
-  focus-ring: "#0f766e" # alias of primary
+  control-border: "#56605e" # alias of text-muted
+  focus-ring: "#007560" # alias of primary
 typography:
   fontFamily: "Dubai, Segoe UI, Tahoma, system-ui, sans-serif" # no font files served (RT-397)
   monoFamily: "ui-monospace, Consolas, monospace"
@@ -73,7 +74,7 @@ spacing:
 
 # Design System: Retail Tower Console
 
-> **Version 5.0 — "Console system v3" (owner decisions D7–D9, 2026-11-26, RT-1608).** The owner
+> **Version 5.0 — "Console system v3" (owner decisions D7–D10, 2026-11-26, RT-1608).** The owner
 > judged the Console engineering-oriented and adopted a redesign that is modern but keeps the
 > Retail Tower identity:
 > - seven areas with tabs, replacing the four menu groups;
@@ -958,7 +959,7 @@ recorded and item 6 was amended for three widgets by owner decision on 2026-11-0
    62816260 (version 3): Ink with white text on light surfaces, Mint on Ink; every other
    selection on light surfaces stays Teal (§12.6).
 
-## 13. v5.0 "Console system v3" (owner decisions D7–D9, 2026-11-26; adopted target, shipping in slices)
+## 13. v5.0 "Console system v3" (owner decisions D7–D10, 2026-11-26; adopted target, shipping in slices)
 
 On 2026-11-26 the owner adopted «Console system v3» as the Admin Console target (RT-1608; decisions
 D7, D8 and D9 below). v5.0 is the documented authority for that target. **It is adopted, not
@@ -981,6 +982,7 @@ part. Until a slice lands, §12 remains the rule for the part it has not moved.
 | D7 | Reopen the visual direction: modernise toward the reference pack (Shopify App Home patterns, Linear's calm interface, Ramp approvals, Stripe search) **as behaviour references only**. No third-party identity, layout, asset or code is copied. | RT-1608 comment 19027 |
 | D8 | Seven areas with tabs replace the four menu groups (supersedes D4). Alerts, Search and the organisation switch move to the top bar. No page is removed, and role gates are unchanged. | RT-1608 comment 19028 |
 | D9 | Adopt Console system v3: the D8 navigation, the Understand → Decide → Act rhythm, the "Retail Tower Soft" look with the Ink band and receipt strip kept, and the truth rules in §13.7. | RT-1608 comment 19041 |
+| D10 | **System plumbing is shown by role only.** The v3 screens stay as designed; the store manager does not see the system's background processes, and the owner sees everything (§13.5a). Chosen over "hide from everyone, with a separate «النظام» area". | RT-1608 comment 19054 |
 
 Earlier RT-1608 decisions still apply:
 - **D1:** the non-technical merchant owner is the primary user.
@@ -1142,6 +1144,58 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
   | `/platform/*` | Platform Console | خارج هذا الهيكل | — | `platform_admin` | unchanged, RT-1589 |
 - **Platform Console** (`/platform`) is outside this shell and is unchanged (RT-1589).
 
+### 13.5a Visibility by role: system plumbing (D10)
+
+The store manager runs a store: sales, stock, staff and cash. How a sale travels from the till
+to the server and into ERPNext, and the machinery behind it, is background work that the
+**owner** follows. D10 makes that a visibility rule. It extends D2 (ERPNext terms only behind
+«تفاصيل فنية» for authorised roles) from wording to whole cards, columns and tabs.
+
+- **System audience:** `owner` and `tenant_admin`, with a platform admin inside a tenant shown
+  as owner (RT-1468). They see every row below. The existing gates that already hide integration
+  pages from other roles use this same set (`canReadErpStatus`, `canUseSaleSyncOps`).
+- **Business audience:** `store_manager`. A row marked *Hidden* is not rendered for this role:
+  no placeholder, no «غير متاح», no empty frame. The layout closes the gap.
+- **Presentation only.** D10 changes what the Console shows, not what the API allows. Server
+  permissions and every API role list stay as they are. A store manager who opens a hidden
+  route's address gets the shared no-access state, which names who can open it (§13.6 «Permission shows who can act»).
+- **Problems still reach a person.** When plumbing fails, the decision card goes to the system
+  audience (Home «يحتاج قرارك», alerts). The store manager is not told about a posting
+  failure they cannot act on.
+- **One gate.** A single client predicate (for example `canSeeSystemDetail(role)` = the system
+  audience) drives every row, so the list cannot drift. Each row that is new here needs a test
+  for both audiences.
+
+| Surface | Element | Store manager | Hidden today? |
+| --- | --- | --- | --- |
+| Home | Pipeline strip «نقاط البيع ← الخادم ← ERPNext», its links and its device note | Hidden | No (new) |
+| Home | «مبيعات اليوم في ERPNext» (the posting ring) | Hidden | No (new) |
+| Home | The ERPNext column of «آخر العمليات» | Hidden (the column, not the table) | No (new) |
+| Home | «ما يهم اليوم» / «يحتاج قرارك» items about posting failures or repair | Hidden; the next business item is shown instead | No (new) |
+| Home | «من غيّر ماذا» and the audit link | Hidden | Yes (`canOpenAudit`) |
+| Home | Quick action «مبيعات تحتاج إلى إصلاح» | Hidden | Yes (`canUseSaleSyncOps`) |
+| Shell | «حالة النظام» (server, sync, ERPNext connector, transfers) | Hidden | Yes (`canReadErpStatus`) |
+| Shell | الإعدادات › الأجهزة, رموز الربط, تنزيل تطبيق البيع (`/devices/**`) | Hidden; pairing a new till is done by the owner | No (new) |
+| Shell | الإعدادات › سجل التدقيق (`/audit`) | Hidden (the API already refuses it) | No (new; today a 403 page) |
+| Shell | The whole المحاسبة area (`/erp-connection`, `/sales-needing-repair`, `/quarantined-sales`, `/product-reconciliation`, `/posting-health`) | Hidden; with no readable tab the area is not rendered | Yes (B gates) |
+| المبيعات | Sales list: the ERPNext status column, the «الترحيل إلى ERPNext» filter and the failed-posting insight strip | Hidden | No (new) |
+| المبيعات | Sale detail: «الترحيل إلى ERPNext» (posting state, ERPNext document ids) and the ERP failure banner | Hidden | No (new) |
+| المبيعات | Sale detail: «مزامنة البيع مع الخادم» and «سجل المزامنة» | Hidden | Yes (`canUseSaleSyncOps`) |
+| المخزون | Movement ledger: the «حالة ERPNext» column (behind «عرض المزيد من التفاصيل») | Hidden | No (new) |
+| المخزون | Item stock page: «الرصيد الدفتري (لقطة ERPNext)» | Hidden | No (new) |
+| التقارير | Posting health and sales needing repair | Hidden | Yes |
+
+**Kept for the store manager** (business, unchanged): sales and receipts, shift closes and
+their variances, reports on sales, shifts and stock, items, unknown items, brands, inventory
+movements, stock differences, holds and recalls, offers, stores, users, low stock, the receipt
+strip, the trend chart, and latest sales without the ERPNext column.
+
+Open under D10:
+- **Devices for a store:** if a store manager must pair a till without the owner, a narrow
+  «إضافة جهاز» action may come back for them. That is a new owner decision, not a reading of D10.
+- `tenant_admin` is treated as system audience. If the owner wants it treated as business,
+  that is a one-line change to the gate.
+
 ### 13.6 Page rhythm and patterns
 
 - **Rhythm in every area: Understand → Decide → Act.**
@@ -1185,8 +1239,9 @@ spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
   - Error reads What → Safety → Action.
   - Permission shows who can act.
   - Approval states consequence, reversibility and audit before the button.
-- **Home (D3, D9):** the order is:
-  1. the pipeline strip
+- **Home (D3, D9, D10):** the order is:
+  1. the pipeline strip (system audience only, §13.5a; for the store manager Home starts at
+     «يحتاج قرارك»)
   2. «يحتاج قرارك»
   3. the receipt strip (received sales, transactions, returns, voids)
   4. the daily trend chart, with a matching legend, a hatched "today, incomplete" bar and
@@ -1275,9 +1330,9 @@ item 1). D9 adopted the v3 design, but the Constitution-level wording is not rec
 
 ### 13.10 Open items
 
-0. **Record the §13.9b Constitution amendments** (UX-02 unknown style, UX-09 scope in the top
-   bar, UX-03 13px floor, UX-04 radius) as owner decisions on Confluence 62816260, with pointers
-   from the UX pages. This must happen before the first slice that implements them merges.
+0. ~~Record the §13.9b Constitution amendments~~ **Done 2026-11-26:** the owner approved all
+   four (UX-02 unknown style, UX-09 scope in the top bar, UX-03 13px floor, UX-04 radius),
+   recorded on Confluence 62816260 v10 (RT-1609 comment 19048, RT-1608 comment 19049).
 
 1. Typeface: IBM Plex Sans Arabic or Dubai, self-hosted (V3-3, RT-994).
 2. The decision-queue source and ordering rule (which alerts become decisions, in what order).
@@ -1286,7 +1341,7 @@ item 1). D9 adopted the v3 design, but the Constitution-level wording is not rec
 5. What «أصلِح البيعتين» does: does linking an unmapped item re-post the sales automatically?
 6. The stale threshold for Home, and the inventory overview contracts (excess, expiry: RT-1430).
 7. INVENTED menu placements, whether `/posting-health` is tenant-facing, and which areas store
-   roles see (RT-1289 S2).
+   roles see (RT-1289 S2). D10 (§13.5a) settles the system-plumbing part of the last question.
 8. Arabic tab labels and new copy need UX-12 review and message keys.
 9. Phone: Admin phone workflows are not promised (UX-09). The boards show a read-only glance only.
 
@@ -1304,3 +1359,4 @@ item 1). D9 adopted the v3 design, but the Constitution-level wording is not rec
 | V3-8 | Reports list | not created |
 | V3-9 | Sales list + side drawer | not created |
 | V3-10 | Usability baseline, today vs v3 (Verification) | not created |
+| V3-11 | D10 visibility gate on today's Console: one `canSeeSystemDetail` predicate and the *new* rows of §13.5a, with tests for both audiences. It can ship before V3-4/V3-5, which then keep the gate. | not created |
