@@ -9,6 +9,7 @@ import { canReadInventory } from "@/inventory/inventoryLogic";
 import { canReadOffers } from "@/offers/offerLogic";
 import { canReadPayers } from "@/payers/payerAccess";
 import { canUseProductReconciliation } from "@/product-reconciliation/productReconLogic";
+import { canReadRedistribution } from "@/redistribution/redistributionLogic";
 import { canOpenAnyReport } from "@/reports/reportsLogic";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { canReadSales } from "@/sales/saleLogic";
@@ -176,6 +177,15 @@ const TENANT_NAV: readonly GatedGroup[] = [
         to: "/inventory",
         icon: "inventory",
         canRead: canReadInventory,
+      },
+      // RT-1601: redistribution proposals ship dark (shadow / live allowlists, RT-1600), so the
+      // sidebar omits them; navigator-only so Ctrl K finds them. Owner / tenant_admin only.
+      {
+        label: "redistribution.nav.label",
+        to: "/inventory/redistribution",
+        icon: "inventory",
+        canRead: canReadRedistribution,
+        navigatorOnly: true,
       },
       // RT-455 (TR-1, TR-6): tracking holds and recalls, listed only once the
       // tenant's tracking summary says it has tracked products (967, 968) and

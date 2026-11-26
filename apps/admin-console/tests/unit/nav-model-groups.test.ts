@@ -133,7 +133,8 @@ describe("settings destination (RF-7)", () => {
  * Navigator-only destinations: built screens the sidebar deliberately omits
  * by owner decision — the daily/by-store reports live under /reports
  * (RT-821/RT-1020/RT-1054), the import opens from the catalog list (RT-1509),
- * pairing codes and the POS download live on the device list (RT-372).
+ * pairing codes and the POS download live on the device list (RT-372), and
+ * redistribution proposals ship dark behind the RT-1600 allowlists (RT-1601).
  * The sidebar and drawer never list them; Ctrl K does, with the same gates.
  */
 describe("navigator-only destinations", () => {
@@ -143,16 +144,17 @@ describe("navigator-only destinations", () => {
     "/catalog/import",
     "/devices/pairing-codes",
     "/devices/download-pos",
+    "/inventory/redistribution",
   ] as const;
   const navPaths = (role: string) =>
     navigatorNav(role, SIGNALS).flatMap((g) => g.entries.map((e) => e.to));
 
-  test("the sidebar model is unchanged: none of the five is listed", () => {
+  test("the sidebar model is unchanged: none of the six is listed", () => {
     expect(paths("owner")).toHaveLength(25);
     for (const to of NAV_ONLY) expect(paths("owner")).not.toContain(to);
   });
 
-  test("an owner's navigator is the sidebar entries plus the five, in group order", () => {
+  test("an owner's navigator is the sidebar entries plus the six, in group order", () => {
     expect(navPaths("owner")).toEqual([
       "/",
       "/alerts",
@@ -170,6 +172,7 @@ describe("navigator-only destinations", () => {
       "/unknown-items",
       "/catalog/brands",
       "/inventory",
+      "/inventory/redistribution",
       "/tracking",
       "/stock-discrepancies",
       "/erp-connection",
@@ -187,7 +190,7 @@ describe("navigator-only destinations", () => {
     ]);
   });
 
-  test("the gates hold: a cashier sees none of the five, a store manager sees all but the import", () => {
+  test("the gates hold: a cashier sees none of the six, a store manager sees all but the import and redistribution", () => {
     expect(navPaths("cashier")).toEqual(paths("cashier"));
     expect(navPaths("store_manager")).toHaveLength(22);
     for (const to of [

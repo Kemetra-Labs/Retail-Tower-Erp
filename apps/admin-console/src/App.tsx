@@ -40,6 +40,7 @@ import { payerRoutes } from "@/shell/payerRoutes";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { postingHealthRoutes } from "@/shell/postingHealthRoutes";
 import { productReconciliationRoutes } from "@/shell/productReconciliationRoutes";
+import { redistributionRoutes } from "@/shell/redistributionRoutes";
 import { rf2Routes } from "@/shell/rf2Routes";
 import { rf4aRoutes } from "@/shell/rf4aRoutes";
 import { rf5Routes } from "@/shell/rf5Routes";
@@ -106,6 +107,7 @@ const router = createBrowserRouter(
           {offerRoutes}
           {stockDiscrepancyRoutes}
           {inventoryRoutes}
+          {redistributionRoutes}
           {countRoutes}
           {trackingRoutes}
           {shiftCloseRoutes}

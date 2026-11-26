@@ -577,6 +577,15 @@ export const OPENAPI_SOURCE_SPECS: readonly OpenApiSourceSpec[] = [
     name: "AiManagerSalesExplain",
     path: "services/backend-core/packages/contracts/openapi/ai-manager-sales-explain.openapi.yaml",
   },
+  // Redistribution proposals (RT-1599 contract, RT-1600 runtime #901; RT-1601): the six Console
+  // operations compute, list, get, review, accept and reject, wrapped in
+  // src/lib/redistribution-queries.ts for the proposals review screen in src/redistribution/.
+  // Consume-only; no YAML authored here. NEW SOURCE at the repin to the RT-1600 merge commit
+  // (ab726a8b7, #901).
+  {
+    name: "RedistributionProposals",
+    path: "services/backend-core/packages/contracts/openapi/inventory/redistribution-proposals.yaml",
+  },
 ];
 
 /** Upstream source paths (kept for back-compat / documentation references). */

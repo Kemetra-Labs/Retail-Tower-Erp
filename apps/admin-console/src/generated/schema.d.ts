@@ -3,7 +3,7 @@
  * Do not make direct changes to the file.
  */
 
-// Source: Kemetra-Labs/Retail-Tower-Erp @ be0c51836fde07f5bee98729b84b6af5a2f934fb
+// Source: Kemetra-Labs/Retail-Tower-Erp @ ab726a8b72d7e5d81f344cf3b6f2899a5faa0cd5
 // Sources:
 // - services/backend-core/packages/contracts/openapi/auth.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/context.openapi.yaml
@@ -46,6 +46,7 @@
 // - services/backend-core/packages/contracts/openapi/console-force-actions.openapi.yaml
 // - services/backend-core/packages/contracts/openapi/catalog/catalog-import.yaml
 // - services/backend-core/packages/contracts/openapi/ai-manager-sales-explain.openapi.yaml
+// - services/backend-core/packages/contracts/openapi/inventory/redistribution-proposals.yaml
 //
 // The upstream OpenAPI files are separate documents with overlapping component
 // names, so this file namespaces each generated source and composes their path
@@ -7847,6 +7848,20 @@ export namespace ConsoleSalesSchema {
                     offerVersion: number;
                     packRevision: number;
                     discountAmount: components["schemas"]["DecimalAmount"];
+                };
+                /** @description RT-1571 (RT-285 F-7, RT-740 lineage): the line's manual discount as captured (`CaptureSaleLineDiscount` of `pos-sales/sales.yaml`), echoed as stored, WITHOUT the approver's user id (least disclosure, like `VoidSummary`, which names the approver's role only; `readSale` returns the id). Present only when recorded: absent on a line without a manual discount and on every line captured before `pos-sales/sales.yaml` 1.30.0-draft, even a discounted one ("not recorded"). Optional, never in `required`; `lineAmount` stays the net. */
+                discount?: {
+                    /** @enum {string} */
+                    kind: "percent" | "amount";
+                    /** @description For `percent`, the whole percent (`1` to `100`); for `amount`, the money taken off at the stored scale, equal to `amount`. */
+                    value: string;
+                    amount: components["schemas"]["DecimalAmount"];
+                    /** @enum {string} */
+                    reasonCode: "promotion" | "loyal_or_contract_customer" | "near_expiry_or_damaged" | "price_correction";
+                    /** @enum {string} */
+                    authoritySource: "cashier_approval" | "manager_session";
+                    /** @enum {string} */
+                    approverRole: "manager" | "admin";
                 };
             };
             /** @description A captured tender line (RT-10 D1); the amount is NET of change, as captured. */
@@ -26711,6 +26726,734 @@ export namespace AiManagerSalesExplainSchema {
     }
 }
 
-export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths & CatalogImportSchema.paths & AiManagerSalesExplainSchema.paths;
-export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components & CatalogImportSchema.components & AiManagerSalesExplainSchema.components;
-export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations & CatalogImportSchema.operations & AiManagerSalesExplainSchema.operations;
+export namespace RedistributionProposalsSchema {
+    export interface paths {
+        "/api/inventory/v1/redistribution-proposals": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            /**
+             * List the tenant's redistribution proposals, newest first, in keyset pages.
+             * @description The tenant's proposals newest first (`createdAt DESC, id DESC`), optionally filtered by `state`, as summaries without lines. An opaque `cursor` bound to this operation, the tenant and the filter; a value the server did not issue, or one reused with another filter, is 400 `validation_error`. A proposal past `expiresAt` is reported `expired` even before any sweep. Owner or tenant_admin on the shadow or live allowlist; otherwise the non-disclosing 404.
+             */
+            get: operations["listRedistributionProposals"];
+            put?: never;
+            /**
+             * Compute a redistribution proposal for the tenant.
+             * @description Computes a proposal on demand over the tenant's active stores, or over `storeIds` when given (at least two; a store that is not an active store of the tenant is 400 `validation_error`, which never says whether it exists elsewhere). Either way the tenant's non-terminal proposal, if any, is superseded. The result is stored only when the rule proposes at least one line: 201 with the new proposal. When nothing needs to move, 200 with the outcome, including the id of the proposal it superseded; nothing new is stored. A store set above the limits is 422 `redistribution_too_large`, a compute over its deadline is 422 `redistribution_deadline_exceeded`, and a plan the independent validator rejects is 422 `redistribution_plan_invalid`; none of the three stores or supersedes anything. Owner or tenant_admin on the shadow or live allowlist; otherwise the non-disclosing 404.
+             */
+            post: operations["createRedistributionProposal"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/redistribution-proposals/{proposalId}": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            /**
+             * Read one redistribution proposal with its lines.
+             * @description The proposal with its lines, per-store read times and exclusions, objective, validator report and warnings, plus each line's review decision and accept outcome. Owner or tenant_admin on the shadow or live allowlist; another tenant's proposal, an unknown id, another role and a tenant with the feature off are the same non-disclosing 404.
+             */
+            get: operations["getRedistributionProposal"];
+            put?: never;
+            post?: never;
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/redistribution-proposals/{proposalId}/review": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Record "would accept" / "would reject" decisions on lines (shadow phase).
+             * @description Records a review decision for each listed line; a later decision on the same line replaces the earlier one. Creates nothing and changes no stock. Allowed while the proposal is `open`, `reviewed` or `partially_accepted` and on a line with no accept outcome; the proposal becomes `reviewed` unless it is already `partially_accepted`. A line id that is not on this proposal, or one listed twice, is 400 `validation_error`. A terminal proposal is 409 `proposal_superseded`, `proposal_expired` or `proposal_state_conflict`; an accepted line is 409 `proposal_line_already_decided`. Owner or tenant_admin on the shadow or live allowlist; otherwise the non-disclosing 404.
+             */
+            post: operations["reviewRedistributionProposal"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/redistribution-proposals/{proposalId}/accept": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Accept lines into W3 shipment transfers in `draft` (live phase).
+             * @description In ONE transaction: re-checks each listed line (source freshness, source stock net of open draft transfers, the destination's gap, sellability at both stores, and every per-line rule of the W3 create command, such as the established stocking unit), drops or reduces lines that can no longer be given in full, groups the rest by store pair, splits a pair at 100 lines (the W3 transfer limit) and creates one W3 shipment transfer in `draft` per group through the W3 create command, with reason `Redistribution proposal <id>`. A line the W3 command would refuse is reported `dropped` with its reason, never an error for the whole accept. It never approves, dispatches or reserves. Either every listed line gets an outcome and its transfers exist, or nothing is written. Each listed line reports `created`, `reduced` (both quantities) or `dropped` (with a reason). When every listed line would be dropped, nothing is written and the answer is 409 `proposal_stale`: compute a new proposal. The proposal becomes `accepted` when every line has an outcome, otherwise `partially_accepted`. A line id not on this proposal is 400 `validation_error`; a line that already has an outcome is 409 `proposal_line_already_decided`. Allowed while the proposal is `open`, `reviewed` or `partially_accepted`. Owner or tenant_admin on the LIVE allowlist with W3 shipment transfers activated; otherwise (including a shadow-only tenant) the non-disclosing 404.
+             */
+            post: operations["acceptRedistributionProposal"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+        "/api/inventory/v1/redistribution-proposals/{proposalId}/reject": {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            get?: never;
+            put?: never;
+            /**
+             * Reject the proposal with a reason.
+             * @description Moves the proposal to `rejected` with the given reason. Lines that already have an accept outcome keep it and their draft transfers are untouched; lines without one are never accepted. Allowed while the proposal is `open`, `reviewed` or `partially_accepted`; a terminal proposal is 409 `proposal_superseded`, `proposal_expired` or `proposal_state_conflict`. Owner or tenant_admin on the shadow or live allowlist; otherwise the non-disclosing 404.
+             */
+            post: operations["rejectRedistributionProposal"];
+            delete?: never;
+            options?: never;
+            head?: never;
+            patch?: never;
+            trace?: never;
+        };
+    }
+    export type webhooks = Record<string, never>;
+    export interface components {
+        schemas: {
+            /** @description Optional store scope. Without `storeIds`, every active store of the tenant is considered. Tenant, actor and read times are server-owned and never accepted. */
+            ComputeRedistributionProposalCommand: {
+                /** @description The stores to consider. The runtime's store limit (`limits.maxStores`) still applies. */
+                storeIds?: string[];
+            };
+            ReviewRedistributionProposalCommand: {
+                /** @description At most 200 decisions per request, so the body stays under the API's JSON limit. */
+                lineDecisions: {
+                    /** Format: uuid */
+                    lineId: string;
+                    decision: components["schemas"]["RedistributionReviewDecisionValue"];
+                    note?: string;
+                }[];
+            };
+            AcceptRedistributionProposalCommand: {
+                lineIds: string[];
+            };
+            RejectRedistributionProposalCommand: {
+                reason: string;
+            };
+            /** @description Strictly positive exact-decimal quantity as a STRING (`numeric(19,4)`). */
+            PositiveDecimalQuantity: string;
+            /** @description Non-negative exact-decimal quantity as a STRING (`numeric(19,4)`). */
+            NonNegativeDecimalQuantity: string;
+            /**
+             * @description `accepted`, `rejected`, `expired` and `superseded` are terminal. A tenant has at most one proposal in `open`, `reviewed` or `partially_accepted`.
+             * @enum {string}
+             */
+            RedistributionProposalState: "open" | "reviewed" | "partially_accepted" | "accepted" | "rejected" | "expired" | "superseded";
+            /** @enum {string} */
+            RedistributionReviewDecisionValue: "would_accept" | "would_reject";
+            RedistributionRule: {
+                /** @constant */
+                name: "reorder_gap_greedy";
+                version: string;
+            };
+            RedistributionLimits: {
+                maxStores: number;
+                maxRows: number;
+                deadlineMs: number;
+                maxLinesPerTransfer: number;
+            };
+            /** @description The safety buffer kept at a source above its reorder level: the larger of `minimum` and `percentOfReorderLevel` percent of the level, rounded per `rounding`. */
+            RedistributionBufferPolicy: {
+                minimum: components["schemas"]["PositiveDecimalQuantity"];
+                percentOfReorderLevel: number;
+                /** @enum {string} */
+                rounding: "scale" | "whole_unit";
+            };
+            /** @description Why a store may not give stock. Open string; current values `pos_queue_unknown`, `pos_queue_dead_letter_or_held`, `device_heartbeat_stale` and `inactive`. `inactive` also bars it as a destination; the others bar it only as a source. */
+            RedistributionStoreExclusion: string;
+            RedistributionProposalStore: {
+                /** Format: uuid */
+                storeId: string;
+                /**
+                 * Format: date-time
+                 * @description When this store's stock was read for the compute.
+                 */
+                readAt: string;
+                eligibleAsSource: boolean;
+                exclusion: components["schemas"]["RedistributionStoreExclusion"] | null;
+            };
+            /** @description Total quantity below reorder level across destination rows before and after the proposed moves, and the size of the plan. */
+            RedistributionObjective: {
+                deficitBefore: components["schemas"]["NonNegativeDecimalQuantity"];
+                deficitAfter: components["schemas"]["NonNegativeDecimalQuantity"];
+                storePairs: number;
+                lines: number;
+            };
+            RedistributionViolation: {
+                code: string;
+                /** Format: uuid */
+                productId?: string;
+                /** Format: uuid */
+                storeId?: string;
+                /** Format: uuid */
+                sourceStoreId?: string;
+                /** Format: uuid */
+                destinationStoreId?: string;
+                detail?: string;
+            };
+            /** @description The independent validator's report. A stored proposal always passed, with no violations. */
+            RedistributionValidatorReport: {
+                /** @constant */
+                passed: true;
+                violations: components["schemas"]["RedistributionViolation"][];
+            };
+            RedistributionWarning: {
+                /** @description Open string; current values `store_excluded_as_source`, `negative_available_to_sell`, `reorder_level_missing`, `tracked_product_skipped` and `stocking_unit_mismatch`. */
+                code: string;
+                /** Format: uuid */
+                storeId?: string;
+                /** Format: uuid */
+                productId?: string;
+                count?: number;
+                detail?: string;
+            };
+            RedistributionLineWarning: {
+                /** @description Open string; current value `source_near_reorder_level`. */
+                code: string;
+                detail?: string;
+            };
+            RedistributionReviewDecision: {
+                decision: components["schemas"]["RedistributionReviewDecisionValue"];
+                note: string | null;
+                /** Format: date-time */
+                decidedAt: string;
+                /** Format: uuid */
+                decidedBy: string;
+            };
+            /** @description Why accept reduced or dropped a line. Open string; current values: `source_not_fresh` (the source store is no longer fresh), `source_available_insufficient` (its stock net of open drafts can no longer give the quantity), `destination_gap_closed` (the destination is no longer below its reorder level, or needs less), `product_not_sellable` (no longer sellable at one of the stores), `stocking_unit_changed` (the product's established stocking unit differs from the line's) and `transfer_rule_refused` (another per-line rule of the W3 create command refuses it). */
+            RedistributionLineDropReason: string;
+            /** @description `created`: the full quantity is on the draft transfer. `reduced`: a smaller positive quantity is, with the reason. `dropped`: nothing was created for the line, with the reason. */
+            RedistributionAcceptOutcome: {
+                /** @constant */
+                outcome: "created";
+                proposedQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                createdQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                /** Format: uuid */
+                transferId: string;
+                reason: null;
+                /** Format: date-time */
+                decidedAt: string;
+                /** Format: uuid */
+                decidedBy: string;
+            } | {
+                /** @constant */
+                outcome: "reduced";
+                proposedQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                createdQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                /** Format: uuid */
+                transferId: string;
+                reason: components["schemas"]["RedistributionLineDropReason"];
+                /** Format: date-time */
+                decidedAt: string;
+                /** Format: uuid */
+                decidedBy: string;
+            } | {
+                /** @constant */
+                outcome: "dropped";
+                proposedQuantity: components["schemas"]["PositiveDecimalQuantity"];
+                createdQuantity: null;
+                transferId: null;
+                reason: components["schemas"]["RedistributionLineDropReason"];
+                /** Format: date-time */
+                decidedAt: string;
+                /** Format: uuid */
+                decidedBy: string;
+            };
+            RedistributionProposalLine: {
+                /** Format: uuid */
+                id: string;
+                /** Format: uuid */
+                productId: string;
+                /** Format: uuid */
+                sourceStoreId: string;
+                /** Format: uuid */
+                destinationStoreId: string;
+                quantity: components["schemas"]["PositiveDecimalQuantity"];
+                stockingUnit: string;
+                warnings: components["schemas"]["RedistributionLineWarning"][];
+                reviewDecision: components["schemas"]["RedistributionReviewDecision"] | null;
+                acceptOutcome: components["schemas"]["RedistributionAcceptOutcome"] | null;
+            };
+            RedistributionProposal: {
+                /** Format: uuid */
+                id: string;
+                state: components["schemas"]["RedistributionProposalState"];
+                /** @description The tenant's phase when this response was produced: true in the live phase (live allowlist and W3 shipment transfers activated), false in the shadow phase. It does not say the proposal itself can still be accepted (see `state`). An idempotent replay returns the value of the original response. */
+                acceptEnabled: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: uuid */
+                createdBy: string;
+                /**
+                 * Format: date-time
+                 * @description Set by the server; 24 hours after `createdAt` in V1.
+                 */
+                expiresAt: string;
+                /** @description When the proposal reached a terminal state other than `expired`; null otherwise. */
+                decidedAt: string | null;
+                /** @description The proposal that superseded this one; null unless `superseded`. */
+                supersededBy: string | null;
+                rejectReason: string | null;
+                rule: components["schemas"]["RedistributionRule"];
+                /** Format: date-time */
+                computedAt: string;
+                limits: components["schemas"]["RedistributionLimits"];
+                buffer: components["schemas"]["RedistributionBufferPolicy"];
+                stores: components["schemas"]["RedistributionProposalStore"][];
+                objective: components["schemas"]["RedistributionObjective"];
+                validator: components["schemas"]["RedistributionValidatorReport"];
+                warnings: components["schemas"]["RedistributionWarning"][];
+                lines: components["schemas"]["RedistributionProposalLine"][];
+            };
+            /** @description The compute found no line to propose. Nothing new was stored. */
+            RedistributionNothingToMove: {
+                /** @constant */
+                result: "nothing_to_move";
+                /** @description The tenant's non-terminal proposal this compute superseded, or null. */
+                supersededProposalId: string | null;
+                rule: components["schemas"]["RedistributionRule"];
+                /** Format: date-time */
+                computedAt: string;
+                stores: components["schemas"]["RedistributionProposalStore"][];
+                warnings: components["schemas"]["RedistributionWarning"][];
+            };
+            RedistributionProposalSummary: {
+                /** Format: uuid */
+                id: string;
+                state: components["schemas"]["RedistributionProposalState"];
+                acceptEnabled: boolean;
+                /** Format: date-time */
+                createdAt: string;
+                /** Format: date-time */
+                expiresAt: string;
+                /** Format: date-time */
+                computedAt: string;
+                objective: components["schemas"]["RedistributionObjective"];
+                lineCount: number;
+                excludedStoreCount: number;
+                warningCount: number;
+            };
+            RedistributionProposalList: {
+                items: components["schemas"]["RedistributionProposalSummary"][];
+                nextCursor: string | null;
+            };
+            RedistributionAcceptLineResult: {
+                /** Format: uuid */
+                lineId: string;
+                outcome: components["schemas"]["RedistributionAcceptOutcome"];
+            };
+            RedistributionAcceptResult: {
+                lines: components["schemas"]["RedistributionAcceptLineResult"][];
+                /** @description The W3 shipment transfers created in `draft` by this accept, one per store pair and 100 lines. At least one: an accept that would drop every listed line is 409 `proposal_stale`. */
+                transferIds: string[];
+                proposal: components["schemas"]["RedistributionProposal"];
+            };
+            /** @description The shared `IdempotencyInterceptor`'s 425 body (not the `Error` envelope). */
+            IdempotencyInProgressBody: {
+                /** @constant */
+                error: "idempotency_in_progress";
+                retryAfterSec: number;
+            };
+            /** @description Canonical error envelope, identical to the shared shape in `auth.openapi.yaml` and `inventory.yaml`. Refusals are non-disclosing: they never enumerate the underlying cause. */
+            Error: {
+                error: {
+                    /** @description Stable machine-readable error code. */
+                    code: string;
+                    /** @description Human-readable summary. No sensitive data, no cause enumeration. */
+                    message: string;
+                    /**
+                     * Format: uuid
+                     * @description Server-side correlation id; the actual cause is recorded server-side.
+                     */
+                    request_id?: string;
+                };
+            };
+        };
+        responses: {
+            /** @description 400 `validation_error`: a malformed path id or query parameter, or a cursor the server did not issue. */
+            ReadValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 400: `validation_error` (a malformed path id or body, an unknown key, a line id not on the proposal, fewer than two `storeIds`), `idempotency_key_required` or `idempotency_key_malformed`. */
+            WriteValidationFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 401 `unauthorized`: no valid session. */
+            Unauthorized: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 403 `origin_rejected` (RT-430), commands only: the command is authenticated by the `dp2_session` cookie and its `Origin` header is missing, or is neither the API's own origin nor listed in `ALLOWED_ORIGINS`. A role outside owner and tenant_admin is NOT a 403: it is the non-disclosing 404. */
+            OriginRejected: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 404 `not_found`, non-disclosing: the proposal does not exist, belongs to another tenant, the caller's role is not owner or tenant_admin, the caller's store access does not cover every store of the tenant (a store-scoped owner or tenant_admin), or the feature is off for the tenant (not on the shadow or live allowlist; for accept, not on the live allowlist or W3 shipment transfers not activated). The cases are indistinguishable by design. A platform admin is admitted as on every console operation. */
+            NotFoundNonDisclosing: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409 `idempotency_key_conflict`: the `Idempotency-Key` was already used with a different body. */
+            IdempotencyKeyConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 409. `proposal_superseded`: a newer compute replaced the proposal. `proposal_expired`: it is past `expiresAt`. `proposal_state_conflict`: it is `accepted` or `rejected`. `proposal_line_already_decided`: a listed line already has an accept outcome. `proposal_stale` (accept only): every listed line would be dropped against current stock; nothing was written, compute a new proposal. `idempotency_key_conflict`: the `Idempotency-Key` was already used with a different body. Nothing is written. */
+            ProposalConflict: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 422, nothing stored or superseded. `redistribution_too_large`: the store or row count is above the limits. `redistribution_deadline_exceeded`: the compute ran past its deadline. `redistribution_plan_invalid`: the engine refused its input or the independent validator rejected the plan (the violations are recorded server-side under `request_id`). */
+            ComputeRefused: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 425 `idempotency_in_progress`: the first request with this `Idempotency-Key` is still being processed. Retry after `Retry-After` seconds with the same key and body. */
+            IdempotencyInProgress: {
+                headers: {
+                    "Retry-After": components["headers"]["RetryAfterInProgress"];
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["IdempotencyInProgressBody"];
+                };
+            };
+            /** @description 429 `rate_limited` (RT-574): the caller's per-user budget for this class of operation is spent. The body is the canonical error envelope with a non-disclosing message (no budget, class or window); its `request_id` equals the `X-Request-Id` response header. Honour `Retry-After`; never auto-retry a mutation. A 429 is not a 401: it never means the session ended. The console limit is server-configured and may not be enforced, so a client must handle a 429 but must not expect one. */
+            TooManyRequests: {
+                headers: {
+                    "Retry-After": components["headers"]["ConsoleRetryAfter"];
+                    /** @description Always `no-store` on a 429. */
+                    "Cache-Control": "no-store";
+                    /** @description The request id, equal to `error.request_id` in the body: the inbound `X-Request-Id` when it is a well-formed UUID, otherwise a server-minted one. */
+                    "X-Request-Id": string;
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+            /** @description 5xx `internal_error`: internal failure; the cause is recorded server-side under `request_id`. */
+            SystemFailure: {
+                headers: {
+                    [name: string]: unknown;
+                };
+                content: {
+                    "application/json": components["schemas"]["Error"];
+                };
+            };
+        };
+        parameters: {
+            /** @description REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+            IdempotencyKey: string;
+            /** @description The proposal id. A malformed id is 400 `validation_error`. */
+            ProposalId: string;
+            /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and the filter. A value the server did not issue, or one reused with another filter, is 400 `validation_error`. */
+            Cursor: string;
+            Limit: number;
+        };
+        requestBodies: never;
+        headers: {
+            /** @description Whole seconds the caller should wait before retrying, sent on every console 429 (RT-574 D5). Its own bound, 1 to 3600. */
+            ConsoleRetryAfter: number;
+            /** @description Seconds to wait before retrying a 425 with the same `Idempotency-Key` and body. The shared `IdempotencyInterceptor` always sends it. */
+            RetryAfterInProgress: number;
+        };
+        pathItems: never;
+    }
+    export type $defs = Record<string, never>;
+    export interface operations {
+        listRedistributionProposals: {
+            parameters: {
+                query?: {
+                    state?: components["schemas"]["RedistributionProposalState"];
+                    /** @description Opaque keyset cursor from a prior page's `nextCursor`, bound to the operation, the tenant and the filter. A value the server did not issue, or one reused with another filter, is 400 `validation_error`. */
+                    cursor?: components["parameters"]["Cursor"];
+                    limit?: components["parameters"]["Limit"];
+                };
+                header?: never;
+                path?: never;
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description A page of proposal summaries, newest first. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionProposalList"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        createRedistributionProposal: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path?: never;
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ComputeRedistributionProposalCommand"];
+                };
+            };
+            responses: {
+                /** @description Nothing to move. Nothing new was stored; the tenant's non-terminal proposal, if any, was superseded. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionNothingToMove"];
+                    };
+                };
+                /** @description Proposal computed, stored in state `open`, and the previous non-terminal one superseded. */
+                201: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionProposal"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                409: components["responses"]["IdempotencyKeyConflict"];
+                422: components["responses"]["ComputeRefused"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        getRedistributionProposal: {
+            parameters: {
+                query?: never;
+                header?: never;
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            requestBody?: never;
+            responses: {
+                /** @description The proposal. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionProposal"];
+                    };
+                };
+                400: components["responses"]["ReadValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        reviewRedistributionProposal: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["ReviewRedistributionProposalCommand"];
+                };
+            };
+            responses: {
+                /** @description Decisions recorded; the updated proposal. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionProposal"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                409: components["responses"]["ProposalConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        acceptRedistributionProposal: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["AcceptRedistributionProposalCommand"];
+                };
+            };
+            responses: {
+                /** @description Lines accepted; the per-line outcomes, the created draft transfer ids and the updated proposal. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionAcceptResult"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                409: components["responses"]["ProposalConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+        rejectRedistributionProposal: {
+            parameters: {
+                query?: never;
+                header: {
+                    /** @description REQUIRED on every command: 16 to 128 printable ASCII characters with no whitespace, as the shared `IdempotencyInterceptor` enforces. Keyed on the verified actor. An identical retry replays the stored response with `Idempotent-Replayed: true`; key reuse with a different body is 409 `idempotency_key_conflict`; a key still being processed is 425 `idempotency_in_progress`. A missing key is 400 `idempotency_key_required`, a malformed one 400 `idempotency_key_malformed`. */
+                    "Idempotency-Key": components["parameters"]["IdempotencyKey"];
+                };
+                path: {
+                    /** @description The proposal id. A malformed id is 400 `validation_error`. */
+                    proposalId: components["parameters"]["ProposalId"];
+                };
+                cookie?: never;
+            };
+            requestBody: {
+                content: {
+                    "application/json": components["schemas"]["RejectRedistributionProposalCommand"];
+                };
+            };
+            responses: {
+                /** @description Proposal rejected; the updated proposal. */
+                200: {
+                    headers: {
+                        [name: string]: unknown;
+                    };
+                    content: {
+                        "application/json": components["schemas"]["RedistributionProposal"];
+                    };
+                };
+                400: components["responses"]["WriteValidationFailure"];
+                401: components["responses"]["Unauthorized"];
+                403: components["responses"]["OriginRejected"];
+                404: components["responses"]["NotFoundNonDisclosing"];
+                409: components["responses"]["ProposalConflict"];
+                425: components["responses"]["IdempotencyInProgress"];
+                429: components["responses"]["TooManyRequests"];
+                "5XX": components["responses"]["SystemFailure"];
+            };
+        };
+    }
+}
+
+export type paths = AuthSchema.paths & ContextSchema.paths & TenantsSchema.paths & StoresSchema.paths & MembershipsSchema.paths & AuditSchema.paths & UnknownItemsSchema.paths & SettlementSchema.paths & ErpnextReconciliationSchema.paths & ShiftClosesSchema.paths & ConnectorAdminSchema.paths & ConnectorHealthSchema.paths & SyncOpsSchema.paths & DevicesSchema.paths & ConsoleSalesSchema.paths & ConsoleSalesSummarySchema.paths & ConsoleSalesByStoreSchema.paths & CashVariancePolicySchema.paths & ConsoleTelemetrySchema.paths & ErpnextItemMapSchema.paths & ErpnextWarehouseMapSchema.paths & ProductReconciliationSchema.paths & TrackingProfileSchema.paths & SaleSyncOpsSchema.paths & InventorySchema.paths & ConsoleCatalogSchema.paths & AiEntitlementsSchema.paths & TenantAccessEntitlementSchema.paths & PlatformSupportSessionsSchema.paths & TenantBrandingSchema.paths & ConsolePeopleSchema.paths & ConsoleSystemStatusSchema.paths & StockLevelsSchema.paths & LowStockSchema.paths & PosPilotReleasesSchema.paths & PosDeviceHealthSchema.paths & VouchersAdminSchema.paths & OffersSchema.paths & ConsoleForceActionsSchema.paths & CatalogImportSchema.paths & AiManagerSalesExplainSchema.paths & RedistributionProposalsSchema.paths;
+export type components = AuthSchema.components & ContextSchema.components & TenantsSchema.components & StoresSchema.components & MembershipsSchema.components & AuditSchema.components & UnknownItemsSchema.components & SettlementSchema.components & ErpnextReconciliationSchema.components & ShiftClosesSchema.components & ConnectorAdminSchema.components & ConnectorHealthSchema.components & SyncOpsSchema.components & DevicesSchema.components & ConsoleSalesSchema.components & ConsoleSalesSummarySchema.components & ConsoleSalesByStoreSchema.components & CashVariancePolicySchema.components & ConsoleTelemetrySchema.components & ErpnextItemMapSchema.components & ErpnextWarehouseMapSchema.components & ProductReconciliationSchema.components & TrackingProfileSchema.components & SaleSyncOpsSchema.components & InventorySchema.components & ConsoleCatalogSchema.components & AiEntitlementsSchema.components & TenantAccessEntitlementSchema.components & PlatformSupportSessionsSchema.components & TenantBrandingSchema.components & ConsolePeopleSchema.components & ConsoleSystemStatusSchema.components & StockLevelsSchema.components & LowStockSchema.components & PosPilotReleasesSchema.components & PosDeviceHealthSchema.components & VouchersAdminSchema.components & OffersSchema.components & ConsoleForceActionsSchema.components & CatalogImportSchema.components & AiManagerSalesExplainSchema.components & RedistributionProposalsSchema.components;
+export type operations = AuthSchema.operations & ContextSchema.operations & TenantsSchema.operations & StoresSchema.operations & MembershipsSchema.operations & AuditSchema.operations & UnknownItemsSchema.operations & SettlementSchema.operations & ErpnextReconciliationSchema.operations & ShiftClosesSchema.operations & ConnectorAdminSchema.operations & ConnectorHealthSchema.operations & SyncOpsSchema.operations & DevicesSchema.operations & ConsoleSalesSchema.operations & ConsoleSalesSummarySchema.operations & ConsoleSalesByStoreSchema.operations & CashVariancePolicySchema.operations & ConsoleTelemetrySchema.operations & ErpnextItemMapSchema.operations & ErpnextWarehouseMapSchema.operations & ProductReconciliationSchema.operations & TrackingProfileSchema.operations & SaleSyncOpsSchema.operations & InventorySchema.operations & ConsoleCatalogSchema.operations & AiEntitlementsSchema.operations & TenantAccessEntitlementSchema.operations & PlatformSupportSessionsSchema.operations & TenantBrandingSchema.operations & ConsolePeopleSchema.operations & ConsoleSystemStatusSchema.operations & StockLevelsSchema.operations & LowStockSchema.operations & PosPilotReleasesSchema.operations & PosDeviceHealthSchema.operations & VouchersAdminSchema.operations & OffersSchema.operations & ConsoleForceActionsSchema.operations & CatalogImportSchema.operations & AiManagerSalesExplainSchema.operations & RedistributionProposalsSchema.operations;
