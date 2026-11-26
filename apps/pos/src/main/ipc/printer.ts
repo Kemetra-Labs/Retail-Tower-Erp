@@ -22,15 +22,9 @@ import {
   type PrinterSetRequest,
 } from '../../shared/printer/types.js';
 import type { PrinterService } from '../printer/printer-service.js';
+import { closed, createIpcRunner } from './validation.js';
 
 const INVALID: PrinterRefused = { kind: 'refused', reason: 'invalid_input' };
-
-const isPlainObject = (value: unknown): value is Record<string, unknown> =>
-  typeof value === 'object' && value !== null && !Array.isArray(value);
-
-function closed(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isPlainObject(value) && Object.keys(value).every((key) => keys.includes(key));
-}
 
 /** A queue name: non-empty, bounded, no control characters. */
 export function isPrinterName(value: unknown): value is string {
@@ -69,17 +63,10 @@ export function registerPrinterHandlers(
   deps: PrinterIpcDeps,
 ): void {
   const { service, logger } = deps;
-  const run = async <T>(op: string, fn: () => Promise<T>): Promise<T | PrinterRefused> => {
-    try {
-      return await fn();
-    } catch (error) {
-      logger.warn(
-        { op, error: error instanceof Error ? error.name : typeof error },
-        'printer:failed',
-      );
-      return { kind: 'refused', reason: 'printer_unavailable' };
-    }
-  };
+  const { runIpc: run } = createIpcRunner<PrinterRefused>(logger, 'printer:failed', () => ({
+    kind: 'refused',
+    reason: 'printer_unavailable',
+  }));
 
   ipcMain.handle(PRINTER_IPC_CHANNELS.LIST, (_event, request: unknown) =>
     request === undefined ? run('list', () => service.list()) : INVALID,

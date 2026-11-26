@@ -50,7 +50,7 @@ function expiredBody(t: T, onDirectory: boolean): React.ReactNode {
 }
 
 function noticeFor(t: T, controller: SupportSessionController, onDirectory: boolean) {
-  const { session, state, remainingMs } = controller;
+  const { session, state, remainingMs, refusedExpired } = controller;
   if (state === "expiring") {
     const under = remainingMs < 60_000;
     return {
@@ -70,7 +70,8 @@ function noticeFor(t: T, controller: SupportSessionController, onDirectory: bool
       body: t("platform.session.notice.cap.body"),
     };
   }
-  if (state === "expired") {
+  // RT-932: a refused tenant call already swaps the page body for its own expired message.
+  if (state === "expired" && !refusedExpired) {
     return {
       title: t("platform.session.notice.expired.title"),
       body: expiredBody(t, onDirectory),

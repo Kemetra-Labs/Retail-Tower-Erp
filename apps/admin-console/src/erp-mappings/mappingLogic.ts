@@ -8,6 +8,7 @@
  * and it is never retried for the operator.
  */
 import type { MessageKey } from "@/i18n";
+import { requestIdNonEmptyOf } from "@/lib/backend-envelope";
 import type {
   ErpnextItemMapping,
   ErpnextWarehouseMapping,
@@ -53,11 +54,8 @@ export function isRead(op: MappingOp): boolean {
   return READS.includes(op);
 }
 
-/** The server's correlation id from the canonical error envelope, when present. */
-export function requestIdOf(error: unknown): string | undefined {
-  const id = (error as { error?: { request_id?: unknown } } | undefined)?.error?.request_id;
-  return typeof id === "string" && id.length > 0 ? id : undefined;
-}
+/** The mapping screens' request id: a non-empty string only (the shared strict variant). */
+export const requestIdOf = requestIdNonEmptyOf;
 
 type Kind = MappingFailure["kind"];
 

@@ -10,6 +10,7 @@
  * RT-399: helpers return catalog message keys, never copy.
  */
 import type { MessageKey } from "@/i18n";
+import { errorCodeStringOf, requestIdStringOf } from "@/lib/backend-envelope";
 import type {
   TrackedSellingPrecondition,
   TrackedSellingSetting,
@@ -49,19 +50,6 @@ export type TrackedSellingRead =
   | { kind: "unavailable" }
   | { kind: "error"; status: number; requestId?: string };
 
-/** The contract's error envelope `{ error: { code, request_id } }`, or nothing. */
-function envelopeOf(error: unknown): { code?: unknown; request_id?: unknown } {
-  const inner = (error as { error?: unknown } | undefined)?.error;
-  return typeof inner === "object" && inner !== null ? inner : {};
-}
-
-function stringOf(value: unknown): string | undefined {
-  return typeof value === "string" ? value : undefined;
-}
-
-const requestIdOf = (error: unknown) => stringOf(envelopeOf(error).request_id);
-const errorCodeOf = (error: unknown) => stringOf(envelopeOf(error).code);
-
 function isSetting(data: unknown): data is TrackedSellingSetting {
   return (
     typeof data === "object" &&
@@ -81,7 +69,7 @@ export function classifyRead(res: {
   return {
     kind: "error",
     status: res.status === 200 ? 0 : res.status,
-    requestId: requestIdOf(res.error),
+    requestId: requestIdStringOf(res.error),
   };
 }
 
@@ -153,9 +141,9 @@ export function classifyWrite(res: {
   error?: unknown;
   retryAfter?: number;
 }): SwitchOutcome {
-  const requestId = requestIdOf(res.error);
+  const requestId = requestIdStringOf(res.error);
   if (res.status === 200 && isSetting(res.data)) return { kind: "saved", setting: res.data };
-  if (res.status === 409 && errorCodeOf(res.error) === PRECONDITIONS_UNMET) {
+  if (res.status === 409 && errorCodeStringOf(res.error) === PRECONDITIONS_UNMET) {
     return { kind: "unmet", requestId };
   }
   if (res.status === 404) return { kind: "unavailable" };
@@ -163,7 +151,7 @@ export function classifyWrite(res: {
   if (res.status === 403) return { kind: "forbidden", requestId };
   if (res.status === 429) return { kind: "rateLimited", retryAfter: res.retryAfter };
   if (res.status >= 400 && res.status < 500) {
-    return { kind: "rejected", status: res.status, code: errorCodeOf(res.error), requestId };
+    return { kind: "rejected", status: res.status, code: errorCodeStringOf(res.error), requestId };
   }
   // A 5xx, or a 200 without the contract's shape: the outcome is not known.
   return { kind: "failed" };

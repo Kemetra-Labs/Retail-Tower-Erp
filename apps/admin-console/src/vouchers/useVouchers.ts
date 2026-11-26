@@ -1,3 +1,4 @@
+import { requestIdOf } from "@/lib/backend-envelope";
 import { type VoucherListQuery, consoleGetVoucher, consoleListVouchers } from "@/lib/client";
 /**
  * RT-1109 voucher reads (react-query). Keys are scoped by the active tenant and
@@ -17,7 +18,6 @@ import {
   flattenVoucherPages,
   nextVoucherCursor,
 } from "./voucherLogic";
-import { requestIdOf } from "./voucherOutcomes";
 
 export interface VoucherFilters {
   status?: VoucherStatus;
@@ -38,7 +38,7 @@ export const voucherQueryKeys = {
 };
 
 function readError(status: number, error: unknown): VoucherReadError {
-  const requestId = requestIdOf({ status, error });
+  const requestId = requestIdOf(error);
   if (status === 401) return { kind: "session", requestId };
   if (status === 403) return { kind: "forbidden", requestId };
   if (status === 404) return { kind: "notFound", requestId };

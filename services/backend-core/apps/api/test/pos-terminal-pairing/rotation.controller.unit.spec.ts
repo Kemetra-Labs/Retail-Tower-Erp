@@ -16,7 +16,7 @@ import request from "supertest";
 import { OPERATOR_CONTEXT_RESOLVER } from "../../src/auth/operator-context-resolver";
 import { POS_WRITE_RATE_LIMIT_BUCKET_KEY } from "../../src/auth/pos-write-rate-limit.decorator";
 import { PosWriteRateLimitGuard } from "../../src/auth/pos-write-rate-limit.guard";
-import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../../src/auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { IDEMPOTENT_OPTIONS_KEY } from "../../src/idempotency/idempotent.decorator";

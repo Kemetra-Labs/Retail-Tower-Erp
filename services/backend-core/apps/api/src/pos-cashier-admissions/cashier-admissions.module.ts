@@ -30,7 +30,7 @@ import type { Pool, PoolClient } from "pg";
 import { AuthModule } from "../auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import { PosDeviceAuthGuard } from "../auth/pos-device-auth.guard";
-import { RateLimiter } from "../auth/rate-limit";
+import { RateLimiter } from "../common/rate-limit/rate-limit";
 import { createApiLogger } from "../common/api-logger";
 import { DeviceRepository } from "../pos-operators/device.repository";
 import { AdmissionAuditRepository } from "./cashier-admissions.audit";

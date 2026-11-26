@@ -12,6 +12,12 @@
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
+  type ApiResult,
+  errorCodeStringOf,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+} from "@/lib/backend-envelope";
+import {
   type OnHand,
   type PageQuery,
   type StockLocationList,
@@ -26,13 +32,7 @@ import {
 } from "@/lib/inventory-queries";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { type UseQueryResult, useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import {
-  type ReadErrorKind,
-  errorCodeOf,
-  nextCursorOf,
-  readErrorKind,
-  requestIdOf,
-} from "./inventoryLogic";
+import { type ReadErrorKind, nextCursorOf, readErrorKind } from "./inventoryLogic";
 
 export type InventoryError = {
   kind: ReadErrorKind;
@@ -104,23 +104,17 @@ function errorOf(error: unknown): InventoryError | undefined {
   return error instanceof InventoryFetchError ? error.detail : { kind: "generic" };
 }
 
-export interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-  retryAfter?: number;
-}
-
 function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) {
-    throw new InventoryFetchError({
-      kind: readErrorKind(res.status),
-      requestId: requestIdOf(res.error),
-      retryAfter: res.retryAfter,
-      code: errorCodeOf(res.error),
-    });
-  }
-  return res.data;
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new InventoryFetchError({
+        kind: readErrorKind(r.status),
+        requestId: requestIdOf(r.error),
+        retryAfter: r.retryAfter,
+        code: errorCodeStringOf(r.error),
+      }),
+  );
 }
 
 // --- Single reads -------------------------------------------------------------------

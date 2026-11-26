@@ -16,7 +16,7 @@ import type { Logger } from "@data-pulse-2/shared";
 
 import { REDIS_CLIENT } from "../auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
-import type { RedisLike } from "../auth/rate-limit";
+import type { RedisLike } from "../common/rate-limit/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 
 export const HEALTH_CHECK_TIMEOUT_MS = 2_000;

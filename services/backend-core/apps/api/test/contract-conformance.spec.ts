@@ -46,7 +46,7 @@ import { AuthController } from "../src/auth/auth.controller";
 import { AuthService } from "../src/auth/auth.service";
 import { AuthGuard, SESSION_COOKIE_NAME } from "../src/auth/auth.guard";
 import { DashboardAuthGuard } from "../src/auth/dashboard-auth.guard";
-import { RateLimiter } from "../src/auth/rate-limit";
+import { RateLimiter } from "../src/common/rate-limit/rate-limit";
 import type { SignInResult } from "../src/auth/dto";
 import type { RefreshResult } from "../src/auth/auth.service";
 import { RolesGuard } from "../src/auth/roles.guard";

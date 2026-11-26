@@ -11,7 +11,7 @@ import {
   readPublicAuthLimiterTimeoutMs,
   releaseWithin,
 } from "../../src/auth/public-auth-limiter";
-import type { RateLimitDecision, RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimitDecision, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 
 const POLICY = { limit: 5, windowMs: 60_000 };
 const ALLOWED: RateLimitDecision = { allowed: true, count: 1, remaining: 4, resetMs: 60_000 };

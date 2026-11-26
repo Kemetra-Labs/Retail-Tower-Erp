@@ -21,7 +21,7 @@ import { InlineError } from "@/components/InlineError";
 import { type MessageKey, useT } from "@/i18n";
 import { textField } from "@/lib/form-field";
 import { useClaimRateLimit } from "../rateLimitOwner";
-import { SUPPORT_PURPOSES } from "./startSessionLogic";
+import { SUPPORT_PURPOSES, type SupportPurpose } from "./startSessionLogic";
 import { type StartView, useStartSession } from "./useStartSession";
 import "@/shell/surface.css";
 
@@ -31,10 +31,17 @@ export interface StartTenant {
   slug?: string;
 }
 
+/** RT-932: what the replace warning names about the session it ends. */
+export interface ReplacedSession {
+  tenantName: string;
+  purpose: SupportPurpose;
+  ticketRef: string | null;
+}
+
 export interface StartSessionDrawerProps {
   tenant: StartTenant;
-  /** A support session exists now; opening this one replaces it (`end_reason: replaced`). */
-  replacesSession: boolean;
+  /** The support session that exists now; opening this one replaces it (`end_reason: replaced`). */
+  replaces: ReplacedSession | null;
   onClose: () => void;
   /** 404: back to the directory, which reads the list again. */
   onNotAvailable: () => void;
@@ -78,13 +85,31 @@ function Member({
       />
       {failure ? <Banner variant="danger" message={t(failure)} /> : null}
       <GatedButton className="btn-primary" onClick={onSwitch}>
-        {t("platform.start.member.switch")}
+        {t("platform.tenants.action.switch")}
       </GatedButton>
     </div>
   );
 }
 
-function ScopeFacts({ replacesSession }: Readonly<{ replacesSession: boolean }>) {
+/** Isolates a name or reference so a Latin one keeps its order inside an Arabic sentence. */
+const isolate = (text: string): string => `\u2068${text}\u2069`;
+
+/**
+ * RT-932 (RT-777 P2-3): names the session this one ends (tenant, purpose and
+ * the ticket when it has one) and says nothing changes in that organization.
+ */
+function ReplaceWarning({ session }: Readonly<{ session: ReplacedSession }>) {
+  const t = useT();
+  const params = {
+    tenant: isolate(session.tenantName),
+    purpose: t(`platform.session.purpose.${session.purpose}` as MessageKey),
+    ticket: isolate(session.ticketRef ?? ""),
+  };
+  const key = session.ticketRef ? "platform.start.replaces" : "platform.start.replacesNoTicket";
+  return <Banner variant="warning" message={t(key, params)} />;
+}
+
+function ScopeFacts() {
   const t = useT();
   const rows: [MessageKey, MessageKey][] = [
     ["platform.start.scope.label", "platform.start.scope.body"],
@@ -92,17 +117,14 @@ function ScopeFacts({ replacesSession }: Readonly<{ replacesSession: boolean }>)
     ["platform.start.suspended.label", "platform.start.suspended.body"],
   ];
   return (
-    <>
-      <dl className="start-session__facts">
-        {rows.map(([label, body]) => (
-          <div key={label} className="field-row">
-            <dt className="field-row__label">{t(label)}</dt>
-            <dd className="field-row__value">{t(body)}</dd>
-          </div>
-        ))}
-      </dl>
-      {replacesSession ? <Banner variant="warning" message={t("platform.start.replaces")} /> : null}
-    </>
+    <dl className="start-session__facts">
+      {rows.map(([label, body]) => (
+        <div key={label} className="field-row">
+          <dt className="field-row__label">{t(label)}</dt>
+          <dd className="field-row__value">{t(body)}</dd>
+        </div>
+      ))}
+    </dl>
   );
 }
 
@@ -170,11 +192,11 @@ function TicketField({ error }: Readonly<{ error?: MessageKey }>) {
 
 function StartForm({
   start,
-  replacesSession,
+  replaces,
   onCancel,
 }: Readonly<{
   start: ReturnType<typeof useStartSession>;
-  replacesSession: boolean;
+  replaces: ReplacedSession | null;
   onCancel: () => void;
 }>) {
   const t = useT();
@@ -196,9 +218,10 @@ function StartForm({
           requestId={notice.requestId}
         />
       ) : null}
+      {replaces ? <ReplaceWarning session={replaces} /> : null}
       <PurposeField error={errors.purpose} />
       <TicketField error={errors.ticketRef} />
-      <ScopeFacts replacesSession={replacesSession} />
+      <ScopeFacts />
       <div className="surface__actions">
         <GatedButton type="submit" className="btn-primary" busy={pending}>
           {t("platform.start.submit")}
@@ -225,9 +248,7 @@ function DrawerView({
       />
     );
   }
-  return (
-    <StartForm start={start} replacesSession={props.replacesSession} onCancel={props.onClose} />
-  );
+  return <StartForm start={start} replaces={props.replaces} onCancel={props.onClose} />;
 }
 
 export function StartSessionDrawer(props: Readonly<StartSessionDrawerProps>): React.JSX.Element {

@@ -39,7 +39,7 @@ import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
 import { ContextModule } from "../../src/context/context.module";
 import { MembershipsModule } from "../../src/memberships/memberships.module";
 import { InvitationsService } from "../../src/memberships/invitations.service";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
   startPgEnv,

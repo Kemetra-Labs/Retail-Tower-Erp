@@ -74,6 +74,7 @@ import {
 } from '../operator/manager-pin-store.js';
 import type { OperatorSessionRecord } from '../operator/session-manager.js';
 import type { SafeStorageLike } from '../secrets/safe-storage.js';
+import { closed } from './validation.js';
 
 const INVALID = { kind: 'refused', reason: 'invalid_input' } as const;
 const PRINTABLE = /^[^\p{Cc}]+$/u;
@@ -85,16 +86,6 @@ const ABANDON_KEYS = ['countedCashMinor'] as const;
 const APPROVER_KEYS = ['managerRef', 'managerPin'] as const;
 const ENROL_KEYS = ['managerPin', 'currentPin'] as const;
 const REVOKE_KEYS = ['managerRef'] as const;
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  if (typeof value !== 'object' || value === null) return false;
-  return !Array.isArray(value);
-}
-
-/** A plain object whose keys are all in `keys` (closed shape: nothing smuggled in). */
-function isClosedShape(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
-  return isRecord(value) && Object.keys(value).every((k) => keys.includes(k));
-}
 
 /** A safe integer of minor units, at least `min`. */
 function isMinorFrom(value: unknown, min: 0 | 1): value is number {
@@ -118,7 +109,7 @@ function readNote(value: unknown): { note?: string } | null {
 
 /** `{ openingFloatMinor }` exactly, or null. */
 export function readOpenRequest(value: unknown): ShiftOpenRequest | null {
-  if (!isClosedShape(value, OPEN_KEYS)) return null;
+  if (!closed(value, OPEN_KEYS)) return null;
   const { openingFloatMinor } = value;
   return isMinorFrom(openingFloatMinor, 0) ? { openingFloatMinor } : null;
 }
@@ -135,7 +126,7 @@ function movementWith(
 
 /** `{ amountMinor, reasonCode, note? }` exactly, or null. */
 export function readMovementRequest(value: unknown): ShiftMovementRequest | null {
-  if (!isClosedShape(value, MOVEMENT_KEYS)) return null;
+  if (!closed(value, MOVEMENT_KEYS)) return null;
   const note = readNote(value['note']);
   return note === null ? null : movementWith(value, note);
 }
@@ -150,7 +141,7 @@ function isManagerRef(value: unknown): value is string {
 
 /** `{ managerRef, managerPin }` exactly, or null. */
 function readCloseApprover(value: unknown): ShiftCloseApprover | null {
-  if (!isClosedShape(value, APPROVER_KEYS)) return null;
+  if (!closed(value, APPROVER_KEYS)) return null;
   const { managerRef, managerPin } = value;
   return isManagerRef(managerRef) && isManagerPin(managerPin) ? { managerRef, managerPin } : null;
 }
@@ -164,7 +155,7 @@ function readApprover(value: unknown): { approver?: ShiftCloseApprover } | null 
 
 /** `{ countedCashMinor, approver? }` exactly, or null. */
 export function readCloseRequest(value: unknown): ShiftCloseRequest | null {
-  if (!isClosedShape(value, CLOSE_KEYS)) return null;
+  if (!closed(value, CLOSE_KEYS)) return null;
   const { countedCashMinor } = value;
   const approver = readApprover(value['approver']);
   if (approver === null || !isMinorFrom(countedCashMinor, 0)) return null;
@@ -173,14 +164,14 @@ export function readCloseRequest(value: unknown): ShiftCloseRequest | null {
 
 /** RT-1003: `{ countedCashMinor }` exactly, or null. */
 export function readAbandonCountRequest(value: unknown): ShiftAbandonCountRequest | null {
-  if (!isClosedShape(value, ABANDON_KEYS)) return null;
+  if (!closed(value, ABANDON_KEYS)) return null;
   const { countedCashMinor } = value;
   return isMinorFrom(countedCashMinor, 0) ? { countedCashMinor } : null;
 }
 
 /** `{ managerPin, currentPin? }` exactly, or null. */
 export function readEnrollRequest(value: unknown): ShiftManagerPinEnrollRequest | null {
-  if (!isClosedShape(value, ENROL_KEYS)) return null;
+  if (!closed(value, ENROL_KEYS)) return null;
   const { managerPin, currentPin } = value;
   if (!isManagerPin(managerPin)) return null;
   if (currentPin === undefined) return { managerPin };
@@ -189,7 +180,7 @@ export function readEnrollRequest(value: unknown): ShiftManagerPinEnrollRequest 
 
 /** RT-438: `{}` (the manager's own) or `{ managerRef }` exactly, or null. */
 export function readRevokeRequest(value: unknown): ShiftManagerPinRevokeRequest | null {
-  if (!isClosedShape(value, REVOKE_KEYS)) return null;
+  if (!closed(value, REVOKE_KEYS)) return null;
   const { managerRef } = value;
   if (managerRef === undefined) return {};
   return isManagerRef(managerRef) ? { managerRef } : null;
@@ -197,7 +188,7 @@ export function readRevokeRequest(value: unknown): ShiftManagerPinRevokeRequest 
 
 /** `status` and `listEnrolledManagers` accept no payload (undefined or `{}`). */
 function isEmptyPayload(value: unknown): boolean {
-  return value === undefined || isClosedShape(value, []);
+  return value === undefined || closed(value, []);
 }
 
 /** Validates the request with `read`, then hands it to `run`. */

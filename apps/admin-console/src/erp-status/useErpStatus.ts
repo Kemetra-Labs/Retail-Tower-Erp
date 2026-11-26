@@ -13,6 +13,12 @@
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import { roleCodeOf } from "@/context/effectiveRole";
 import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+  statusKindOf,
+} from "@/lib/backend-envelope";
+import {
   type ConnectorHealthList,
   type PageQuery,
   type PostingBacklogItem,
@@ -31,7 +37,6 @@ import {
   joinConnections,
   nextCursor,
   oldestRead,
-  requestIdOf,
 } from "./erpStatusLogic";
 
 export type ErpError = {
@@ -95,21 +100,16 @@ function errorOf(error: unknown): ErpError | undefined {
   return error instanceof ErpFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-}
-
 /** Unwrap one wrapper result: its payload, or the typed error. */
 function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) {
-    throw new ErpFetchError({
-      kind: STATUS_KINDS[res.status] ?? "generic",
-      requestId: requestIdOf(res.error),
-    });
-  }
-  return res.data;
+  return sharedDataOrThrow(
+    res,
+    (r) =>
+      new ErpFetchError({
+        kind: statusKindOf(STATUS_KINDS, r.status),
+        requestId: requestIdOf(r.error),
+      }),
+  );
 }
 
 export interface PanelState {

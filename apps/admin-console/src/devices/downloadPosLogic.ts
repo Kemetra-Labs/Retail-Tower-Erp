@@ -1,3 +1,4 @@
+import { requestIdOf } from "@/lib/backend-envelope";
 /**
  * RT-1304 pure mapper for the Download POS page. No React, no fetch.
  *
@@ -10,7 +11,6 @@
  * `expiresAt` is dropped: the page never shows a countdown (server clock vs client clock).
  */
 import type { LatestPilotReleaseResult } from "@/lib/pilot-release-queries";
-import { requestIdOf } from "./deviceLogic";
 
 export type LatestResult = LatestPilotReleaseResult;
 

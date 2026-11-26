@@ -25,7 +25,7 @@ import {
   readPublicAuthLimiterTimeoutMs,
 } from "../auth/public-auth-limiter";
 import { clientIpIdentifier } from "../auth/public-auth-keys";
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 import { Public } from "../auth/route-auth";
 import { ZodValidationPipe } from "../common/zod-validation.pipe";
 import { InvitationAcceptSchema, type InvitationAcceptDto } from "./invitation.dto";

@@ -358,7 +358,7 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
     surface: returnsStatusClient,
   },
   // RT-530: the sale void, under the requester's own operator envelope only.
-  { module: 'src/main/sale-void/sale-void-client.ts', fetchCallSites: 1, surface: saleVoidClient },
+  { module: 'src/main/sale-void/sale-void-client.ts', fetchCallSites: 0, surface: saleVoidClient },
   // RT-542: the store-wide sales history (envelope or device + cashier admission).
   { module: SALE_HISTORY_MODULE, fetchCallSites: 0, surface: saleHistoryClient },
   // RT-475: the tenant branding read-down (device token, on the shared transport).

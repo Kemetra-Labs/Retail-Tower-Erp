@@ -3,7 +3,7 @@
  * while its window is still the live one. Released after the window rolled, it would decrement a
  * DIFFERENT request's hit in the new window and let extra failures through.
  */
-import { RateLimiter } from "../../src/auth/rate-limit";
+import { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { TestRedis } from "../_helpers/store-deletion-app";
 
 const BUCKET = { limit: 5, windowMs: 15 * 60 * 1000 };

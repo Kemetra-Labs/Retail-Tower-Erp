@@ -56,7 +56,7 @@ import { AuthModule } from "../../../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import { FailClosedAuthGuard } from "../../../../src/auth/fail-closed-auth.guard";
 import { OPERATOR_TOKEN_VERIFIER, type OperatorTokenVerifier } from "../../../../src/auth/operator-token-verifier";
-import { RateLimiter, type RateLimitDecision } from "../../../../src/auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../../../../src/common/rate-limit/rate-limit";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { TRACKED_SELLING_GATE } from "../../../../src/inventory/tracked-selling/tracked-selling-gate";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";

@@ -565,6 +565,20 @@ describe("expired body", () => {
     expect(screen.queryByRole("heading", { name: "Organizations", level: 1 })).toBeNull();
   });
 
+  // RT-932 (RT-777 frame 72): the expired message is said once, by the page body.
+  test("a refused tenant call says the session expired once: the bar drops its notice", async () => {
+    serve(context(sessionSummary()));
+    mount("/platform/tenants");
+    await bar();
+    act(() => reportSupportSessionExpired());
+    await screen.findByRole("heading", { name: "The support session expired" });
+    const region = await bar();
+    expect(region.getAttribute("data-state")).toBe("expired");
+    expect(within(region).queryByText("The support session expired")).toBeNull();
+    expect(screen.getAllByText("The support session expired")).toHaveLength(1);
+    expect(endButton()).toBeDefined();
+  });
+
   test("a refusal seen under an old session does not expire a new one", async () => {
     serve(context(sessionSummary({ id: "s1" })));
     mount("/platform/tenants");

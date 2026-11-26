@@ -9,6 +9,7 @@
  * RT-399: helpers return catalog message keys, never copy.
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN, errorCodeOf, requestIdOf, statusKindOf } from "@/lib/backend-envelope";
 import type { SaleSyncStatus } from "@/lib/sale-sync-ops-queries";
 
 /** Roles the API lets use every sale sync-ops route (`@Roles("owner", "tenant_admin")`). */
@@ -18,8 +19,6 @@ export const SYNC_OPS_ROLES = ["owner", "tenant_admin"] as const;
 export function canUseSaleSyncOps(role: string | null | undefined): boolean {
   return (SYNC_OPS_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A UUID path or query value. Anything else is never sent. */
 export function isUuid(value: string): boolean {
@@ -132,18 +131,6 @@ export function nextRepairCursor(page: { nextCursor: string | null }): string | 
 
 // --- Errors ----------------------------------------------------------------------
 
-interface ErrorEnvelope {
-  error?: { code?: string; request_id?: string };
-}
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as ErrorEnvelope | undefined)?.error?.request_id;
-}
-
-export function errorCodeOf(error: unknown): string | undefined {
-  return (error as ErrorEnvelope | undefined)?.error?.code;
-}
-
 export type ReadErrorKind =
   | "not-found"
   | "forbidden"
@@ -161,7 +148,7 @@ const READ_KINDS: Record<number, ReadErrorKind> = {
 };
 
 export function readErrorKind(status: number): ReadErrorKind {
-  return READ_KINDS[status] ?? "generic";
+  return statusKindOf(READ_KINDS, status);
 }
 
 // --- Repair outcome --------------------------------------------------------------

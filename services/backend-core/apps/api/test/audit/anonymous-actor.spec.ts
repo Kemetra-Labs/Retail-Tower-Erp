@@ -67,7 +67,7 @@ import {
 } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
-import type { RedisLike, WindowHit } from "../../src/auth/rate-limit";
+import type { RedisLike, WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { fixedWindowHit } from "../_helpers/fixed-window-hit";
 import {
   applyAllUpAndCreateAppRole,

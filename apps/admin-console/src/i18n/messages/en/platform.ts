@@ -71,6 +71,7 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.tenants.action.switchFor": "Open organization: {name}",
   "platform.tenants.count": "Showing {shown} of {total}",
   "platform.tenants.noMatch": "No organization matches “{query}”.",
+  "platform.tenants.search.clear": "Clear search",
   "platform.tenants.error.failed": "Couldn't load the organizations.",
   "platform.tenants.error.rateLimited":
     "Couldn't load the organizations because of too many requests. Try again when the countdown ends.",
@@ -96,8 +97,10 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.start.ticket.label": "Ticket reference",
   "platform.start.ticket.hint":
     "Up to 64 characters: English letters, digits and . _ : # / - only, no spaces. The organization's owner sees it in the audit log, so don't put customer data in it.",
-  "platform.start.ticket.invalid":
-    "That ticket reference isn't valid: start with a letter or digit, and use English letters, digits and . _ : # / - only, up to 64 characters.",
+  "platform.start.ticket.invalid.space": "The ticket reference contains a space.",
+  "platform.start.ticket.invalid.start": "The ticket reference must start with a letter or digit.",
+  "platform.start.ticket.invalid.chars": "The ticket reference has a character that isn't allowed.",
+  "platform.start.ticket.invalid.long": "The ticket reference is longer than 64 characters.",
   "platform.start.scope.label": "Scope",
   "platform.start.scope.body":
     "You work in the organization as usual. Every action you take is recorded with this session's purpose and ticket.",
@@ -107,7 +110,10 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.start.suspended.label": "Suspended organization",
   "platform.start.suspended.body":
     "A suspended organization opens like any other. Its own users stay locked out until it is reactivated.",
-  "platform.start.replaces": "You have a current support session. Starting this one ends it.",
+  "platform.start.replaces":
+    "Starting this session ends your current one in {tenant} (purpose: {purpose}, ticket: {ticket}). Nothing changes in that organization.",
+  "platform.start.replacesNoTicket":
+    "Starting this session ends your current one in {tenant} (purpose: {purpose}). Nothing changes in that organization.",
   "platform.start.submit": "Start support session",
   "platform.start.error.forbidden":
     "Your account can't open a support session. No session was started.",
@@ -121,5 +127,4 @@ export const platform: MessagesOf<typeof ar> = {
   "platform.start.notFound.back": "Back to organizations",
   "platform.start.member.title": "You're a member of this organization",
   "platform.start.member.body": "You don't need a support session for it, and none was started.",
-  "platform.start.member.switch": "Use the normal organization switch",
 };

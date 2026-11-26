@@ -70,6 +70,7 @@ import {
 import { sha256CanonicalHex } from "../../common/hashing/payload-hash";
 import { reverseVoucherTendersOfVoidedSale } from "./sale-void-vouchers";
 import { findLinePricingViolation } from "./sale-line-pricing";
+import { DISCOUNT_SELECT_SQL, lineDiscountField, type DiscountRow, type SaleLineDiscountProjection } from "./sale-line-discount";
 import { planSalePromotions, writeSalePromotions, type PromotionPlan } from "./sale-promotions";
 import { writeSaleLinePricingProvenance } from "./sale-pricing-provenance";
 import {
@@ -236,6 +237,8 @@ export interface SaleLineProjection {
   readonly promotion?: SaleLinePromotionProjection;
   /** RT-1565: the line's seller; absent when none was named. */
   readonly seller?: SaleLineSellerProjection;
+  /** RT-1571: the line's manual discount as recorded; absent when none was recorded. */
+  readonly discount?: SaleLineDiscountProjection;
 }
 
 /** RT-1337: contract `SaleLinePromotion`, echoed as stored. */
@@ -315,7 +318,7 @@ interface SaleTenderRow {
   received_by_user_id?: string | null;
 }
 
-interface SaleLineRow {
+interface SaleLineRow extends DiscountRow {
   line_ref: string;
   line_name: string;
   unit_price: string;
@@ -413,6 +416,7 @@ export class SalesService {
                   sl.tracking_validation_id::text AS tracking_validation_id,
                   sl.seller_user_id::text AS seller_user_id, sl.seller_store_id::text AS seller_store_id,
                   sl.seller_role_id::text AS seller_role_id,
+                  ${DISCOUNT_SELECT_SQL},
                   r.returned::text AS returned_quantity,
                   (CASE WHEN $2::boolean THEN 0 ELSE sl.quantity - r.returned END)
                     ::numeric(19,6)::text AS returnable_quantity,
@@ -762,6 +766,7 @@ function toBody(
       ...lineTrackingField(l),
       ...linePromotionField(l),
       ...lineSellerField(l),
+      ...lineDiscountField(l),
     })),
     tenders: tenders.map((t) => ({
       method: t.method,

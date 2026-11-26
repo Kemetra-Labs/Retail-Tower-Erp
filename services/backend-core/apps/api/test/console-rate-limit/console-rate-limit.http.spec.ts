@@ -38,8 +38,8 @@ import Redis from "ioredis";
 import type { Observable } from "rxjs";
 import request from "supertest";
 
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
-import { RateLimiter, type RedisLike, type WindowHit } from "../../src/auth/rate-limit";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
+import { RateLimiter, type RedisLike, type WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";
 import {

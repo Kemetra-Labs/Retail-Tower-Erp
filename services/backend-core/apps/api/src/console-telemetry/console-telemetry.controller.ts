@@ -25,7 +25,7 @@ import { Controller, Get, HttpCode, HttpStatus, Post, Req, Res } from "@nestjs/c
 import type { Request, Response } from "express";
 
 import { assertTrustedOrigin } from "../auth/origin-check";
-import { RateLimiter } from "../auth/rate-limit";
+import { RateLimiter } from "../common/rate-limit/rate-limit";
 import { Public } from "../auth/route-auth";
 import { ConsoleTelemetryForwarder } from "./console-telemetry.forwarder";
 import { CONSOLE_TELEMETRY_BUCKETS } from "./console-telemetry.limits";

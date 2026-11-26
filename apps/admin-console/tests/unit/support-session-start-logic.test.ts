@@ -71,17 +71,15 @@ describe("buildOpenRequest", () => {
   });
 
   test.each([
-    ["has a space", "SUP 2291"],
-    ["holds an email", "ops@kemetra.test"],
-    ["starts with a symbol", "-SUP"],
-    ["is 65 characters", "A".repeat(65)],
-    ["uses Arabic letters", "تذكرة1"],
-  ])("a ticket that %s is refused", (_label, ticketRef) => {
+    ["has a space", "SUP 2291", "platform.start.ticket.invalid.space"],
+    ["holds an email", "ops@kemetra.test", "platform.start.ticket.invalid.chars"],
+    ["starts with a symbol", "-SUP", "platform.start.ticket.invalid.start"],
+    ["is 65 characters", "A".repeat(65), "platform.start.ticket.invalid.long"],
+    ["uses Arabic letters", "تذكرة1", "platform.start.ticket.invalid.start"],
+    ["has an Arabic letter inside", "SUP-تذكرة", "platform.start.ticket.invalid.chars"],
+  ])("a ticket that %s is refused, naming the fault (RT-932)", (_label, ticketRef, fault) => {
     const built = buildOpenRequest(TENANT, { purpose: "incident", ticketRef });
-    expect(built).toEqual({
-      ok: false,
-      errors: { ticketRef: "platform.start.ticket.invalid" },
-    });
+    expect(built).toEqual({ ok: false, errors: { ticketRef: fault } });
   });
 
   test.each([["SUP-2291"], ["a"], ["JIRA:RT/782#1_x.y"], ["A".repeat(64)]])(
@@ -97,7 +95,7 @@ describe("buildOpenRequest", () => {
       ok: false,
       errors: {
         purpose: "platform.start.purpose.required",
-        ticketRef: "platform.start.ticket.invalid",
+        ticketRef: "platform.start.ticket.invalid.space",
       },
     });
   });

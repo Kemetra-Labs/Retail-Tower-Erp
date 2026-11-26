@@ -28,7 +28,7 @@ import type { Logger } from "@data-pulse-2/shared";
 import type { Pool } from "pg";
 
 import { PG_POOL } from "../database";
-import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 import { decideRotation, type RotationRejectReason } from "./rotation-decision";
 import {

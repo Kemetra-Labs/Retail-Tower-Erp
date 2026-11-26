@@ -13,6 +13,7 @@
  */
 import type { PipelineRailStatus } from "@/components/PipelineRail";
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 import type {
   ConnectorHealthList,
   ConnectorHealthView,
@@ -27,8 +28,6 @@ export const READ_ROLES = ["owner", "tenant_admin"] as const;
 export function canReadErpStatus(role: string | null | undefined): boolean {
   return (READ_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /**
  * The `?store=` filter: "" (all stores) or a UUID. Anything else would be a
@@ -294,7 +293,3 @@ export function flattenPages<T>(pages: readonly Page<T>[]): T[] {
 }
 
 // --- Errors ------------------------------------------------------------------------------
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as { error?: { request_id?: string } } | undefined)?.error?.request_id;
-}

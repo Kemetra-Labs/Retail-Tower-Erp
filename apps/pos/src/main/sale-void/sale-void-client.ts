@@ -32,9 +32,13 @@
  * `unknown` is never success and never terminal: nothing proves the server did
  * or did not record the void; the same bytes under the same key are re-sent.
  * Never throws.
+ *
+ * RT-1209: the HTTP exchange (bearer, timeout, bounded body, transport faults) runs on the shared
+ * Backend-Core transport (`../http/transport.ts`); the outcome table above is unchanged.
  */
 import type { ServerVoidRefusal } from '../../shared/sale-void/types.js';
-import { isUuid, parseJsonBody, readErrorCode } from '../returns/returns-wire.js';
+import { createBackendTransport, type BackendAnswer, type FetchLike } from '../http/transport.js';
+import { isUuid, readErrorCode } from '../returns/returns-wire.js';
 
 const SALES_PATH = '/api/pos/v1/sales';
 
@@ -43,6 +47,9 @@ type VoidRoute = 'void' | 'cashier-void';
 
 /** The request timeout of every void exchange. */
 export const SALE_VOID_REQUEST_TIMEOUT_MS = 15_000;
+
+/** The largest answer body read, in bytes (a void answer is a few hundred bytes). */
+export const SALE_VOID_MAX_BODY_BYTES = 2_000_000;
 
 export type RecordVoidOutcome =
   | { readonly kind: 'recorded'; readonly replayed: boolean; readonly eventRef: string }
@@ -91,11 +98,9 @@ export interface SaleVoidClient {
 
 export interface CreateSaleVoidClientDeps {
   readonly baseUrl: string;
-  readonly fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  readonly fetch: FetchLike;
   readonly timeoutMs?: number;
 }
-
-type HttpAnswer = { readonly status: number; readonly headers: Headers; readonly json: unknown };
 
 const FORBIDDEN_CODES: ReadonlySet<string> = new Set([
   'void_approval_required',
@@ -156,11 +161,11 @@ function readEventRef(json: unknown, saleRef: string): string | null {
   return named && sameRef(body['saleRef'], saleRef) ? eventRef : null;
 }
 
-function toOutcome(answer: HttpAnswer, saleRef: string, route: VoidRoute): RecordVoidOutcome {
+function toOutcome(answer: BackendAnswer, saleRef: string, route: VoidRoute): RecordVoidOutcome {
   if (answer.status === 200 || answer.status === 201) {
     const eventRef = readEventRef(answer.json, saleRef);
     if (eventRef === null) return { kind: 'unknown', category: 'unreadable_answer' };
-    const replayed = answer.status === 200 || answer.headers.get('Idempotent-Replayed') === 'true';
+    const replayed = answer.status === 200 || answer.headers?.['idempotent-replayed'] === 'true';
     return { kind: 'recorded', replayed, eventRef };
   }
   const code = readErrorCode(answer.json);
@@ -179,31 +184,12 @@ function toOutcome(answer: HttpAnswer, saleRef: string, route: VoidRoute): Recor
 }
 
 export function createSaleVoidClient(deps: CreateSaleVoidClientDeps): SaleVoidClient {
-  const root = deps.baseUrl.replace(/\/$/, '');
-  const timeoutMs = deps.timeoutMs ?? SALE_VOID_REQUEST_TIMEOUT_MS;
-
-  async function exchange(
-    request: RecordVoidRequest,
-    token: string,
-    route: VoidRoute,
-  ): Promise<HttpAnswer | null> {
-    try {
-      const response = await deps.fetch(`${root}${SALES_PATH}/${request.saleRef}/${route}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Idempotency-Key': request.idempotencyKey,
-          Authorization: `Bearer ${token}`,
-        },
-        body: request.bodyJson,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      const json = parseJsonBody(await response.text());
-      return { status: response.status, headers: response.headers, json };
-    } catch {
-      return null;
-    }
-  }
+  const transport = createBackendTransport({
+    baseUrl: deps.baseUrl,
+    fetch: deps.fetch,
+    timeoutMs: deps.timeoutMs ?? SALE_VOID_REQUEST_TIMEOUT_MS,
+    maxBodyBytes: SALE_VOID_MAX_BODY_BYTES,
+  });
 
   async function send(
     request: RecordVoidRequest,
@@ -214,7 +200,17 @@ export function createSaleVoidClient(deps: CreateSaleVoidClientDeps): SaleVoidCl
       return { kind: 'unknown', category: 'no_credential' };
     }
     if (!isUuid(request.saleRef)) return { kind: 'refused', reason: 'sale_not_found' };
-    const answer = await exchange(request, token, route);
+    const answer = await transport.send({
+      method: 'POST',
+      path: `${SALES_PATH}/${request.saleRef}/${route}`,
+      bearer: token,
+      headers: {
+        'Content-Type': 'application/json',
+        'Idempotency-Key': request.idempotencyKey,
+      },
+      body: request.bodyJson,
+      readHeaders: ['Idempotent-Replayed'],
+    });
     return answer === null
       ? { kind: 'unknown', category: 'no_connection' }
       : toOutcome(answer, request.saleRef, route);

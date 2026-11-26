@@ -6,7 +6,8 @@
  * (`unitPrice × quantity − discount.amount`), refuses broken arithmetic with
  * 422 `sale_line_pricing_invalid` recording nothing, and accepts a zero-total
  * sale. The discount is hashed (the same Idempotency-Key with a changed
- * discount is 409) but not stored.
+ * discount is 409); since RT-1571 (0134) it is also stored and returned
+ * (line-discount-provenance.spec.ts).
  * DEP-4: readSale and returns work from the stored net: a full return refunds
  * exactly the net. A partial return of a net that does not divide by quantity
  * prices below the minor unit; that case is pinned here as the current
@@ -92,14 +93,15 @@ async function salesRecorded(externalId: string): Promise<number> {
 const TEN_PERCENT: DiscountedLine = { unitPrice: "45.00", quantity: "2", lineAmount: "81.00", discount: discount() };
 
 describe("RT-740 DEP-1 — a discounted line is captured with its net", () => {
-  it("captures the net lineAmount and posTotal = Σ net; the discount is not echoed", async () => {
+  it("captures the net lineAmount and posTotal = Σ net; RT-1571: the discount is echoed as stored", async () => {
     if (skip()) return;
     const body = sale("ld-ok", [TEN_PERCENT, { unitPrice: "12.50", quantity: "1", lineAmount: "12.50" }], "93.50");
     const res = await post(body, "ldok");
     expect(res.status).toBe(201);
     expect(res.body.posTotal).toBe("93.5000");
     expect(res.body.lines.map((l: { lineAmount: string }) => l.lineAmount)).toEqual(["81.0000", "12.5000"]);
-    expect(res.body.lines[0]).not.toHaveProperty("discount");
+    expect(res.body.lines[0].discount).toEqual({ ...discount(), amount: "9.0000" });
+    expect(res.body.lines[1]).not.toHaveProperty("discount");
 
     const read = await h.harness!.http().get(`/api/pos/v1/sales/${res.body.saleRef}`);
     expect(read.status).toBe(200);

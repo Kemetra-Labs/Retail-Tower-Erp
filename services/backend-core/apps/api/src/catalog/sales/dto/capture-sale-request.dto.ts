@@ -171,7 +171,7 @@ export const CaptureSaleLineSchema = z
     unit: z.string().min(1).max(50).refine(hasNoNul, NO_NUL_MESSAGE),
     tenantProductRef: z.string().uuid().optional(),
     // RT-740: optional manual discount; when present, lineAmount is the net.
-    // A sale fact (hashed), not stored in this version.
+    // A sale fact (hashed); RT-1571 (0134) stores it on the line as sent.
     discount: CaptureSaleLineDiscountSchema.optional(),
     // RT-451 S3: the line's tracking identity (hashed; frozen on the line).
     tracking: CaptureSaleLineTrackingSchema.optional(),

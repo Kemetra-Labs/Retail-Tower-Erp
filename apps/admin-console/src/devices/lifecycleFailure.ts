@@ -5,7 +5,7 @@
  * asks for a fresh preview instead). No React, no fetch.
  */
 import type { MessageKey } from "@/i18n";
-import { requestIdOf } from "./deviceLogic";
+import { requestIdOf } from "@/lib/backend-envelope";
 
 export interface WrapperFailure {
   status: number;

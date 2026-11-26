@@ -48,9 +48,9 @@ const PRICING = { origin: "pricing", sourceScope: "store", priceEventId: EVENT, 
 const LEGACY = { origin: "legacy", sourceScope: "legacy_tenant", catalogCursor: "c:9" };
 
 describe("pos-sales/sales.yaml — RT-1151 sale-line pricing provenance", () => {
-  it("bumped to 1.25.0-draft (since 1.26.0-draft, RT-1403, 1.27.0-draft, RT-1544, 1.28.0-draft, RT-1548, and 1.29.0-draft, RT-1565) with a note citing the owner decisions, the storage rule and migration 0122", () => {
+  it("bumped to 1.25.0-draft (since 1.26.0-draft, RT-1403, 1.27.0-draft, RT-1544, 1.28.0-draft, RT-1548, 1.29.0-draft, RT-1565, and 1.30.0-draft, RT-1571) with a note citing the owner decisions, the storage rule and migration 0122", () => {
     const info = sales as unknown as { info: { version: string; description: string } };
-    expect(info.info.version).toBe("1.29.0-draft");
+    expect(info.info.version).toBe("1.30.0-draft");
     const note = flat(info.info.description);
     expect(note).toContain("RT-1151 (1.25.0-draft; [GATED: contract, migration] owner authorization on RT-1151");
     expect(note).toContain("never recomputes or checks it against the price");

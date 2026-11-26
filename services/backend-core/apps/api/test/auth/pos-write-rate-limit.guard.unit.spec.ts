@@ -25,7 +25,7 @@ import type { Reflector } from "@nestjs/core";
 import type { Logger } from "@data-pulse-2/shared";
 
 import { PosWriteRateLimitGuard } from "../../src/auth/pos-write-rate-limit.guard";
-import type { RateLimiter, RateLimitDecision } from "../../src/auth/rate-limit";
+import type { RateLimiter, RateLimitDecision } from "../../src/common/rate-limit/rate-limit";
 import type { OperatorReverifier } from "../../src/auth/operator-context-resolver";
 
 const TOKEN_ID = "0a000000-0000-7000-8000-0000000tok01";

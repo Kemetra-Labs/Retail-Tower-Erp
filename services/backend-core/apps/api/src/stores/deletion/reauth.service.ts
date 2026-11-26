@@ -29,7 +29,7 @@ import { createLogger, newId, type Logger } from "@data-pulse-2/shared";
 
 import { AuthService } from "../../auth/auth.service";
 import { PG_POOL } from "../../database";
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../auth/rate-limit";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../common/rate-limit/rate-limit";
 import { StoresRepository } from "../stores.repository";
 import { ConsoleActionRateLimited } from "../../console-action-cap/console-429";
 import { auditFieldsOf, type ForceActionAuditActor } from "../../common/force-action-actor";

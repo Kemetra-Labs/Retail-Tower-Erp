@@ -59,7 +59,7 @@ import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../../src/audit/audit
 import { AuthModule } from "../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { FailClosedAuthGuard } from "../../src/auth/fail-closed-auth.guard";
-import { RateLimiter, type RedisLike, type WindowHit } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike, type WindowHit } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";

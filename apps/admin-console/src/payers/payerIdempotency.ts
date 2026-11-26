@@ -29,16 +29,12 @@
  * translated string is ever held in component state.
  */
 import type { MessageKey } from "@/i18n";
-
-/** Backend error envelope: { error: { code, message, request_id } }. */
-interface BackendError {
-  error?: { code?: string; message?: string; request_id?: string };
-}
+import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
 
 export interface PayerCreateResult {
   status: number;
   headers: Headers;
-  error?: BackendError;
+  error?: ErrorEnvelope;
 }
 
 export type PayerCreateOutcome =
@@ -83,13 +79,9 @@ function codeOf(result: PayerCreateResult): string | undefined {
   return result.error?.error?.code;
 }
 
-function requestIdOf(result: PayerCreateResult): string | undefined {
-  return result.error?.error?.request_id;
-}
-
 /** Pure classifier; no React, no fetch. Drives the create-form outcome rendering. */
 export function classifyPayerCreateOutcome(result: PayerCreateResult): PayerCreateOutcome {
-  const requestId = requestIdOf(result);
+  const requestId = requestIdOf(result.error);
 
   if (result.status === 201) {
     return result.headers.get("Idempotent-Replayed") === "true"
