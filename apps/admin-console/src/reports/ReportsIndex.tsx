@@ -30,9 +30,9 @@
  *   no KPI strip (rule 3 — no figure is served for this set), no main action
  *   (rule 2 — the screen has no action; its cards are the navigation, and the
  *   band takes no `actions` and no `facts`). Sales by hour stays proposed:
- *   no contract serves hourly buckets (see the `reportsLogic.ts` note PR #869
- *   adds), so no hourly chart and no new report. No link to `/search` or
- *   `/alerts` (they exist only on unmerged PR #873).
+ *   no contract serves hourly buckets (see the `sales-by-hour` note in
+ *   `reportsLogic.ts`), so no hourly chart and no new report. No link to
+ *   `/search` or `/alerts` (out of scope for this screen).
  */
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { SectionIndex } from "@/components/SectionIndex";
