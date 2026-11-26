@@ -230,6 +230,31 @@ describe("directory states", () => {
     expect(screen.queryByRole("table")).toBeNull();
     expect(listTenants).toHaveBeenCalledTimes(1);
   });
+
+  // RT-932 (RT-777 frames 59, 60): no "0 of N" under the no-match message; "Clear search" is the way out.
+  test("no match: no count line, and Clear search empties the query, refocuses it and brings the rows back", async () => {
+    serve(noSession());
+    mount();
+    await table();
+    const search = screen.getByLabelText("Search by organization name or slug") as HTMLInputElement;
+    fireEvent.change(search, { target: { value: "zzz" } });
+    await screen.findByText("No organization matches “zzz”.");
+    expect(screen.queryByText(/Showing 0 of 3/)).toBeNull();
+    fireEvent.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(search.value).toBe("");
+    expect(document.activeElement).toBe(search);
+    expect(within(await table()).getAllByRole("row")).toHaveLength(4);
+    expect(screen.getByText("Showing 3 of 3")).toBeDefined();
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
+
+  test("a successful zero-row list has no Clear search action (nothing to clear)", async () => {
+    listTenants.mockResolvedValue(ok([]));
+    serve(noSession());
+    mount();
+    await screen.findByText("No organizations");
+    expect(screen.queryByRole("button", { name: "Clear search" })).toBeNull();
+  });
 });
 
 describe("row actions are completable (UX Addendum A3)", () => {
@@ -338,9 +363,7 @@ describe("row actions are completable (UX Addendum A3)", () => {
     const drawer = await openDrawer();
     fill(drawer, "incident");
     submit(drawer);
-    fireEvent.click(
-      await within(drawer).findByRole("button", { name: "Use the normal organization switch" }),
-    );
+    fireEvent.click(await within(drawer).findByRole("button", { name: "Open organization" }));
     expect(await within(drawer).findByText(/request didn't get through/)).toBeDefined();
     expect(screen.getByTestId("where").textContent).toBe("/platform/tenants");
   });
@@ -419,7 +442,21 @@ describe("start drawer: validation and the request body", () => {
     const drawer = await openDrawer();
     fill(drawer, "incident", "ops@kemetra.test");
     submit(drawer);
-    expect(await within(drawer).findByText(/That ticket reference isn't valid/)).toBeDefined();
+    // RT-932: it names the fault (a character not allowed) and does not repeat the rule.
+    expect(
+      await within(drawer).findByText("The ticket reference has a character that isn't allowed."),
+    ).toBeDefined();
+    expect(within(drawer).queryByText(/start with a letter or digit, and use English/)).toBeNull();
+    expect(openSupportSession).not.toHaveBeenCalled();
+  });
+
+  test("a ticket with a space is refused as exactly that", async () => {
+    serve(noSession());
+    mount();
+    const drawer = await openDrawer();
+    fill(drawer, "incident", "SUP 2291");
+    submit(drawer);
+    expect(await within(drawer).findByText("The ticket reference contains a space.")).toBeDefined();
     expect(openSupportSession).not.toHaveBeenCalled();
   });
 
@@ -543,9 +580,7 @@ describe("start drawer: outcomes", () => {
     fill(drawer, "incident");
     submit(drawer);
     expect(await within(drawer).findByText("You're a member of this organization")).toBeDefined();
-    fireEvent.click(
-      within(drawer).getByRole("button", { name: "Use the normal organization switch" }),
-    );
+    fireEvent.click(within(drawer).getByRole("button", { name: "Open organization" }));
     await waitFor(() => expect(switchActiveTenant).toHaveBeenCalledWith(DELTA));
     await waitFor(() => expect(screen.getByTestId("where").textContent).toBe("/"));
   });
@@ -616,7 +651,14 @@ describe("sequences (UX Addendum checklist 1)", () => {
     const before = await screen.findByRole("region", { name: "Support session" });
     expect(before.getAttribute("data-state")).toBe("expired");
     const drawer = await openDrawer("Nile Pharma");
-    expect(within(drawer).getByText(/Starting this one ends it/)).toBeDefined();
+    // RT-932: the warning names the session it ends, and sits above the submit button.
+    const warning = within(drawer).getByText(
+      /Starting this session ends your current one in .*Delta Markets.* \(purpose: Incident\)\. Nothing changes in that organization\./,
+    );
+    const submitButton = within(drawer).getByRole("button", { name: "Start support session" });
+    expect(
+      warning.compareDocumentPosition(submitButton) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
     fill(drawer, "onboarding");
     submit(drawer);
     await waitFor(() =>
@@ -625,5 +667,47 @@ describe("sequences (UX Addendum checklist 1)", () => {
       ).toBe("active"),
     );
     expect(screen.getByText("Working in Nile Pharma")).toBeDefined();
+  });
+});
+
+// RT-932 (RT-777 P2-3): the replace warning names tenant, purpose and ticket of the session it ends.
+describe("replace warning names the session it ends", () => {
+  test("with a ticket: tenant, purpose and ticket, once; the old generic line is gone", async () => {
+    serve(
+      inSession(DELTA, "Delta Markets", {
+        purpose: "customer_support",
+        ticket_ref: "SUP-2291",
+      }),
+    );
+    mount();
+    const drawer = await openDrawer("Nile Pharma");
+    const warning = within(drawer).getByText(
+      /Starting this session ends your current one in .*Delta Markets.* \(purpose: Customer support, ticket: .*SUP-2291.*\)\. Nothing changes in that organization\./,
+    );
+    expect(warning.closest("form")).not.toBeNull();
+    expect(within(drawer).queryByText(/You have a current support session/)).toBeNull();
+  });
+
+  test("no ticket: the same sentence without the ticket clause", async () => {
+    serve(inSession(DELTA, "Delta Markets", { purpose: "onboarding" }));
+    mount();
+    const drawer = await openDrawer("Nile Pharma");
+    const warning = within(drawer).getByText(/Starting this session ends your current one in/);
+    expect(warning.textContent).not.toMatch(/ticket/);
+    expect(warning.textContent).toMatch(/\(purpose: Onboarding\)\./);
+  });
+
+  test("no current session: no warning", async () => {
+    serve(noSession());
+    mount();
+    const drawer = await openDrawer("Nile Pharma");
+    expect(within(drawer).queryByText(/ends your current one/)).toBeNull();
+  });
+
+  test("the tenant falls back to the directory when the active tenant is another one", async () => {
+    serve({ ...inSession(DELTA, "x"), active_tenant: { id: NILE, name: "Nile Pharma" } });
+    mount();
+    const drawer = await openDrawer("Rayan Trading");
+    expect(within(drawer).getByText(/in .*Delta Markets.* \(purpose/)).toBeDefined();
   });
 });
