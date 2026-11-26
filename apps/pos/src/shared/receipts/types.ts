@@ -19,7 +19,7 @@
  * §P6 / §P7.
  */
 
-import type { SaleId, SaleNumber, TenderLineSummary } from '../sales/types.js';
+import type { SaleId, SaleNumber, SalesRefusalReason, TenderLineSummary } from '../sales/types.js';
 import type { ReceiptLineDiscount } from '../sales/sale-line-discount.js';
 
 // ── Template variant (closed-set) ────────────────────────────────────────────
@@ -143,4 +143,169 @@ export interface ReceiptPayload {
   settled_at: string;
   finalized_at: string;
   local_calendar_day: string;
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// 008-sale-finalization-and-receipts Slice 2: `receipts.*` namespace (mutating)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Schema source of truth:
+//   specs/008-sale-finalization-and-receipts/contracts/bridge-api.md
+//   §"Namespace: receipts.* (mutating)" → "receipts.preview"
+//
+// Slice 2 lands `receipts.preview` ONLY. It is the one read-shaped member of
+// the mutating namespace — it renders the AD-6 engine's HTML for a sale and
+// has NO side effects (no print command, no drawer kick, no Sale mutation).
+// The genuinely-mutating handlers (reprint / retryPrint / manualOverride) land
+// in Slices 3 / 5 / 6. Every handler is gated server-side by
+// `requireOperatorSession`; preview reuses the `SalesRefusalReason` vocabulary
+// (no_session / sale_not_found / forbidden_field_in_request).
+
+// ── receipts.preview ──────────────────────────────────────────────────────────
+
+export interface ReceiptsPreviewRequest {
+  sale_id: SaleId;
+  /**
+   * Present for symmetry with the mutating `receipts.*` handlers; preview is
+   * effectively idempotent (no side effects), so it is not used to dedupe.
+   */
+  idempotency_key: string;
+}
+
+export interface ReceiptPreviewPayload {
+  /** The AD-6 engine's HTML output. The renderer mounts this directly. */
+  html: string;
+  /** ESC/POS column width the printed slip uses (80 mm Font A → 42 in v1). */
+  width_chars: number;
+  /** Locale/direction hint so the preview pane mirrors the printed slip. */
+  bilingual_locale: 'ar-EG-RTL-with-latin-en';
+}
+
+export type ReceiptsPreviewResponse =
+  | { kind: 'ok'; preview: ReceiptPreviewPayload }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── receipts.retryPrint (008 Slice 3) ────────────────────────────────────────
+//
+// Schema source of truth:
+//   specs/008-sale-finalization-and-receipts/contracts/bridge-api.md
+//   §"receipts.retryPrint"
+//
+// THREE-way response. A successful retry is the canonical first print
+// (FR-052): no duplicate-copy marker. A still-failed retry returns kind:'ok'
+// with outcome:'failure' (NOT kind:'refused') because the retry attempt itself
+// was accepted — it ran and got a failure ack back; the banner stays loud.
+
+export interface ReceiptsRetryPrintRequest {
+  sale_id: SaleId;
+  idempotency_key: string;
+}
+
+export type ReceiptsRetryPrintResponse =
+  // success
+  | {
+      kind: 'ok';
+      outcome: 'success';
+      print_event_id: string;
+      purpose: 'retry_after_failure';
+      render_path: 'escpos_direct' | 'os_print';
+      printed_at: string;
+    }
+  // still-failed (attempt accepted, print failed)
+  | {
+      kind: 'ok';
+      outcome: 'failure';
+      print_event_id: string;
+      purpose: 'retry_after_failure';
+      failure_reason:
+        | 'printer_offline'
+        | 'printer_out_of_paper'
+        | 'printer_jam'
+        | 'os_print_error'
+        | 'escpos_write_failure'
+        | 'escpos_status_unknown';
+    }
+  // refused (attempt NOT accepted — gate/isolation/not-found)
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── receipts.reprint (008 Slice 5) ────────────────────────────────────────────
+//
+// Schema source of truth:
+//   specs/008-sale-finalization-and-receipts/contracts/bridge-api.md
+//   §"receipts.reprint"
+//
+// TWO-way response (success | refused) — NOT three-way like retryPrint. A
+// reprint is repeatable by design (the n-th reprint gets
+// duplicate_copy_sequence_number=n), so a print FAILURE refuses with
+// `printer_unavailable` rather than returning an ok+failure outcome. RT-546
+// (OD-534-2, supersedes AD-10's "any operator"): a cashier reprints only their
+// own sale; a manager or admin any sale in scope; another cashier's sale
+// refuses as `sale_not_found`. It renders the `reprint_duplicate` template variant (bilingual
+// duplicate-copy marker) and NEVER kicks the drawer (FR-030).
+
+export interface ReceiptsReprintRequest {
+  sale_id: SaleId;
+  idempotency_key: string;
+}
+
+export type ReceiptsReprintResponse =
+  // success
+  | {
+      kind: 'ok';
+      print_event_id: string;
+      duplicate_copy_sequence_number: number;
+      reprinted_at: string;
+      render_path: 'escpos_direct' | 'os_print';
+    }
+  // refused (gate / isolation / precondition / printer-down)
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── receipts.manualOverride (008 Slice 6) ─────────────────────────────────────
+//
+// Schema source of truth:
+//   specs/008-sale-finalization-and-receipts/contracts/bridge-api.md
+//   §"receipts.manualOverride"
+//
+// Cashier invokes manual-receipt override after a print failure (from the
+// printer-failure banner). The handler records that a receipt was handled
+// out-of-band: it INSERTs a print_events row with purpose='first_print',
+// outcome='manual_override', render_path=NULL — NO slip is rendered or printed.
+// Two-way response (success | refused). Idempotent per-sale (Path A, key-on-
+// state): a sale that already has a manual_override is a no-op returning the
+// original row. The drawer is NEVER kicked (no print succeeded).
+
+export interface ReceiptsManualOverrideRequest {
+  sale_id: SaleId;
+  idempotency_key: string;
+}
+
+export type ReceiptsManualOverrideResponse =
+  // success
+  | {
+      kind: 'ok';
+      print_event_id: string;
+      purpose: 'first_print';
+      outcome: 'manual_override';
+      overridden_at: string;
+    }
+  // refused (gate / isolation / not-found)
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── ReceiptsBridgeAPI surface ───────────────────────────────────────────────
+
+/**
+ * 008 mutating-namespace bridge surface. S2 landed `preview`; S3 adds
+ * `retryPrint`; S5 adds `reprint`; S6 adds `manualOverride`. Gated server-side
+ * by `requireOperatorSession`; tenant/branch/terminal scoping is derived from
+ * the operator session per the §A4 checklist.
+ */
+export interface ReceiptsBridgeAPI {
+  /** Render the read-only HTML preview of a sale's receipt. No side effects. */
+  preview(req: ReceiptsPreviewRequest): Promise<ReceiptsPreviewResponse>;
+  /** Retry a failed print. Three-way response (success / still-failed / refused). */
+  retryPrint(req: ReceiptsRetryPrintRequest): Promise<ReceiptsRetryPrintResponse>;
+  /** Reprint a previously-printed sale (duplicate copy). Two-way response. */
+  reprint(req: ReceiptsReprintRequest): Promise<ReceiptsReprintResponse>;
+  /** Record a manual-receipt override after a print failure. Two-way response. */
+  manualOverride(req: ReceiptsManualOverrideRequest): Promise<ReceiptsManualOverrideResponse>;
 }
