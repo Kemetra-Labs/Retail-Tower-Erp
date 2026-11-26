@@ -31,6 +31,7 @@ import { posPilot } from "./en/posPilot";
 import { postingHealth } from "./en/postingHealth";
 import { postingRepair } from "./en/postingRepair";
 import { productRecon } from "./en/productRecon";
+import { redistribution } from "./en/redistribution";
 import { saleQuarantine } from "./en/saleQuarantine";
 import { saleSync } from "./en/saleSync";
 import { sales } from "./en/sales";
@@ -77,6 +78,7 @@ export const EN_MODULES = {
   inventory,
   counts,
   transfers,
+  redistribution,
   aiPlan,
   aiManagerSales,
   branding,
@@ -123,6 +125,7 @@ export const en: MessagesOf<typeof ar> = {
   ...inventory,
   ...counts,
   ...transfers,
+  ...redistribution,
   ...aiPlan,
   ...aiManagerSales,
   ...branding,

@@ -32,6 +32,7 @@ import { posPilot } from "./ar/posPilot";
 import { postingHealth } from "./ar/postingHealth";
 import { postingRepair } from "./ar/postingRepair";
 import { productRecon } from "./ar/productRecon";
+import { redistribution } from "./ar/redistribution";
 import { saleQuarantine } from "./ar/saleQuarantine";
 import { saleSync } from "./ar/saleSync";
 import { sales } from "./ar/sales";
@@ -77,6 +78,7 @@ export const AR_MODULES = {
   inventory,
   counts,
   transfers,
+  redistribution,
   aiPlan,
   aiManagerSales,
   branding,
@@ -123,6 +125,7 @@ export const ar = {
   ...inventory,
   ...counts,
   ...transfers,
+  ...redistribution,
   ...aiPlan,
   ...aiManagerSales,
   ...branding,

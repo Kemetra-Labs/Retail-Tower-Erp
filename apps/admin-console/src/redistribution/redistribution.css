@@ -1,0 +1,60 @@
+/* RT-1601 redistribution proposals. Tokens only; logical properties only (RTL first). */
+
+.redistribution__facts {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2) var(--space-5);
+  margin: 0;
+}
+
+.redistribution__facts > div {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+}
+
+.redistribution__facts dt {
+  color: var(--color-text-muted);
+  font-size: var(--text-meta);
+}
+
+.redistribution__facts dd {
+  margin: 0;
+  font-variant-numeric: tabular-nums;
+}
+
+.redistribution__heading {
+  margin-block: var(--space-5) var(--space-2);
+  font-size: var(--text-section-title);
+}
+
+.redistribution__actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: var(--space-2);
+  margin-block-end: var(--space-3);
+}
+
+.redistribution__review {
+  display: flex;
+  gap: var(--space-1);
+  margin: 0;
+  padding: 0;
+  border: 0;
+}
+
+.redistribution__outcome {
+  display: flex;
+  flex-direction: column;
+  gap: var(--space-1);
+  align-items: flex-start;
+}
+
+.redistribution__warnings {
+  margin: 0;
+  padding-inline-start: var(--space-5);
+}
+
+.redistribution__result {
+  margin-block: var(--space-3);
+}
