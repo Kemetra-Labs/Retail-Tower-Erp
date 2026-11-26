@@ -15,10 +15,11 @@ import { Test } from "@nestjs/testing";
 import type { Pool } from "pg";
 
 import { AUDIT_JOB_ENQUEUER } from "../../src/audit/audit-job.enqueuer";
-import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/redis";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { AuthService } from "../../src/auth/auth.service";
-import { EMAIL_JOB_ENQUEUER } from "../../src/auth/email-job.enqueuer";
+import { EMAIL_JOB_ENQUEUER } from "../../src/email/email-job.enqueuer";
 import { EXTERNAL_CREDENTIAL_PORT } from "../../src/auth/external-credential.port";
 import { RateLimiter, type RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { HUMAN_PROOF_VERIFIER } from "../../src/signups/human-proof.port";

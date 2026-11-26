@@ -19,7 +19,7 @@ import { BadRequestException } from "@nestjs/common";
 import { AuthService, AUTH_TOKEN_SCOPES } from "../../src/auth/auth.service";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { ExternalCredentialPort } from "../../src/auth/external-credential.port";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 

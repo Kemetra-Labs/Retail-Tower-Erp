@@ -3,8 +3,8 @@
  * The worker's literal copy of the job name is pinned in
  * apps/worker/test/email/email.processor.signup-link.unit.spec.ts.
  */
-import { deriveJobId, EMAIL_JOB_NAMES, EmailQueueProducer, type QueueLike } from "../../src/auth/email-queue.producer";
-import { NoOpEmailJobEnqueuer, type SignupLinkEmailJob } from "../../src/auth/email-job.enqueuer";
+import { deriveJobId, EMAIL_JOB_NAMES, EmailQueueProducer, type QueueLike } from "../../src/email/email-queue.producer";
+import { NoOpEmailJobEnqueuer, type SignupLinkEmailJob } from "../../src/email/email-job.enqueuer";
 
 const JOB: SignupLinkEmailJob = { email: "owner@example.com", rawToken: "raw-signup-token-aaaaaaaaaaaaaaaaaaaaaaaaaaaa", locale: "ar" };
 

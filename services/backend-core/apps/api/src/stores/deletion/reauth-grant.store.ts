@@ -19,7 +19,7 @@ import { createHash, randomBytes } from "node:crypto";
 
 import { Inject, Injectable } from "@nestjs/common";
 
-import { REDIS_CLIENT } from "../../auth/auth.module";
+import { REDIS_CLIENT } from "../../redis";
 
 export const REAUTH_GRANT_TTL_MS = 5 * 60 * 1000;
 

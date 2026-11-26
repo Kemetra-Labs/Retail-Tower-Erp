@@ -23,12 +23,12 @@ import {
   EMAIL_JOB_NAMES,
   EmailQueueProducer,
   type QueueLike,
-} from "../../src/auth/email-queue.producer";
+} from "../../src/email/email-queue.producer";
 import type {
   PasswordResetEmailJob,
   EmailVerificationEmailJob,
   InvitationEmailJob,
-} from "../../src/auth/email-job.enqueuer";
+} from "../../src/email/email-job.enqueuer";
 
 // ---------------------------------------------------------------------------
 // Fixed test data

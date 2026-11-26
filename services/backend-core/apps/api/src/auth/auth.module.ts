@@ -13,36 +13,26 @@
  *     │    ├─ SessionRepository
  *     │    └─ AuthTokenRepository
  *     └─ RateLimiter
- *          └─ RedisLike      (REDIS_CLIENT — see notes below)
+ *          └─ RedisLike      (REDIS_CLIENT, from RedisModule)
  *
- * Production wiring per slice (current state):
+ * Shared infrastructure is imported, not provided here (RT-1456, RT-1466 audit A-10):
  *
- *   - REDIS_CLIENT — still defaults to `AlwaysAllowRedis`, an in-process
- *     stub whose `incr` always returns 1; rate limits NEVER trigger
- *     until a later slice provides an ioredis-backed implementation.
- *     The class name is deliberately blunt so anyone reading the wiring
- *     graph in code review will catch that production needs an override.
+ *   - PG_POOL / AUTH_LOOKUP_POOL — `DatabaseModule` (`../database`).
+ *   - REDIS_CLIENT — `RedisModule` (`../redis`): real ioredis when `REDIS_URL`
+ *     is set, the loud `AlwaysAllowRedis` stub otherwise.
+ *   - EMAIL_JOB_ENQUEUER — `EmailModule` (`../email`): the BullMQ-backed
+ *     `EmailQueueProducer` when `REDIS_URL` is set, a throw in production
+ *     without it, `NoOpEmailJobEnqueuer` in dev / test.
  *
- *   - EMAIL_JOB_ENQUEUER — slice 4 (T112/T113) wires the BullMQ-backed
- *     `EmailQueueProducer` when `REDIS_URL` is set. In production with
- *     `REDIS_URL` missing the factory throws (silently swallowing
- *     password-reset / email-verify jobs is a safety hazard); in dev /
- *     test it falls back to `NoOpEmailJobEnqueuer` so machines without
- *     Redis still boot. The matching email worker / processor lives in
- *     `apps/worker` and lands in T114/T115.
- *
- * Tests substitute working fakes for both seams via
- * `Test.createTestingModule(...).overrideProvider(...)`.
+ * All three are global modules, so modules that used to receive these tokens
+ * through AuthModule's exports still resolve them. Tests substitute fakes via
+ * `Test.createTestingModule(...).overrideProvider(...)`; the token values are unchanged.
  */
 import { Module } from "@nestjs/common";
-import { Queue, type JobsOptions } from "bullmq";
 import { Pool } from "pg";
-import Redis from "ioredis";
 
 import { DatabasePoolBoundaryVerifier } from "./database-pools";
 import { AUTH_LOOKUP_POOL, DatabaseModule, PG_POOL } from "../database";
-
-import { DEFAULT_JOB_OPTIONS } from "@data-pulse-2/shared/queues/queue-config";
 
 import { outboxOrLegacyAuditJobEnqueuerFactory } from "../audit/audit-enqueuer.module";
 import {
@@ -68,146 +58,17 @@ import {
 import { DeviceRepository } from "../pos-operators/device.repository";
 import { AuthService } from "./auth.service";
 import { AuthTokenRepository } from "./auth-token.repository";
-import {
-  EMAIL_JOB_ENQUEUER,
-  type EmailJobEnqueuer,
-  NoOpEmailJobEnqueuer,
-} from "./email-job.enqueuer";
-import { EmailQueueProducer } from "./email-queue.producer";
-import { IoredisIdempotencyAdapter } from "../common/redis/ioredis-idempotency-adapter";
-import { RateLimiter, type RedisLike, type WindowHit } from "../common/rate-limit/rate-limit";
+import { EMAIL_JOB_ENQUEUER, EmailModule, type EmailJobEnqueuer } from "../email";
+import { REDIS_CLIENT, RedisModule } from "../redis";
+import { RateLimiter, type RedisLike } from "../common/rate-limit/rate-limit";
 import { SessionRepository } from "./session.repository";
 import { signInMembershipsReader } from "./signin-memberships";
 import { endSupportSessions } from "../platform-support-sessions/support-session.lifecycle";
-import { QUEUE_NAMES, requireRedisUrl } from "@data-pulse-2/shared";
-
-/** Name of the BullMQ queue both the producer and the (future) worker bind to. */
-export const EMAIL_QUEUE_NAME = QUEUE_NAMES.email;
-
-/**
- * Factory for the `REDIS_CLIENT` provider. Extracted so a focused unit test
- * can verify the factory returns an `IoredisIdempotencyAdapter` when
- * `REDIS_URL` is set, mirroring the symmetric extraction of
- * `emailJobEnqueuerFactory` for BullMQ wiring verification.
- *
- * Production wiring policy:
- *   - `REDIS_URL` missing → return `AlwaysAllowRedis` stub (no-op; rate
- *     limits never trigger; idempotency storage disabled).
- *   - `REDIS_URL` set → wrap a real ioredis client in
- *     `IoredisIdempotencyAdapter` so that the options-object set() calls
- *     used by IdempotencyModule are translated to ioredis's variadic-string
- *     form and RateLimiter's incrWindow() runs as one atomic script.
- */
-export function redisClientFactory(): RedisLike {
-  const url = requireRedisUrl({
-    component: "AuthModule",
-    reason: "rate limiting + idempotency disabled without it",
-  });
-  if (url === null) {
-    return new AlwaysAllowRedis();
-  }
-  // Wrap the real ioredis client in IoredisIdempotencyAdapter, which
-  // translates the options-object set() used by IdempotencyModule into
-  // ioredis's variadic-string form and runs RateLimiter's incrWindow() as
-  // one atomic script (RT-618).
-  const client = new Redis(url);
-  return new IoredisIdempotencyAdapter(client);
-}
-
-export const REDIS_CLIENT = "REDIS_CLIENT";
-
-/**
- * Factory for the `EMAIL_JOB_ENQUEUER` provider. Extracted so a
- * focused unit test can verify the BullMQ `Queue` is constructed with
- * `defaultJobOptions: DEFAULT_JOB_OPTIONS` (T301-partial wiring),
- * mirroring the symmetric extraction `workerFactoryProviderFactory`
- * on the worker side.
- *
- * Lazy-init contract
- * ------------------
- * The factory returns the producer WITHOUT constructing the underlying
- * BullMQ `Queue`. Construction happens on first `enqueuePasswordReset` /
- * `enqueueEmailVerification` / `enqueueInvitation` call (see
- * `EmailQueueProducer`'s lazy-mode constructor + `ensureQueue()`).
- * This means an `overrideProvider(EMAIL_JOB_ENQUEUER).useValue(spy)`
- * orphans the factory-returned producer cleanly -- with eager
- * construction the orphaned producer kept its BullMQ Queue alive and
- * Jest reported "worker process has failed to exit gracefully" at
- * suite teardown (PR #240 db-integration leak). See the full rationale
- * on `auditJobEnqueuerFactory` in `audit-enqueuer.module.ts`.
- *
- * Production wiring policy:
- *   - `NODE_ENV=production` + `REDIS_URL` missing → throw at boot.
- *     Silently dropping password-reset / email-verify jobs is a
- *     safety hazard.
- *   - non-production + `REDIS_URL` missing → fall back to
- *     `NoOpEmailJobEnqueuer` so dev / CI machines without Redis still
- *     boot.
- *   - `REDIS_URL` set → return an `EmailQueueProducer` whose lazy
- *     thunk will build the `Queue` with the shared default job
- *     options on first enqueue.
- */
-export function emailJobEnqueuerFactory(): EmailJobEnqueuer {
-  const url = requireRedisUrl({
-    component: "AuthModule",
-    reason: "EmailQueueProducer cannot be wired without it",
-  });
-  if (url === null) {
-    return new NoOpEmailJobEnqueuer();
-  }
-  // Defer Queue construction to first use. The thunk captures `url`
-  // so production wiring is preserved at steady state.
-  const provider = () =>
-    new Queue(EMAIL_QUEUE_NAME, {
-      connection: { url },
-      defaultJobOptions: DEFAULT_JOB_OPTIONS as JobsOptions,
-    });
-  return new EmailQueueProducer(provider);
-}
-
-/**
- * Stub Redis used when `REDIS_URL` is absent (local dev / CI without Redis).
- *
- * Rate-limit surface: `incrWindow` always returns count 1 (and keeps no TTL,
- * so `resetMs` is -1), so limits never trigger.
- *
- * Idempotency surface: `get` always returns null (no stored replay), `set`
- * returns "OK" for NX calls (in-progress marker succeeds — the request
- * proceeds) and "OK" for PX calls (replay store writes succeed silently).
- * `del` is a no-op. Without Redis no replay is possible, so every request
- * is executed fresh — better to re-execute than to reject with 425.
- *
- * Production MUST override this with a real ioredis client; the class name is
- * intentionally loud.
- */
-export class AlwaysAllowRedis implements RedisLike {
-  incrWindow(_key: string, _ttlMs: number): Promise<WindowHit> {
-    return Promise.resolve({ count: 1, ttlMs: -1 });
-  }
-  pttl(_key: string): Promise<number> {
-    return Promise.resolve(-1);
-  }
-  decr(_key: string): Promise<number> {
-    return Promise.resolve(0);
-  }
-  get(_key: string): Promise<string | null> {
-    return Promise.resolve(null);
-  }
-  set(_key: string, _value: string, _opts: { px: number } | { nx: true; ex: number }): Promise<"OK" | null> {
-    return Promise.resolve("OK");
-  }
-  del(_key: string): Promise<number> {
-    return Promise.resolve(0);
-  }
-  /** RT-1439: nothing is ever stored, so no re-authentication grant is ever valid (fail closed). */
-  compareAndDelete(_key: string, _expected: string): Promise<boolean> {
-    return Promise.resolve(false);
-  }
-}
 
 @Module({
-  // PG_POOL and AUTH_LOOKUP_POOL are provided and exported (globally) by DatabaseModule.
-  imports: [DatabaseModule],
+  // PG_POOL and AUTH_LOOKUP_POOL come from DatabaseModule, REDIS_CLIENT from RedisModule and
+  // EMAIL_JOB_ENQUEUER from EmailModule; all three are global infrastructure (RT-1456, RT-1466).
+  imports: [DatabaseModule, RedisModule, EmailModule],
   controllers: [AuthController],
   providers: [
     // RT-124: auth audits (sign-in ok/failed, …) take the same outbox-aware
@@ -218,14 +79,6 @@ export class AlwaysAllowRedis implements RedisLike {
       useFactory: (pool: Pool | null): AuditJobEnqueuer =>
         outboxOrLegacyAuditJobEnqueuerFactory(pool),
       inject: [PG_POOL],
-    },
-    {
-      provide: REDIS_CLIENT,
-      useFactory: redisClientFactory,
-    },
-    {
-      provide: EMAIL_JOB_ENQUEUER,
-      useFactory: emailJobEnqueuerFactory,
     },
     {
       provide: SessionRepository,
@@ -325,13 +178,6 @@ export class AlwaysAllowRedis implements RedisLike {
     EXTERNAL_CREDENTIAL_PORT,
     SessionRepository,
     AuthTokenRepository,
-    // EMAIL_JOB_ENQUEUER is exported so downstream modules (MembershipsModule)
-    // can inject the enqueuer for invitation jobs without re-wiring it.
-    EMAIL_JOB_ENQUEUER,
-    // REDIS_CLIENT is exported so IdempotencyModule can reuse the single Redis
-    // client (real ioredis when REDIS_URL is set, AlwaysAllowRedis stub otherwise)
-    // rather than creating a second connection.
-    REDIS_CLIENT,
     // RateLimiter is exported (ADR 0009) so downstream modules (SalesModule)
     // can wire PosWriteRateLimitGuard over the SAME single
     // Redis-backed limiter rather than re-provisioning a second client — keeps

@@ -39,9 +39,10 @@ import cookieParser from "cookie-parser";
 import { Pool } from "pg";
 import request from "supertest";
 
-import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
+import { AuthModule } from "../../src/auth/auth.module";
+import { REDIS_CLIENT } from "../../src/redis";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
-import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import { ContextModule } from "../../src/context/context.module";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor, ROOT_LOGGER } from "../../src/common/logging.interceptor";

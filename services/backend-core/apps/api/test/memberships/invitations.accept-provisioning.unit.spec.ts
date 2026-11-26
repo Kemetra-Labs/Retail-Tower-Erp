@@ -61,7 +61,7 @@ jest.mock("@data-pulse-2/shared", () => ({
 
 import { InvitationsService } from "../../src/memberships/invitations.service";
 import type { InvitationsRepository } from "../../src/memberships/invitations.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { ExternalCredentialPort } from "../../src/auth/external-credential.port";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 import type { InvitationRow, UserRow } from "@data-pulse-2/db/schema";

@@ -16,7 +16,7 @@ import { AUDIT_JOB_ENQUEUER, type AuditJobEnqueuer } from "../audit/audit-job.en
 import { AuthModule } from "../auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../database";
 import { AuthService } from "../auth/auth.service";
-import { EMAIL_JOB_ENQUEUER, type EmailJobEnqueuer } from "../auth/email-job.enqueuer";
+import { EMAIL_JOB_ENQUEUER, EmailModule, type EmailJobEnqueuer } from "../email";
 import { EXTERNAL_CREDENTIAL_PORT, type ExternalCredentialPort } from "../auth/external-credential.port";
 import { readPublicAuthLimiterTimeoutMs } from "../auth/public-auth-limiter";
 import { RateLimiter } from "../common/rate-limit/rate-limit";
@@ -31,7 +31,7 @@ import { SIGNUPS_STORE, type SignupsStore } from "./signups.store";
 import { humanProofVerifierFromEnv } from "./turnstile.verifier";
 
 @Module({
-  imports: [AuthModule, OutboxAuditEnqueuerModule],
+  imports: [AuthModule, EmailModule, OutboxAuditEnqueuerModule],
   controllers: [SignupsController],
   providers: [
     { provide: SIGNUPS_STORE, useClass: SignupsRepository },

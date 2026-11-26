@@ -24,7 +24,7 @@ import { BadRequestException, HttpException, ServiceUnavailableException } from 
 import { AuthService } from "../../src/auth/auth.service";
 import type { SessionRepository } from "../../src/auth/session.repository";
 import type { AuthTokenRepository } from "../../src/auth/auth-token.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { OperatorTokenVerifier } from "../../src/auth/operator-token-verifier";
 
 let selectRows: unknown[] = [];

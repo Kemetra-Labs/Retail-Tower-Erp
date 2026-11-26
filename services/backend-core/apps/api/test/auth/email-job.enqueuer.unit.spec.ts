@@ -1,6 +1,6 @@
 import "reflect-metadata";
 
-import { NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import { NoOpEmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 
 describe("NoOpEmailJobEnqueuer", () => {
   const enqueuer = new NoOpEmailJobEnqueuer();

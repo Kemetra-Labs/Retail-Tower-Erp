@@ -29,6 +29,7 @@
 import { Module } from "@nestjs/common";
 
 import { AuthModule } from "../auth/auth.module";
+import { RedisModule } from "../redis";
 import { RolesGuard } from "../auth/roles.guard";
 import { ContextModule } from "../context/context.module";
 import { ConsoleReauthService } from "./deletion/reauth.service";
@@ -48,7 +49,7 @@ import { StoresService } from "./stores.service";
  * import it, so the existing StoresModule specs do not need its providers.
  */
 @Module({
-  imports: [AuthModule, ContextModule],
+  imports: [AuthModule, ContextModule, RedisModule],
   controllers: [StoresController, StoreDeletionController],
   providers: [
     StoresRepository,

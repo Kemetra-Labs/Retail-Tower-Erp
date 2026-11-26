@@ -8,9 +8,10 @@
  * 005-WAVE1-IDEMP-MISMATCH).
  *
  * Imports:
- *   - `AuthModule`        — provides `PG_POOL` (shared connection pool)
- *                           and `REDIS_CLIENT` (transitively required by
- *                           `IdempotencyModule`).
+ *   - `AuthModule`        — brings `PG_POOL` (shared connection pool, via
+ *                           the global `DatabaseModule`); `REDIS_CLIENT`
+ *                           comes from `RedisModule`, which
+ *                           `IdempotencyModule` imports (RT-1466).
  *   - `IdempotencyModule` — registers the global APP_INTERCEPTOR
  *                           (`IdempotencyInterceptor`) that the
  *                           `@Idempotent("required")` decorator on the

@@ -45,7 +45,7 @@ import { AuthTokenRepository } from "./auth-token.repository";
 import {
   type EmailJobEnqueuer,
   NoOpEmailJobEnqueuer,
-} from "./email-job.enqueuer";
+} from "../email";
 import {
   type AuditJobEnqueuer,
   NoOpAuditJobEnqueuer,

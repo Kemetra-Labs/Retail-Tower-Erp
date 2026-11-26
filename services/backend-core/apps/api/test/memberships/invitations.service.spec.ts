@@ -52,7 +52,7 @@ import type { InvitationRow, UserRow } from "@data-pulse-2/db/schema";
 
 import { InvitationsService } from "../../src/memberships/invitations.service";
 import type { InvitationsRepository } from "../../src/memberships/invitations.repository";
-import type { EmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../../src/email/email-job.enqueuer";
 import type { ResolvedContext } from "../../src/context/types";
 import { asHierarchy, makeFakeHierarchy } from "../_helpers/fake-membership-hierarchy";
 

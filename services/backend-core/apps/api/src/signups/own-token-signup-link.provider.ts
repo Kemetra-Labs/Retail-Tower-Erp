@@ -12,7 +12,7 @@ import { createHash } from "node:crypto";
 
 import { generateRawToken } from "@data-pulse-2/auth";
 
-import type { EmailJobEnqueuer } from "../auth/email-job.enqueuer";
+import type { EmailJobEnqueuer } from "../email";
 import type {
   PreparedSignupLink,
   PrepareLinkInput,
