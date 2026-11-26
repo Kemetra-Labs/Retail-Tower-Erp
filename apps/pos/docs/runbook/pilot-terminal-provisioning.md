@@ -306,7 +306,8 @@ Never put these on a pilot terminal:
 certificate only on a device where it was explicitly admitted. Admission is a
 separate step that the owner approves per named device, recording who holds
 local admin on it (RT-1290 P-6). Downloading does not grant it. Do not install
-on a device that is not on the owner's admitted list.
+on a device that is not on the owner's admitted list. The admission procedure
+and script: [pilot-installer-signing.md §7](pilot-installer-signing.md#7-admitting-a-pilot-device-rt-1611-rt-1290-p5).
 
 **Get it from the Admin Console** (owner decision, RT-1006, 2026-11-26: the
 Download POS page is how a pilot operator receives the build). Sign in as a
