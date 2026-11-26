@@ -68,3 +68,17 @@ describe("passwordChangeBody", () => {
     expect(body).toEqual({ current_password: " a ", new_password: "bé" });
   });
 });
+
+describe("resolvePasswordChange: the envelope's message (RT-1215)", () => {
+  // The result type used to omit `message`; it now takes the shared envelope like every feature.
+  // The server's words still never show: the outcome carries the request id and nothing else.
+  test("a body carrying message is accepted and its words never reach the outcome", () => {
+    const result: Parameters<typeof resolvePasswordChange>[0] = {
+      status: 400,
+      error: { error: { code: "validation_error", message: "secret words", request_id: "r-1" } },
+    };
+    const outcome = resolvePasswordChange(result);
+    expect(outcome).toEqual({ kind: "refused", requestId: "r-1" });
+    expect(JSON.stringify(outcome)).not.toContain("secret words");
+  });
+});

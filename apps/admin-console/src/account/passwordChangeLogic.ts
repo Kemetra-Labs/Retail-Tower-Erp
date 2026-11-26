@@ -1,3 +1,4 @@
+import type { ErrorEnvelope } from "@/lib/backend-envelope";
 /**
  * RT-807: the `changePassword` outcome → the «حسابي» page's state. Pure, no
  * React. The cases are the contract's responses (auth.openapi.yaml, RT-937)
@@ -16,13 +17,9 @@
  */
 import { parseRetryAfter } from "@/lib/rate-limit";
 
-interface BackendError {
-  error?: { code?: string; request_id?: string };
-}
-
 export interface PasswordChangeResult {
   status: number;
-  error?: BackendError;
+  error?: ErrorEnvelope;
   retryAfter?: string | null;
 }
 

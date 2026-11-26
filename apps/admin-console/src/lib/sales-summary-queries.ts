@@ -25,6 +25,7 @@
 import { apiClient } from "@/generated/client";
 import type { ConsoleSalesSummarySchema } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
+import type { BackendError } from "@/lib/backend-envelope";
 
 type Schemas = ConsoleSalesSummarySchema.components["schemas"];
 
@@ -83,9 +84,6 @@ export function salesSummaryRangeProblem(
 }
 
 // --- Typed error mapping ------------------------------------------------------
-
-/** Backend error envelope: { error: { code, message, request_id } } (generated schema Error). */
-type BackendError = Schemas["Error"];
 
 export interface SalesSummaryErrorContext {
   status: number;

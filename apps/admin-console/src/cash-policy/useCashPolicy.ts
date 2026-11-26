@@ -1,3 +1,4 @@
+import { requestIdStringOf } from "@/lib/backend-envelope";
 /**
  * RT-389 hooks: TanStack Query bindings over the six policy wrappers.
  *
@@ -55,13 +56,6 @@ interface Raw<T> {
   error?: unknown;
 }
 
-function requestIdOf(error: unknown): string | undefined {
-  const inner = (error as { error?: unknown } | undefined)?.error;
-  if (typeof inner !== "object" || inner === null) return undefined;
-  const id = (inner as { request_id?: unknown }).request_id;
-  return typeof id === "string" ? id : undefined;
-}
-
 /**
  * A refusal, a body that is not the contract's shape (never trust external
  * data: it is a load failure, not a crash) or a request that threw (offline,
@@ -74,7 +68,7 @@ async function toResult<T>(
   try {
     const res = await call();
     if (res.status >= 400) {
-      return { kind: "error", status: res.status, requestId: requestIdOf(res.error) };
+      return { kind: "error", status: res.status, requestId: requestIdStringOf(res.error) };
     }
     if (res.data === undefined || !isShape(res.data)) return { kind: "error", status: 0 };
     return { kind: "ok", data: res.data };

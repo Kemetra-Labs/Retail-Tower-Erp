@@ -4,29 +4,12 @@
  * key from the status and the machine `error.code`, and show the request id as a support handle.
  */
 
-interface ErrorEnvelope {
-  error?: { code?: string; request_id?: string } | string;
-}
+export { errorCodeOf, requestIdOf as errorRequestIdOf } from "@/lib/backend-envelope";
 
 /** What every generated-client wrapper returns on a write: the HTTP status and the error body. */
 export interface WrapperResult {
   status: number;
   error?: unknown;
-}
-
-function inner(error: unknown): { code?: string; request_id?: string } | undefined {
-  const body = (error as ErrorEnvelope | undefined)?.error;
-  return typeof body === "object" ? body : undefined;
-}
-
-/** `error.code` of the envelope, when there is one. */
-export function errorCodeOf(error: unknown): string | undefined {
-  return inner(error)?.code;
-}
-
-/** `error.request_id` of the envelope, when there is one. */
-export function errorRequestIdOf(error: unknown): string | undefined {
-  return inner(error)?.request_id;
 }
 
 /** A fresh Idempotency-Key (a v4 UUID, inside the contract's 16 to 128 printable ASCII). */

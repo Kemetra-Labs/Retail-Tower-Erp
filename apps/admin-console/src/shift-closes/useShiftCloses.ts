@@ -11,6 +11,12 @@
  */
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
 import {
+  type ApiResult,
+  requestIdOf,
+  dataOrThrow as sharedDataOrThrow,
+  statusKindOf,
+} from "@/lib/backend-envelope";
+import {
   type ShiftCloseDetail,
   type ShiftCloseListQuery,
   type ShiftClosePage,
@@ -19,12 +25,7 @@ import {
 } from "@/lib/shift-close-queries";
 import { useStoreDetail, useStoreList } from "@/stores/useStoreQueries";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
-import {
-  flattenShiftClosePages,
-  isShiftId,
-  nextShiftCloseCursor,
-  requestIdOf,
-} from "./shiftCloseLogic";
+import { flattenShiftClosePages, isShiftId, nextShiftCloseCursor } from "./shiftCloseLogic";
 
 export type ShiftCloseError = {
   kind: "not-found" | "session" | "rejected" | "generic";
@@ -71,7 +72,7 @@ const STATUS_KINDS: Record<number, ShiftCloseError["kind"]> = {
 
 function toError(status: number, error: unknown): ShiftCloseFetchError {
   return new ShiftCloseFetchError({
-    kind: STATUS_KINDS[status] ?? "generic",
+    kind: statusKindOf(STATUS_KINDS, status),
     requestId: requestIdOf(error),
   });
 }
@@ -81,16 +82,9 @@ function errorOf(error: unknown): ShiftCloseError | undefined {
   return error instanceof ShiftCloseFetchError ? error.detail : { kind: "generic" };
 }
 
-interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-}
-
 /** Unwrap one wrapper result: its payload, or the typed error. */
 function dataOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) throw toError(res.status, res.error);
-  return res.data;
+  return sharedDataOrThrow(res, (r) => toError(r.status, r.error));
 }
 
 const FIRST_PAGE: string | undefined = undefined;

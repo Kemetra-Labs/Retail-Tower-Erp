@@ -1,3 +1,4 @@
+import { type ApiResult, dataOrThrow, requestIdOf } from "@/lib/backend-envelope";
 /**
  * RT-178 query hooks. Read-only infinite queries over the two RT-177 ops, plus
  * the refresh mutation over `triggerReconciliationRun`. Scope-keyed by the
@@ -19,7 +20,6 @@ import {
   classifyTriggerOutcome,
   isStoreId,
   pagesShareSnapshot,
-  requestIdOf,
 } from "./stockDiscrepancyLogic";
 
 export type StockDiscrepancyError = { kind: "not-found" | "generic"; requestId?: string };
@@ -62,16 +62,9 @@ interface PagedPage<T> {
   nextCursor: string | null;
 }
 
-interface ApiResult<P> {
-  status: number;
-  data?: P;
-  error?: unknown;
-}
-
 /** Unwrap one wrapper result: a page, or the typed not-found/generic error. */
 function pageOrThrow<P>(res: ApiResult<P>): P {
-  if (res.status >= 400 || !res.data) throw toError(res.status, res.error);
-  return res.data;
+  return dataOrThrow(res, (r) => toError(r.status, r.error));
 }
 
 /** getNextPageParam: a null cursor stops paging (undefined in TanStack v5). */

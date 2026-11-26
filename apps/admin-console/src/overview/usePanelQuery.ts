@@ -1,3 +1,4 @@
+import { requestIdOf } from "@/lib/backend-envelope";
 /**
  * RT-559 one panel's read (spec 009 §6.2–§6.4). Every Overview panel reads
  * through an existing typed wrapper and lands in exactly one state:
@@ -48,10 +49,6 @@ export function overviewKey(panel: string, scope: OverviewScope): readonly unkno
   return [...OVERVIEW_KEY, panel, scope.tenantId, scope.activeStoreId, scope.role];
 }
 
-function requestIdOf(error: unknown): string | undefined {
-  return (error as { error?: { request_id?: string } } | undefined)?.error?.request_id ?? undefined;
-}
-
 /** A refusal, a failure, or the selected payload (a malformed one is a failure). */
 export function readResult<T>(
   res: ApiResult,
@@ -60,7 +57,7 @@ export function readResult<T>(
   if (res.status >= 400) {
     return isRefusal(res.status)
       ? { kind: "hidden" }
-      : { kind: "error", requestId: requestIdOf(res.error) };
+      : { kind: "error", requestId: requestIdOf(res.error) ?? undefined };
   }
   const data = select(res.data);
   return data === undefined ? { kind: "error" } : { kind: "ready", data };

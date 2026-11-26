@@ -10,14 +10,13 @@
  */
 import type { MessageKey } from "@/i18n";
 import { canReadInventory } from "@/inventory/inventoryLogic";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 import type {
   CatalogIdentifier,
   CatalogMoney,
   CatalogProduct,
   CatalogStoreOverride,
 } from "@/lib/catalog-queries";
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A route id that is not a UUID would be a contract 400: it reads as not available, unasked. */
 export function isProductId(value: string | undefined): value is string {

@@ -7,6 +7,7 @@
  * at render so a locale switch re-renders them.
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 
 /** Roles the API lets read sales (OD-556-3). */
 export const READ_ROLES = ["owner", "tenant_admin", "store_manager"] as const;
@@ -15,8 +16,6 @@ export const READ_ROLES = ["owner", "tenant_admin", "store_manager"] as const;
 export function canReadSales(role: string | null | undefined): boolean {
   return (READ_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A route id that is not a UUID would be a contract 400: it renders as not-found. */
 export function isSaleRef(value: string | undefined): value is string {

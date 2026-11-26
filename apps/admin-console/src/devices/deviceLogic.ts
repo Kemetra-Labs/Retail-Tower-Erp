@@ -8,6 +8,7 @@
  * Helpers return catalog message keys, never copy (RT-399).
  */
 import type { MessageKey } from "@/i18n";
+import { UUID_PATTERN } from "@/lib/backend-envelope";
 import type { DevicePage, RevokeReason, TrustState } from "@/lib/device-queries";
 
 /** Roles the API lets read the device registry (RT-365). */
@@ -17,8 +18,6 @@ export const READ_ROLES = ["owner", "tenant_admin", "store_manager"] as const;
 export function canReadDevices(role: string | null | undefined): boolean {
   return (READ_ROLES as readonly string[]).includes(role ?? "");
 }
-
-const UUID_PATTERN = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 /** A value that is not a UUID would be a contract 400. */
 export function isUuid(value: string | undefined): value is string {
@@ -170,7 +169,3 @@ export function listSearchFrom(state: unknown): string {
 }
 
 // --- Errors --------------------------------------------------------------------
-
-export function requestIdOf(error: unknown): string | undefined {
-  return (error as { error?: { request_id?: string } } | undefined)?.error?.request_id;
-}
