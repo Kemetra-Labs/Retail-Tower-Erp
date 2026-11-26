@@ -50,7 +50,7 @@ import { ZodValidationPipe } from "../../src/common/zod-validation.pipe";
 import { createLogger } from "@data-pulse-2/shared";
 import { MembershipsModule } from "../../src/memberships/memberships.module";
 import { MEMBERSHIP_REFUSED_AUDIT_ACTION } from "../../src/memberships/membership-hierarchy";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import {
   applyAllUpAndCreateAppRole,
   startPgEnv,

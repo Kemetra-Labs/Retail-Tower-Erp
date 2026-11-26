@@ -21,8 +21,8 @@
 import Redis from "ioredis";
 
 import { AlwaysAllowRedis } from "../../src/auth/auth.module";
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../src/auth/rate-limit";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 
 const REDIS_URL = process.env["REDIS_URL"];
 const withRealRedis = REDIS_URL ? describe : describe.skip;

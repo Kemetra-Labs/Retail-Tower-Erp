@@ -10,7 +10,7 @@ import "reflect-metadata";
 
 import { Controller, Get, HttpException, Post, type ExecutionContext } from "@nestjs/common";
 
-import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { ConsoleRateLimit } from "../../src/console-rate-limit/console-rate-limit.decorator";
 import { ConsoleRateLimitGuard } from "../../src/console-rate-limit/console-rate-limit.guard";
 import type { ConsoleRateLimitConfig } from "../../src/console-rate-limit/console-rate-limit.config";

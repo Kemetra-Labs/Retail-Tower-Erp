@@ -17,7 +17,7 @@
  * An unset, non-integer or out-of-range value falls back to the default: a
  * typo must not disable the single-active rule or the rate limit.
  */
-import type { RateLimitBucket } from "../auth/rate-limit";
+import type { RateLimitBucket } from "../common/rate-limit/rate-limit";
 
 export const DEFAULT_ADMISSION_TTL_SECONDS = 43_200;
 export const DEFAULT_OFFLINE_GRACE_SECONDS = 86_400;

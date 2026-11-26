@@ -11,7 +11,7 @@ import { type INestApplication } from "@nestjs/common";
 import { Test } from "@nestjs/testing";
 import request from "supertest";
 
-import { RateLimiter, type RedisLike } from "../../src/auth/rate-limit";
+import { RateLimiter, type RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { ROOT_LOGGER } from "../../src/common/logging.interceptor";
 import { ConsoleTelemetryController } from "../../src/console-telemetry/console-telemetry.controller";

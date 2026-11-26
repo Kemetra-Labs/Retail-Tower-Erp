@@ -5,7 +5,7 @@
  * checked first, so one noisy terminal is stopped before it spends the
  * global budget. Starting values, far above a working terminal's error rate.
  */
-import type { RateLimitBucket } from "../auth/rate-limit";
+import type { RateLimitBucket } from "../common/rate-limit/rate-limit";
 
 const TEN_MINUTES_MS = 10 * 60 * 1000;
 

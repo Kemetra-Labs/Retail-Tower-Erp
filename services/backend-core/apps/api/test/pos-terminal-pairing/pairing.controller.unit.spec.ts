@@ -3,7 +3,7 @@ import "reflect-metadata";
 import { HttpException, NotFoundException } from "@nestjs/common";
 import type { Request, Response } from "express";
 
-import type { RateLimiter } from "../../src/auth/rate-limit";
+import type { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 import { PairingController } from "../../src/pos-terminal-pairing/pairing.controller";
 import type { PairingService } from "../../src/pos-terminal-pairing/pairing.service";
 

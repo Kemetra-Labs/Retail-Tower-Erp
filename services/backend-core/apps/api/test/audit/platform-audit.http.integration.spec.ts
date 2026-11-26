@@ -40,7 +40,7 @@ import { AUDIT_JOB_ENQUEUER, NoOpAuditJobEnqueuer } from "../../src/audit/audit-
 import { AuthModule, REDIS_CLIENT } from "../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../src/database";
 import { EMAIL_JOB_ENQUEUER, NoOpEmailJobEnqueuer } from "../../src/auth/email-job.enqueuer";
-import type { RedisLike } from "../../src/auth/rate-limit";
+import type { RedisLike } from "../../src/common/rate-limit/rate-limit";
 import { GlobalExceptionFilter } from "../../src/common/exception.filter";
 import { LoggingInterceptor } from "../../src/common/logging.interceptor";
 import { RequestIdInterceptor } from "../../src/common/request-id.interceptor";

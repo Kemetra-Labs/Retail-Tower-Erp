@@ -23,7 +23,7 @@
 import { HttpException, HttpStatus, Inject, Injectable, Optional } from "@nestjs/common";
 import type { Logger } from "@data-pulse-2/shared";
 
-import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 import { ROOT_LOGGER } from "../common/logging.interceptor";
 
 export const VOUCHER_LOOKUP_BUCKET = "posVoucherLookupFailure" as const;

@@ -43,7 +43,7 @@ import {
   POS_WRITE_RATE_LIMIT_BUCKET_KEY,
   type PosWriteBucketName,
 } from "./pos-write-rate-limit.decorator";
-import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "./rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 
 @Injectable()
 export class PosWriteRateLimitGuard implements CanActivate {

@@ -31,7 +31,7 @@ import { HttpException, HttpStatus } from "@nestjs/common";
 import { createLogger, type Logger } from "@data-pulse-2/shared";
 import type { Response } from "express";
 
-import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "./rate-limit";
+import type { RateLimitBucket, RateLimitDecision, RateLimiter } from "../common/rate-limit/rate-limit";
 
 export const DEFAULT_PUBLIC_AUTH_LIMITER_TIMEOUT_MS = 1_000;
 const MIN_TIMEOUT_MS = 1;

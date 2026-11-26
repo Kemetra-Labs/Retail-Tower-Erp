@@ -15,8 +15,8 @@
  */
 import Redis from "ioredis";
 
-import { IoredisIdempotencyAdapter } from "../../src/auth/ioredis-idempotency-adapter";
-import { RateLimiter } from "../../src/auth/rate-limit";
+import { IoredisIdempotencyAdapter } from "../../src/common/redis/ioredis-idempotency-adapter";
+import { RateLimiter } from "../../src/common/rate-limit/rate-limit";
 
 const URL = process.env["REDIS_TEST_URL"];
 const maybe = URL ? describe : describe.skip;

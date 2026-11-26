@@ -47,7 +47,7 @@ import type { AuditJobPayload } from "../../../../src/audit/audit-job.types";
 import { AuthModule } from "../../../../src/auth/auth.module";
 import { AUTH_LOOKUP_POOL, PG_POOL } from "../../../../src/database";
 import { FailClosedAuthGuard } from "../../../../src/auth/fail-closed-auth.guard";
-import { RateLimiter, type RateLimitDecision } from "../../../../src/auth/rate-limit";
+import { RateLimiter, type RateLimitDecision } from "../../../../src/common/rate-limit/rate-limit";
 import { sha256CanonicalHex } from "../../../../src/common/hashing/payload-hash";
 import { SalesModule } from "../../../../src/catalog/sales/sales.module";
 import { GlobalExceptionFilter } from "../../../../src/common/exception.filter";

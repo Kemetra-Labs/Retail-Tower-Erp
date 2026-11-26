@@ -28,7 +28,7 @@ import { SaleCaptureAuthGuard, SaleVoidAuthGuard } from "../../../../src/catalog
 import { PosOperatorAuthGuard } from "../../../../src/auth/pos-operator-auth.guard";
 import { TenantContextGuard } from "../../../../src/context/tenant-context.guard";
 import { PosWriteRateLimitGuard } from "../../../../src/auth/pos-write-rate-limit.guard";
-import { RateLimiter } from "../../../../src/auth/rate-limit";
+import { RateLimiter } from "../../../../src/common/rate-limit/rate-limit";
 
 /** Minimal always-allow RateLimiter fake (mirrors the guard unit spec). */
 const fakeRateLimiter = {

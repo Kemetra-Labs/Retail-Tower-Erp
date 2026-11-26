@@ -17,7 +17,7 @@ import { Body, Controller, HttpCode, HttpStatus, Post, Req, Res } from "@nestjs/
 import type { Response } from "express";
 
 import { Public } from "../auth/route-auth";
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 import {
   enforcePublicLimit,
   PUBLIC_AUTH_UNAVAILABLE_RETRY_AFTER_SECONDS,

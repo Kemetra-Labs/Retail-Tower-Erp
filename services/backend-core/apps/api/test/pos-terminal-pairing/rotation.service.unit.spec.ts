@@ -10,8 +10,8 @@
 import { hashToken } from "@data-pulse-2/auth";
 import type { Pool } from "pg";
 
-import type { RateLimiter } from "../../src/auth/rate-limit";
-import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../src/auth/rate-limit";
+import type { RateLimiter } from "../../src/common/rate-limit/rate-limit";
+import { POS_WRITE_RATE_LIMIT_BUCKETS } from "../../src/common/rate-limit/rate-limit";
 import { RotationService } from "../../src/pos-terminal-pairing/rotation.service";
 
 const TARGET = {

@@ -33,7 +33,7 @@ import {
 } from "@nestjs/common";
 import type { Request, Response } from "express";
 
-import { RATE_LIMIT_BUCKETS, RateLimiter } from "../auth/rate-limit";
+import { RATE_LIMIT_BUCKETS, RateLimiter } from "../common/rate-limit/rate-limit";
 import {
   TerminalPairRequestSchema,
   type TerminalPairResponseBody,
