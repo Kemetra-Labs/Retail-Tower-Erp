@@ -67,6 +67,8 @@ export const common = {
   "errors.load.cause.network": "تعذّر الوصول إلى الخادم.",
   "errors.load.cause.server": "أعاد الخادم خطأً.",
   "errors.load.cause.request": "رفض الخادم الطلب.",
+  "errors.load.cause.rateLimited": "أُرسلت طلبات كثيرة جدًا.",
+  "errors.load.tryLater": "حاول مجددًا بعد قليل.",
   "errors.load.safety": "لم يتغيّر شيء.",
   "errors.load.noRetry": "إعادة المحاولة لن تحلّه: تواصل مع الدعم واذكر المرجع.",
 

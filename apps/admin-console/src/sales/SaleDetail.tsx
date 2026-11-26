@@ -156,6 +156,24 @@ function RelatedSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
   );
 }
 
+/** The caveats that explain the page; each line shows only when it applies. Nothing, no note. */
+function SaleReadingNote({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element | null {
+  const t = useT();
+  const lines = [
+    detail.lineOrder === "not_recorded" ? t("sales.lines.orderNotRecorded") : null,
+    t("sales.payments.netNote"),
+    detail.void ? t("sales.void.approverRoleNote") : null,
+  ].filter((line): line is string => line !== null);
+  if (lines.length === 0) return null;
+  return (
+    <ReadingNote>
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </ReadingNote>
+  );
+}
+
 function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const t = useT();
   const { role } = useSaleScope();
@@ -178,12 +196,7 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
         </p>
       </PageHeader>
       <ErpFailureBanner detail={detail} role={role} />
-      <ReadingNote>
-        {detail.lineOrder === "not_recorded" ? <p>{t("sales.lines.orderNotRecorded")}</p> : null}
-        <p>{t("sales.payments.netNote")}</p>
-        <p>{t("sales.void.approverRoleNote")}</p>
-        <p>{t("sales.erp.note")}</p>
-      </ReadingNote>
+      <SaleReadingNote detail={detail} />
       <DetailGrid>
         <SummarySection detail={detail} />
         <PaymentsSection detail={detail} index={2} />

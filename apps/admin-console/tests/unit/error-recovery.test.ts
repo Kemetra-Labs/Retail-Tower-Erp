@@ -1,4 +1,5 @@
-import { translate } from "@/i18n";
+import { loadFailureDetail } from "@/components/loadFailureCopy";
+import { type MessageKey, type T, translate } from "@/i18n";
 import { isRetryable, loadFailureOf, serverErrorKey } from "@/lib/error-recovery";
 import { mapSalesByStoreError } from "@/lib/sales-by-store-queries";
 import { mapSalesSummaryError } from "@/lib/sales-summary-queries";
@@ -22,7 +23,7 @@ describe("isRetryable", () => {
     [503, true],
     [408, true],
     [425, true],
-    [429, true],
+    [429, false],
     [501, false],
     [505, false],
     [400, false],
@@ -65,6 +66,18 @@ describe("loadFailureOf", () => {
     expect(loadFailureOf({ status: 500, error: { error: { request_id: "" } } }).requestId).toBe(
       undefined,
     );
+  });
+
+  test("a 429 is rate limited: no immediate retry, and the copy says to try later", () => {
+    const failure = loadFailureOf({ status: 429, error: { error: { request_id: "req-429" } } });
+    expect(failure).toEqual({ cause: "rateLimited", retryable: false, requestId: "req-429" });
+    for (const locale of ["en", "ar"] as const) {
+      const t = ((key: MessageKey) => translate(locale, key)) as T;
+      const detail = loadFailureDetail(t, failure);
+      expect(detail).toContain(translate(locale, "errors.load.tryLater"));
+      expect(detail).not.toContain(translate(locale, "errors.load.noRetry"));
+    }
+    expect(serverErrorKey(429)).toBe("errors.server");
   });
 
   test("a 4xx is a refused request and not retryable", () => {

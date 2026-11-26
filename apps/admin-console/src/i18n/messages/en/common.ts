@@ -52,6 +52,8 @@ export const common: MessagesOf<typeof ar> = {
   "errors.load.cause.network": "The server could not be reached.",
   "errors.load.cause.server": "The server returned an error.",
   "errors.load.cause.request": "The server refused the request.",
+  "errors.load.cause.rateLimited": "Too many requests were sent.",
+  "errors.load.tryLater": "Try again in a little while.",
   "errors.load.safety": "Nothing was changed.",
   "errors.load.noRetry": "Retrying will not fix it: contact support and quote the reference.",
 

@@ -411,6 +411,8 @@ export function ErpSection({
           </Field>
         ) : null}
       </dl>
+      {/* RT-965: fiscal truth (not a tax statement) stays visible, never in the collapsed note. */}
+      <p className="content__sub">{t("sales.erp.note")}</p>
     </Section>
   );
 }

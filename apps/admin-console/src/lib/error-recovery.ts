@@ -4,13 +4,17 @@
  * The Console has no backend error-code retry registry (RT-965 asks for none and forbids new
  * Backend-Core codes), so this is the one place that says whether retrying can help. A retry is
  * offered only when it can: no answer at all (the network), a timeout or "too early" (408, 425),
- * a rate limit (429, once the wait is over) and a 5xx. A 4xx, or a code the contract documents as
+ * and a 5xx. A 429 offers no immediate retry (the shell's rate-limit banner owns the countdown and
+ * the retry once the wait is over); the copy says to try again later. A 4xx, or a code the contract documents as
  * a settled refusal, answers the same way every time.
  */
 import { errorCodeStringOf, requestIdNonEmptyOf } from "@/lib/backend-envelope";
 
-/** Where a load failed: nothing came back, the server failed, or the server refused the request. */
-export type LoadCause = "network" | "server" | "request";
+/**
+ * Where a load failed: nothing came back, the server failed, the server refused the request, or
+ * it asked the caller to slow down (429).
+ */
+export type LoadCause = "network" | "server" | "request" | "rateLimited";
 
 export interface LoadFailure {
   cause: LoadCause;
@@ -36,7 +40,7 @@ const NON_RETRYABLE_CODES: ReadonlySet<string> = new Set([
 /** 5xx statuses that name a permanent condition of the server, not a transient fault. */
 const PERMANENT_SERVER_STATUSES: ReadonlySet<number> = new Set([501, 505]);
 
-const RETRYABLE_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 425, 429]);
+const RETRYABLE_CLIENT_STATUSES: ReadonlySet<number> = new Set([408, 425]);
 
 /** Can the same request succeed if sent again? `status` undefined or 0 means no answer. */
 export function isRetryable(status: number | undefined, code?: string): boolean {
@@ -54,7 +58,8 @@ export function loadFailureOf(
   const requestId = requestIdNonEmptyOf(result?.error);
   const retryable = isRetryable(status, errorCodeStringOf(result?.error));
   let cause: LoadCause = "request";
-  if (!status) cause = "network";
+  if (status === 429) cause = "rateLimited";
+  else if (!status) cause = "network";
   else if (status >= 500) cause = "server";
   return { cause, retryable, ...(requestId ? { requestId } : {}) };
 }
@@ -67,5 +72,5 @@ export function serverErrorKey(
   status: number | undefined,
   code?: string,
 ): "errors.server" | "errors.serverFinal" {
-  return isRetryable(status, code) ? "errors.server" : "errors.serverFinal";
+  return status === 429 || isRetryable(status, code) ? "errors.server" : "errors.serverFinal";
 }

@@ -11,11 +11,13 @@ const CAUSE_KEY: Record<LoadCause, MessageKey> = {
   network: "errors.load.cause.network",
   server: "errors.load.cause.server",
   request: "errors.load.cause.request",
+  rateLimited: "errors.load.cause.rateLimited",
 };
 
 /** Cause, safety and (when not retryable) the way forward, as one string. */
 export function loadFailureDetail(t: T, failure: LoadFailure): string {
   const parts = [t(CAUSE_KEY[failure.cause]), t("errors.load.safety")];
-  if (!failure.retryable) parts.push(t("errors.load.noRetry"));
+  if (failure.cause === "rateLimited") parts.push(t("errors.load.tryLater"));
+  else if (!failure.retryable) parts.push(t("errors.load.noRetry"));
   return parts.join(" ");
 }
