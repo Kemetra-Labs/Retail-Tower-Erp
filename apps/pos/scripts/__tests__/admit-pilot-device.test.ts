@@ -61,6 +61,11 @@ describe('RT-1611 admit-pilot-device.ps1: what it checks', () => {
     expect(script).toMatch(/Get-FileHash -LiteralPath \$path -Algorithm SHA256/);
     expect(script).toMatch(/\$acceptedStatus = @\('Valid', 'UnknownError'\)/);
     expect(script).toMatch(/explicitly distrusted on this device/);
+    // UnknownError is accepted only when the signer chain's single failure is its untrusted self-signed root.
+    expect(script).toMatch(
+      /if \(\[string\]\$sig\.Status -eq 'UnknownError'\) \{ Assert-OnlyUntrustedRoot/,
+    );
+    expect(script).toMatch(/\$reasons\[0\] -ne 'UntrustedRoot'/);
     expect(script).toMatch(/SignatureType -ne 'Authenticode'/);
     expect(script).toMatch(/KeyCertSign -bor \$flags::CrlSign/);
     expect(script).toMatch(/Basic Constraints extension is not critical/);
@@ -106,6 +111,13 @@ describe('RT-1611 admit-pilot-device.ps1: where it writes', () => {
     expect(code).not.toMatch(
       /TrustedPublisher|CurrentUser|AuthRoot|Import-Certificate|Import-PfxCertificate|certutil/i,
     );
+  });
+
+  it('serialises admission and removal with one machine-wide lock per thumbprint, taken before the presence check', () => {
+    expect(script).toContain('Global\\RT1611-pilot-device-admission-$pin');
+    const lockUses = script.match(/^\s*\$lock = Enter-AdmissionLock$/gm) ?? [];
+    expect(lockUses.length).toBe(2);
+    expect(at(/^\$lock = Enter-AdmissionLock$/m)).toBeLessThan(at(/^\$already = Test-Path/m));
   });
 
   it('needs an elevated shell for the write and for Remove', () => {

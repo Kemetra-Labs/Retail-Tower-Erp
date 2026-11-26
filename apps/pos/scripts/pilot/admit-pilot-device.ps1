@@ -68,6 +68,28 @@ function Assert-InstallerHash([string]$path, [string]$expected) {
   Write-Host "[OK] installer SHA-256 matches: $got"
 }
 
+function Assert-OnlyUntrustedRoot($cert) {
+  $chain = New-Object System.Security.Cryptography.X509Certificates.X509Chain
+  try {
+    $chain.ChainPolicy.RevocationMode = [System.Security.Cryptography.X509Certificates.X509RevocationMode]::NoCheck
+    [void]$chain.Build($cert)
+    $reasons = @($chain.ChainStatus | ForEach-Object { [string]$_.Status } | Sort-Object -Unique)
+    if ($chain.ChainElements.Count -ne 1 -or $reasons.Count -ne 1 -or $reasons[0] -ne 'UntrustedRoot') {
+      throw "the installer signature is invalid for another reason than an untrusted pilot root (chain: $($reasons -join ',')): do not run it"
+    }
+  } finally {
+    $chain.Reset()
+  }
+}
+
+# One admission or removal at a time on this machine, so a rollback can never remove a leaf another run just added.
+function Enter-AdmissionLock {
+  $mutex = New-Object System.Threading.Mutex($false, "Global\RT1611-pilot-device-admission-$pin")
+  try { $owned = $mutex.WaitOne(0) } catch [System.Threading.AbandonedMutexException] { $owned = $true }
+  if (-not $owned) { throw 'another admission or removal is running on this machine: wait for it to finish, then run again' }
+  return $mutex
+}
+
 function Get-SignerLeaf([string]$path) {
   $sig = Get-AuthenticodeSignature -LiteralPath $path
   if ([string]$sig.Status -eq 'NotTrusted') {
@@ -78,6 +100,10 @@ function Get-SignerLeaf([string]$path) {
   }
   if ([string]$sig.SignatureType -ne 'Authenticode') { throw "the installer is not Authenticode-signed (type: $($sig.SignatureType))" }
   if (-not $sig.SignerCertificate) { throw 'the installer signature names no signer certificate' }
+  # UnknownError also covers other invalid-signature cases, not only an untrusted root. Accept it only when the
+  # signer's own chain fails for exactly one reason: its self-signed root is not trusted yet. After admission the
+  # file must still read Valid (checked below), which also proves the signature itself is intact.
+  if ([string]$sig.Status -eq 'UnknownError') { Assert-OnlyUntrustedRoot $sig.SignerCertificate }
   # Rebuild from the public bytes, so nothing but the certificate itself can be added later.
   return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([byte[]]$sig.SignerCertificate.RawData)
 }
@@ -132,6 +158,7 @@ function Remove-PilotLeaf {
 if ($PSCmdlet.ParameterSetName -eq 'Remove') {
   if (-not $Remove) { throw 'use -Remove to remove the pilot leaf' }
   Assert-Elevated
+  $lock = Enter-AdmissionLock
   $removed = Remove-PilotLeaf
   if ($removed -gt 0) { Write-Host "[DONE] pilot leaf $pin removed from LocalMachine\Root" }
   else { Write-Host "[DONE] pilot leaf $pin was not in LocalMachine\Root; nothing removed" }
@@ -143,13 +170,16 @@ Assert-InstallerHash $installer $ExpectedSha256
 $leaf = Get-SignerLeaf $installer
 Assert-PilotLeaf $leaf
 
-$already = Test-Path -LiteralPath "$rootPath\$pin"
 if ($VerifyOnly) {
-  Write-Host "[DONE] every check passed; nothing was written (already admitted: $already)"
+  $present = Test-Path -LiteralPath "$rootPath\$pin"
+  Write-Host "[DONE] every check passed; nothing was written (already admitted: $present)"
   exit 0
 }
 
 Assert-Elevated
+# Held until the process ends: the presence check, the write and any rollback run under it.
+$lock = Enter-AdmissionLock
+$already = Test-Path -LiteralPath "$rootPath\$pin"
 if ($already) {
   Write-Host "[OK] pilot leaf $pin is already in LocalMachine\Root; not adding it again"
   $check = Get-AuthenticodeSignature -LiteralPath $installer
