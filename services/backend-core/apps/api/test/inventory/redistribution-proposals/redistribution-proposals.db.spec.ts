@@ -145,8 +145,9 @@ async function till(
   const deviceId = nextId();
   await admin.query(
     `INSERT INTO devices (id, tenant_id, store_id, token_hash, revoked_at)
-     VALUES ($1, $2, $3, decode(md5($1::text) || md5($1::text), 'hex'), $4)`,
-    [deviceId, TENANT_A, storeId, revoked ? new Date() : null],
+     VALUES ($1, $2, $3, decode(md5($5) || md5($5), 'hex'), $4)`,
+    // The id goes in twice: as the uuid column and as the hash input (one parameter cannot be both types).
+    [deviceId, TENANT_A, storeId, revoked ? new Date() : null, deviceId],
   );
   if (health === null) return;
   await admin.query(

@@ -20,6 +20,8 @@
  */
 import 'reflect-metadata';
 
+import { randomUUID } from 'node:crypto';
+
 import { Module, type INestApplication, type Provider } from '@nestjs/common';
 import { APP_INTERCEPTOR, Reflector } from '@nestjs/core';
 import { IdempotencyKeyStore } from '@data-pulse-2/shared';
@@ -349,7 +351,9 @@ describe('the proposal routes over HTTP', () => {
     expect(replay.headers['idempotent-replayed']).toBe('true');
     expect(replay.body).toEqual(first.body);
     expect(Number((await env!.admin.query(`SELECT count(*) AS n FROM shipment_transfers`)).rows[0].n)).toBe(before);
-    expectRefused(await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, { lineIds: [proposal.lines[0]!.id] }, idemKey), 409, 'idempotency_key_conflict');
+    // The same key with a different body (an extra, unknown line id) is the interceptor's conflict, before the handler.
+    const otherBody = { lineIds: [...body.lineIds, randomUUID()] };
+    expectRefused(await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, otherBody, idemKey), 409, 'idempotency_key_conflict');
     // A fresh key on a decided line is the proposal's own 409.
     expectRefused(await post(`${BASE}/${proposal.id}/accept`, SES_OWNER_ALL, body), 409, 'proposal_state_conflict');
   });
