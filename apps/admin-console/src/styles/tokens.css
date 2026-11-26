@@ -344,8 +344,10 @@
     --color-side-text: CanvasText;
     --color-side-muted: GrayText;
     --color-topbar-field: Canvas;
-    --color-topbar-line: CanvasText;
-    --color-topbar-muted: GrayText;
+    /* The top-bar field's edge is --color-topbar-muted, so it keeps a CanvasText
+     * edge (GrayText is not sure to reach 3:1); topbar-line is decorative. */
+    --color-topbar-line: GrayText;
+    --color-topbar-muted: CanvasText;
     --color-attention: Canvas;
     --color-band: Canvas;
     --color-on-band: CanvasText;
