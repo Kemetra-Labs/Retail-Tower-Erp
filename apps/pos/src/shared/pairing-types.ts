@@ -194,3 +194,45 @@ export type PairingStatusChangedEvent =
   | { kind: 'unpaired' };
 
 export type PairingIpcChannel = (typeof PAIRING_IPC_CHANNELS)[keyof typeof PAIRING_IPC_CHANNELS];
+
+/**
+ * 002-terminal-pairing: the `pairing` namespace exposed by the preload
+ * bridge. Interface-only at the foundational layer — the preload stub
+ * throws "not implemented" until US1 (getStatus) and US2 (submit) wire
+ * the real handlers. Types are canonical; specs/002-terminal-pairing/
+ * contracts/preload-bridge.ts is a planning snapshot and is NOT re-synced.
+ */
+export interface PairingBridgeAPI {
+  /**
+   * Inspect local pairing state. Cheap; backed by a single SecretStore
+   * read + single SQL row read. Renderer calls this on application boot
+   * to decide between routing to /pairing or /paired (US1).
+   */
+  getStatus(): Promise<PairingStatus>;
+
+  /**
+   * Submit a pairing code (manual entry or wedge scan — bridge does not
+   * care which). Resolves with a discriminated PairingSubmitResult for
+   * every outcome, including failures. Rejects ONLY on programmer error
+   * (invalid argument shape) — backend / network failures resolve with
+   * the appropriate outcome category (US2 + US3-7).
+   */
+  submit(pairing_code: string): Promise<PairingSubmitResult>;
+
+  /**
+   * RT-215 — subscribe to the main → renderer `pairing:status-changed` push
+   * (a confirmed device revocation reached its routing point, or a pairing
+   * succeeded). The payload is `{ kind }` / `{ kind: 'invalid', reason }` only.
+   * Returns the unsubscribe function. Optional so test fakes that predate it
+   * stay valid; production preload always provides it.
+   */
+  onStatusChanged?(cb: (event: PairingStatusChangedEvent) => void): () => void;
+
+  /**
+   * RT-215 10897-A (owner approval 10906) — the user-initiated "Check again"
+   * on `/pairing` while the terminal is device-revoked. Takes nothing (the
+   * renderer only triggers it) and resolves `{ outcome }` only. Optional so
+   * test fakes that predate it stay valid; production preload provides it.
+   */
+  recheckRevocation?(): Promise<PairingRecheckResult>;
+}
