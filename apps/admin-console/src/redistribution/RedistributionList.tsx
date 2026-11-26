@@ -169,7 +169,7 @@ export function RedistributionList(): React.JSX.Element {
       <p className="field__hint">{t("redistribution.note.advice")}</p>
       <NoticeBanner notice={action.notice} />
       {off ? (
-        <ReadFailed error={list.error ?? NOT_AVAILABLE} />
+        <ReadFailed error={allowed ? (list.error ?? NOT_AVAILABLE) : NOT_AVAILABLE} />
       ) : (
         <ListBody list={list} onOpen={(id) => navigate(`/inventory/redistribution/${id}`)} />
       )}

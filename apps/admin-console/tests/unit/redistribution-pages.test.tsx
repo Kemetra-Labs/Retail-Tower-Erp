@@ -428,6 +428,96 @@ describe("Idempotency-Key", () => {
   });
 });
 
+describe("warm cache and continuation", () => {
+  test("list: a later 404 hides the cached rows and the compute", async () => {
+    createRedistributionProposal.mockImplementation(async () => {
+      listRedistributionProposals.mockResolvedValue(notFound);
+      return {
+        status: 200,
+        data: {
+          result: "nothing_to_move",
+          supersededProposalId: null,
+          rule: { name: "reorder_gap_greedy", version: "1.0.0" },
+          computedAt: "2026-11-26T08:00:00.000Z",
+          stores: [],
+          warnings: [],
+        },
+      };
+    });
+    renderAt("/inventory/redistribution");
+    fireEvent.click(await screen.findByRole("button", { name: "Compute a new proposal" }));
+    expect(
+      await screen.findByText("Redistribution proposals are not available for this organization."),
+    ).toBeTruthy();
+    expect(screen.queryByRole("button", { name: /Open the proposal/ })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Compute a new proposal" })).toBeNull();
+  });
+
+  test("detail: a later 404 hides the cached proposal and its decision controls", async () => {
+    reviewRedistributionProposal.mockImplementation(async () => {
+      getRedistributionProposal.mockResolvedValue(notFound);
+      return {
+        status: 409,
+        error: { error: { code: "proposal_superseded", message: "m", request_id: "r" } },
+      };
+    });
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    const group = await screen.findByRole("group", { name: /Review the Mineral water line/ });
+    fireEvent.click(within(group).getByRole("button", { name: "Would accept" }));
+    expect(await screen.findByText("This proposal or this action is not available.")).toBeTruthy();
+    expect(screen.queryByRole("button", { name: "Would accept" })).toBeNull();
+    expect(screen.queryByRole("button", { name: "Reject proposal" })).toBeNull();
+  });
+
+  test("a failed Load more keeps the rows, and Retry asks for the next page again", async () => {
+    listRedistributionProposals
+      .mockResolvedValueOnce({ status: 200, data: { items: [summary()], nextCursor: "c2" } })
+      .mockResolvedValueOnce({
+        status: 500,
+        error: { error: { code: "internal_error", message: "m", request_id: "req-p2" } },
+      })
+      .mockResolvedValueOnce({
+        status: 200,
+        data: { items: [summary({ id: "p2" })], nextCursor: null },
+      });
+    renderAt("/inventory/redistribution");
+    fireEvent.click(await screen.findByRole("button", { name: "Show older proposals" }));
+    expect(await screen.findByText("Redistribution proposals could not be loaded.")).toBeTruthy();
+    expect(screen.getAllByRole("button", { name: /Open the proposal/ })).toHaveLength(1);
+    fireEvent.click(screen.getByRole("button", { name: /Retry|Try again/ }));
+    await waitFor(() =>
+      expect(screen.getAllByRole("button", { name: /Open the proposal/ })).toHaveLength(2),
+    );
+    expect(listRedistributionProposals).toHaveBeenLastCalledWith(
+      expect.objectContaining({ cursor: "c2" }),
+    );
+  });
+
+  test("no line review can start while a decision dialog is open", async () => {
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    const group = await screen.findByRole("group", { name: /Review the Mineral water line/ });
+    fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
+    await screen.findByRole("dialog");
+    expect((group as HTMLFieldSetElement).disabled).toBe(true);
+    fireEvent.click(within(group).getByRole("button", { name: "Would accept" }));
+    expect(reviewRedistributionProposal).not.toHaveBeenCalled();
+  });
+
+  test("access narrowed to some stores after a failed read shows the non-disclosing view", async () => {
+    listRedistributionProposals.mockResolvedValue({
+      status: 500,
+      error: { error: { code: "internal_error", message: "m", request_id: "r" } },
+    });
+    renderAt("/inventory/redistribution");
+    expect(await screen.findByText("Redistribution proposals could not be loaded.")).toBeTruthy();
+    activeContext.mockReturnValue(asRole("owner", { store_access_kind: "specific" }));
+    fireEvent.click(screen.getByRole("button", { name: /Retry|Try again/ }));
+    expect(
+      await screen.findByText("Redistribution proposals are not available for this organization."),
+    ).toBeTruthy();
+  });
+});
+
 describe("reject", () => {
   test("needs a reason, then rejects", async () => {
     rejectRedistributionProposal.mockResolvedValue({

@@ -23,6 +23,8 @@ export interface LinesProps {
   onToggle: (lineId: string) => void;
   /** A review is in flight (for any line): every line waits, so answers cannot race. */
   reviewing: string | null;
+  /** A decision dialog is open: no review may start while an accept or reject can be pending. */
+  paused: boolean;
   onReview: (lineId: string, decision: RedistributionReviewDecisionValue) => void;
 }
 
@@ -61,6 +63,7 @@ function ReviewCell({
           type="button"
           className={current === decision ? "btn-primary" : "btn-secondary"}
           aria-pressed={current === decision}
+          disabled={busy}
           onClick={() => onReview(line.id, decision)}
         >
           {t(
@@ -117,7 +120,7 @@ function LineRow({
         <ReviewCell
           line={line}
           canReview={actions.review}
-          busy={props.reviewing !== null}
+          busy={props.reviewing !== null || props.paused}
           label={label}
           onReview={props.onReview}
         />

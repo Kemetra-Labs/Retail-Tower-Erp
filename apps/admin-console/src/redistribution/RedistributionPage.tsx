@@ -160,6 +160,7 @@ function ProposalBody({
         selected={lines.selected}
         onToggle={lines.toggle}
         reviewing={lines.reviewing}
+        paused={dialog !== null}
         onReview={(id, decision) => void lines.review(id, decision)}
       />
       <h2 className="redistribution__heading">{t("redistribution.stores.title")}</h2>
