@@ -13,7 +13,7 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
   `POS-Pulse-Setup-X.Y.Z.exe`, its `.sha256` and `release-manifest.json` (`"signing": "pilot"`).
 - **Not publicly trusted.** Windows does not trust this certificate by default, so the signature validates only on
   a device where the certificate was **explicitly admitted** (a separate, owner-approved step, RT-1290 P-6;
-  nothing here does it). SmartScreen may still warn; that is observed on a clean device during verification, not
+  §7 below). SmartScreen may still warn; that is observed on a clean device during verification, not
   assumed.
 - **Not a commercial release** and not the lab installer. The lab installer (`pos/vX.Y.Z`, `LAB TEST` subject)
   must never reach a pilot device; the pilot installer never appears in a lab release.
@@ -112,7 +112,7 @@ runbook is corrected. No secret, key, password or thumbprint belongs in this fil
 There is no CRL or OCSP for a private leaf. Revocation is manual and complete only when all of these are done:
 
 1. Delete the secrets `POS_PILOT_SIGN_PFX_BASE64` and `POS_PILOT_SIGN_PFX_PASSWORD` from the environment.
-2. **Remove the certificate from every admitted device** (hand or script); an installed POS keeps running, but
+2. **Remove the certificate from every admitted device** (§7, `-Remove`); an installed POS keeps running, but
    nothing signed by that key validates again.
 3. Withdraw the release row in the pilot registry, so the Console stops offering it (RT-1292 follow-ups), and
    **delete the published GitHub release and its assets**: they stay downloadable from GitHub otherwise.
@@ -154,3 +154,70 @@ legacy TripleDES default) and the certificate script reads it back with `Get-Pfx
 runner's own .NET import of an AES PFX is first exercised by the first release. If it fails there, nothing was
 signed or published: re-export the PFX with `Export-PfxCertificate` without `-CryptoAlgorithmOption` while the key
 still exists on your machine (so do not delete it before the first successful release), or create a new leaf.
+
+## 7. Admitting a pilot device (RT-1611, RT-1290 P5)
+
+A pilot device validates the pilot installer only after its owner-named admin has admitted the pinned pilot
+leaf on it. **Only a device the owner has named and accepted on RT-1290 (P-6)**, with the person who holds local
+admin on it. Any other device is refused here by procedure, not by the script.
+
+The script `apps/pos/scripts/pilot/admit-pilot-device.ps1` takes the certificate from the downloaded installer
+itself, so no `.cer` file is handed around. It needs three values:
+
+| Input | Where it comes from |
+| :-- | :-- |
+| `-InstallerPath` | the `POS-Pulse-Setup-X.Y.Z.exe` saved from Admin Console → Devices → Download POS |
+| `-ExpectedSha256` | the SHA-256 shown on that same page |
+| `-PinnedThumbprint` | the variable `POS_PILOT_LEAF_SHA1` of the `release-pos-pilot-sign` environment (§2 step 2), from the owner; never from the installer or a ticket that someone else wrote |
+
+**Get the script itself from `main`, nowhere else.** It decides what the device trusts, so a changed copy defeats
+every check in it. On a Kemetra machine with `gh` signed in:
+
+```powershell
+gh api repos/Kemetra-Labs/Retail-Tower-Erp/contents/apps/pos/scripts/pilot/admit-pilot-device.ps1 `
+  -H 'Accept: application/vnd.github.raw' > admit-pilot-device.ps1
+git ls-remote https://github.com/Kemetra-Labs/Retail-Tower-Erp refs/heads/main   # record this commit on the issue
+```
+
+The script is not signed. Run it with a process-scope policy bypass only, never by changing the machine policy:
+`powershell -NoProfile -ExecutionPolicy Bypass -File .\admit-pilot-device.ps1 ...`
+
+1. **Check first, change nothing** (any PowerShell, no admin needed):
+
+   ```powershell
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\admit-pilot-device.ps1 `
+     -InstallerPath <exe> -ExpectedSha256 <sha256> -PinnedThumbprint <sha1> -VerifyOnly
+   ```
+
+   It refuses, and writes nothing, when:
+   - the file hash differs;
+   - the signature is broken, missing or not Authenticode;
+   - the signer is explicitly distrusted on this device;
+   - the signer is not the pinned leaf;
+   - the subject is not exactly `CN=Kemetra POS PILOT`;
+   - the certificate is not self-signed, has a purpose other than Code Signing, may sign certificates, has no
+     critical Basic Constraints, is a CA, is not valid yet, or has expired.
+
+   Every line must say `[OK]` and the last `[DONE]`.
+
+2. **Admit** (PowerShell **as Administrator**, the owner-named admin): the same command without `-VerifyOnly`.
+   It adds only the public bytes of that one certificate to `LocalMachine\Root` (never TrustedPublisher or a
+   CurrentUser store), then checks that the installer now reads `Valid` from the pinned leaf. If that check fails,
+   or the run stops part-way, it removes the leaf again and fails. If it prints `ROLLBACK FAILED`, run `-Remove`.
+   Running it again on an admitted device adds nothing.
+
+   What admission means: on this device, Windows treats **anything** signed with the pilot key as signed by a
+   trusted publisher, not only the POS installer. That is why only owner-named devices are admitted. Remove the
+   leaf (below) when a device leaves the pilot.
+3. Record the device, date, Windows build and the final `[DONE]` line on RT-1611 (or the device run's issue).
+   Then continue with `pilot-terminal-provisioning.md` §5.0.
+
+**Remove** (revocation §5, rotation §4, or a device leaving the pilot), as Administrator:
+
+```powershell
+powershell -NoProfile -ExecutionPolicy Bypass -File .\admit-pilot-device.ps1 -PinnedThumbprint <sha1> -Remove
+```
+
+It removes only the certificate with that thumbprint, and refuses one whose subject is not the pilot subject. If
+it says the leaf is still present after removal, the certificate came from group policy, not from this script.
+After a rotation, admit the new leaf from a new installer, then remove the old thumbprint.
