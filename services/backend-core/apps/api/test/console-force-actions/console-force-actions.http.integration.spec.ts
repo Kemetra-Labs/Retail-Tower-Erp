@@ -982,4 +982,24 @@ describe("consoleGetOpenShiftsSummary: the tenant-wide counts (RT-1450)", () => 
     );
     expect(rows.rowCount).toBe(1);
   });
+
+  it("a platform admin holding a live support session is admitted too (RT-1462/RT-1468), and the one cross-tenant row names that session", async () => {
+    if (skip()) return;
+    const w = await platformWorld();
+    expect(w.supportSessionId).not.toBe("");
+    const requestId = randomUUID();
+    const res = await summary(w.platform).set("X-Request-Id", requestId);
+    expect(res.status).toBe(200);
+    expectValid("OpenShiftsSummary", res.body);
+    const rows = await admin().query(
+      `SELECT metadata FROM audit_events WHERE tenant_id = $1 AND action = 'platform.cross_tenant.accessed' AND request_id = $2`,
+      [w.tenant, requestId],
+    );
+    expect(rows.rowCount).toBe(1);
+    expect(rows.rows[0]!.metadata).toMatchObject({
+      actor_kind: "platform_admin",
+      outcome: "succeeded",
+      support_session_id: w.supportSessionId,
+    });
+  });
 });

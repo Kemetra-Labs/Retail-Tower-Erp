@@ -84,6 +84,46 @@ describe('reads and listings', () => {
   });
 });
 
+describe('countRefused (RT-1606)', () => {
+  const stamp = (n: number) => ({ executionId: first.executionId, now: secondsAfterNow(n) });
+  const execId = (n: number) => `0190f5a2-7b3c-7d4e-8f90-0000000000a${String(n)}`;
+  const entry = (n: number): NewExecution => ({
+    ...first,
+    executionId: execId(n),
+    allocationRef: `0190f5a2-7b3c-7d4e-8f90-0000000000b${String(n)}`,
+    externalId: `pos-pulse-refund-exec:${execId(n)}`,
+    now: secondsAfterNow(5),
+  });
+
+  it('is 0 for an open (unknown) row, and for another terminal, branch or tenant', () => {
+    expect(repo.countRefused(SCOPE)).toBe(0);
+    expect(repo.countRefused({ ...SCOPE, terminalId: 'term-2' })).toBe(0);
+  });
+
+  it('counts one refused row, and keeps it out of the open listing', () => {
+    repo.markRefused({ ...stamp(1), reason: 'conflict' });
+    expect(repo.countRefused(SCOPE)).toBe(1);
+    expect(repo.listUnrecorded(SCOPE)).toEqual([]);
+    expect(repo.countRefused({ ...SCOPE, terminalId: 'term-2' })).toBe(0);
+    expect(repo.countRefused({ ...SCOPE, branchId: 'branch-2' })).toBe(0);
+    expect(repo.countRefused({ ...SCOPE, tenantId: 'tenant-2' })).toBe(0);
+  });
+
+  it('counts several refused rows but not pending, unknown or recorded ones', () => {
+    repo.enqueue([entry(2), entry(3), entry(4), entry(5)]);
+    repo.markRefused({ executionId: execId(2), reason: 'not_found', now: secondsAfterNow(6) });
+    repo.markRecorded({ executionId: execId(3), now: secondsAfterNow(6) });
+    repo.markRefused({
+      executionId: execId(5),
+      reason: 'exceeds_allocation',
+      now: secondsAfterNow(6),
+    });
+    // first = unknown and entry 4 = pending (both open); entry 3 recorded.
+    expect(repo.countRefused(SCOPE)).toBe(2);
+    expect(repo.listUnrecorded(SCOPE)).toHaveLength(2);
+  });
+});
+
 describe('guarded transitions', () => {
   const stamp = (n: number) => ({ executionId: first.executionId, now: secondsAfterNow(n) });
 

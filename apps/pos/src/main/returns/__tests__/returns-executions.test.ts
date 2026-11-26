@@ -527,6 +527,7 @@ describe('shutdown, restart and the background tick', () => {
       refused: 0,
       unresolved: 0,
       executionsOpen: 1,
+      executionsRefused: 0,
     });
 
     h.backend.onExecution = (call, backend) => backend.recordExecutionIdempotently(call);
@@ -538,7 +539,15 @@ describe('shutdown, restart and the background tick', () => {
     const returnId = await confirmedReturn(h.service);
     await h.service.payout({ returnId, action: 'start' });
     await settle();
-    expect(await h.service.resolve()).toMatchObject({ executionsOpen: 0 });
+    expect(await h.service.resolve()).toMatchObject({ executionsOpen: 0, executionsRefused: 1 });
+  });
+
+  it('a pending or unknown execution is open, not refused', async () => {
+    h.backend.onExecution = () => Promise.resolve(jsonResponse(503, errorBody('unavailable')));
+    const returnId = await confirmedReturn(h.service);
+    await h.service.payout({ returnId, action: 'start' });
+    await settle();
+    expect(await h.service.resolve()).toMatchObject({ executionsOpen: 1, executionsRefused: 0 });
   });
 
   it('logs the cause and the attempt of each unknown answer, with no amount, body or envelope', async () => {

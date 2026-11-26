@@ -1,0 +1,10 @@
+# Console rate-limit class of each cookieAuth operation in
+# packages/contracts/openapi/inventory/redistribution-proposals.yaml (RT-805; checked by console-rate-limit.ratchet.spec.ts).
+
+# RT-1599: compute reads every store of the tenant and runs the engine, so it is a job, not a plain write.
+acceptRedistributionProposal: write
+createRedistributionProposal: jobOrPreview
+getRedistributionProposal: cheapRead
+listRedistributionProposals: cheapRead
+rejectRedistributionProposal: write
+reviewRedistributionProposal: write

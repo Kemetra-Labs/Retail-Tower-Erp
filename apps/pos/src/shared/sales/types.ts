@@ -285,3 +285,249 @@ export const SALE_FINALIZATION_REFUSAL_REASONS = [
   'forbidden_field_in_tender_summary',
 ] as const;
 export type SaleFinalizationRefusalReason = (typeof SALE_FINALIZATION_REFUSAL_REASONS)[number];
+
+// ────────────────────────────────────────────────────────────────────────────
+// 008-sale-finalization-and-receipts Slice 1: `sales.*` namespace (read-only)
+// ────────────────────────────────────────────────────────────────────────────
+//
+// Schema source of truth:
+//   specs/008-sale-finalization-and-receipts/contracts/bridge-api.md
+//   §"Namespace: sales.* (read-only)"
+//
+// All handlers are gated server-side by `requireOperatorSession` (every
+// 008 bridge handler MUST start with that call). No `idempotency_key` on
+// any `sales.*` handler — they are read-only.
+//
+// Slice 1 lands these read handlers. Slice 2+ adds the mutating
+// `receipts.*` namespace (preview, reprint, retryPrint, manualOverride).
+
+/**
+ * The shape returned by `sales.read` + `sales.findByNumber`. Strict subset
+ * of the persisted `sales` row — main-only fields (envelope_handoff_action_id,
+ * payment_attempt_id, envelope_cart_id, tenant_tax_registration_id) are
+ * EXCLUDED per `contracts/bridge-api.md` §"Notes" + Constitution §P15.
+ */
+export interface SaleSummary {
+  sale_id: SaleId;
+  sale_number: SaleNumber;
+  receipt_number: string;
+  tenant_id: string;
+  branch_id: string;
+  terminal_id: string;
+  terminal_label: string;
+  selling_operator_id: string;
+  selling_operator_display_name: string;
+  subtotal_minor: number;
+  total_tax_minor: number;
+  total_change_due_minor: number;
+  tender_lines_summary: TenderLineSummary[];
+  finalized_at: string;
+  /** Latest PrintEvent projection (gates the reprint affordance per AD-10). */
+  latest_print_event?: PrintEventSummary;
+  /** Latest DrawerEvent projection (drives the drawer-failure banner). */
+  latest_drawer_event?: DrawerEventSummary;
+  /**
+   * RT-541: the sale's recorded lines, or why they cannot be shown. Always set
+   * by main; optional in the type only so older consumers and fixtures that
+   * never read it keep compiling.
+   */
+  lines?: SaleLinesView;
+}
+
+// ── sales.read ──────────────────────────────────────────────────────────────
+
+export interface SalesReadRequest {
+  sale_id: SaleId;
+}
+
+export type SalesReadResponse =
+  | { kind: 'ok'; sale: SaleSummary }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── sales.findByNumber ──────────────────────────────────────────────────────
+
+export interface SalesFindByNumberRequest {
+  sale_number: SaleNumber;
+}
+
+export type SalesFindByNumberResponse =
+  | { kind: 'ok'; sale: SaleSummary }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── sales.subscribe / sales.unsubscribe ─────────────────────────────────────
+
+/**
+ * Subscription topic. `recent` emits compact summaries on every new
+ * `sale.finalized` audit event for the current terminal. `banner_state`
+ * emits the projected banner state on every new PrintEvent / DrawerEvent.
+ */
+export type SalesSubscribeTopic = 'recent' | 'banner_state';
+
+export interface SalesSubscribeRequest {
+  topic: SalesSubscribeTopic;
+}
+
+/**
+ * Snapshot-subscribe (008 follow-up slice): `subscribe` returns the current
+ * projection for the topic, exactly as 006's `subscribe ≡ read`. The renderer
+ * POLLS this on an interval (no `webContents.send` push — consistent with the
+ * deliberately poll-based AD-2 finalize design; see coordination §S3c
+ * mechanism-corrected note). `subscription_token` is retained for `unsubscribe`
+ * symmetry (additive per PRODUCT.md Principle 4 — extend, don't rename); the
+ * snapshot field carried depends on the requested `topic`:
+ *   • `topic='banner_state'` → `banner_state: BannerState`
+ *   • `topic='recent'`       → `recent: RecentSaleSummary | null`
+ */
+export type SalesSubscribeResponse =
+  | { kind: 'ok'; subscription_token: string; banner_state: BannerState }
+  | { kind: 'ok'; subscription_token: string; recent: RecentSaleSummary | null }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+export interface SalesUnsubscribeRequest {
+  subscription_token: string;
+}
+
+export type SalesUnsubscribeResponse = { kind: 'ok' };
+
+// ── sales.list (RT-541) ─────────────────────────────────────────────────────
+
+/**
+ * This device's sales over a range of store business days (Africa/Cairo),
+ * newest first. A sale's day is its `finalized_at` in the store zone, never
+ * the stored `local_calendar_day`. Tenant, branch, terminal and (for a
+ * cashier, OD-534-1) the selling operator always come from the session.
+ */
+export interface SalesListRequest {
+  /** First business day, `YYYY-MM-DD`, inclusive. */
+  from_day: string;
+  /** Last business day, `YYYY-MM-DD`, inclusive; at most 31 days after from. */
+  to_day: string;
+  /** 1-100; 50 when absent. */
+  page_size?: number;
+  /** `next_cursor` from the previous page; absent or null for page one. */
+  cursor?: string | null;
+}
+
+/** One history row. Lines and tenders stay on the detail read. */
+export interface SaleListItem {
+  sale_id: SaleId;
+  sale_number: SaleNumber;
+  /**
+   * The store business day of `finalized_at` (`YYYY-MM-DD`), or null when the
+   * stored time cannot be read (shown as unknown, never guessed).
+   */
+  business_day: string | null;
+  finalized_at: string;
+  terminal_label: string;
+  selling_operator_display_name: string;
+  subtotal_minor: number;
+  total_tax_minor: number;
+}
+
+export type SalesListResponse =
+  | {
+      kind: 'ok';
+      sales: SaleListItem[];
+      /** Opaque; null when this is the last page. */
+      next_cursor: string | null;
+      /** Always `this_device_only` for the local read. */
+      coverage: SalesHistoryCoverage;
+    }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── sales.listRecent (RT-1189, RT-249 N-S1) ─────────────────────────────────
+
+/**
+ * This terminal's sales on the current Africa/Cairo business day (main's
+ * clock), newest first, local only, at most 300. Tenant, branch, terminal and
+ * (for a cashier, OD-534-1) the selling operator always come from the session;
+ * the request can name none of them. The one optional field is the short form.
+ */
+export interface SalesListRecentRequest {
+  /**
+   * A short form to look for (doc 20 §4): one to nine digits. Main normalises
+   * Arabic-Indic digits and leading zeros; anything else is `invalid_input`.
+   */
+  short_number?: string;
+}
+
+/** One row of the recent list. No main-only id and no per-tender detail (§P15). */
+export interface RecentSaleRow {
+  sale_id: SaleId;
+  /** The exact number, as printed on the receipt. */
+  sale_number: SaleNumber;
+  /** The sequence without leading zeros, or null when the number does not parse. */
+  short_number: string | null;
+  /** UTC ISO instant; the renderer formats it in the store zone. */
+  finalized_at: string;
+  /** `subtotal_minor + total_tax_minor`. */
+  total_minor: number;
+  tender_types: SalesTenderType[];
+  selling_operator_display_name: string;
+  /** The outcome of the newest print event, or `none` when there is none. */
+  latest_print_outcome: PrintEventOutcome | 'none';
+}
+
+export type SalesListRecentResponse =
+  | {
+      kind: 'ok';
+      /** The Cairo business day the list covers, `YYYY-MM-DD`. */
+      business_day: string;
+      items: RecentSaleRow[];
+      /** True when more rows matched than the 300 returned. */
+      truncated: boolean;
+    }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── sales.readForHandoff (RT-1322, RT-249 N-S2) ─────────────────────────────
+
+/**
+ * Completion reads ITS OWN finalized sale (doc 20 §5.1). The key is the exact
+ * UNIQUE `envelope_handoff_action_id` of the payment on screen plus its
+ * `payment_attempt_id`; both are ids the renderer already holds. Main confirms
+ * the attempt and the session's scope, so the answer can never be another sale.
+ * The request carries no scope, role, operator or date.
+ */
+export interface SalesReadForHandoffRequest {
+  handoff_action_id: string;
+  payment_attempt_id: string;
+}
+
+export type SalesReadForHandoffResponse =
+  | {
+      kind: 'ok';
+      /** The same projection as `sales.read`; it omits both ids of the key (§P15). */
+      sale: SaleSummary;
+      /** The sequence without leading zeros, or null when the number does not parse. */
+      short_number: string | null;
+    }
+  /** No sale has finalized for this handoff yet. Not an error; ask again. */
+  | { kind: 'pending' }
+  | { kind: 'refused'; reason: SalesRefusalReason };
+
+// ── SalesBridgeAPI surface ──────────────────────────────────────────────────
+
+/**
+ * 008-sale-finalization-and-receipts Slice 1 read-only bridge surface.
+ *
+ * Every handler is gated server-side by `requireOperatorSession`; no
+ * renderer-side authorization is load-bearing (AD-1). Tenant / branch /
+ * terminal scoping is derived from the operator session and enforced at
+ * each handler entry per the §A4 8-item checklist (PR #257).
+ */
+export interface SalesBridgeAPI {
+  /** Read a single sale by id. */
+  read(req: SalesReadRequest): Promise<SalesReadResponse>;
+  /** Lookup by cashier-quotable sale_number (tenant/branch/terminal-scoped). */
+  findByNumber(req: SalesFindByNumberRequest): Promise<SalesFindByNumberResponse>;
+  /** Subscribe to live updates on the current terminal's sales activity. */
+  subscribe(req: SalesSubscribeRequest): Promise<SalesSubscribeResponse>;
+  /** Detach a previously-acquired subscription. */
+  unsubscribe(req: SalesUnsubscribeRequest): Promise<SalesUnsubscribeResponse>;
+  /** RT-541: this device's sales over a range of store business days. */
+  list(req: SalesListRequest): Promise<SalesListResponse>;
+  /** RT-1189: this terminal's sales on the current Cairo business day. */
+  listRecent(req: SalesListRecentRequest): Promise<SalesListRecentResponse>;
+  /** RT-1322: Completion's own sale, by the exact handoff key plus the payment attempt. */
+  readForHandoff(req: SalesReadForHandoffRequest): Promise<SalesReadForHandoffResponse>;
+}

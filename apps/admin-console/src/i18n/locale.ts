@@ -22,7 +22,7 @@
  * and the choice then holds for this page only.
  */
 
-import { hasCatalog, loadCatalog } from "./catalogs";
+import { CatalogReloadRequiredError, hasCatalog, loadCatalog } from "./catalogs";
 
 export type Locale = "ar" | "en";
 
@@ -115,12 +115,36 @@ export function setLocale(locale: Locale): void {
   for (const listener of listeners) listener();
 }
 
+/** RT-979: the latest switch request; a load that finishes later is stale. */
+let latestRequest = 0;
+
+/** Test seam only: replace the page reload used when a catalog will not load. */
+let reloadPage = (): void => {
+  try {
+    window.location.reload();
+  } catch {
+    // No window (node-side callers): nothing to reload.
+  }
+};
+export function __setReloadPageForTests(fn: () => void): void {
+  reloadPage = fn;
+}
+
 /**
  * RT-962: switch only once `locale`'s catalog is loaded; at once when it is.
- * A failed fetch (offline) keeps the current locale and skips `then`.
+ * RT-979: the latest request wins. `then` and the switch run only if no newer
+ * request (another switch, or a user change) started meanwhile. A failed
+ * fetch keeps the current locale and skips `then`; `onFail` runs only for the
+ * latest request.
  */
-function switchWhenLoaded(locale: Locale, then?: () => void): void {
+function switchWhenLoaded(
+  locale: Locale,
+  then?: () => void,
+  onFail?: (error: unknown) => void,
+): void {
+  const request = ++latestRequest;
   const apply = (): void => {
+    if (request !== latestRequest) return;
     then?.();
     setLocale(locale);
   };
@@ -128,8 +152,9 @@ function switchWhenLoaded(locale: Locale, then?: () => void): void {
     apply();
     return;
   }
-  loadCatalog(locale).then(apply, () => {
+  loadCatalog(locale).then(apply, (error: unknown) => {
     // Not reachable right now: stay in the language already on screen.
+    if (request === latestRequest) onFail?.(error);
   });
 }
 
@@ -155,15 +180,25 @@ export function lastLocale(): Locale {
  */
 export function adoptUserLocale(userId: string): Locale {
   const mine = storedLocaleFor(userId);
-  write(LOCALE_LAST_KEY, mine);
-  switchWhenLoaded(mine);
+  // RT-979: the mirror follows the switch, so a failed load never repaints it.
+  switchWhenLoaded(mine, () => write(LOCALE_LAST_KEY, mine));
   return mine;
 }
 
-/** Persist a user's choice, update the last-choice mirror, and switch to it. */
+/**
+ * Persist a user's choice, update the last-choice mirror, and switch to it.
+ * RT-979: if the catalog fails twice (a failed import() stays failed for the
+ * page), the choice is stored and the page reloads, which boots in it.
+ */
 export function saveLocale(userId: string | undefined, locale: Locale): void {
-  switchWhenLoaded(locale, () => {
+  const persist = (): void => {
     if (userId) write(localeUserKey(userId), locale);
     write(LOCALE_LAST_KEY, locale);
+  };
+  switchWhenLoaded(locale, persist, (error) => {
+    if (error instanceof CatalogReloadRequiredError) {
+      persist();
+      reloadPage();
+    }
   });
 }

@@ -51,7 +51,8 @@ info:
 
 
     ROLLOUT. A till MUST pin this contract before it consumes the operation (POS RT-1578, `apps/pos/contracts/backend-core`
-    PIN). The responses are `additionalProperties: false`.
+    PIN). The success responses are `additionalProperties: false`; the error response is the canonical envelope below,
+    which stays open, as in `auth.openapi.yaml`.
 
 
     Errors use the canonical envelope. The `error.code` set on this surface is closed: `validation_error` (400),
@@ -217,7 +218,8 @@ components:
             $ref: "#/components/schemas/StoreAvailabilityItem"
         nextCursor:
           type: [string, "null"]
-          description: The next page's cursor; null on the last page. Continue until it is null, even after an empty page.
+          minLength: 1
+          description: The next page's cursor, never empty; null on the last page. Continue until it is null, even after an empty page.
     Error:
       type: object
       required: [error]

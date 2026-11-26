@@ -53,6 +53,11 @@ export interface ResolveSummary extends ReturnsTally {
    * composed.
    */
   readonly executionsOpen?: number;
+  /**
+   * RT-1606: refund executions of this terminal Backend-Core refused (409/422). They are final, not
+   * open, and not part of the counts above. Absent whenever `executionsOpen` is.
+   */
+  readonly executionsRefused?: number;
 }
 
 export interface ReturnsResolver {
@@ -86,7 +91,7 @@ export interface ReturnsResolverDeps {
    * `executionsOpen`, apart from the returns' counts. Absent: no executions are sent.
    */
   readonly executions?: {
-    readonly repo: Pick<ReturnExecutionsRepository, 'listUnrecorded'>;
+    readonly repo: Pick<ReturnExecutionsRepository, 'listUnrecorded' | 'countRefused'>;
     readonly dispatcher: Pick<ReturnExecutionsDispatcher, 'send' | 'idle'>;
     /**
      * True once the return domain is stopping: the pass reads the outbox only while it is live
@@ -221,11 +226,17 @@ function createPass(deps: ReturnsResolverDeps) {
   }
 
   /** RT-1543: the open executions now, as a summary field (none without an outbox, or once stopped). */
-  function openExecutions(snapshot: AuthSnapshot): { executionsOpen?: number } {
+  function openExecutions(snapshot: AuthSnapshot): {
+    executionsOpen?: number;
+    executionsRefused?: number;
+  } {
     const { executions } = deps;
     // After stop the DB may be closed: the count is unknown, so the field is absent (never 0).
     if (executions === undefined || executions.isStopped()) return {};
-    return { executionsOpen: executions.repo.listUnrecorded(snapshot.scope).length };
+    return {
+      executionsOpen: executions.repo.listUnrecorded(snapshot.scope).length,
+      executionsRefused: executions.repo.countRefused(snapshot.scope),
+    };
   }
 
   return async function pass(
