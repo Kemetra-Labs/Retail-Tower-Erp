@@ -46,7 +46,17 @@
  * fetch whose every answer counts".
  *
  * Never logged, never in a result: the token, the body, server text (P7).
+ *
+ * RT-1209: the HTTP exchange (bearer, timeout, bounded body, transport faults) runs on the shared
+ * Backend-Core transport (`../http/transport.ts`); the outcome mapping above is unchanged. The
+ * transport reads every answer body and reports a body that cannot be read as `null`, the same as
+ * no answer at all. This client reads the body only to label a refusal, so it keeps the response
+ * the fetch resolved with and maps a body-read failure from that status (a refusal: `rejected`).
+ * Two deliberate differences: a refusal body over 2 MB (declared or streamed) is not read, so it is
+ * the generic `rejected`; and every answer body is now read before mapping, so a slow body delays
+ * the result (still bounded by the request timeout, so the drain bound holds), never changes it.
  */
+import { createBackendTransport, type BackendAnswer, type FetchLike } from '../http/transport.js';
 import {
   withDeviceCallObservation,
   type DeviceAuthDetector,
@@ -55,14 +65,14 @@ import { parseRetryAfterMs } from '../sales-sync/retry-after.js';
 import type { QueuedShiftFact, ShiftSyncDeadLetterReason } from './shift-cashup-repo.js';
 import type { ShiftFactKind } from './shift-wire.js';
 
-type FetchLike = (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
-
 /** The RT-215 detector tag of the shift drain's device fetch (see the header). */
 export const SHIFT_SYNC_DEVICE_SOURCE = 'sale_sync' as const;
 
 const SHIFTS_PATH = '/api/pos/v1/shifts';
 /** The default request timeout (also the bound of a stopping worker's drain). */
 export const SHIFT_SYNC_REQUEST_TIMEOUT_MS = 15_000;
+/** The largest answer body read, in bytes (a shift answer or refusal is a few KB at most). */
+const SHIFT_SYNC_MAX_BODY_BYTES = 2_000_000;
 
 /** One fact to send, with the terminal it was recorded on (the drain's scope). */
 export interface ShiftSyncSend {
@@ -172,28 +182,42 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === 'object' && value !== null && !Array.isArray(value);
 }
 
-/** `error.code` of an `ApiError` body, or null. Pure; never throws. */
-function errorCodeOf(bodyText: string): string | null {
-  try {
-    const parsed: unknown = JSON.parse(bodyText);
-    const error = isRecord(parsed) ? parsed['error'] : undefined;
-    const code = isRecord(error) ? error['code'] : undefined;
-    return typeof code === 'string' ? code : null;
-  } catch {
-    return null;
-  }
+/** `error.code` of a parsed `ApiError` body, or null. Pure; never throws. */
+function errorCodeOf(json: unknown): string | null {
+  const error = isRecord(json) ? json['error'] : undefined;
+  const code = isRecord(error) ? error['code'] : undefined;
+  return typeof code === 'string' ? code : null;
+}
+
+/** One HTTP answer: the status, the parsed body (undefined when unread) and `Retry-After`. */
+interface ShiftAnswer {
+  readonly status: number;
+  readonly json: unknown;
+  readonly retryAfter: string | null;
 }
 
 /** The dead-letter reason of a refusal: a documented code of its status, else `rejected`. */
-async function refusalReason(response: Response): Promise<ShiftSyncDeadLetterReason> {
-  let code: string | null;
-  try {
-    code = errorCodeOf(await response.text());
-  } catch {
-    return 'rejected';
-  }
-  const documented = CONTRACT_CODES.get(response.status)?.has(code ?? '') === true;
+function refusalReason(answer: ShiftAnswer): ShiftSyncDeadLetterReason {
+  const code = errorCodeOf(answer.json);
+  const documented = CONTRACT_CODES.get(answer.status)?.has(code ?? '') === true;
   return documented ? (code as ShiftSyncDeadLetterReason) : 'rejected';
+}
+
+/**
+ * The answer of one exchange: the transport's; else (its body could not be read) the status and
+ * `Retry-After` of the response the fetch resolved with, body unread; null when none arrived.
+ */
+function answerOf(sent: BackendAnswer | null, arrived: Response | undefined): ShiftAnswer | null {
+  if (sent !== null) {
+    const retryAfter = sent.headers?.['retry-after'] ?? null;
+    return { status: sent.status, json: sent.json, retryAfter };
+  }
+  if (arrived === undefined) return null;
+  return {
+    status: arrived.status,
+    json: undefined,
+    retryAfter: arrived.headers.get('Retry-After'),
+  };
 }
 
 /** The credential an answer is mapped for: its 401 and 403 mean different things. */
@@ -204,7 +228,6 @@ type TokenRead =
   | { kind: 'not_sent'; reason: ShiftSyncNotSentReason };
 
 export function createShiftSyncClient(deps: CreateShiftSyncClientDeps): ShiftSyncClient {
-  const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? SHIFT_SYNC_REQUEST_TIMEOUT_MS;
   const nowMs = deps.nowMs ?? Date.now;
   // RT-215: every answer of this device-only fetch counts for the detector.
@@ -244,9 +267,9 @@ export function createShiftSyncClient(deps: CreateShiftSyncClientDeps): ShiftSyn
   }
 
   /** RT-194 `Retry-After`; a failing clock leaves the normal backoff in charge. */
-  function retryAfter(response: Response): ShiftSyncResult {
+  function retryAfter(answer: ShiftAnswer): ShiftSyncResult {
     try {
-      const retryAfterMs = parseRetryAfterMs(response.headers.get('Retry-After'), nowMs());
+      const retryAfterMs = parseRetryAfterMs(answer.retryAfter, nowMs());
       return retryAfterMs === undefined
         ? { kind: 'transient' }
         : { kind: 'transient', retryAfterMs };
@@ -255,14 +278,12 @@ export function createShiftSyncClient(deps: CreateShiftSyncClientDeps): ShiftSyn
     }
   }
 
-  type Outcomes = Readonly<
-    Record<StatusClass, (response: Response) => ShiftSyncResult | Promise<ShiftSyncResult>>
-  >;
+  type Outcomes = Readonly<Record<StatusClass, (answer: ShiftAnswer) => ShiftSyncResult>>;
   const shared: Pick<Outcomes, 'ok' | 'retry_after' | 'transient' | 'rejected'> = {
     ok: () => ({ kind: 'ok' }),
     retry_after: retryAfter,
     transient: () => ({ kind: 'transient' }),
-    rejected: async (response) => ({ kind: 'rejected', reason: await refusalReason(response) }),
+    rejected: (answer) => ({ kind: 'rejected', reason: refusalReason(answer) }),
   };
   const outcomes: Readonly<Record<SendPath, Outcomes>> = {
     device: {
@@ -285,22 +306,28 @@ export function createShiftSyncClient(deps: CreateShiftSyncClientDeps): ShiftSyn
     const { fact } = input;
     // An envelope answer is not a device answer: only the device path feeds the RT-215 detector.
     const fetchImpl = input.path === 'device' ? deviceFetch : deps.fetch;
-    let response: Response;
-    try {
-      response = await fetchImpl(`${root}${shiftFactPath(fact)}`, {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          Authorization: `Bearer ${input.token}`,
-          'Idempotency-Key': fact.idempotencyKey,
-        },
-        body: fact.requestBody,
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-    } catch {
-      return { kind: 'no_connection' };
-    }
-    return outcomes[input.path][classifyStatus(response.status)](response);
+    // Keep the response the fetch resolved with: an answer whose body breaks is still an answer.
+    const probe: { arrived?: Response } = {};
+    const transport = createBackendTransport({
+      baseUrl: deps.baseUrl,
+      fetch: async (url, init) => {
+        probe.arrived = await fetchImpl(url, init);
+        return probe.arrived;
+      },
+      timeoutMs,
+      maxBodyBytes: SHIFT_SYNC_MAX_BODY_BYTES,
+    });
+    const sent = await transport.send({
+      method: 'POST',
+      path: shiftFactPath(fact),
+      bearer: input.token,
+      headers: { 'Content-Type': 'application/json', 'Idempotency-Key': fact.idempotencyKey },
+      body: fact.requestBody,
+      readHeaders: ['Retry-After'],
+    });
+    const answer = answerOf(sent, probe.arrived);
+    if (answer === null) return { kind: 'no_connection' };
+    return outcomes[input.path][classifyStatus(answer.status)](answer);
   }
 
   /** Why `fact` cannot go out through the method of `kind` on the device path, or null. */

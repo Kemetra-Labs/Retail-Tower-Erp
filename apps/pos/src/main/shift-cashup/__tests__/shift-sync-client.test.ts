@@ -268,8 +268,19 @@ describe('createShiftSyncClient — outcome mapping', () => {
   });
 
   it('an unreadable refusal body → dead letter `rejected`', async () => {
-    const response = answer({ status: 422, body: errorBody('refund_ref_invalid') });
-    vi.spyOn(response, 'text').mockRejectedValue(new Error('reset'));
+    // RT-1209: the body stream itself fails (a reset mid-answer), whichever way it is read.
+    let sentHead = false;
+    const body = new ReadableStream<Uint8Array>({
+      pull(controller) {
+        if (sentHead) {
+          controller.error(new Error('reset'));
+          return;
+        }
+        sentHead = true;
+        controller.enqueue(new TextEncoder().encode(errorBody('refund_ref_invalid').slice(0, 12)));
+      },
+    });
+    const response = new Response(body, { status: 422 });
     const { client } = harness({ answer: response });
     await expect(sendFact(client, CLOSE_FACT)).resolves.toEqual({
       kind: 'rejected',
