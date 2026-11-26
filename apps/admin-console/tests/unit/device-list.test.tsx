@@ -486,9 +486,7 @@ describe("DeviceList modern columns and insight", () => {
       "Needs attention",
       "Unsent sales",
     ]);
-    expect(
-      screen.getByRole("button", { name: "Show expiry and last seen" }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Show expiry and last seen" })).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Show expiry and last seen" }));
     expect(headers(await tableReady())).toEqual([
@@ -500,9 +498,7 @@ describe("DeviceList modern columns and insight", () => {
       "Credential expires",
       "Last seen",
     ]);
-    expect(
-      screen.getByRole("button", { name: "Hide expiry and last seen" }),
-    ).toBeDefined();
+    expect(screen.getByRole("button", { name: "Hide expiry and last seen" })).toBeDefined();
 
     fireEvent.click(screen.getByRole("button", { name: "Hide expiry and last seen" }));
     expect(headers(await tableReady())).toEqual([
@@ -518,9 +514,7 @@ describe("DeviceList modern columns and insight", () => {
     consoleListDevices.mockResolvedValue(page([custodySummary()]));
     renderList();
     await tableReady();
-    expect(
-      await screen.findByText("1 loaded device has an open custody exception."),
-    ).toBeDefined();
+    expect(await screen.findByText("1 loaded device has an open custody exception.")).toBeDefined();
   });
 
   test("the insight is clear when nothing on the loaded rows needs attention", async () => {
@@ -537,9 +531,7 @@ describe("DeviceList modern columns and insight", () => {
     consoleListDevices.mockResolvedValue(page([summary({ expiresAt: EXPIRES_PAST })]));
     renderList();
     await tableReady();
-    expect(
-      await screen.findByText("1 loaded device is past its credential expiry."),
-    ).toBeDefined();
+    expect(await screen.findByText("1 loaded device is past its credential expiry.")).toBeDefined();
   });
 
   test("the insight counts stranded sales from the health read", async () => {
@@ -554,11 +546,7 @@ describe("DeviceList modern columns and insight", () => {
   test("pairing codes is the page's one main action", async () => {
     renderList();
     await tableReady();
-    expect(screen.getByRole("link", { name: "Pairing codes" }).className).toContain(
-      "btn-primary",
-    );
-    expect(screen.getByRole("link", { name: "Download POS" }).className).toContain(
-      "btn-secondary",
-    );
+    expect(screen.getByRole("link", { name: "Pairing codes" }).className).toContain("btn-primary");
+    expect(screen.getByRole("link", { name: "Download POS" }).className).toContain("btn-secondary");
   });
 });
