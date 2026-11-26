@@ -360,7 +360,7 @@ export namespace InventoryPosAvailability {
                  */
                 asOf: string;
                 items: components["schemas"]["StoreAvailabilityItem"][];
-                /** @description The next page's cursor; null on the last page. Continue until it is null, even after an empty page. */
+                /** @description The next page's cursor, never empty; null on the last page. Continue until it is null, even after an empty page. */
                 nextCursor: string | null;
                 /**
                  * Format: uuid
