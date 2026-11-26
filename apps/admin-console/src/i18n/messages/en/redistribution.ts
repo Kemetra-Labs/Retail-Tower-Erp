@@ -182,4 +182,6 @@ export const redistribution: MessagesOf<typeof ar> = {
     "Too many requests in a short time. Nothing ran. Wait a moment, then retry.",
   "redistribution.error.generic": "The request could not be completed. Nothing was recorded.",
   "redistribution.error.loadFailed": "Redistribution proposals could not be loaded.",
+  "redistribution.error.refreshFailed":
+    "The proposal could not be read again, so what is shown may be out of date. Retry before deciding.",
 };

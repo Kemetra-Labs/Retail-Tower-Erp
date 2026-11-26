@@ -198,4 +198,6 @@ export const redistribution = {
     "طلبات كثيرة في وقت قصير، ولم يُنفَّذ شيء. انتظر قليلًا ثم أعد المحاولة.",
   "redistribution.error.generic": "تعذّر تنفيذ الطلب، ولم يُسجَّل شيء.",
   "redistribution.error.loadFailed": "تعذّر تحميل مقترحات إعادة التوزيع.",
+  "redistribution.error.refreshFailed":
+    "تعذّرت إعادة قراءة المقترح، فقد يكون المعروض قديمًا. أعد المحاولة قبل اتخاذ القرار.",
 } as const;

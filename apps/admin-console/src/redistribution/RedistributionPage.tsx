@@ -135,7 +135,7 @@ function ProposalBody({
             <button
               type="button"
               className="btn-primary"
-              disabled={lines.chosen.length === 0 || lines.reviewing !== null}
+              disabled={lines.chosen.length === 0 || lines.reviewing !== null || dialog !== null}
               onClick={() => setDialog("accept")}
             >
               {lines.chosen.length === 0
@@ -146,7 +146,7 @@ function ProposalBody({
           <button
             type="button"
             className="btn-danger-quiet"
-            disabled={lines.reviewing !== null}
+            disabled={lines.reviewing !== null || dialog !== null}
             onClick={() => setDialog("reject")}
           >
             {t("redistribution.reject.open")}
@@ -221,6 +221,7 @@ export function RedistributionPage(): React.JSX.Element {
           error={error}
           onRetry={read.reload}
           notAvailableKey="redistribution.error.notAvailable"
+          genericKey={proposal ? "redistribution.error.refreshFailed" : undefined}
         />
       ) : null}
       {read.isLoading ? <output className="content__sub">{t("common.loading")}</output> : null}

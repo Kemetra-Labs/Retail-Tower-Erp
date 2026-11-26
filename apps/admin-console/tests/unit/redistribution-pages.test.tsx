@@ -445,7 +445,8 @@ describe("warm cache and continuation", () => {
       };
     });
     renderAt("/inventory/redistribution");
-    fireEvent.click(await screen.findByRole("button", { name: "Compute a new proposal" }));
+    await screen.findByRole("button", { name: /Open the proposal/ }); // the cache is warm
+    fireEvent.click(screen.getByRole("button", { name: "Compute a new proposal" }));
     expect(
       await screen.findByText("Redistribution proposals are not available for this organization."),
     ).toBeTruthy();
@@ -501,6 +502,37 @@ describe("warm cache and continuation", () => {
     expect((group as HTMLFieldSetElement).disabled).toBe(true);
     fireEvent.click(within(group).getByRole("button", { name: "Would accept" }));
     expect(reviewRedistributionProposal).not.toHaveBeenCalled();
+  });
+
+  test("while a decision dialog is open the other decision cannot replace it", async () => {
+    getRedistributionProposal.mockResolvedValue({
+      status: 200,
+      data: proposal({ acceptEnabled: true }),
+    });
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mineral water/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Reject proposal" }));
+    await screen.findByRole("dialog");
+    const accept = screen.getByRole("button", { name: "Accept 1 selected line" });
+    expect((accept as HTMLButtonElement).disabled).toBe(true);
+  });
+
+  test("a failed re-read keeps the proposal and says it may be out of date", async () => {
+    reviewRedistributionProposal.mockImplementation(async () => {
+      getRedistributionProposal.mockResolvedValue({
+        status: 500,
+        error: { error: { code: "internal_error", message: "m", request_id: "r" } },
+      });
+      return {
+        status: 409,
+        error: { error: { code: "proposal_line_already_decided", message: "m", request_id: "r" } },
+      };
+    });
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    const group = await screen.findByRole("group", { name: /Review the Mineral water line/ });
+    fireEvent.click(within(group).getByRole("button", { name: "Would accept" }));
+    expect(await screen.findByText(/may be out of date/)).toBeTruthy();
+    expect(screen.getByText("Mineral water")).toBeTruthy();
   });
 
   test("access narrowed to some stores after a failed read shows the non-disclosing view", async () => {

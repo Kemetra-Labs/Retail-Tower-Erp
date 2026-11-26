@@ -202,15 +202,23 @@ export function ReadFailed({
   error,
   onRetry,
   notAvailableKey,
+  genericKey,
 }: Readonly<{
   error: RedistributionReadError;
   onRetry?: () => void;
   /** A detail 404 may be an unknown id too: it names the proposal, not the organization. */
   notAvailableKey?: MessageKey;
+  /** A generic failure while earlier data stays on screen: say it may be out of date (UX-07). */
+  genericKey?: MessageKey;
 }>): React.JSX.Element {
   const t = useT();
-  const key =
-    error.kind === "notAvailable" && notAvailableKey ? notAvailableKey : READ_COPY[error.kind];
+  const override =
+    error.kind === "notAvailable"
+      ? notAvailableKey
+      : error.kind === "generic"
+        ? genericKey
+        : undefined;
+  const key = override ?? READ_COPY[error.kind];
   return (
     <Banner
       variant={error.kind === "notAvailable" ? "info" : "danger"}
