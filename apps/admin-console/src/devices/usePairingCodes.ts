@@ -11,6 +11,7 @@ import {
   consoleCancelPairingCode,
   consoleListPairingCodes,
 } from "@/lib/device-queries";
+import { NETWORK_FAILURE, loadFailureOf } from "@/lib/error-recovery";
 import { useInfiniteQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import type { DeviceError, DeviceScope } from "./useDevices";
 
@@ -43,7 +44,9 @@ export interface PairingCodeListState {
 
 function errorOf(error: unknown): DeviceError | undefined {
   if (!error) return undefined;
-  return error instanceof CodesFetchError ? error.detail : { kind: "generic" };
+  return error instanceof CodesFetchError
+    ? error.detail
+    : { kind: "generic", failure: NETWORK_FAILURE };
 }
 
 /** One page, or the typed error: a refusal is never an empty list. */
@@ -55,6 +58,7 @@ async function fetchPage(cursor: string | undefined): Promise<PairingCodePage> {
       new CodesFetchError({
         kind: statusKindOf(STATUS_KINDS, r.status),
         requestId: requestIdOf(r.error),
+        failure: loadFailureOf(r),
       }),
   );
 }

@@ -77,7 +77,7 @@ function Body({ state }: Readonly<{ state: RecentSalesState }>): React.JSX.Eleme
     case "error":
       return (
         <div className="section-panel__body">
-          <PanelError requestId={state.requestId} retry={state.retry} />
+          <PanelError requestId={state.requestId} failure={state.failure} retry={state.retry} />
         </div>
       );
     case "ready":

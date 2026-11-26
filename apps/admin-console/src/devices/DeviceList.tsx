@@ -4,6 +4,8 @@ import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { LoadErrorBanner } from "@/components/LoadErrorBanner";
+import { ReadingNote } from "@/components/ReadingNote";
 import { DateTime, type T, useT } from "@/i18n";
 import type { DeviceSummary } from "@/lib/device-queries";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -135,15 +137,11 @@ function FailureBanner({
     );
   }
   return (
-    <Banner
-      variant="danger"
-      message={t("devices.list.loadFailed")}
-      requestId={error.requestId}
-      action={
-        <button type="button" className="btn-secondary" onClick={onRetry}>
-          {t("devices.list.retry")}
-        </button>
-      }
+    <LoadErrorBanner
+      what={t("devices.list.loadFailed")}
+      failure={error.failure}
+      retryLabel={t("devices.list.retry")}
+      onRetry={onRetry}
     />
   );
 }
@@ -184,15 +182,11 @@ function Pager({ list }: Readonly<{ list: DeviceListState }>): React.JSX.Element
   return (
     <>
       {list.inlineError ? (
-        <Banner
-          variant="danger"
-          message={t("devices.list.inlineError")}
-          requestId={list.inlineError.requestId}
-          action={
-            <button type="button" className="btn-secondary" onClick={list.retry}>
-              {t("devices.list.retry")}
-            </button>
-          }
+        <LoadErrorBanner
+          what={t("devices.list.inlineError")}
+          failure={list.inlineError.failure}
+          retryLabel={t("devices.list.retry")}
+          onRetry={list.retry}
         />
       ) : null}
       <div className="device-pager">
@@ -333,15 +327,16 @@ export function DeviceList(): React.JSX.Element {
           </>
         }
       />
-      <p className="content__sub">{t("devices.list.orderNote")}</p>
-      <p className="content__sub">{t("devices.list.staleNote")}</p>
-
       <DeviceFilterBar
         applied={filters}
         stores={directory.stores}
         onApply={(next) => setSearch(filtersToSearch(next))}
         onClear={clearFilters}
       />
+      <ReadingNote>
+        <p>{t("devices.list.orderNote")}</p>
+        <p>{t("devices.list.staleNote")}</p>
+      </ReadingNote>
 
       {/* Only beside rows: with no rows the list's own state already speaks. */}
       {saleQueues.status === "failed" && list.rows.length > 0 ? (

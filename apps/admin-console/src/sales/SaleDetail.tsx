@@ -2,7 +2,9 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { DetailGrid } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
+import { LoadErrorBanner } from "@/components/LoadErrorBanner";
 import { PageHeader } from "@/components/PageHeader";
+import { ReadingNote } from "@/components/ReadingNote";
 import { DateTime, Money, useT } from "@/i18n";
 import type { SaleDetail as Detail } from "@/lib/sale-queries";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
@@ -154,6 +156,24 @@ function RelatedSection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
   );
 }
 
+/** The caveats that explain the page; each line shows only when it applies. Nothing, no note. */
+function SaleReadingNote({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element | null {
+  const t = useT();
+  const lines = [
+    detail.lineOrder === "not_recorded" ? t("sales.lines.orderNotRecorded") : null,
+    t("sales.payments.netNote"),
+    detail.void ? t("sales.void.approverRoleNote") : null,
+  ].filter((line): line is string => line !== null);
+  if (lines.length === 0) return null;
+  return (
+    <ReadingNote>
+      {lines.map((line) => (
+        <p key={line}>{line}</p>
+      ))}
+    </ReadingNote>
+  );
+}
+
 function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const t = useT();
   const { role } = useSaleScope();
@@ -176,6 +196,7 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
         </p>
       </PageHeader>
       <ErpFailureBanner detail={detail} role={role} />
+      <SaleReadingNote detail={detail} />
       <DetailGrid>
         <SummarySection detail={detail} />
         <PaymentsSection detail={detail} index={2} />
@@ -209,18 +230,20 @@ function ErrorView({
   const session = error.kind === "session";
   return (
     <div className="surface">
-      <Banner
-        variant="danger"
-        message={t(session ? "sales.list.sessionExpired" : "sales.detail.loadFailed")}
-        requestId={error.requestId}
-        action={
-          session ? undefined : (
-            <button type="button" className="btn-secondary" onClick={onRetry}>
-              {t("sales.detail.retry")}
-            </button>
-          )
-        }
-      />
+      {session ? (
+        <Banner
+          variant="danger"
+          message={t("sales.list.sessionExpired")}
+          requestId={error.requestId}
+        />
+      ) : (
+        <LoadErrorBanner
+          what={t("sales.detail.loadFailed")}
+          failure={error.failure}
+          retryLabel={t("sales.detail.retry")}
+          onRetry={onRetry}
+        />
+      )}
       <BackLink />
     </div>
   );

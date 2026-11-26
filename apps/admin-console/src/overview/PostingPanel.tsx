@@ -167,7 +167,12 @@ export function PostingPanel({
         {state.status === "loading" ? <PanelSkeleton lines={3} /> : null}
         {state.status === "error" ? (
           // The receipt row reads the same summary and announces its failure.
-          <PanelError requestId={state.requestId} retry={state.retry} announce={false} />
+          <PanelError
+            requestId={state.requestId}
+            failure={state.failure}
+            retry={state.retry}
+            announce={false}
+          />
         ) : null}
         {state.status === "ready" ? <Body summary={state.data} /> : null}
       </div>

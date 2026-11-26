@@ -309,7 +309,9 @@ describe("receipt row", () => {
     const alert = await within(
       await screen.findByRole("region", { name: "Today so far" }),
     ).findByRole("alert");
-    expect(alert.textContent).toContain("Couldn't load this part. Nothing was changed.");
+    expect(alert.textContent).toContain(
+      "Couldn't load this part. The server returned an error. Nothing was changed.",
+    );
     expect(alert.textContent).toContain("req-9");
     consoleGetSalesSummary.mockImplementation(() => ok(storeRead()));
     await act(async () => {

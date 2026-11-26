@@ -17,6 +17,7 @@ import {
   dataOrThrow as sharedDataOrThrow,
   statusKindOf,
 } from "@/lib/backend-envelope";
+import { type LoadFailure, NETWORK_FAILURE, loadFailureOf } from "@/lib/error-recovery";
 import {
   type SaleDetail,
   type SaleListQuery,
@@ -30,6 +31,8 @@ import { isSaleRef, listEnded, nextSaleCursor } from "./saleLogic";
 export type SaleError = {
   kind: "not-found" | "session" | "rejected" | "generic";
   requestId?: string;
+  /** RT-965: cause and whether a retry can help (a thrown read is the network). */
+  failure: LoadFailure;
 };
 
 export interface SaleScope {
@@ -74,7 +77,9 @@ const STATUS_KINDS: Record<number, SaleError["kind"]> = {
 
 function errorOf(error: unknown): SaleError | undefined {
   if (!error) return undefined;
-  return error instanceof SaleFetchError ? error.detail : { kind: "generic" };
+  return error instanceof SaleFetchError
+    ? error.detail
+    : { kind: "generic", failure: NETWORK_FAILURE };
 }
 
 /** Unwrap one wrapper result: its payload, or the typed error. */
@@ -85,6 +90,7 @@ function dataOrThrow<P>(res: ApiResult<P>): P {
       new SaleFetchError({
         kind: statusKindOf(STATUS_KINDS, r.status),
         requestId: requestIdOf(r.error),
+        failure: loadFailureOf(r),
       }),
   );
 }
@@ -190,7 +196,7 @@ export interface SaleDetailState {
   retry: () => void;
 }
 
-const INVALID_REF: SaleError = { kind: "not-found" };
+const INVALID_REF: SaleError = { kind: "not-found", failure: loadFailureOf({ status: 404 }) };
 
 export function useSaleDetail(scope: SaleScope, saleRef: string | undefined): SaleDetailState {
   const validRef = isSaleRef(saleRef);

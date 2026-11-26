@@ -165,7 +165,7 @@ export function SaleRail({
       ) : null}
       <p className="overview-rail__note">{t("overview.pipeline.posNote")}</p>
       {devices.status === "error" ? (
-        <PanelError requestId={devices.requestId} retry={devices.retry} />
+        <PanelError requestId={devices.requestId} failure={devices.failure} retry={devices.retry} />
       ) : null}
     </div>
   );

@@ -123,11 +123,16 @@ function Panels({
           </div>
           <RecentSales state={recent} />
           {canOpenAudit(session.role) ? (
-            <p className="overview__related">
-              <Link className="ledger__link" to="/audit">
-                {t("shell.nav.audit")}
-              </Link>
-            </p>
+            <section className="section-panel" aria-labelledby="overview-audit">
+              <div className="section-panel__head">
+                <h2 id="overview-audit" className="section-panel__title">
+                  {t("overview.audit.title")}
+                </h2>
+                <Link className="ledger__link glance-head-link" to="/audit">
+                  {t("shell.nav.audit")}
+                </Link>
+              </div>
+            </section>
           ) : null}
         </div>
         <SideColumn
