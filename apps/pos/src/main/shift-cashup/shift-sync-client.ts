@@ -52,6 +52,9 @@
  * transport reads every answer body and reports a body that cannot be read as `null`, the same as
  * no answer at all. This client reads the body only to label a refusal, so it keeps the response
  * the fetch resolved with and maps a body-read failure from that status (a refusal: `rejected`).
+ * Two deliberate differences: a refusal body over 2 MB (declared or streamed) is not read, so it is
+ * the generic `rejected`; and every answer body is now read before mapping, so a slow body delays
+ * the result (still bounded by the request timeout, so the drain bound holds), never changes it.
  */
 import { createBackendTransport, type BackendAnswer, type FetchLike } from '../http/transport.js';
 import {

@@ -202,6 +202,35 @@ describe('RT-1209 shift sync wire: response classes', () => {
     expect(observe).toHaveBeenCalledExactlyOnceWith('sale_sync', status);
   });
 
+  it('a refusal whose body stalls past the timeout → rejected, never no_connection', async () => {
+    const { client } = clientWith((_url, init) => {
+      // The body never ends; the request signal errors it, as a real fetch does on abort.
+      const body = new ReadableStream<Uint8Array>({
+        start(controller) {
+          init.signal?.addEventListener('abort', () => {
+            controller.error(init.signal?.reason);
+          });
+        },
+      });
+      return Promise.resolve(new Response(body, { status: 409 }));
+    }, 30);
+    await expect(SENDS.closeShift(client)).resolves.toEqual({
+      kind: 'rejected',
+      reason: 'rejected',
+    });
+  });
+
+  it('RT-1209 cap: a refusal body over 2 MB is not read → the generic rejected', async () => {
+    const huge = JSON.stringify({
+      error: { code: 'currency_mismatch', message: 'x'.repeat(2_000_001) },
+    });
+    const { client } = clientWith(() => Promise.resolve(answer(422, huge)));
+    await expect(SENDS.closeShift(client)).resolves.toEqual({
+      kind: 'rejected',
+      reason: 'rejected',
+    });
+  });
+
   it('never puts a credential or server text in a result', async () => {
     for (const name of SEND_NAMES) {
       const { client } = clientWith(() =>
