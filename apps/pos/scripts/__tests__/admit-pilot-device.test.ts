@@ -20,16 +20,27 @@ const read = (rel: string): string =>
 const script = read('scripts/pilot/admit-pilot-device.ps1');
 /** The script without its help block and `#` comments, so negative checks look at code only. */
 const code = script.replace(/<#[\s\S]*?#>/g, '').replace(/^\s*#.*$/gm, '');
+/** The process environment without PSModulePath, in whatever case Windows spelled it. */
+const withoutPsModulePath = (): NodeJS.ProcessEnv =>
+  Object.fromEntries(
+    Object.entries(process.env).filter(([key]) => key.toLowerCase() !== 'psmodulepath'),
+  );
 /** Index of the first match, or -1. */
 const at = (pattern: RegExp): number => script.search(pattern);
 
 describe('RT-1611 admit-pilot-device.ps1: inputs', () => {
   it('needs the installer, the SHA-256 from Download POS and the pinned thumbprint; has VerifyOnly and Remove modes', () => {
-    expect(script).toMatch(/\[Parameter\(Mandatory, ParameterSetName = 'Admit'\)\]\[string\]\$InstallerPath/);
-    expect(script).toMatch(/\[Parameter\(Mandatory, ParameterSetName = 'Admit'\)\]\[string\]\$ExpectedSha256/);
+    expect(script).toMatch(
+      /\[Parameter\(Mandatory, ParameterSetName = 'Admit'\)\]\[string\]\$InstallerPath/,
+    );
+    expect(script).toMatch(
+      /\[Parameter\(Mandatory, ParameterSetName = 'Admit'\)\]\[string\]\$ExpectedSha256/,
+    );
     expect(script).toMatch(/\[Parameter\(Mandatory\)\]\[string\]\$PinnedThumbprint/);
     expect(script).toMatch(/\[switch\]\$VerifyOnly/);
-    expect(script).toMatch(/\[Parameter\(Mandatory, ParameterSetName = 'Remove'\)\]\[switch\]\$Remove/);
+    expect(script).toMatch(
+      /\[Parameter\(Mandatory, ParameterSetName = 'Remove'\)\]\[switch\]\$Remove/,
+    );
   });
 
   it('validates the pin and the hash formats before using them', () => {
@@ -68,7 +79,12 @@ describe('RT-1611 admit-pilot-device.ps1: what it checks', () => {
   it('runs every check before it writes anything, and VerifyOnly exits before the write', () => {
     const write = at(/\$store\.Add\(\$leaf\)/);
     expect(write).toBeGreaterThan(0);
-    for (const check of [/^Assert-InstallerHash \$installer/m, /^Assert-PilotLeaf \$leaf/m, /^if \(\$VerifyOnly\)/m, /^Assert-Elevated$/m]) {
+    for (const check of [
+      /^Assert-InstallerHash \$installer/m,
+      /^Assert-PilotLeaf \$leaf/m,
+      /^if \(\$VerifyOnly\)/m,
+      /^Assert-Elevated$/m,
+    ]) {
       const i = at(check);
       expect(i, String(check)).toBeGreaterThan(0);
       expect(i, String(check)).toBeLessThan(write);
@@ -76,7 +92,9 @@ describe('RT-1611 admit-pilot-device.ps1: what it checks', () => {
   });
 
   it('adds only the public bytes rebuilt from the signer certificate', () => {
-    expect(script).toMatch(/X509Certificate2\]::new\(\[byte\[\]\]\$sig\.SignerCertificate\.RawData\)/);
+    expect(script).toMatch(
+      /X509Certificate2\]::new\(\[byte\[\]\]\$sig\.SignerCertificate\.RawData\)/,
+    );
   });
 });
 
@@ -85,7 +103,9 @@ describe('RT-1611 admit-pilot-device.ps1: where it writes', () => {
     expect(script).toMatch(/X509Store\('Root', 'LocalMachine'\)/);
     const stores = script.match(/X509Store\([^)]*\)/g) ?? [];
     expect(stores).toEqual(["X509Store('Root', 'LocalMachine')"]);
-    expect(code).not.toMatch(/TrustedPublisher|CurrentUser|AuthRoot|Import-Certificate|Import-PfxCertificate|certutil/i);
+    expect(code).not.toMatch(
+      /TrustedPublisher|CurrentUser|AuthRoot|Import-Certificate|Import-PfxCertificate|certutil/i,
+    );
   });
 
   it('needs an elevated shell for the write and for Remove', () => {
@@ -95,10 +115,14 @@ describe('RT-1611 admit-pilot-device.ps1: where it writes', () => {
   });
 
   it('confirms Valid from the pinned leaf afterwards, and removes a leaf it just added when that fails', () => {
-    expect(script).toMatch(/\[string\]\$check\.Status -ne 'Valid' -or \$check\.SignerCertificate\.Thumbprint -ne \$pin/);
+    expect(script).toMatch(
+      /\[string\]\$check\.Status -ne 'Valid' -or \$check\.SignerCertificate\.Thumbprint -ne \$pin/,
+    );
     // Any stop before $admitted is set (an error, Ctrl+C) removes the leaf again, in a finally block.
     expect(script).toMatch(/\$admitted = \$false\n\s*try \{/);
-    expect(script).toMatch(/\} finally \{\n\s*if \(-not \$admitted\) \{\n\s*try \{ Remove-PilotLeaf/);
+    expect(script).toMatch(
+      /\} finally \{\n\s*if \(-not \$admitted\) \{\n\s*try \{ Remove-PilotLeaf/,
+    );
     expect(script).toMatch(/ROLLBACK FAILED/);
   });
 
@@ -119,41 +143,55 @@ describe('RT-1611 admit-pilot-device.ps1: where it writes', () => {
  * afterwards) and runs the script with -VerifyOnly, which needs no admin and writes no trust store.
  * Windows only (the POS CI runs on windows-latest).
  */
-describe.runIf(process.platform === 'win32')('RT-1611 admit-pilot-device.ps1 -VerifyOnly behaviour', () => {
-  it('passes only the pinned, self-signed, code-signing-only leaf on an intact file with the right hash', () => {
-    const work = mkdtempSync(path.join(tmpdir(), 'rt1611-'));
-    try {
-      const run = spawnSync(
-        'powershell.exe',
-        [
-          '-NoProfile', '-NonInteractive', '-ExecutionPolicy', 'Bypass', '-File',
-          path.join(REPO_ROOT, 'scripts/__tests__/fixtures/admit-pilot-device-cases.ps1'),
-          '-AdmitScript', path.join(REPO_ROOT, 'scripts/pilot/admit-pilot-device.ps1'),
-          '-WorkDir', work,
-        ],
-        { encoding: 'utf8', timeout: 120_000 },
-      );
-      expect(run.status, run.stderr).toBe(0);
-      const results = JSON.parse(run.stdout.trim().split(/\r?\n/).pop() ?? '{}') as Record<string, string>;
-      expect(results['good']).toBe('pass');
-      expect(results['pin in lower case with a copied U+200E mark']).toBe('pass');
-      const refusals: Record<string, RegExp> = {
-        'same subject, another key': /not the pinned pilot leaf/,
-        'wrong sha256': /SHA-256 is/,
-        ca: /is a CA/,
-        'code signing plus server auth': /Code Signing purpose only/,
-        'wrong subject': /not the pilot certificate/,
-        // Windows will not sign with a not-yet-valid certificate, so the file arrives unsigned: refused either way.
-        'not valid yet': /not valid before|no intact signature/,
-        unsigned: /no intact signature/,
-        'changed after signing': /no intact signature|SHA-256 is/,
-      };
-      for (const [name, reason] of Object.entries(refusals)) {
-        expect(results[name], name).toMatch(/^refused: /);
-        expect(results[name], name).toMatch(reason);
+describe.runIf(process.platform === 'win32')(
+  'RT-1611 admit-pilot-device.ps1 -VerifyOnly behaviour',
+  () => {
+    it('passes only the pinned, self-signed, code-signing-only leaf on an intact file with the right hash', () => {
+      const work = mkdtempSync(path.join(tmpdir(), 'rt1611-'));
+      try {
+        const run = spawnSync(
+          'powershell.exe',
+          [
+            '-NoProfile',
+            '-NonInteractive',
+            '-ExecutionPolicy',
+            'Bypass',
+            '-File',
+            path.join(REPO_ROOT, 'scripts/__tests__/fixtures/admit-pilot-device-cases.ps1'),
+            '-AdmitScript',
+            path.join(REPO_ROOT, 'scripts/pilot/admit-pilot-device.ps1'),
+            '-WorkDir',
+            work,
+          ],
+          // Windows PowerShell 5.1 started from PowerShell 7 (the CI default shell) inherits a PSModulePath
+          // that hides its own modules, including the Cert: drive; let it build its own.
+          { encoding: 'utf8', timeout: 120_000, env: withoutPsModulePath() },
+        );
+        expect(run.status, run.stderr).toBe(0);
+        const results = JSON.parse(run.stdout.trim().split(/\r?\n/).pop() ?? '{}') as Record<
+          string,
+          string
+        >;
+        expect(results['good']).toBe('pass');
+        expect(results['pin in lower case with a copied U+200E mark']).toBe('pass');
+        const refusals: Record<string, RegExp> = {
+          'same subject, another key': /not the pinned pilot leaf/,
+          'wrong sha256': /SHA-256 is/,
+          ca: /is a CA/,
+          'code signing plus server auth': /Code Signing purpose only/,
+          'wrong subject': /not the pilot certificate/,
+          // Windows will not sign with a not-yet-valid certificate, so the file arrives unsigned: refused either way.
+          'not valid yet': /not valid before|no intact signature/,
+          unsigned: /no intact signature/,
+          'changed after signing': /no intact signature|SHA-256 is/,
+        };
+        for (const [name, reason] of Object.entries(refusals)) {
+          expect(results[name], name).toMatch(/^refused: /);
+          expect(results[name], name).toMatch(reason);
+        }
+      } finally {
+        rmSync(work, { recursive: true, force: true });
       }
-    } finally {
-      rmSync(work, { recursive: true, force: true });
-    }
-  }, 150_000);
-});
+    }, 150_000);
+  },
+);
