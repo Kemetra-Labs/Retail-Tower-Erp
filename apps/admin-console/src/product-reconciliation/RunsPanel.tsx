@@ -1,3 +1,6 @@
+import { BusyButton } from "@/components/BusyButton";
+import { AsOf, Panel, StatusPill } from "@/erp-status/parts";
+import { DateTime, type T, useT } from "@/i18n";
 /**
  * RT-727 product-master reconciliation runs: the run history
  * (`listProductReconciliationRuns`, newest first, cursor-paged) and the
@@ -7,16 +10,13 @@
  * as the server returned it. An unavailable or partial ERPNext view is a
  * reported condition of the run, not a failure (FR-007).
  */
-import { BusyButton } from "@/components/BusyButton";
-import { AsOf, Panel, StatusPill } from "@/erp-status/parts";
-import { DateTime, type T, useT } from "@/i18n";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import type { ProductReconciliationRun } from "@/lib/product-reconciliation-queries";
 import { useState } from "react";
 import { Link } from "react-router";
 import { OutcomeBanner, Received, ReconTable, RefusalBanner } from "./parts";
 import {
   type TriggerOutcome,
-  newIdempotencyKey,
   runStatusView,
   runTriggerKey,
   summaryEntries,

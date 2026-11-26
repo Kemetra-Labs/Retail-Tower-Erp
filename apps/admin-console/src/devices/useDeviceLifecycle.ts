@@ -1,3 +1,14 @@
+import {
+  type DeviceImpactPreview,
+  type DeviceLifecycleAction,
+  type PairingCodeIssueRequest,
+  type RevokeReason,
+  consoleGetDeviceImpact,
+  consoleIssuePairingCode,
+  consoleListPairingCodes,
+  consoleRetireDevice,
+  consoleRevokeDevice,
+} from "@/lib/device-queries";
 /**
  * RT-372 hooks for the lifecycle flows: the impact preview, the revoke and
  * retire mutations, and the live codes that replace a device.
@@ -10,21 +21,10 @@
  * Nothing here keeps operator text (the revoke note, the retire reason) beyond
  * the mutation call, and no key or log carries it.
  */
-import {
-  type DeviceImpactPreview,
-  type DeviceLifecycleAction,
-  type PairingCodeIssueRequest,
-  type RevokeReason,
-  consoleGetDeviceImpact,
-  consoleIssuePairingCode,
-  consoleListPairingCodes,
-  consoleRetireDevice,
-  consoleRevokeDevice,
-} from "@/lib/device-queries";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { type MutationFailure, classifyMutationFailure } from "./lifecycleFailure";
 import type { RevokeBody } from "./lifecycleLogic";
-import { newIdempotencyKey } from "./pairingLogic";
 import type { DeviceScope } from "./useDevices";
 
 type ScopeKey = Pick<DeviceScope, "tenantId" | "activeStoreId">;

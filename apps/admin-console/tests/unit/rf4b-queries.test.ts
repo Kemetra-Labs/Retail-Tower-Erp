@@ -1,12 +1,13 @@
 import { describe, expect, test } from "vitest";
 
 import { translate } from "@/i18n";
+import { reuseOrNewKey } from "@/lib/idempotency-key";
 import {
   BULK_DISMISS_MAX,
   type UnknownItemOp,
   mapUnknownItemError,
 } from "@/lib/unknown-items-queries";
-import { keepsKey, newIdempotencyKey, reuseOrNewKey } from "@/unknown-items/unknownItemIdempotency";
+import { keepsKey } from "@/unknown-items/unknownItemIdempotency";
 
 /**
  * RT-724 (RF-4b) error mapping for create-product / reopen / bulk-dismiss. Each
@@ -186,9 +187,6 @@ describe("copy: Arabic-first, never backend English, never a raw key", () => {
 });
 
 describe("idempotency keys", () => {
-  test("a key is 16..128 printable ASCII", () => {
-    expect(newIdempotencyKey()).toMatch(/^[\x21-\x7E]{16,128}$/);
-  });
   test("the same body reuses its key; another body gets a new one", () => {
     const a = reuseOrNewKey(undefined, "reopen:u1");
     expect(reuseOrNewKey(a, "reopen:u1")).toBe(a);

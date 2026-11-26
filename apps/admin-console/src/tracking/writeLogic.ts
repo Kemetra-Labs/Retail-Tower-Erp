@@ -1,3 +1,5 @@
+import type { MessageKey } from "@/i18n";
+import { errorBodyOf } from "@/lib/backend-envelope";
 /**
  * RT-455 pure helpers for the four governed tracking commands (owner approval,
  * RT-455 comment 15245): place a quality hold, release a hold (owner only),
@@ -13,8 +15,7 @@
  * Until RT-453 writes identities every command answers 404: the outcome is a
  * refusal, never a success (owner, comment 15245).
  */
-import type { MessageKey } from "@/i18n";
-import { errorBodyOf } from "@/lib/backend-envelope";
+import { type KeyedAttempt, reuseOrNewKey } from "@/lib/idempotency-key";
 import type {
   BindResolutionCommand,
   CorrectExpiryCommand,
@@ -235,10 +236,7 @@ export function buildBindCommand(
 
 // --- Idempotency -------------------------------------------------------------------
 
-export interface KeyedCommand {
-  fingerprint: string;
-  key: string;
-}
+export type KeyedCommand = KeyedAttempt;
 
 /**
  * The Idempotency-Key for a command: the held one while the command is
@@ -246,8 +244,7 @@ export interface KeyedCommand {
  * UUID (inside the contract's 16 to 128 characters).
  */
 export function keyFor(held: KeyedCommand | null, command: unknown): KeyedCommand {
-  const fingerprint = JSON.stringify(command);
-  return held?.fingerprint === fingerprint ? held : { fingerprint, key: crypto.randomUUID() };
+  return reuseOrNewKey(held, JSON.stringify(command));
 }
 
 // --- Outcome ----------------------------------------------------------------------

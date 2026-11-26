@@ -6,6 +6,7 @@ import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, useT } from "@/i18n";
 import { type PayerAccountCreateBody, consoleCreatePayerAccount } from "@/lib/client";
 import { textField } from "@/lib/form-field";
+import { type KeyedAttempt, newIdempotencyKey, reuseOrNewKey } from "@/lib/idempotency-key";
 /**
  * 017 SF2 — Create-payer drawer (owner / tenant_admin, gated by the list that
  * mounts it). Uncontrolled native form: category / displayName / scope (the
@@ -44,13 +45,7 @@ import {
   type PayerFieldError,
   validatePayerDraft,
 } from "./payerCreateForm";
-import {
-  type KeyedAttempt,
-  type PayerCreateOutcome,
-  classifyPayerCreateOutcome,
-  newIdempotencyKey,
-  reuseOrNewKey,
-} from "./payerIdempotency";
+import { type PayerCreateOutcome, classifyPayerCreateOutcome } from "./payerIdempotency";
 import { payerCategoryKey } from "./payerListLogic";
 
 export interface PayerCreateProps {

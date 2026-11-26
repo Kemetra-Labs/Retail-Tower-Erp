@@ -1,3 +1,5 @@
+import type { MessageKey } from "@/i18n";
+import { errorBodyOf } from "@/lib/backend-envelope";
 /**
  * RT-436 pure helpers for the status-disposition action (RT-435
  * `createStatusMove`). No React, no fetch.
@@ -10,8 +12,7 @@
  *
  * RT-399: helpers return catalog message keys, never copy.
  */
-import type { MessageKey } from "@/i18n";
-import { errorBodyOf } from "@/lib/backend-envelope";
+import { type KeyedAttempt, reuseOrNewKey } from "@/lib/idempotency-key";
 import type {
   CreateStatusMoveCommand,
   InventoryReasonCode,
@@ -147,23 +148,14 @@ export function buildCommand(draft: MoveDraft): CreateStatusMoveCommand {
 }
 
 /**
- * Idempotency-Key for one command: a v4 UUID (36 printable ASCII characters,
- * inside the contract's 16-128). A retry of the SAME command reuses its key; any
- * edit, a success or a key conflict starts a new one.
+ * One command and its Idempotency-Key. A retry of the SAME command reuses its key; any edit, a
+ * success or a key conflict starts a new one.
  */
-export function newMoveKey(): string {
-  return crypto.randomUUID();
-}
-
-export interface KeyedCommand {
-  fingerprint: string;
-  key: string;
-}
+export type KeyedCommand = KeyedAttempt;
 
 /** The key for `command`: the held one when the command is unchanged, else a new one. */
 export function keyFor(held: KeyedCommand | null, command: CreateStatusMoveCommand): KeyedCommand {
-  const fingerprint = JSON.stringify(command);
-  return held?.fingerprint === fingerprint ? held : { fingerprint, key: newMoveKey() };
+  return reuseOrNewKey(held, JSON.stringify(command));
 }
 
 // --- Outcome -------------------------------------------------------------------------

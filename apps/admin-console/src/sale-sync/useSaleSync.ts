@@ -3,6 +3,7 @@ import {
   requestIdOf,
   dataOrThrow as sharedDataOrThrow,
 } from "@/lib/backend-envelope";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import type { SaleDetail } from "@/lib/sale-queries";
 /**
  * RT-726 query hooks for the sale sync-ops surfaces: the sync status and the
@@ -39,7 +40,6 @@ import {
   type RepairOutcome,
   classifyRepair,
   keepsKey,
-  newIdempotencyKey,
   nextRepairCursor,
   readErrorKind,
 } from "./saleSyncLogic";

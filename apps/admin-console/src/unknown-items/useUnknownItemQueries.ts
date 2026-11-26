@@ -1,3 +1,4 @@
+import { type KeyedAttempt, reuseOrNewKey } from "@/lib/idempotency-key";
 import {
   type BulkDismissOutcome,
   type CreateProductFromUnknownItemRequest,
@@ -30,7 +31,7 @@ import {
  */
 import { type QueryClient, useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRef } from "react";
-import { type KeyedAttempt, keepsKey, reuseOrNewKey } from "./unknownItemIdempotency";
+import { keepsKey } from "./unknownItemIdempotency";
 
 export type UnknownItemListResult =
   | { kind: "page"; items: ReviewQueueItem[]; nextCursor: string | null }

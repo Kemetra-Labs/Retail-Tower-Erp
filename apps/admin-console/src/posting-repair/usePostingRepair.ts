@@ -1,3 +1,8 @@
+import {
+  IDEMPOTENCY_IN_PROGRESS_STATUS,
+  type PostingRepairResult,
+  repairPosting,
+} from "@/lib/erp-posting-repair-queries";
 /**
  * RT-1072 (RT-977 §5, §7) — the one write of the sale detail's ERPNext
  * posting-failure banner: `repairPosting` for the handle the detail returned.
@@ -15,11 +20,7 @@
  *     banner side, so it stays on screen when that side is no longer failed.
  *   - The stored ERPNext reason is never sent anywhere: the body is `{}`.
  */
-import {
-  IDEMPOTENCY_IN_PROGRESS_STATUS,
-  type PostingRepairResult,
-  repairPosting,
-} from "@/lib/erp-posting-repair-queries";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { type SaleScope, saleQueryKeys } from "@/sales/useSales";
 import { useQueryClient } from "@tanstack/react-query";
 import { useRef, useState } from "react";
@@ -28,7 +29,6 @@ import {
   type PostingSide,
   classifyPostingRepair,
   keepsPostingKey,
-  newPostingKey,
 } from "./postingFailureLogic";
 
 export interface PostingRepairTarget {
@@ -111,7 +111,7 @@ export function usePostingRepair(target: PostingRepairTarget): PostingRepairStat
     pending,
     outcome,
     canRetry,
-    confirm: (side, workItemRef) => run({ side, workItemRef, key: newPostingKey() }),
+    confirm: (side, workItemRef) => run({ side, workItemRef, key: newIdempotencyKey() }),
     retry: async () => {
       if (kept.current) await run(kept.current);
     },

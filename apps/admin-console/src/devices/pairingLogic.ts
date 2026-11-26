@@ -87,15 +87,6 @@ export function buildIssueBody(
   };
 }
 
-/**
- * A client-generated opaque key (UUID v4: 36 printable characters, inside the
- * contract's 16..128). The issue is non-replayable (RT-82 K3): a key is never
- * reused, so every submit asks for a new one.
- */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 const GROUP = 4;
 
 /**

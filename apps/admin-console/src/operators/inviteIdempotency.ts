@@ -40,14 +40,6 @@ export type InviteOutcome =
 
 const DEFAULT_RETRY_AFTER_SECONDS = 2;
 
-/**
- * Generate an Idempotency-Key. `crypto.randomUUID()` (v4) is 36 chars of
- * `[0-9a-f-]`, well inside the contract's `^[\x21-\x7E]{16,128}$`.
- */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 function codeOf(result: InviteCallResult): string | undefined {
   return result.error?.error?.code;
 }

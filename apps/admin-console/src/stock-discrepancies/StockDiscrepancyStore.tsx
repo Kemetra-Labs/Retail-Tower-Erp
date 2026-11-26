@@ -7,6 +7,7 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { type MessageKey, useT } from "@/i18n";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import type { NegativeOnHandItem, StockSnapshotStatus } from "@/lib/stock-discrepancy-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
 /**
@@ -34,7 +35,6 @@ import { InlineLoadError, LoadMoreButton, TenantScopePrompt, useDiscrepancyScope
 import {
   type TriggerOutcome,
   canRequestSnapshot,
-  newSnapshotRequestKey,
   outcomeBannerView,
   refreshBlockReason,
   statusView,
@@ -85,7 +85,7 @@ function useSnapshotRequest(storeId: string | undefined) {
   async function requestSnapshot(): Promise<void> {
     setOutcome(null);
     try {
-      setOutcome(await request.mutateAsync(newSnapshotRequestKey()));
+      setOutcome(await request.mutateAsync(newIdempotencyKey()));
     } catch {
       setOutcome({ kind: "error" });
     }

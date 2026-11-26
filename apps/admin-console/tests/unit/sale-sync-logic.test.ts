@@ -8,12 +8,11 @@ import {
   isRepairable,
   isStoreFilter,
   keepsKey,
-  newIdempotencyKey,
   readErrorKind,
   syncStatusView,
 } from "@/sale-sync/saleSyncLogic";
 import { describe, expect, test } from "vitest";
-import { SALE, STORE, deadLetter, syncStatus } from "./sale-sync-fixtures";
+import { STORE, deadLetter, syncStatus } from "./sale-sync-fixtures";
 
 const RID = "11111111-2222-4333-8444-555555555555";
 const err = (code: string) => ({ error: { code, message: "x", request_id: RID } });
@@ -169,12 +168,5 @@ describe("classifyRepair (consoleRepairSaleSync response set)", () => {
       expect(keepsKey(classifyRepair({ status })), String(status)).toBe(false);
     }
     expect(keepsKey(classifyRepair({ status: 200, data: syncStatus() }))).toBe(false);
-  });
-
-  test("keys are fresh v4 UUIDs", () => {
-    const a = newIdempotencyKey();
-    expect(a).toMatch(/^[0-9a-f-]{36}$/);
-    expect(newIdempotencyKey()).not.toBe(a);
-    expect(SALE).not.toBe(a);
   });
 });

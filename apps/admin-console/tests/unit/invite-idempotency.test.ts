@@ -1,8 +1,4 @@
-import {
-  type InviteCallResult,
-  classifyInviteOutcome,
-  newIdempotencyKey,
-} from "@/operators/inviteIdempotency";
+import { type InviteCallResult, classifyInviteOutcome } from "@/operators/inviteIdempotency";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -11,19 +7,6 @@ import { describe, expect, test } from "vitest";
  * classifier maps a createInvitation result to the action the UI takes — the
  * replay/409-conflict/425 rules from the contract's idempotency table.
  */
-describe("newIdempotencyKey", () => {
-  test("matches the contract format ^[\\x21-\\x7E]{16,128}$", () => {
-    const key = newIdempotencyKey();
-    expect(key).toMatch(/^[\x21-\x7E]{16,128}$/);
-  });
-
-  test("is unique across calls", () => {
-    const a = newIdempotencyKey();
-    const b = newIdempotencyKey();
-    expect(a).not.toBe(b);
-  });
-});
-
 function res(partial: Partial<InviteCallResult>): InviteCallResult {
   return { status: 0, headers: new Headers(), error: undefined, ...partial };
 }

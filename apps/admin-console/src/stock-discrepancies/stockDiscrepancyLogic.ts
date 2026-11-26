@@ -207,14 +207,6 @@ export function isStoreId(value: string | undefined): value is string {
 
 // --- Refresh (triggerReconciliationRun) ----------------------------------------
 
-/**
- * Idempotency-Key for one refresh click: a v4 UUID (36 printable ASCII
- * characters, inside the contract's `^[\x21-\x7E]{16,128}$`).
- */
-export function newSnapshotRequestKey(): string {
-  return crypto.randomUUID();
-}
-
 export interface TriggerResult {
   status: number;
   error?: unknown;
