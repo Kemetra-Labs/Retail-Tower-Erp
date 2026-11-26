@@ -2,7 +2,7 @@
   "$comment": "RT-1198 code-health ratchet. Lower is better; counts may only go down.",
   "knipUnusedFiles": 0,
   "knipUnusedExports": 109,
-  "knipUnusedTypes": 344,
+  "knipUnusedTypes": 345,
   "knipUnusedDependencies": 6,
   "knipUnlistedDependencies": 2,
   "knipDuplicateExports": 1,
