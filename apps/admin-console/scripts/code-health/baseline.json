@@ -1,12 +1,12 @@
 {
   "$comment": "RT-1200 code-health ratchet. Lower is better; counts may only go down.",
   "knipUnusedFiles": 0,
-  "knipUnusedExports": 129,
+  "knipUnusedExports": 127,
   "knipUnusedTypes": 54,
   "knipUnusedDependencies": 0,
   "knipUnlistedDependencies": 0,
   "knipDuplicateExports": 0,
-  "jscpdClones": 82,
-  "jscpdDuplicatedLines": 952,
+  "jscpdClones": 80,
+  "jscpdDuplicatedLines": 907,
   "biomeCognitiveComplexity": 16
 }

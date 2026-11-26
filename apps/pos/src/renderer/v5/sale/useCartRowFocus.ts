@@ -9,7 +9,7 @@ import { useEffect, useState, type KeyboardEvent } from 'react';
  * walked; from the cart region or a row itself it lands on the row. Tab order
  * is unchanged: row controls stay reachable by Tab.
  */
-export const ROW_FLASH_MS = 150;
+const ROW_FLASH_MS = 150;
 
 const ARROW_STEP: Readonly<Record<string, 1 | -1>> = { ArrowDown: 1, ArrowUp: -1 };
 

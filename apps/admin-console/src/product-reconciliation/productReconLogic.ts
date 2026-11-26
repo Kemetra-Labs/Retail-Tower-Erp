@@ -278,11 +278,6 @@ export function mappingRepairRequest(target: RepairTarget): RepairProductMapping
   };
 }
 
-/** One Idempotency-Key per confirmed action: a v4 UUID. */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 // --- Errors and outcomes ------------------------------------------------------------------
 
 /** A failed read. A 404 is the API's non-disclosing refusal (role, or a run out of scope). */

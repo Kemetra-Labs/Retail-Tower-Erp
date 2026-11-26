@@ -6,6 +6,7 @@ import { ListState } from "@/components/ListState";
 import { type MessageKey, useT } from "@/i18n";
 import { formatDateTime } from "@/i18n/format";
 import { consoleCancelVoucher } from "@/lib/client";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 /**
  * RT-1109 voucher detail drawer: value, effective status, eligibility, expiry,
  * batch and the current redemption (always null until RT-1111/RT-1112 ship).
@@ -25,7 +26,7 @@ import { useRef, useState } from "react";
 import { VoucherEligibilityText, VoucherStatusBadge } from "./VoucherParts";
 import { type VoucherReadError, useVoucher, voucherQueryKeys } from "./useVouchers";
 import { type VoucherRow, canCancelVoucher, formatVoucherAmount } from "./voucherLogic";
-import { classifyCancelOutcome, newIdempotencyKey } from "./voucherOutcomes";
+import { classifyCancelOutcome } from "./voucherOutcomes";
 
 type Store = { id: string; name?: string };
 

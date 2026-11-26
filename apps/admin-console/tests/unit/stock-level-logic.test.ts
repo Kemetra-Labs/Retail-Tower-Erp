@@ -14,7 +14,6 @@ import {
   levelValuesOf,
   mapLevelWriteError,
   mergeLevelReload,
-  newIntentKey,
   normalizeLevel,
   normalizeLevels,
   validateLevelForm,
@@ -219,12 +218,6 @@ describe("the Idempotency-Key lifecycle (TH-4)", () => {
     for (const status of [200, 400, 401, 403, 404, 409, 422]) {
       expect(keepsKey(status), String(status)).toBe(false);
     }
-  });
-
-  test("a minted key fits the contract's Idempotency-Key pattern", () => {
-    const minted = newIntentKey();
-    expect(minted).toMatch(/^[\x21-\x7E]{16,128}$/);
-    expect(newIntentKey()).not.toBe(minted);
   });
 });
 

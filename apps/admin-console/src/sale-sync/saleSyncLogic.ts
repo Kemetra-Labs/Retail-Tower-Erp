@@ -234,8 +234,3 @@ export function classifyRepair(result: RepairResult): RepairOutcome {
 export function keepsKey(outcome: RepairOutcome): boolean {
   return outcome.kind === "unconfirmed" || outcome.kind === "rate-limited";
 }
-
-/** A v4 UUID: satisfies the Idempotency-Key format. No new dependency. */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}

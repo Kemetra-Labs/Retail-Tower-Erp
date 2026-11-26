@@ -1,3 +1,5 @@
+import type { BannerVariant } from "@/components/Banner";
+import type { MessageKey } from "@/i18n";
 /**
  * RT-1074 pure rules of the per-product stock-level editor. No React, no fetch.
  * The contract is Backend-Core's `catalog/stock-levels.yaml` (RT-1064 decision
@@ -20,8 +22,7 @@
  *
  * Helpers return message keys, never copy (RT-399).
  */
-import type { BannerVariant } from "@/components/Banner";
-import type { MessageKey } from "@/i18n";
+import { type KeyedAttempt, newIdempotencyKey, reuseOrNewKey } from "@/lib/idempotency-key";
 import type {
   ProductStockLevels,
   SetStockLevelRequest,
@@ -235,10 +236,7 @@ export function normalizeLevels(productId: string, data: unknown): ProductStockL
 // --- The Idempotency-Key lifecycle (TH-4) --------------------------------------------------------
 
 /** One set intent: its fingerprint (scope and body) and the key that names it to the server. */
-export interface KeyedIntent {
-  fingerprint: string;
-  key: string;
-}
+export type KeyedIntent = KeyedAttempt;
 
 /** The identity of a set intent: the target and the exact body. */
 export function intentFingerprint(target: LevelTarget, body: SetStockLevelRequest): string {
@@ -250,11 +248,6 @@ export function intentFingerprint(target: LevelTarget, body: SetStockLevelReques
   ]);
 }
 
-/** A v4 UUID: 36 printable ASCII characters, inside the contract's `^[\x21-\x7E]{16,128}$`. */
-export function newIntentKey(): string {
-  return crypto.randomUUID();
-}
-
 /**
  * The key for this intent. A retry of the SAME intent (after a dropped
  * response, a 5xx, a 425 or a 429) reuses the previous key, so the server
@@ -263,9 +256,9 @@ export function newIntentKey(): string {
 export function keyForIntent(
   previous: KeyedIntent | undefined,
   fingerprint: string,
-  mint: () => string = newIntentKey,
+  mint: () => string = newIdempotencyKey,
 ): KeyedIntent {
-  return previous?.fingerprint === fingerprint ? previous : { fingerprint, key: mint() };
+  return reuseOrNewKey(previous, fingerprint, mint);
 }
 
 // --- The failure of a write ----------------------------------------------------------------------

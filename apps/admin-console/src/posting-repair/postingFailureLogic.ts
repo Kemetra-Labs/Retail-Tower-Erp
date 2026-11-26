@@ -274,8 +274,3 @@ export function keepsPostingKey(outcome: PostingRepairOutcome): boolean {
     outcome.kind === "in-progress"
   );
 }
-
-/** A v4 UUID: satisfies the Idempotency-Key format. No new dependency. */
-export function newPostingKey(): string {
-  return crypto.randomUUID();
-}

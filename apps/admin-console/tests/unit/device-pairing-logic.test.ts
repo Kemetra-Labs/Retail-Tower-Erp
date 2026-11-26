@@ -4,7 +4,6 @@ import {
   type IssueDraft,
   buildIssueBody,
   groupPairingCode,
-  newIdempotencyKey,
   validateIssueDraft,
 } from "@/devices/pairingLogic";
 import { describe, expect, test } from "vitest";
@@ -117,15 +116,6 @@ describe("groupPairingCode (display only; the code itself stays opaque)", () => 
     expect(groupPairingCode("ABCD")).toBe("ABCD");
     expect(groupPairingCode("ABCDE")).toBe("ABCD-E");
     expect(groupPairingCode("abcd1234x")).toBe("abcd-1234-x");
-  });
-});
-
-describe("idempotency key", () => {
-  test("a fresh key per call, within the contract's 16..128 printable range", () => {
-    const a = newIdempotencyKey();
-    const b = newIdempotencyKey();
-    expect(a).not.toBe(b);
-    expect(a).toMatch(/^[\x21-\x7E]{16,128}$/);
   });
 });
 

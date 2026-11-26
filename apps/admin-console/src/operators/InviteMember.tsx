@@ -6,6 +6,7 @@ import { GatedButton } from "@/components/GatedButton";
 import { type MessageKey, useT } from "@/i18n";
 import { type InvitationCreateBody, createInvitation, refreshSession } from "@/lib/client";
 import { textField } from "@/lib/form-field";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { useSignOut } from "@/shell/useSignOut";
 /**
  * SF5-2 — Invite member drawer (T020/T021). Uncontrolled native form (email /
@@ -29,7 +30,7 @@ import { useSignOut } from "@/shell/useSignOut";
  */
 import { useState } from "react";
 import { StoreAccessField } from "./StoreAccessField";
-import { classifyInviteOutcome, newIdempotencyKey } from "./inviteIdempotency";
+import { classifyInviteOutcome } from "./inviteIdempotency";
 import { runInviteWithAuth } from "./useInviteAuth";
 
 export interface InviteMemberProps {

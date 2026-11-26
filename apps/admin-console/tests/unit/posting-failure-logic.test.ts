@@ -3,7 +3,6 @@ import {
   classifyPostingRepair,
   failureViews,
   keepsPostingKey,
-  newPostingKey,
   repairHandleOf,
 } from "@/posting-repair/postingFailureLogic";
 import { describe, expect, test } from "vitest";
@@ -212,11 +211,5 @@ describe("classifyPostingRepair: keyed on outcome, never on 200 vs 201 (RT-977 Â
     expect(keeps(answered(201, recorded()))).toBe(false);
     expect(keeps(refused(409, "idempotency_key_conflict"))).toBe(false);
     expect(keeps(refused(404))).toBe(false);
-  });
-
-  test("a new key is a v4 UUID, different each time", () => {
-    const a = newPostingKey();
-    expect(a).toMatch(/^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/);
-    expect(newPostingKey()).not.toBe(a);
   });
 });

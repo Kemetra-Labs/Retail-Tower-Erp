@@ -34,9 +34,10 @@ describe("data boundary", () => {
     }
   });
 
-  test("a fresh Idempotency-Key per submit comes from crypto.randomUUID", () => {
+  test("a fresh Idempotency-Key per submit is minted per call by the shared helper", () => {
     const hook = readSource("src/ai-manager-sales/useManagerSalesAsk.ts");
-    expect(hook).toContain("crypto.randomUUID()");
+    expect(hook).toContain("newIdempotencyKey()");
+    expect(hook).toContain("@/lib/idempotency-key");
     expect(hook).not.toMatch(/useRef|useState|localStorage|sessionStorage/);
   });
 });

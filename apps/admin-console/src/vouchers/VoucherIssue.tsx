@@ -8,6 +8,7 @@ import { type MessageKey, useT } from "@/i18n";
 import { CURRENCY, formatDateTime } from "@/i18n/format";
 import { type VoucherIssueBody, consoleIssueVouchers } from "@/lib/client";
 import { textField } from "@/lib/form-field";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 /**
  * RT-1109 issue drawer: form → one POST → the codes, once.
  *
@@ -36,7 +37,7 @@ import {
   buildIssueBody,
 } from "./voucherIssueForm";
 import { type VoucherIssueResponse, currencyDigits, formatVoucherAmount } from "./voucherLogic";
-import { classifyIssueOutcome, newIdempotencyKey } from "./voucherOutcomes";
+import { classifyIssueOutcome } from "./voucherOutcomes";
 
 type Store = { id: string; name?: string };
 

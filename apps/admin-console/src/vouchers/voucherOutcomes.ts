@@ -33,11 +33,6 @@ export interface WrapperResult {
   error?: unknown;
 }
 
-/** A fresh Idempotency-Key (v4 UUID, inside `^[\x21-\x7E]{16,128}$`): one per issue attempt, one per voucher cancel. */
-export function newIdempotencyKey(): string {
-  return crypto.randomUUID();
-}
-
 export type IssueOutcome =
   | { kind: "issued" }
   | { kind: "rejected"; messageKey: MessageKey; requestId?: string }

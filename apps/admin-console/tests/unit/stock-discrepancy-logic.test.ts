@@ -10,7 +10,6 @@ import {
   isPendingOverdue,
   isStoreId,
   negativeCountLabel,
-  newSnapshotRequestKey,
   noSnapshotReason,
   outcomeBannerView,
   pagesShareSnapshot,
@@ -114,13 +113,6 @@ describe("snapshot presentation", () => {
 });
 
 describe("refresh (triggerReconciliationRun)", () => {
-  test("Idempotency-Key is 16–128 printable ASCII and unique per call", () => {
-    const a = newSnapshotRequestKey();
-    const b = newSnapshotRequestKey();
-    expect(a).toMatch(/^[\x21-\x7E]{16,128}$/);
-    expect(a).not.toBe(b);
-  });
-
   test("outcome classification", () => {
     expect(classifyTriggerOutcome({ status: 201 })).toEqual({ kind: "requested" });
     expect(classifyTriggerOutcome({ status: 200 })).toEqual({ kind: "requested" });

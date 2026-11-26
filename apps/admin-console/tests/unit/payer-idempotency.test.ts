@@ -1,9 +1,4 @@
-import {
-  type PayerCreateResult,
-  classifyPayerCreateOutcome,
-  newIdempotencyKey,
-  reuseOrNewKey,
-} from "@/payers/payerIdempotency";
+import { type PayerCreateResult, classifyPayerCreateOutcome } from "@/payers/payerIdempotency";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -15,36 +10,6 @@ import { describe, expect, test } from "vitest";
  *
  * Mirrors the proven inviteIdempotency shape — pure functions, no network.
  */
-describe("newIdempotencyKey (payer)", () => {
-  test("matches the contract Idempotency-Key format ^[\\x21-\\x7E]{16,128}$", () => {
-    expect(newIdempotencyKey()).toMatch(/^[\x21-\x7E]{16,128}$/);
-  });
-
-  test("is unique across calls", () => {
-    expect(newIdempotencyKey()).not.toBe(newIdempotencyKey());
-  });
-});
-
-describe("reuseOrNewKey", () => {
-  test("the first attempt for a body mints a key", () => {
-    const attempt = reuseOrNewKey(undefined, '{"displayName":"A"}');
-    expect(attempt.key).toMatch(/^[!-~]{16,128}$/);
-    expect(attempt.fingerprint).toBe('{"displayName":"A"}');
-  });
-
-  test("a retry of the SAME body reuses its key (a dropped response never double-creates)", () => {
-    const first = reuseOrNewKey(undefined, "body-1");
-    expect(reuseOrNewKey(first, "body-1")).toBe(first);
-  });
-
-  test("a different body gets a new key (the same key with another payload would 409)", () => {
-    const first = reuseOrNewKey(undefined, "body-1");
-    const second = reuseOrNewKey(first, "body-2");
-    expect(second.key).not.toBe(first.key);
-    expect(second.fingerprint).toBe("body-2");
-  });
-});
-
 function res(partial: Partial<PayerCreateResult>): PayerCreateResult {
   return { status: 0, headers: new Headers(), error: undefined, ...partial };
 }

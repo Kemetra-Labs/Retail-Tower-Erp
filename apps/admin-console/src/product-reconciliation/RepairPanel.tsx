@@ -1,3 +1,5 @@
+import { GatedButton } from "@/components/GatedButton";
+import { useT } from "@/i18n";
 /**
  * RT-727 repair of one product's ERPNext mapping (`repairProductMapping`). An
  * inline panel, not a modal (DESIGN.md).
@@ -18,8 +20,7 @@
  * (`mapped`, `no_op_echo`, `still_unmapped`, `conflict`, or a value this build
  * does not know) is shown as received.
  */
-import { GatedButton } from "@/components/GatedButton";
-import { useT } from "@/i18n";
+import { newIdempotencyKey } from "@/lib/idempotency-key";
 import { useId, useRef, useState } from "react";
 import { OutcomeBanner, Raw, RefusalBanner } from "./parts";
 import {
@@ -29,7 +30,6 @@ import {
   type RepairTarget,
   itemRefOf,
   mappingRepairRequest,
-  newIdempotencyKey,
   refusalView,
   repairOutcomeView,
   suggestConfirmRequest,
