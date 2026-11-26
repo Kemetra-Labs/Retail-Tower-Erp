@@ -167,6 +167,11 @@ describe("command outcomes", () => {
     for (const status of [425, 429, 500, 503]) {
       expect(classifyRedistributionResult({ status })).toMatchObject({ keepKey: true });
     }
+    // 425 and 5xx may have landed: re-read; 429 ran nothing.
+    for (const status of [425, 500]) {
+      expect(classifyRedistributionResult({ status })).toMatchObject({ refresh: true });
+    }
+    expect(classifyRedistributionResult({ status: 429 })).toMatchObject({ refresh: false });
     expect(classifyRedistributionResult({ status: 400 })).toMatchObject({
       messageKey: "redistribution.error.validation",
       keepKey: false,

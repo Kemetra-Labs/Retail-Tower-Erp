@@ -21,7 +21,7 @@ export interface LinesProps {
   productName: (productId: string) => string | undefined;
   selected: ReadonlySet<string>;
   onToggle: (lineId: string) => void;
-  /** A review is in flight for this line: its buttons wait. */
+  /** A review is in flight (for any line): every line waits, so answers cannot race. */
   reviewing: string | null;
   onReview: (lineId: string, decision: RedistributionReviewDecisionValue) => void;
 }
@@ -117,7 +117,7 @@ function LineRow({
         <ReviewCell
           line={line}
           canReview={actions.review}
-          busy={props.reviewing === line.id}
+          busy={props.reviewing !== null}
           label={label}
           onReview={props.onReview}
         />

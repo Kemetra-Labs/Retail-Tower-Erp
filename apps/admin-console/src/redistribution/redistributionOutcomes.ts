@@ -91,12 +91,12 @@ export function classifyRedistributionResult<T>(
     case 422:
       return fail(REFUSALS[code ?? ""] ?? "redistribution.error.generic", requestId);
     case 425:
-      return fail("redistribution.error.uncertain", requestId, { keepKey: true });
+      return fail("redistribution.error.uncertain", requestId, { keepKey: true, refresh: true });
     case 429:
       return fail("redistribution.error.rateLimited", requestId, { keepKey: true });
     default:
       return status >= 500
-        ? fail("redistribution.error.uncertain", requestId, { keepKey: true })
+        ? fail("redistribution.error.uncertain", requestId, { keepKey: true, refresh: true })
         : fail("redistribution.error.generic", requestId);
   }
 }

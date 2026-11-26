@@ -90,6 +90,7 @@ export interface RedistributionListValue {
   isFetchingNextPage: boolean;
   error?: RedistributionReadError;
   loadMore: () => void;
+  retry: () => void;
 }
 
 export function useRedistributionList(
@@ -119,6 +120,11 @@ export function useRedistributionList(
     isLoading: query.isLoading && tenantId !== null,
     loadMore: () => {
       if (more && !query.isFetchingNextPage) void query.fetchNextPage();
+    },
+    // A failed "Load more" retries the next page; any other failure re-reads from the start.
+    retry: () => {
+      if (query.isFetchNextPageError) void query.fetchNextPage();
+      else void query.refetch();
     },
   };
 }
@@ -202,15 +208,30 @@ export function useRedistributionWrites(tenantId: string | null): Redistribution
       outcome = UNCERTAIN;
     }
     if (outcome.kind === "ok" || !outcome.keepKey) attempt.settle();
+    syncCache(op, outcome, proposalId);
+    return outcome;
+  }
+
+  /** After an answer: store the returned proposal, or re-read what may have moved. */
+  function syncCache(
+    op: string,
+    outcome: RedistributionOutcome<unknown>,
+    proposalId: string | undefined,
+  ): void {
+    const list = [...keys.all(tenantId), "list"];
+    if (op === "compute" && (outcome.kind === "ok" || outcome.refresh)) {
+      // Every compute supersedes the tenant's open proposal: no cached detail stays current.
+      void qc.invalidateQueries({ queryKey: keys.all(tenantId) });
+    }
     if (outcome.kind === "ok") {
       const proposal = proposalIn(outcome.data);
       if (proposal) qc.setQueryData(keys.detail(tenantId, proposal.id), proposal);
-      void qc.invalidateQueries({ queryKey: [...keys.all(tenantId), "list"] });
-    } else if (outcome.refresh && proposalId) {
-      void qc.invalidateQueries({ queryKey: keys.detail(tenantId, proposalId) });
-      void qc.invalidateQueries({ queryKey: [...keys.all(tenantId), "list"] });
+      void qc.invalidateQueries({ queryKey: list });
+      return;
     }
-    return outcome;
+    if (!outcome.refresh || !proposalId) return;
+    void qc.invalidateQueries({ queryKey: keys.detail(tenantId, proposalId) });
+    void qc.invalidateQueries({ queryKey: list });
   }
 
   return {
@@ -221,8 +242,11 @@ export function useRedistributionWrites(tenantId: string | null): Redistribution
       );
     },
     review: (proposalId, decisions) =>
-      run(`review:${proposalId}`, JSON.stringify(decisions), proposalId, (key) =>
-        reviewRedistributionProposal(proposalId, decisions, key),
+      run(
+        `review:${proposalId}:${decisions.map((d) => d.lineId).join(",")}`,
+        JSON.stringify(decisions),
+        proposalId,
+        (key) => reviewRedistributionProposal(proposalId, decisions, key),
       ),
     accept: (proposalId, lineIds) =>
       run(`accept:${proposalId}`, JSON.stringify(lineIds), proposalId, (key) =>

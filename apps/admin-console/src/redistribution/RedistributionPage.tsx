@@ -20,7 +20,7 @@ import type {
 } from "@/lib/redistribution-queries";
 import { useProductNames } from "@/offers/useProductNames";
 import { useSignOut } from "@/shell/useSignOut";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { useParams } from "react-router";
 import { AcceptDialog, AcceptResultSummary, RejectDialog } from "./RedistributionDecide";
 import { RedistributionLines } from "./RedistributionLines";
@@ -93,6 +93,12 @@ function ProposalBody({
   const [accepted, setAccepted] = useState<RedistributionAcceptResult | null>(null);
   const [notice, setNotice] = useState<RedistributionNotice | null>(null);
   const decidable = isDecidable(proposal.state);
+  const linesHeading = useRef<HTMLHeadingElement>(null);
+  // The opener may be gone once a decision ends the proposal: focus lands on the lines (UX-11.8).
+  const afterDialog = (): void => {
+    setDialog(null);
+    requestAnimationFrame(() => linesHeading.current?.focus());
+  };
   return (
     <>
       <p className="field__hint">
@@ -118,7 +124,9 @@ function ProposalBody({
       ) : null}
       <NoticeBanner notice={notice ?? lines.notice} />
       {accepted ? <AcceptResultSummary result={accepted} /> : null}
-      <h2 className="redistribution__heading">{t("redistribution.lines.title")}</h2>
+      <h2 className="redistribution__heading" ref={linesHeading} tabIndex={-1}>
+        {t("redistribution.lines.title")}
+      </h2>
       {decidable ? (
         <div className="redistribution__actions">
           {proposal.acceptEnabled ? (
@@ -157,7 +165,7 @@ function ProposalBody({
           lineIds={lines.chosen}
           writes={writes}
           onClose={(result) => {
-            setDialog(null);
+            afterDialog();
             if (result) {
               setAccepted(result);
               lines.clear();
@@ -170,7 +178,7 @@ function ProposalBody({
           proposalId={proposal.id}
           writes={writes}
           onClose={(rejected) => {
-            setDialog(null);
+            afterDialog();
             if (rejected)
               setNotice({ variant: "success", messageKey: "redistribution.reject.done" });
           }}
@@ -198,7 +206,13 @@ export function RedistributionPage(): React.JSX.Element {
         title={t("redistribution.detail.title")}
         actions={proposal ? <ProposalStateBadge state={proposal.state} /> : undefined}
       />
-      {read.error ? <ReadFailed error={read.error} onRetry={read.reload} /> : null}
+      {read.error ? (
+        <ReadFailed
+          error={read.error}
+          onRetry={read.reload}
+          notAvailableKey="redistribution.error.notAvailable"
+        />
+      ) : null}
       {read.isLoading ? <output className="content__sub">{t("common.loading")}</output> : null}
       {proposal ? <ProposalBody proposal={proposal} tenantId={tenantId} /> : null}
     </div>

@@ -28,7 +28,7 @@ export const redistribution: MessagesOf<typeof ar> = {
   "redistribution.list.col.warnings": "Warnings",
   "redistribution.list.col.actions": "Actions",
   "redistribution.list.open": "Open",
-  "redistribution.list.openLabel": "Open the proposal",
+  "redistribution.list.openLabel": "Open the proposal of {time}",
   "redistribution.list.empty": "No proposals yet.",
   "redistribution.list.emptyHint":
     "Compute a proposal to see the quantities the system suggests moving between stores.",
@@ -107,8 +107,8 @@ export const redistribution: MessagesOf<typeof ar> = {
 
   "redistribution.warnings.title": "Compute warnings",
   "redistribution.warnings.none": "No warnings.",
-  "redistribution.warnings.count": { one: "1 item", other: "{count} items" },
-  "redistribution.warning.store_excluded_as_source": "Store excluded from giving",
+  "redistribution.warnings.count": { one: "1 product", other: "{count} products" },
+  "redistribution.warning.store_excluded_as_source": "Store excluded as a source",
   "redistribution.warning.negative_available_to_sell": "Negative available to sell",
   "redistribution.warning.reorder_level_missing": "Reorder level not set",
   "redistribution.warning.tracked_product_skipped": "Tracked product left out",
@@ -169,13 +169,14 @@ export const redistribution: MessagesOf<typeof ar> = {
     "A line already has an accept result. Nothing was recorded. The proposal was read again.",
   "redistribution.error.stale":
     "None of the selected lines is still valid against current stock. No transfer was created. Compute a new proposal.",
-  "redistribution.error.tooLarge": "Too many stores or items for one proposal. Nothing was stored.",
+  "redistribution.error.tooLarge":
+    "Too many stores or products for one proposal. Nothing was stored.",
   "redistribution.error.deadline":
     "The compute took longer than allowed. Nothing was stored. Try again later.",
   "redistribution.error.planInvalid":
     "The validation check refused the computed plan. Nothing was stored. Contact support with the reference.",
   "redistribution.error.uncertain":
-    "No clear answer arrived, and the request may have been recorded. Retry with the same button: it is never recorded twice.",
+    "No clear answer arrived, and the request may have been recorded. Retry now with the same button: it resends the same request.",
   "redistribution.error.rateLimited":
     "Too many requests in a short time. Nothing ran. Wait a moment, then retry.",
   "redistribution.error.generic": "The request could not be completed. Nothing was recorded.",

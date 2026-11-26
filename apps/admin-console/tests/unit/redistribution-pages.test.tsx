@@ -137,7 +137,7 @@ describe("role visibility", () => {
   test("a tenant_admin with every store sees the list and can compute", async () => {
     activeContext.mockReturnValue(asRole("tenant_admin", { store_access_kind: "all" }));
     renderAt("/inventory/redistribution");
-    expect(await screen.findByRole("button", { name: "Open the proposal" })).toBeTruthy();
+    expect(await screen.findByRole("button", { name: /Open the proposal/ })).toBeTruthy();
     expect(screen.getByRole("button", { name: "Compute a new proposal" })).toBeTruthy();
   });
 
@@ -152,7 +152,7 @@ describe("role visibility", () => {
 describe("list states", () => {
   test("a row shows the state, the shortfall before and after, and the counts", async () => {
     renderAt("/inventory/redistribution");
-    await screen.findByRole("button", { name: "Open the proposal" });
+    await screen.findByRole("button", { name: /Open the proposal/ });
     const row = screen.getAllByRole("row")[1] as HTMLElement;
     expect(within(row).getByText("Open", { selector: ".badge" })).toBeTruthy();
     expect(within(row).getByText("20.0000")).toBeTruthy();
@@ -223,7 +223,7 @@ describe("compute", () => {
     });
     renderAt("/inventory/redistribution");
     fireEvent.click(await screen.findByRole("button", { name: "Compute a new proposal" }));
-    expect(await screen.findByText(/Too many stores or items/)).toBeTruthy();
+    expect(await screen.findByText(/Too many stores or products/)).toBeTruthy();
   });
 });
 
@@ -296,12 +296,11 @@ describe("proposal: shadow phase", () => {
     expect(screen.queryByRole("button", { name: "Reject proposal" })).toBeNull();
   });
 
-  test("404: not available, never why", async () => {
+  test("404: this proposal is not available, never why (it may be an unknown id)", async () => {
     getRedistributionProposal.mockResolvedValue(notFound);
     renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
-    expect(
-      await screen.findByText("Redistribution proposals are not available for this organization."),
-    ).toBeTruthy();
+    expect(await screen.findByText("This proposal or this action is not available.")).toBeTruthy();
+    expect(screen.queryByText(/not available for this organization/)).toBeNull();
   });
 });
 
@@ -367,6 +366,43 @@ describe("proposal: live phase", () => {
     const dialog = await screen.findByRole("dialog");
     fireEvent.click(within(dialog).getByRole("button", { name: "Confirm accepting 1 line" }));
     expect(await within(dialog).findByText(/No transfer was created/)).toBeTruthy();
+  });
+});
+
+describe("Idempotency-Key", () => {
+  async function openAcceptDialog() {
+    fireEvent.click(await screen.findByRole("checkbox", { name: /Mineral water/ }));
+    fireEvent.click(screen.getByRole("button", { name: "Accept 1 selected line" }));
+    return screen.findByRole("dialog");
+  }
+  const keyOf = (call: number) => acceptRedistributionProposal.mock.calls[call]?.[2];
+
+  test("an unclear answer keeps the key, so the retry replays; a terminal one mints a new key", async () => {
+    getRedistributionProposal.mockResolvedValue({
+      status: 200,
+      data: proposal({ acceptEnabled: true }),
+    });
+    acceptRedistributionProposal
+      .mockResolvedValueOnce({ status: 503 })
+      .mockResolvedValueOnce({
+        status: 400,
+        error: { error: { code: "validation_error", message: "m", request_id: "r" } },
+      })
+      .mockResolvedValueOnce({ status: 503 });
+    renderAt(`/inventory/redistribution/${PROPOSAL_ID}`);
+    const dialog = await openAcceptDialog();
+    const commit = () =>
+      fireEvent.click(within(dialog).getByRole("button", { name: "Confirm accepting 1 line" }));
+    commit();
+    expect(await within(dialog).findByText(/No clear answer arrived/)).toBeTruthy();
+    await waitFor(() => expect(acceptRedistributionProposal).toHaveBeenCalledTimes(1));
+    commit();
+    await waitFor(() => expect(acceptRedistributionProposal).toHaveBeenCalledTimes(2));
+    expect(keyOf(1)).toBe(keyOf(0));
+    expect(await within(dialog).findByText(/refused the request data/)).toBeTruthy();
+    commit();
+    await waitFor(() => expect(acceptRedistributionProposal).toHaveBeenCalledTimes(3));
+    expect(keyOf(2)).not.toBe(keyOf(1));
   });
 });
 

@@ -213,7 +213,12 @@ test("J1: compute → review → accept to a draft transfer", async ({ page, t, 
 
   // 1. Compute: the new proposal opens.
   await page.getByRole("button", { name: t("redistribution.compute.action") }).click();
-  await expect(page.getByRole("heading", { name: t("redistribution.detail.title") })).toBeVisible();
+  await expect(page).toHaveURL(new RegExp(`/inventory/redistribution/${PROPOSAL}$`));
+  await expect(
+    page.getByRole("heading", { name: t("redistribution.detail.title"), exact: true }),
+  ).toBeVisible();
+  // RT-399 / AC3: the page runs right to left in Arabic and left to right in English.
+  await expect(page.locator("html")).toHaveAttribute("dir", appLocale === "ar" ? "rtl" : "ltr");
   await expect(page.getByText(t("redistribution.phase.live"))).toBeVisible();
   await expect(page.getByText(t("redistribution.exclusion.device_heartbeat_stale"))).toBeVisible();
   await expect(page.getByText("Mineral water 1.5L")).toBeVisible();

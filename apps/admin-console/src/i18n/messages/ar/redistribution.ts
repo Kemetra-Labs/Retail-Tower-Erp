@@ -33,7 +33,7 @@ export const redistribution = {
   "redistribution.list.col.warnings": "تنبيهات",
   "redistribution.list.col.actions": "إجراءات",
   "redistribution.list.open": "فتح",
-  "redistribution.list.openLabel": "فتح المقترح",
+  "redistribution.list.openLabel": "فتح مقترح {time}",
   "redistribution.list.empty": "لا توجد مقترحات بعد.",
   "redistribution.list.emptyHint": "احسب مقترحًا ليقترح النظام كميات تُنقل بين المتاجر.",
   "redistribution.list.more": "عرض مقترحات أقدم",
@@ -110,14 +110,14 @@ export const redistribution = {
   "redistribution.warnings.title": "تنبيهات الحساب",
   "redistribution.warnings.none": "لا توجد تنبيهات.",
   "redistribution.warnings.count": {
-    zero: "{count} صنف",
-    one: "صنف واحد",
-    two: "صنفان",
-    few: "{count} أصناف",
-    many: "{count} صنفًا",
-    other: "{count} صنف",
+    zero: "{count} منتج",
+    one: "منتج واحد",
+    two: "منتجان",
+    few: "{count} منتجات",
+    many: "{count} منتجًا",
+    other: "{count} منتج",
   },
-  "redistribution.warning.store_excluded_as_source": "متجر مستبعد من الإعطاء",
+  "redistribution.warning.store_excluded_as_source": "متجر مستبعد كمصدر",
   "redistribution.warning.negative_available_to_sell": "رصيد متاح للبيع بالسالب",
   "redistribution.warning.reorder_level_missing": "حد إعادة الطلب غير محدد",
   "redistribution.warning.tracked_product_skipped": "منتج متتبَّع لم يُشمل",
@@ -186,13 +186,13 @@ export const redistribution = {
   "redistribution.error.stale":
     "لم يعد أي من السطور المختارة صالحًا مقابل المخزون الحالي، ولم يُنشأ أي تحويل. احسب مقترحًا جديدًا.",
   "redistribution.error.tooLarge":
-    "عدد المتاجر أو الأصناف أكبر من حد المقترح الواحد، ولم يُحفظ شيء.",
+    "عدد المتاجر أو المنتجات أكبر من حد المقترح الواحد، ولم يُحفظ شيء.",
   "redistribution.error.deadline":
     "استغرق الحساب وقتًا أطول من المسموح، ولم يُحفظ شيء. حاول مرة أخرى لاحقًا.",
   "redistribution.error.planInvalid":
     "رفض فحص التحقق الخطة المحسوبة، ولم يُحفظ شيء. راسل الدعم مع المرجع.",
   "redistribution.error.uncertain":
-    "لم يصل رد واضح، وقد يكون الطلب سُجّل. أعد المحاولة بالزر نفسه: لن يُسجَّل مرتين.",
+    "لم يصل رد واضح، وقد يكون الطلب سُجّل. أعد المحاولة الآن بالزر نفسه: يُعيد إرسال الطلب نفسه.",
   "redistribution.error.rateLimited":
     "طلبات كثيرة في وقت قصير، ولم يُنفَّذ شيء. انتظر قليلًا ثم أعد المحاولة.",
   "redistribution.error.generic": "تعذّر تنفيذ الطلب، ولم يُسجَّل شيء.",

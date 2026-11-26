@@ -13,6 +13,7 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { ScopePrompt } from "@/components/ScopePrompt";
 import { useT } from "@/i18n";
+import { formatDateTime } from "@/i18n/format";
 import { LoadMore } from "@/inventory/parts";
 import { CaptionedTable } from "@/inventory/transfers/TransferParts";
 import type { RedistributionProposalSummary } from "@/lib/redistribution-queries";
@@ -63,7 +64,7 @@ function ProposalRow({
           type="button"
           className="btn-secondary"
           onClick={onOpen}
-          aria-label={t("redistribution.list.openLabel")}
+          aria-label={t("redistribution.list.openLabel", { time: formatDateTime(row.createdAt) })}
         >
           {t("redistribution.list.open")}
         </button>
@@ -178,7 +179,9 @@ function ListBody({
   onOpen: (id: string) => void;
 }>): React.JSX.Element {
   const t = useT();
-  if (list.error && list.rows.length === 0) return <ReadFailed error={list.error} />;
+  if (list.error && list.rows.length === 0) {
+    return <ReadFailed error={list.error} onRetry={list.retry} />;
+  }
   if (list.isLoading) return <ListState state="loading" label={t("redistribution.list.label")} />;
   if (list.rows.length === 0) {
     return (
@@ -192,7 +195,7 @@ function ListBody({
   return (
     <>
       <ProposalTable rows={list.rows} onOpen={onOpen} />
-      {list.error ? <ReadFailed error={list.error} onRetry={list.loadMore} /> : null}
+      {list.error ? <ReadFailed error={list.error} onRetry={list.retry} /> : null}
       <LoadMore
         hasMore={list.hasMore}
         isFetching={list.isFetchingNextPage}

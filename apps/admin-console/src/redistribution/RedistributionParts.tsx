@@ -201,12 +201,20 @@ const READ_COPY: Record<RedistributionReadError["kind"], MessageKey> = {
 export function ReadFailed({
   error,
   onRetry,
-}: Readonly<{ error: RedistributionReadError; onRetry?: () => void }>): React.JSX.Element {
+  notAvailableKey,
+}: Readonly<{
+  error: RedistributionReadError;
+  onRetry?: () => void;
+  /** A detail 404 may be an unknown id too: it names the proposal, not the organization. */
+  notAvailableKey?: MessageKey;
+}>): React.JSX.Element {
   const t = useT();
+  const key =
+    error.kind === "notAvailable" && notAvailableKey ? notAvailableKey : READ_COPY[error.kind];
   return (
     <Banner
       variant={error.kind === "notAvailable" ? "info" : "danger"}
-      message={t(READ_COPY[error.kind])}
+      message={t(key)}
       requestId={error.requestId}
       action={error.kind === "generic" && onRetry ? <RetryButton onRetry={onRetry} /> : undefined}
     />
