@@ -393,8 +393,9 @@ jobs:
       # and one SLSA build provenance per attempt of the release run that reached the attest step: a publish retried
       # after a GitHub API error (pos-pilot/v0.1.6: attempts 2 to 6, RT-1006 c19024) leaves several, all for this digest
       # and this run. So the one wanted is selected by predicate type, by this digest and by the release run the
-      # manifest names, and among those the one from the highest attempt, the attempt that published the release.
-      # No match, or two matches from that same attempt, stops the run.
+      # manifest names, and among those the one from the latest attempt. Every candidate is a provenance of this digest
+      # from this run; the release bytes are checked separately above. No match, or two from that attempt, stops the
+      # run, and so does a full page of attestations (a truncated list could hide the latest attempt).
       - name: Resolve the build provenance attestation
         id: attest
         env:
@@ -404,7 +405,8 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
-          LIST="$(gh api "repos/$REPO/attestations/sha256:$DIGEST")" || fail "cannot list the attestations of sha256:$DIGEST"
+          LIST="$(gh api "repos/$REPO/attestations/sha256:$DIGEST?per_page=100")" || fail "cannot list the attestations of sha256:$DIGEST"
+          [ "$(jq '.attestations | length' <<<"$LIST")" -lt 100 ] || fail "100 or more attestations for sha256:$DIGEST: the list may be truncated"
           MATCHES="$(jq -c --arg d "$DIGEST" --arg prefix "https://github.com/$REPO/actions/runs/$CI_RUN" '
               [ .attestations[]
                 | { id: (.bundle_url | capture("/(?<id>[0-9]+)[.]json").id),
