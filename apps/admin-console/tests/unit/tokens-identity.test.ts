@@ -7,6 +7,9 @@ import {
   V4_DARK_PAIRS,
   V4_FORBIDDEN_PAIRS,
   V4_LIGHT_PAIRS,
+  V5_COLOUR_ROLES,
+  V5_PAIRS,
+  V5_RETUNED,
   VIZ_CATEGORICAL,
   VIZ_DIVERGING,
   VIZ_SEQUENTIAL,
@@ -48,6 +51,9 @@ const approvedDark = block(approvedCss, DARK);
 
 const shippedColours = Object.keys(shipped).filter((k) => k.startsWith("--color-"));
 const V4_ROLE_NAMES = V4_COLOUR_ROLES.map((r) => `--color-${r}`);
+// RT-1610: roles whose value v5.0 (DESIGN.md §13.2) sets, pinned below, not traced to RT-392.
+const V5_ROLE_NAMES = [...V5_RETUNED, ...V5_COLOUR_ROLES].map((r) => `--color-${r}`);
+const NOT_RT392 = new Set([...V4_ROLE_NAMES, ...V5_ROLE_NAMES]);
 const VIZ_ROLES = [...VIZ_CATEGORICAL, ...VIZ_SEQUENTIAL, ...VIZ_DIVERGING];
 
 /** A role's hex in a palette; an alias resolves within the same palette. */
@@ -118,7 +124,7 @@ describe("RT-396 light-first tokens", () => {
     expect(shippedColours.length).toBeGreaterThan(0);
     // The v4.0 roles (RT-989) come from DESIGN.md §12.1, not the RT-392 block;
     // their values are pinned in the RT-989 tests below.
-    for (const name of shippedColours.filter((n) => !V4_ROLE_NAMES.includes(n))) {
+    for (const name of shippedColours.filter((n) => !NOT_RT392.has(n))) {
       expect({ name, value: shipped[name] }).toEqual({ name, value: approved[name] });
     }
     expect(shipped["--shadow-overlay"]).toBe(approved["--shadow-overlay"]);
@@ -144,6 +150,7 @@ describe("RT-396 light-first tokens", () => {
       "focus-ring",
       "scrim",
       ...V4_COLOUR_ROLES,
+      ...V5_COLOUR_ROLES,
       ...VIZ_ROLES,
     ];
     expect(shippedColours.sort()).toEqual(roles.map((r) => `--color-${r}`).sort());
@@ -182,7 +189,7 @@ describe("RT-396 light-first tokens", () => {
  * must not spell their values.
  */
 describe("RT-989 / RT-1037 v4.0 roles", () => {
-  const V4_HEX = ["#0a2125", "#5fe0cf", "#a9c2c5", "#f2f5f6"];
+  const V4_HEX = ["#0a2125", "#5fe0cf", "#a9c2c5", "#f3f4f2"];
   // RT-991 adds on-ink (white on Ink, the same in every theme): a role, so a
   // component never spells #ffffff; its value is pinned here, not in V4_HEX.
 
@@ -192,7 +199,7 @@ describe("RT-989 / RT-1037 v4.0 roles", () => {
       mint: "#5fe0cf",
       "ink-muted": "#a9c2c5",
       "on-ink": "#ffffff",
-      canvas: "#f2f5f6",
+      canvas: "#f3f4f2", // v5.0 (RT-1610)
       "action-fill": "#0a2125",
       "on-action-fill": "#ffffff",
     });
@@ -221,7 +228,7 @@ describe("RT-989 / RT-1037 v4.0 roles", () => {
       mint: "#5fe0cf",
       "ink-muted": "#a9c2c5",
       "on-ink": "#ffffff",
-      canvas: "#0e161f",
+      canvas: "#0e1415", // v5.0 (RT-1610)
       "action-fill": "#5fe0cf",
       "on-action-fill": "#0a2125",
     });
@@ -230,7 +237,7 @@ describe("RT-989 / RT-1037 v4.0 roles", () => {
     // Canvas is the approved dark background, and the shadow is an alpha of it.
     expect(resolve("canvas", shippedDark)).toBe(resolve("background", shippedDark));
     expect(shippedDark["--shadow-resting"]).toBe(
-      "0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9)",
+      "0 1px 2px rgb(14 20 21 / 0.6), 0 12px 32px -24px rgb(14 20 21 / 0.9)",
     );
   });
 
@@ -315,10 +322,13 @@ describe("RT-398 dark theme", () => {
     // their dark values are pinned in the RT-989 tests above.
     const rt392Dark = Object.fromEntries(
       Object.entries(shippedDark).filter(
-        ([name]) => !V4_ROLE_NAMES.includes(name) && name !== "--shadow-resting",
+        ([name]) => !NOT_RT392.has(name) && name !== "--shadow-resting",
       ),
     );
-    expect(rt392Dark).toEqual(approvedDark);
+    const rt392Approved = Object.fromEntries(
+      Object.entries(approvedDark).filter(([name]) => !NOT_RT392.has(name)),
+    );
+    expect(rt392Dark).toEqual(rt392Approved);
   });
 
   test("the dark block comes after :root, so it wins at equal specificity", () => {
@@ -388,6 +398,125 @@ describe("RT-822 data-viz tokens", () => {
       expect({ role, value: mapped[`--color-${role}`] }).toEqual({
         role,
         value: expect.stringMatching(/^(CanvasText|GrayText|Canvas)$/),
+      });
+    }
+  });
+});
+
+/**
+ * RT-1610 v5.0 «Console system v3» roles (DESIGN.md §13.2, contrast §13.8; owner
+ * decision D9 of RT-1608, UX-02 amendment of 2026-11-26 on Confluence 62816260).
+ */
+describe("RT-1610 v5.0 roles", () => {
+  const themes = [
+    ["light", shipped],
+    ["dark", shippedDark],
+  ] as const;
+
+  test("the retuned and new roles have the §13.2 values, light and dark", () => {
+    const pick = (p: Record<string, string>) =>
+      Object.fromEntries([...V5_RETUNED, ...V5_COLOUR_ROLES].map((r) => [r, resolve(r, p)]));
+    expect(pick(shipped)).toEqual({
+      background: "#f3f4f2",
+      surface: "#ffffff",
+      "surface-sunken": "#f7f8f6",
+      text: "#14201f",
+      "text-muted": "#56605e",
+      border: "#dfe3e0",
+      primary: "#007560",
+      "primary-soft": "#e2f2ee",
+      success: "#1f6f43",
+      warning: "#8f5300",
+      danger: "#b3261e",
+      selection: "#eef6f4",
+      "success-soft": "#e4f3ea",
+      "warning-soft": "#fff2dc",
+      "danger-soft": "#fcebe9",
+      "unknown-border": "#56605e",
+      "unknown-text": "#14201f",
+      side: "#e9ece9",
+      "side-text": "#24302f",
+      "side-muted": "#55625f",
+      "topbar-field": "#14353a",
+      "topbar-line": "#2d4d52",
+      "topbar-muted": "#b9cccf",
+      attention: "#ff6b5e",
+      band: "#0a2125",
+      "on-band": "#ffffff",
+      "band-action-fill": "#5fe0cf",
+      "on-band-action-fill": "#0a2125",
+      perforation: "#dfe3e0",
+    });
+    expect(pick(shippedDark)).toEqual({
+      background: "#0e1415",
+      surface: "#172021",
+      "surface-sunken": "#121a1b",
+      text: "#e9efee",
+      "text-muted": "#a5b3b1",
+      border: "#2a3738",
+      primary: "#4cc7ac",
+      "primary-soft": "#12302b",
+      success: "#6fd39a",
+      warning: "#f0b45c",
+      danger: "#ff8a80",
+      selection: "#1b2c2a",
+      "success-soft": "#16301f",
+      "warning-soft": "#3a2a12",
+      "danger-soft": "#3a1d1b",
+      "unknown-border": "#a5b3b1",
+      "unknown-text": "#e9efee",
+      side: "#121a1b",
+      "side-text": "#dfe7e6",
+      "side-muted": "#9fb0ae",
+      "topbar-field": "#14292c",
+      "topbar-line": "#2a4246",
+      "topbar-muted": "#a5b3b1",
+      attention: "#ff6b5e",
+      band: "#0a2125",
+      "on-band": "#ffffff",
+      "band-action-fill": "#5fe0cf",
+      "on-band-action-fill": "#0a2125",
+      perforation: "#2a3738",
+    });
+  });
+
+  test("the page background is the canvas role in both themes", () => {
+    expect(shipped["--color-background"]).toBe("var(--color-canvas)");
+    expect(shippedDark["--color-background"]).toBe("var(--color-canvas)");
+  });
+
+  test("UNKNOWN is no longer the danger colour: its outline and word are neutral roles", () => {
+    for (const [, p] of themes) {
+      expect(p["--color-unknown-border"]).toBe("var(--color-text-muted)");
+      expect(p["--color-unknown-text"]).toBe("var(--color-text)");
+    }
+  });
+
+  test.each(themes.flatMap(([t]) => V5_PAIRS.map((pair) => [t, ...pair] as const)))(
+    "%s: %s on %s passes (>= %s:1)",
+    (theme, fg, bg, min) => {
+      expect(ratio(fg, bg, theme === "light" ? shipped : shippedDark)).toBeGreaterThanOrEqual(min);
+    },
+  );
+
+  test("every v5.0 role is restated in the dark block", () => {
+    for (const role of [...V5_RETUNED, ...V5_COLOUR_ROLES]) {
+      expect(shippedDark).toHaveProperty(`--color-${role}`);
+    }
+  });
+
+  test("forced colours map every new v5.0 role to a system colour", () => {
+    const start = shippedCss.indexOf("@media (forced-colors: active)");
+    const body = shippedCss.slice(start, shippedCss.indexOf("}", start));
+    const mapped = Object.fromEntries(
+      [...body.matchAll(/(--color-[a-z0-9-]+):\s*([^;]+);/g)].map((m) => [m[1], m[2].trim()]),
+    );
+    for (const role of V5_COLOUR_ROLES) {
+      expect({ role, value: mapped[`--color-${role}`] }).toEqual({
+        role,
+        value: expect.stringMatching(
+          /^(CanvasText|GrayText|Canvas|Highlight|ButtonFace|ButtonText)$/,
+        ),
       });
     }
   });
