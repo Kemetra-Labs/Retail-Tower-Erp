@@ -78,6 +78,7 @@ export const redistribution: MessagesOf<typeof ar> = {
   "redistribution.outcome.created": "Created in draft",
   "redistribution.outcome.reduced": "Created with less",
   "redistribution.outcome.dropped": "Not created",
+  "redistribution.outcome.unknown": "Unknown result",
   "redistribution.outcome.quantity": "Quantity in draft:",
 
   "redistribution.reason.source_not_fresh": "The source store's data is no longer current.",

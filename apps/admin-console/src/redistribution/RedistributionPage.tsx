@@ -54,10 +54,12 @@ function useLineDecisions(proposal: RedistributionProposal, writes: Redistributi
   const open = new Set(acceptableLineIds(proposal));
   const chosen = [...selected].filter((id) => open.has(id));
   const toggle = (lineId: string): void => {
-    const next = new Set(selected);
-    if (next.has(lineId)) next.delete(lineId);
-    else next.add(lineId);
-    setSelected(next);
+    setSelected((prev) => {
+      const next = new Set(prev);
+      if (next.has(lineId)) next.delete(lineId);
+      else next.add(lineId);
+      return next;
+    });
   };
   const review = async (lineId: string, decision: RedistributionReviewDecisionValue) => {
     setReviewing(lineId);

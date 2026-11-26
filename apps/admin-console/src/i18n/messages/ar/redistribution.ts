@@ -82,6 +82,7 @@ export const redistribution = {
   "redistribution.outcome.created": "أُنشئ في مسودة",
   "redistribution.outcome.reduced": "أُنشئ بكمية أقل",
   "redistribution.outcome.dropped": "لم يُنشأ",
+  "redistribution.outcome.unknown": "نتيجة غير معروفة",
   "redistribution.outcome.quantity": "الكمية في المسودة:",
 
   "redistribution.reason.source_not_fresh": "بيانات المتجر المصدر لم تعد حديثة.",

@@ -168,7 +168,7 @@ export function OutcomeCell({
   return (
     <div className="redistribution__outcome">
       <span className={badge}>
-        {t(OUTCOME_KEYS[outcome.outcome] ?? "redistribution.state.unknown")}
+        {t(OUTCOME_KEYS[outcome.outcome] ?? "redistribution.outcome.unknown")}
       </span>
       {outcome.createdQuantity ? (
         <span>
