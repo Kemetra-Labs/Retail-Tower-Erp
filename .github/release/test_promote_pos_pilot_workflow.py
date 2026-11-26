@@ -855,6 +855,54 @@ class PromotePosPilotLiveSteps(unittest.TestCase):
                 self.assertNotEqual(result.returncode, 0, label)
                 self.assertEqual(step_outputs(temp), {}, label)
 
+    def test_a_retried_release_run_selects_the_provenance_of_its_latest_attempt(self):
+        # pos-pilot/v0.1.6 (RT-1006 c19024): the publish was retried, so attempts 2 to 6 each left a provenance.
+        def slsa_at(att_id: str, attempt: int | None) -> dict:
+            suffix = "" if attempt is None else f"/attempts/{attempt}"
+            return attestation(att_id, statement(invocation=f"https://github.com/{REPO}/actions/runs/{CI_RUN}{suffix}"))
+
+        def run(listed: list) -> tuple[subprocess.CompletedProcess, dict[str, str]]:
+            with tempfile.TemporaryDirectory() as tmp:
+                temp = Path(tmp)
+                env = live_env(temp, **lay_out_release(temp, attestations=listed), DIGEST=DIGEST, CI_RUN=CI_RUN)
+                result = self.run_step(temp, "upload", STEP_ATTEST, env, STUB_GH_LIVE)
+                return result, step_outputs(temp)
+
+        release = attestation(RELEASE_ATTESTATION_ID, statement(RELEASE_PREDICATE))
+        retried = [slsa_at(f"6580600{n}", n) for n in range(2, 7)]
+        picks = {
+            "attempts 2 to 6 plus a bare run (attempt 1) and the release attestation": [release, slsa_at("65806001", None), *retried],
+            "the same, in reverse order": [*reversed(retried), slsa_at("65806001", None), release],
+            "attempts 2 and 6": [retried[0], retried[4]],
+            "attempts 6 and 2": [retried[4], retried[0]],
+            "two from attempt 2 and one from attempt 6": [retried[0], slsa_at("65806102", 2), retried[4]],
+        }
+        for label, listed in picks.items():
+            result, outputs = run(listed)
+            self.assertEqual(result.returncode, 0, f"{label}: {result.stdout}{result.stderr}")
+            self.assertEqual(outputs, {"ref": f"https://github.com/{REPO}/attestations/65806006"}, label)
+            self.assertIn("attempt 6", result.stdout, label)
+        # One short of a full page (99 listed) still selects; a full page (100) is refused even with one clear winner.
+        def page(size: int) -> list:
+            return [slsa_at(str(65807000 + n), 2) for n in range(size - 2)] + [slsa_at("65807999", 6), release]
+
+        result, outputs = run(page(99))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(outputs, {"ref": f"https://github.com/{REPO}/attestations/65807999"})
+        refusals = {
+            "two from the latest attempt and one lower": [retried[0], retried[4], slsa_at("65806106", 6)],
+            "a full page (100) may be truncated": page(100),
+        }
+        for label, listed in refusals.items():
+            result, outputs = run(listed)
+            self.assertNotEqual(result.returncode, 0, label)
+            self.assertEqual(outputs, {}, label)
+        self.assertIn("per_page=100", "\n".join(self.workflow_attest_lines()))
+
+    def workflow_attest_lines(self) -> list[str]:
+        text = WORKFLOW.read_text(encoding="utf-8")
+        return [line for line in text.splitlines() if "attestations/sha256:" in line]
+
     def test_the_backend_core_check_follows_no_redirect_and_needs_exactly_a_200(self):
         # 000 is what curl's -w prints when no HTTP answer came back at all.
         for status, passes in (("200", True), ("302", False), ("401", False), ("404", False), ("503", False), ("000", False)):

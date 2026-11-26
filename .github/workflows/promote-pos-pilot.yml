@@ -389,9 +389,13 @@ jobs:
           { echo "digest=$DIGEST"; echo "size=$SIZE"; echo "ci_run=${BASH_REMATCH[1]}"; } >> "$GITHUB_OUTPUT"
 
       # The registry wants the build provenance attestation's page url (.../attestations/<id>). GitHub's list API does
-      # not return the id; it is the number in each bundle's storage path. Two attestations exist for the installer (the
-      # SLSA build provenance and GitHub's release attestation), so the one wanted is selected by predicate type,
-      # by this digest, and by the release run the manifest names; anything but exactly one match stops the run.
+      # not return the id; it is the number in each bundle's storage path. The installer has GitHub's release attestation
+      # and one SLSA build provenance per attempt of the release run that reached the attest step: a publish retried
+      # after a GitHub API error (pos-pilot/v0.1.6: attempts 2 to 6, RT-1006 c19024) leaves several, all for this digest
+      # and this run. So the one wanted is selected by predicate type, by this digest and by the release run the
+      # manifest names, and among those the one from the latest attempt. Every candidate is a provenance of this digest
+      # from this run; the release bytes are checked separately above. No match, or two from that attempt, stops the
+      # run, and so does a full page of attestations (a truncated list could hide the latest attempt).
       - name: Resolve the build provenance attestation
         id: attest
         env:
@@ -401,8 +405,9 @@ jobs:
         run: |
           set -euo pipefail
           fail() { echo "::error::$*"; exit 1; }
-          LIST="$(gh api "repos/$REPO/attestations/sha256:$DIGEST")" || fail "cannot list the attestations of sha256:$DIGEST"
-          IDS="$(jq -c --arg d "$DIGEST" --arg prefix "https://github.com/$REPO/actions/runs/$CI_RUN" '
+          LIST="$(gh api "repos/$REPO/attestations/sha256:$DIGEST?per_page=100")" || fail "cannot list the attestations of sha256:$DIGEST"
+          [ "$(jq '.attestations | length' <<<"$LIST")" -lt 100 ] || fail "100 or more attestations for sha256:$DIGEST: the list may be truncated"
+          MATCHES="$(jq -c --arg d "$DIGEST" --arg prefix "https://github.com/$REPO/actions/runs/$CI_RUN" '
               [ .attestations[]
                 | { id: (.bundle_url | capture("/(?<id>[0-9]+)[.]json").id),
                     statement: (.bundle.dsseEnvelope.payload | @base64d | fromjson) }
@@ -410,12 +415,19 @@ jobs:
                 | select([.statement.subject[].digest.sha256] | index($d) != null)
                 | select((.statement.predicate.runDetails.metadata.invocationId | type) == "string")
                 | select(.statement.predicate.runDetails.metadata.invocationId | startswith($prefix))
-                | select(.statement.predicate.runDetails.metadata.invocationId | ltrimstr($prefix) | test("^(/attempts/[0-9]+)?$"))
-                | .id ]' <<<"$LIST")" || fail "the attestation list is not in the expected shape"
-          COUNT="$(jq 'length' <<<"$IDS")"
-          [ "$COUNT" = 1 ] || fail "expected exactly one SLSA build provenance attestation for sha256:$DIGEST from run $CI_RUN, found $COUNT"
+                | (.statement.predicate.runDetails.metadata.invocationId | ltrimstr($prefix)) as $rest
+                | select($rest | test("^(/attempts/[0-9]+)?$"))
+                | { id, attempt: (if $rest == "" then 1 else ($rest | ltrimstr("/attempts/") | tonumber) end) } ]' <<<"$LIST")" \
+            || fail "the attestation list is not in the expected shape"
+          COUNT="$(jq 'length' <<<"$MATCHES")"
+          [ "$COUNT" -ge 1 ] || fail "no SLSA build provenance attestation for sha256:$DIGEST from run $CI_RUN"
+          LATEST="$(jq 'map(.attempt) | max' <<<"$MATCHES")"
+          IDS="$(jq -c --argjson a "$LATEST" '[ .[] | select(.attempt == $a) | .id ]' <<<"$MATCHES")"
+          [ "$(jq 'length' <<<"$IDS")" = 1 ] \
+            || fail "expected exactly one SLSA build provenance attestation for sha256:$DIGEST from run $CI_RUN attempt $LATEST, found $(jq 'length' <<<"$IDS")"
           ID="$(jq -r '.[0]' <<<"$IDS")"
           [[ "$ID" =~ ^[0-9]+$ ]] || fail "the attestation id '$ID' is not a number"
+          echo "Build provenance: attestation $ID from run $CI_RUN attempt $LATEST ($COUNT from this run: $(jq -c 'map("\(.attempt):\(.id)")' <<<"$MATCHES"))"
           echo "ref=https://github.com/$REPO/attestations/$ID" >> "$GITHUB_OUTPUT"
 
       # Before a byte is uploaded: if Backend-Core cannot be reached, the registration could not follow it.
