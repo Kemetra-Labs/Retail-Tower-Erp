@@ -1,0 +1,49 @@
+/* Modern concept: Settings & Devices — the Settings hub (rules 1, 2, 5).
+ * Presentation only: the sections inside the cards are shared with the tenant
+ * detail page and are not restyled here. Existing tokens only; logical
+ * properties throughout (RTL by structure). */
+
+/* The surface already gaps its children by var(--space-5); the cards take the
+ * one resting elevation and the panel radius (§12.5), like the Devices
+ * results panel. */
+.settings-surface .section-panel {
+  border-radius: var(--radius-panel);
+  box-shadow: var(--shadow-resting);
+}
+
+/* The quick-links bar: the two destinations the page already had (branding,
+ * account), in one row where there is room, wrapping below it. */
+.settings-quick__links {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: 0 var(--space-5) var(--space-4);
+}
+.settings-quick__links p {
+  margin: 0;
+}
+/* The branding entry carries a top margin for the tenant page's stacked
+ * sections; inside the bar it sits on the row. */
+.settings-quick__links .logo-entry {
+  margin: 0;
+}
+
+/* One card per section, with room to breathe. The sections were written as
+ * stacked siblings under a page header, each with a top rule and a top margin
+ * for that stack; inside a card the rule and the margin go, so the card's own
+ * edge is the only division. */
+.settings-card {
+  padding: var(--space-4) var(--space-5);
+}
+.settings-card > :is(.cash-policy, .ai-plan, .tracked-selling) {
+  margin-block-start: 0;
+  padding-block-start: 0;
+  border-block-start: 0;
+}
+
+@media (forced-colors: active) {
+  .settings-surface .section-panel {
+    box-shadow: none;
+  }
+}

@@ -482,3 +482,43 @@
     border-color: Highlight;
   }
 }
+
+/* ---- Modern concept (Settings & Devices): the list's smart insight (rule 4)
+ * and the columns toggle (rule 1) -------------------------------------------
+ * The insight copies the Overview insight's card (`.overview-insight`): the
+ * action-fill signal line at the inline start, the panel radius and the one
+ * resting elevation. The toggle row sits at the inline end, under the filter
+ * bar; the surface already gaps its children, so it needs no margin. */
+.device-insight {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--space-2) var(--space-4);
+  padding: var(--space-4) var(--space-5);
+  border: 1px solid var(--color-border);
+  border-inline-start: 3px solid var(--color-action-fill);
+  border-radius: var(--radius-panel);
+  background: var(--color-surface);
+  box-shadow: var(--shadow-resting);
+}
+.device-insight__body {
+  flex: 1;
+  min-inline-size: 200px;
+}
+.device-insight__title {
+  margin: 0 0 var(--space-1);
+  font-size: var(--text-control);
+  font-weight: var(--weight-strong);
+}
+.device-insight__text {
+  margin: 0;
+}
+.device-columns {
+  display: flex;
+  justify-content: flex-end;
+}
+@media (forced-colors: active) {
+  .device-insight {
+    box-shadow: none;
+  }
+}

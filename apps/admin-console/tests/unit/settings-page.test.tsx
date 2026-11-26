@@ -52,14 +52,18 @@ describe("SettingsPage", () => {
     ]) {
       expect(screen.getByText(marker)).toBeDefined();
     }
-    expect(screen.getByRole("link", { name: "My account" }).getAttribute("href")).toBe("/account");
+    expect(screen.getByRole("link", { name: "My account" })).toHaveAttribute("href", "/account");
+    // Modern concept (Settings & Devices): the two destinations sit in one
+    // quick-links bar at the top; each inline section sits in its own card.
+    expect(screen.getByRole("heading", { level: 2, name: "Quick links" })).toBeDefined();
+    expect(document.querySelectorAll(".settings-card")).toHaveLength(3);
   });
 
   test("without an active tenant it points at the tenant list", () => {
     ctx.tenant = null;
     renderPage();
     expect(screen.getByText("Choose a tenant first to see its settings.")).toBeDefined();
-    expect(screen.getByRole("link", { name: "Tenants" }).getAttribute("href")).toBe("/tenants");
+    expect(screen.getByRole("link", { name: "Tenants" })).toHaveAttribute("href", "/tenants");
     expect(screen.queryByText("branding-section")).toBeNull();
   });
 });

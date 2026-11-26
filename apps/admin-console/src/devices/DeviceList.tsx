@@ -26,10 +26,19 @@ import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftC
  * stays in the pager, never dressed up as a total. Every result state sits in one
  * results panel; the rows open a device, so they keep a selectable table's ruled
  * rows (DESIGN.md §12.5).
+ *
+ * Modern concept (Settings & Devices): five columns by default (device, store,
+ * trust, attention, unsent sales); credential expiry and last seen sit behind
+ * a "show more columns" toggle (rule 1). One smart insight sits above the
+ * results, computed from the rows and the health index already on the page
+ * (`DeviceInsight.tsx`, rule 4). Pairing codes is the page's one main action
+ * (`btn-primary`, rule 2); the POS download stays a secondary link because it
+ * is the only entry point to the navigator-only /devices/download-pos screen.
  */
 import { useState } from "react";
 import { Link, useLocation, useNavigate, useSearchParams } from "react-router";
 import { DeviceFilterBar } from "./DeviceFilterBar";
+import { DeviceInsight } from "./DeviceInsight";
 import { Attention, DeviceName, LastSeen, TrustBadge } from "./DeviceParts";
 import { SaleQueueCell } from "./SaleQueueParts";
 import {
@@ -55,11 +64,12 @@ function deviceColumns(
   directory: StoreDirectory,
   now: number,
   saleQueues: DeviceHealthIndex,
+  showDetails: boolean,
 ): DataTableColumn<DeviceSummary>[] {
   // RT-1312: joined by deviceId; a device absent from the device-health read is unavailable.
   const queueOf = (d: DeviceSummary) =>
     saleQueueStateOf(saleQueues.byId.get(d.deviceId), saleQueues.status);
-  return [
+  const columns: DataTableColumn<DeviceSummary>[] = [
     {
       key: "device",
       header: t("devices.list.col.device"),
@@ -85,24 +95,33 @@ function deviceColumns(
       header: t("devices.saleQueue.col"),
       cell: (d) => <SaleQueueCell state={queueOf(d)} timeZone={directory.timeZoneOf(d.storeId)} />,
     },
-    {
-      key: "expires",
-      header: t("devices.list.col.expires"),
-      cell: (d) => <DateTime value={d.expiresAt} timeZone={directory.timeZoneOf(d.storeId)} />,
-    },
-    {
-      key: "lastSeen",
-      header: t("devices.list.col.lastSeen"),
-      cell: (d) => (
-        <LastSeen
-          lastSeenAt={d.lastSeenAt}
-          lastSeenSource={d.lastSeenSource}
-          timeZone={directory.timeZoneOf(d.storeId)}
-          showSource
-        />
-      ),
-    },
   ];
+  // Modern concept, rule 1: expiry and last seen are details on demand. The
+  // Attention column already flags a passed expiry, and last seen is not
+  // recorded for most devices yet (RT-370), so the default five columns carry
+  // the one-line status; the toggle restores the full seven.
+  if (showDetails) {
+    columns.push(
+      {
+        key: "expires",
+        header: t("devices.list.col.expires"),
+        cell: (d) => <DateTime value={d.expiresAt} timeZone={directory.timeZoneOf(d.storeId)} />,
+      },
+      {
+        key: "lastSeen",
+        header: t("devices.list.col.lastSeen"),
+        cell: (d) => (
+          <LastSeen
+            lastSeenAt={d.lastSeenAt}
+            lastSeenSource={d.lastSeenSource}
+            timeZone={directory.timeZoneOf(d.storeId)}
+            showSource
+          />
+        ),
+      },
+    );
+  }
+  return columns;
 }
 
 interface ErrorViewProps {
@@ -211,6 +230,8 @@ interface ResultsProps {
   saleQueues: DeviceHealthIndex;
   directory: StoreDirectory;
   filters: DeviceFilters;
+  now: number;
+  showDetails: boolean;
   onOpen: (row: DeviceSummary) => void;
   onClear: () => void;
 }
@@ -237,13 +258,13 @@ function ResultState({
   saleQueues,
   directory,
   filters,
+  now,
+  showDetails,
   onOpen,
   onClear,
 }: Readonly<ResultsProps>): React.JSX.Element {
   const t = useT();
-  // One clock reading per mount: "expiry passed" does not flicker between renders.
-  const [now] = useState(() => Date.now());
-  const columns = deviceColumns(t, directory, now, saleQueues);
+  const columns = deviceColumns(t, directory, now, saleQueues, showDetails);
   const pending = list.isLoading || awaitingRoster(list, directory);
   if (pending) {
     return (
@@ -295,6 +316,10 @@ export function DeviceList(): React.JSX.Element {
   const location = useLocation();
   const navigate = useNavigate();
   const directory = useStoreDirectory(scope.tenantId);
+  // One clock reading per mount: "expiry passed" does not flicker between renders.
+  const [now] = useState(() => Date.now());
+  // Modern concept, rule 1: expiry and last seen are details on demand.
+  const [showDetails, setShowDetails] = useState(false);
 
   const filters = filtersFromSearch(search);
   const list = useDeviceList(scope, buildListQuery(filters));
@@ -317,10 +342,12 @@ export function DeviceList(): React.JSX.Element {
         subtitle={t.rich("devices.list.sub", { tenant: <bdi>{scope.tenantName}</bdi> })}
         actions={
           <>
-            <Link to="/devices/pairing-codes" className="btn-secondary">
+            <Link to="/devices/pairing-codes" className="btn-primary">
               {t("devices.list.pairingCodes")}
             </Link>
             {/* RT-1304 D-2: an action of this page, not a destination: no nav-model entry. */}
+            {/* Modern concept, rule 2: the download stays secondary — it is the
+                only entry point to the navigator-only /devices/download-pos screen. */}
             <Link to="/devices/download-pos" className="btn-secondary">
               {t("devices.download.title")}
             </Link>
@@ -337,6 +364,19 @@ export function DeviceList(): React.JSX.Element {
         <p>{t("devices.list.orderNote")}</p>
         <p>{t("devices.list.staleNote")}</p>
       </ReadingNote>
+
+      <DeviceInsight list={list} saleQueues={saleQueues} now={now} />
+
+      <div className="device-columns">
+        <button
+          type="button"
+          className="btn-ghost"
+          aria-expanded={showDetails}
+          onClick={() => setShowDetails((v) => !v)}
+        >
+          {t(showDetails ? "devices.list.showFewer" : "devices.list.showMore")}
+        </button>
+      </div>
 
       {/* Only beside rows: with no rows the list's own state already speaks. */}
       {saleQueues.status === "failed" && list.rows.length > 0 ? (
@@ -357,6 +397,8 @@ export function DeviceList(): React.JSX.Element {
         saleQueues={saleQueues}
         directory={directory}
         filters={filters}
+        now={now}
+        showDetails={showDetails}
         onClear={clearFilters}
         onOpen={(row) => navigate(`/devices/${row.deviceId}`, { state: { list: location.search } })}
       />

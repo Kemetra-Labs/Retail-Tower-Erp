@@ -43,6 +43,25 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.list.unlabelled": "No label",
   "devices.list.noAttention": "No recorded exception",
 
+  // --- Modern concept (Settings & Devices): the smart insight (rule 4) and the columns toggle (rule 1) ---
+  "devices.insight.title": "What needs attention",
+  "devices.insight.custody": {
+    one: "1 loaded device has an open custody exception.",
+    other: "{count} loaded devices have an open custody exception.",
+  },
+  "devices.insight.stranded": {
+    one: "1 loaded device holds stranded sales.",
+    other: "{count} loaded devices hold stranded sales.",
+  },
+  "devices.insight.pastExpiry": {
+    one: "1 loaded device is past its credential expiry.",
+    other: "{count} loaded devices are past their credential expiry.",
+  },
+  "devices.insight.clear":
+    "No custody exception, stranded sale or passed expiry among the loaded devices.",
+  "devices.list.showMore": "Show expiry and last seen",
+  "devices.list.showFewer": "Hide expiry and last seen",
+
   // --- Attention ---------------------------------------------------------------
   "devices.attention.custody": "Custody exception: open shift",
   "devices.attention.pastExpiry": "Expiry passed (not enforced yet)",
