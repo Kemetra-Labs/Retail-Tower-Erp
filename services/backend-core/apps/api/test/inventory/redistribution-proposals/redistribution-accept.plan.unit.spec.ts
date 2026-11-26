@@ -91,11 +91,15 @@ describe('planAccept: the re-check of each line', () => {
   });
 
   it('shares one source between lines in line order, net of what the earlier lines took', () => {
-    // Surplus 39 at X: line 1 to Y takes 8, line 2 to Z asks 35 and gets 31.
-    const plan = outcomes([line(2, { destinationStoreId: Z, quantity: '35.0000' }), line(1)], facts());
+    // Surplus 39 at X: line 1 to Y takes 8, line 2 to Z (gap 35) asks 35 and gets the 31 left, so the source and
+    // not Z's gap is what limits it (review, PR #901). Lines arrive out of order and are planned in lineSeq order.
+    const base = facts();
+    const rows = new Map(base.rows);
+    rows.set(cellKey(Z, P), { availableToSell: '0.0000', reorderLevel: '35.0000' });
+    const plan = outcomes([line(2, { destinationStoreId: Z, quantity: '35.0000' }), line(1)], { ...base, rows });
     expect(plan).toEqual([
       ['created', '8.0000', null],
-      ['reduced', '10.0000', 'destination_gap_closed'],
+      ['reduced', '31.0000', 'source_available_insufficient'],
     ]);
   });
 
