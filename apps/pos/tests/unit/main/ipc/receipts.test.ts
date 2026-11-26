@@ -171,4 +171,33 @@ describe('T172 — registerReceiptsHandlers', () => {
     expect(res.reason).toBe('sale_not_found');
     expect(bridge.reprint).not.toHaveBeenCalled();
   });
+
+  // RT-1207 — receipts.manualOverride channel (it had no direct test; the per-file branch gate needs one).
+  it('registers the receipts.manualOverride channel', () => {
+    const fake = makeFakeIpcMain();
+    registerReceiptsHandlers(fake.ipcMain, { receiptsBridge: makeBridgeSpy() });
+    expect(fake.channels()).toContain(RECEIPTS_IPC_CHANNELS.MANUAL_OVERRIDE);
+  });
+
+  it('delegates receipts.manualOverride to the bridge with the request payload', async () => {
+    const fake = makeFakeIpcMain();
+    const bridge = makeBridgeSpy();
+    registerReceiptsHandlers(fake.ipcMain, { receiptsBridge: bridge });
+    const req = { sale_id: 'sale-1', idempotency_key: 'idem-1' };
+    await fake.invoke(RECEIPTS_IPC_CHANNELS.MANUAL_OVERRIDE, req);
+    expect(bridge.manualOverride).toHaveBeenCalledWith(req);
+  });
+
+  it('refuses a non-object manualOverride request without calling the bridge', async () => {
+    const fake = makeFakeIpcMain();
+    const bridge = makeBridgeSpy();
+    registerReceiptsHandlers(fake.ipcMain, { receiptsBridge: bridge });
+    const res = (await fake.invoke(RECEIPTS_IPC_CHANNELS.MANUAL_OVERRIDE, 'not-an-object')) as {
+      kind: string;
+      reason: string;
+    };
+    expect(res.kind).toBe('refused');
+    expect(res.reason).toBe('sale_not_found');
+    expect(bridge.manualOverride).not.toHaveBeenCalled();
+  });
 });
