@@ -42,12 +42,12 @@ import type {
 } from './repositories/sales.repository.js';
 
 /** M-N6: the newest 300 are shown; the rest need a search by number. */
-export const RECENT_SALES_CAP = 300;
+const RECENT_SALES_CAP = 300;
 
 const ALLOWED_KEYS: ReadonlySet<string> = new Set(['short_number']);
 
 /** The validated request: the short form to look for, if any. */
-export interface RecentPlan {
+interface RecentPlan {
   /** Canonical digits (no leading zeros), or null for the whole day. */
   readonly short_digits: string | null;
 }
