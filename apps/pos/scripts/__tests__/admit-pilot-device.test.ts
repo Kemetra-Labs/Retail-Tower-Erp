@@ -63,9 +63,11 @@ describe('RT-1611 admit-pilot-device.ps1: what it checks', () => {
     expect(script).toMatch(/explicitly distrusted on this device/);
     // UnknownError is accepted only when the signer chain's single failure is its untrusted self-signed root.
     expect(script).toMatch(
-      /if \(\[string\]\$sig\.Status -eq 'UnknownError'\) \{ Assert-OnlyUntrustedRoot/,
+      /if \(\[string\]\$sig\.Status -eq 'UnknownError'\) \{[\s\S]*?Assert-OnlyUntrustedRoot \$sig\.SignerCertificate/,
     );
     expect(script).toMatch(/\$reasons\[0\] -ne 'UntrustedRoot'/);
+    // ...and only when Windows' reason is exactly CERT_E_UNTRUSTEDROOT, in this system's language.
+    expect(script).toMatch(/Win32Exception\]::new\(\[int\]0x800B0109\)\.Message/);
     expect(script).toMatch(/SignatureType -ne 'Authenticode'/);
     expect(script).toMatch(/KeyCertSign -bor \$flags::CrlSign/);
     expect(script).toMatch(/Basic Constraints extension is not critical/);
@@ -117,7 +119,14 @@ describe('RT-1611 admit-pilot-device.ps1: where it writes', () => {
     expect(script).toContain('Global\\RT1611-pilot-device-admission-$pin');
     const lockUses = script.match(/^\s*\$lock = Enter-AdmissionLock$/gm) ?? [];
     expect(lockUses.length).toBe(2);
-    expect(at(/^\$lock = Enter-AdmissionLock$/m)).toBeLessThan(at(/^\$already = Test-Path/m));
+    const presence = at(/^\s*\$already = Test-Path/m);
+    expect(presence).toBeGreaterThan(0);
+    expect(at(/^\$lock = Enter-AdmissionLock$/m)).toBeLessThan(presence);
+    // Released and disposed in a finally on both paths, so a later run in the same session is not blocked.
+    expect(script).toMatch(/\$mutex\.ReleaseMutex\(\)/);
+    expect(script).toMatch(/\$mutex\.Dispose\(\)/);
+    const releases = script.match(/\} finally \{\n\s*Exit-AdmissionLock \$lock\n\s*\}/g) ?? [];
+    expect(releases.length).toBe(2);
   });
 
   it('needs an elevated shell for the write and for Remove', () => {
@@ -196,6 +205,7 @@ describe.runIf(process.platform === 'win32')(
           'not valid yet': /not valid before|no intact signature/,
           unsigned: /no intact signature/,
           'changed after signing': /no intact signature|SHA-256 is/,
+          'damaged signature block': /signature is invalid|no intact signature/,
         };
         for (const [name, reason] of Object.entries(refusals)) {
           expect(results[name], name).toMatch(/^refused: /);

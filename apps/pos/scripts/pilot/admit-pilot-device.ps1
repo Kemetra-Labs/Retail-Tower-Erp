@@ -10,7 +10,8 @@
   The certificate comes from the downloaded installer itself (its Authenticode signer), not from a separate file.
   Before anything is written it checks, and refuses on any failure:
     - the installer's SHA-256 equals -ExpectedSha256 (the value on Admin Console -> Devices -> Download POS);
-    - the file carries an intact signature (not NotSigned, HashMismatch, NotSupportedFileFormat, Incompatible);
+    - the file carries an intact signature: Valid, or UnknownError only when Windows says exactly that its root
+      is not trusted yet (CERT_E_UNTRUSTEDROOT) and the signer chain fails for that reason alone;
     - the signer's SHA-1 thumbprint equals -PinnedThumbprint (POS_PILOT_LEAF_SHA1, from the owner's records);
     - the subject is exactly CN=Kemetra POS PILOT and the certificate is self-signed;
     - its only purpose is Code Signing, it has a Basic Constraints extension and is not a CA;
@@ -90,6 +91,11 @@ function Enter-AdmissionLock {
   return $mutex
 }
 
+# Releases the lock, so a later run in the same PowerShell session is not blocked.
+function Exit-AdmissionLock($mutex) {
+  try { $mutex.ReleaseMutex() } finally { $mutex.Dispose() }
+}
+
 function Get-SignerLeaf([string]$path) {
   $sig = Get-AuthenticodeSignature -LiteralPath $path
   if ([string]$sig.Status -eq 'NotTrusted') {
@@ -100,10 +106,17 @@ function Get-SignerLeaf([string]$path) {
   }
   if ([string]$sig.SignatureType -ne 'Authenticode') { throw "the installer is not Authenticode-signed (type: $($sig.SignatureType))" }
   if (-not $sig.SignerCertificate) { throw 'the installer signature names no signer certificate' }
-  # UnknownError also covers other invalid-signature cases, not only an untrusted root. Accept it only when the
-  # signer's own chain fails for exactly one reason: its self-signed root is not trusted yet. After admission the
-  # file must still read Valid (checked below), which also proves the signature itself is intact.
-  if ([string]$sig.Status -eq 'UnknownError') { Assert-OnlyUntrustedRoot $sig.SignerCertificate }
+  # UnknownError also covers a damaged signature that still names the pinned signer (seen on a copy of the v0.1.6
+  # installer with one signature byte changed: "The signature of the certificate cannot be verified", 0xc000a000).
+  # Accept it only when Windows' reason is exactly CERT_E_UNTRUSTEDROOT, compared with Windows' own text for that
+  # code in this system's language, and the signer's chain fails for that one reason only.
+  if ([string]$sig.Status -eq 'UnknownError') {
+    $untrustedRoot = [ComponentModel.Win32Exception]::new([int]0x800B0109).Message
+    if ("$($sig.StatusMessage)".Trim().TrimEnd('.') -ne $untrustedRoot.Trim().TrimEnd('.')) {
+      throw "the installer signature is invalid (Windows says: $($sig.StatusMessage)): do not run it"
+    }
+    Assert-OnlyUntrustedRoot $sig.SignerCertificate
+  }
   # Rebuild from the public bytes, so nothing but the certificate itself can be added later.
   return [System.Security.Cryptography.X509Certificates.X509Certificate2]::new([byte[]]$sig.SignerCertificate.RawData)
 }
@@ -159,7 +172,11 @@ if ($PSCmdlet.ParameterSetName -eq 'Remove') {
   if (-not $Remove) { throw 'use -Remove to remove the pilot leaf' }
   Assert-Elevated
   $lock = Enter-AdmissionLock
-  $removed = Remove-PilotLeaf
+  try {
+    $removed = Remove-PilotLeaf
+  } finally {
+    Exit-AdmissionLock $lock
+  }
   if ($removed -gt 0) { Write-Host "[DONE] pilot leaf $pin removed from LocalMachine\Root" }
   else { Write-Host "[DONE] pilot leaf $pin was not in LocalMachine\Root; nothing removed" }
   exit 0
@@ -177,34 +194,38 @@ if ($VerifyOnly) {
 }
 
 Assert-Elevated
-# Held until the process ends: the presence check, the write and any rollback run under it.
+# The presence check, the write and any rollback run under the lock; it is released however this ends.
 $lock = Enter-AdmissionLock
-$already = Test-Path -LiteralPath "$rootPath\$pin"
-if ($already) {
-  Write-Host "[OK] pilot leaf $pin is already in LocalMachine\Root; not adding it again"
-  $check = Get-AuthenticodeSignature -LiteralPath $installer
-  if ([string]$check.Status -ne 'Valid' -or $check.SignerCertificate.Thumbprint -ne $pin) {
-    throw "the pilot leaf was already present and was left in place, but the installer reads $($check.Status): investigate (Disallowed store? group policy?)"
-  }
-} else {
-  # Anything that stops this block before $admitted is set (an error, Ctrl+C) removes the leaf again.
-  $admitted = $false
-  try {
-    $leaf.FriendlyName = 'Kemetra POS PILOT (RT-1611 pilot device admission)'
-    $store = Open-RootStore 'ReadWrite'
-    try { $store.Add($leaf) } finally { $store.Close() }
-    if (-not (Test-Path -LiteralPath "$rootPath\$pin")) { throw 'the pilot leaf was not added to LocalMachine\Root' }
-    Write-Host "[OK] pilot leaf $pin added to LocalMachine\Root"
+try {
+  $already = Test-Path -LiteralPath "$rootPath\$pin"
+  if ($already) {
+    Write-Host "[OK] pilot leaf $pin is already in LocalMachine\Root; not adding it again"
     $check = Get-AuthenticodeSignature -LiteralPath $installer
     if ([string]$check.Status -ne 'Valid' -or $check.SignerCertificate.Thumbprint -ne $pin) {
-      throw "after admission the installer reads $($check.Status), not Valid from $pin; the leaf is being removed again"
+      throw "the pilot leaf was already present and was left in place, but the installer reads $($check.Status): investigate (Disallowed store? group policy?)"
     }
-    $admitted = $true
-  } finally {
-    if (-not $admitted) {
-      try { Remove-PilotLeaf | Out-Null; Write-Host "[ROLLBACK] pilot leaf $pin removed again" }
-      catch { Write-Error "ROLLBACK FAILED: $pin may still be trusted on this device; run this script with -Remove" }
+  } else {
+    # Anything that stops this block before $admitted is set (an error, Ctrl+C) removes the leaf again.
+    $admitted = $false
+    try {
+      $leaf.FriendlyName = 'Kemetra POS PILOT (RT-1611 pilot device admission)'
+      $store = Open-RootStore 'ReadWrite'
+      try { $store.Add($leaf) } finally { $store.Close() }
+      if (-not (Test-Path -LiteralPath "$rootPath\$pin")) { throw 'the pilot leaf was not added to LocalMachine\Root' }
+      Write-Host "[OK] pilot leaf $pin added to LocalMachine\Root"
+      $check = Get-AuthenticodeSignature -LiteralPath $installer
+      if ([string]$check.Status -ne 'Valid' -or $check.SignerCertificate.Thumbprint -ne $pin) {
+        throw "after admission the installer reads $($check.Status), not Valid from $pin; the leaf is being removed again"
+      }
+      $admitted = $true
+    } finally {
+      if (-not $admitted) {
+        try { Remove-PilotLeaf | Out-Null; Write-Host "[ROLLBACK] pilot leaf $pin removed again" }
+        catch { Write-Error "ROLLBACK FAILED: $pin may still be trusted on this device; run this script with -Remove" }
+      }
     }
   }
+} finally {
+  Exit-AdmissionLock $lock
 }
 Write-Host "[DONE] admitted: $(Split-Path -Leaf $installer) reads Valid, signed by $pilotSubject ($pin)"

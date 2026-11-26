@@ -63,6 +63,20 @@ try {
   $tampered = New-SignedFile 'tampered' $good
   Add-Content -LiteralPath $tampered -Value "'changed after signing'"
   $results['changed after signing'] = Invoke-Case $tampered $good.Thumbprint
+  # A PE file signed by the good leaf, then one byte inside its signature block changed: Windows reads
+  # UnknownError, still names the pinned signer, but the reason is not an untrusted root.
+  $exe = Join-Path $WorkDir 'damaged.exe'
+  Add-Type -TypeDefinition 'public static class RT1611Probe { public static void Main() { } }' -OutputAssembly $exe -OutputType ConsoleApplication
+  Set-AuthenticodeSignature -LiteralPath $exe -Certificate $good | Out-Null
+  $bytes = [IO.File]::ReadAllBytes($exe)
+  $pe = [BitConverter]::ToInt32($bytes, 0x3C)
+  $dirs = if ([BitConverter]::ToUInt16($bytes, $pe + 24) -eq 0x20b) { $pe + 24 + 112 } else { $pe + 24 + 96 }
+  $secOff = [BitConverter]::ToInt32($bytes, $dirs + 32)
+  $secLen = [BitConverter]::ToInt32($bytes, $dirs + 36)
+  $i = $secOff + [int]($secLen * 0.5)
+  $bytes[$i] = $bytes[$i] -bxor 0x01
+  [IO.File]::WriteAllBytes($exe, $bytes)
+  $results['damaged signature block'] = Invoke-Case $exe $good.Thumbprint
 } finally {
   foreach ($t in $made) { Remove-Item -LiteralPath "Cert:\CurrentUser\My\$t" -DeleteKey -ErrorAction SilentlyContinue }
 }
