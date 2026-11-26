@@ -6,7 +6,7 @@
   "knipUnusedDependencies": 0,
   "knipUnlistedDependencies": 0,
   "knipDuplicateExports": 0,
-  "jscpdClones": 83,
-  "jscpdDuplicatedLines": 963,
+  "jscpdClones": 82,
+  "jscpdDuplicatedLines": 952,
   "biomeCognitiveComplexity": 16
 }

@@ -214,7 +214,10 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
     renderDetail();
     await loaded();
     const lines = section("Lines");
-    expect(within(lines).getByText(/original receipt order was not recorded/i)).toBeDefined();
+    // RT-965: the caveat lives in the page's "How to read this page" disclosure, not above the lines.
+    expect(within(lines).queryByText(/original receipt order was not recorded/i)).toBeNull();
+    const note = screen.getByText("How to read this page").closest("details");
+    expect(note?.textContent).toMatch(/original receipt order was not recorded/i);
     const rows = within(lines).getAllByRole("row");
     expect(within(rows[1]).getByText("Second")).toBeDefined();
     expect(within(rows[2]).getByText("First")).toBeDefined();

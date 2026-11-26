@@ -26,6 +26,7 @@ import { apiClient } from "@/generated/client";
 import type { ConsoleSalesByStoreSchema } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
 import type { BackendError } from "@/lib/backend-envelope";
+import { serverErrorKey } from "@/lib/error-recovery";
 import { type SalesSummaryRangeProblem, salesSummaryRangeProblem } from "./sales-summary-queries";
 
 type Schemas = ConsoleSalesByStoreSchema.components["schemas"];
@@ -77,7 +78,6 @@ export type SalesByStoreErrorRender =
   | { kind: "generic"; messageKey: MessageKey; requestId?: string };
 
 const COPY = {
-  serverError: "errors.server",
   generic: "errors.generic",
 } as const satisfies Record<string, MessageKey>;
 
@@ -98,7 +98,9 @@ export function mapSalesByStoreError(input: SalesByStoreErrorContext): SalesBySt
   if (input.status === 404) return { kind: "not-found" };
   if (input.status === 429) return { kind: "rate-limited" };
   if (input.status >= 500) {
-    return { kind: "server", messageKey: COPY.serverError, requestId, retryable: true };
+    const key = serverErrorKey(input.status, input.error?.error?.code);
+    if (key === "errors.serverFinal") return { kind: "generic", messageKey: key, requestId };
+    return { kind: "server", messageKey: key, requestId, retryable: true };
   }
   // 401 (the auth interceptor owns the session) and anything undocumented.
   return { kind: "generic", messageKey: COPY.generic, requestId };

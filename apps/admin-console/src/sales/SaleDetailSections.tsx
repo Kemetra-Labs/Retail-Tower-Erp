@@ -162,13 +162,11 @@ export function LinesSection({
 }: Readonly<{ detail: SaleDetail; index?: number }>): React.JSX.Element {
   const t = useT();
   const empty = detail.lines.length === 0;
-  const unordered = detail.lineOrder === "not_recorded";
   return (
     <DetailPanel id="sale-lines" title={t("sales.section.lines")} index={index}>
-      {unordered || empty ? (
+      {empty ? (
         <PanelBody>
-          {unordered ? <p className="content__sub">{t("sales.lines.orderNotRecorded")}</p> : null}
-          {empty ? <p className="content__sub">{t("sales.lines.empty")}</p> : null}
+          <p className="content__sub">{t("sales.lines.empty")}</p>
         </PanelBody>
       ) : null}
       {empty ? null : (
@@ -249,7 +247,6 @@ export function PaymentsSection({
                 </Field>
               </dl>
             )}
-            <p className="content__sub">{t("sales.payments.netNote")}</p>
           </>
         )}
       </div>
@@ -292,7 +289,6 @@ export function VoidSection({
           {voidSummary.approverRole ? t(roleKey(voidSummary.approverRole)) : notRecorded}
         </Field>
       </dl>
-      <p className="content__sub">{t("sales.void.approverRoleNote")}</p>
     </Section>
   );
 }
@@ -415,7 +411,6 @@ export function ErpSection({
           </Field>
         ) : null}
       </dl>
-      <p className="content__sub">{t("sales.erp.note")}</p>
     </Section>
   );
 }

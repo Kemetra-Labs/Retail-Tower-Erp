@@ -47,6 +47,13 @@ export const common: MessagesOf<typeof ar> = {
   "errors.notFound": "This resource is not available.",
   "errors.server": "Something went wrong. Try again.",
   "errors.generic": "The request could not be completed.",
+  "errors.serverFinal":
+    "Something went wrong. Retrying will not fix it: contact support and quote the reference.",
+  "errors.load.cause.network": "The server could not be reached.",
+  "errors.load.cause.server": "The server returned an error.",
+  "errors.load.cause.request": "The server refused the request.",
+  "errors.load.safety": "Nothing was changed.",
+  "errors.load.noRetry": "Retrying will not fix it: contact support and quote the reference.",
 
   "rateLimit.title": "Too many requests",
   "rateLimit.wait": {

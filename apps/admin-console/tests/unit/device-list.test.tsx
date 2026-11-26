@@ -209,6 +209,39 @@ describe("DeviceList (RT-371)", () => {
     await waitFor(() => expect(lastQuery()).toEqual({ page_size: 50, cursor: undefined }));
   });
 
+  test("RT-965: the filters are the first element after the header; the caveats sit in a disclosure", async () => {
+    renderList();
+    await tableReady();
+    const note = screen.getByText("How to read this page").closest("details");
+    expect(note?.hasAttribute("open")).toBe(false);
+    expect(note?.textContent).toMatch(/Retired devices are hidden by default/);
+    expect(note?.textContent).toMatch(/can't be ordered by last seen yet/);
+    // The filter control precedes the disclosure in document order.
+    const store = screen.getByLabelText("Store");
+    expect(
+      store.compareDocumentPosition(note as Node) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+  });
+
+  test("RT-965: a 500 reads cause, safety, a retry and the request id", async () => {
+    consoleListDevices.mockResolvedValueOnce(failure(500, "req-500"));
+    renderList();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Devices could not be loaded.");
+    expect(alert.textContent).toContain("The server returned an error.");
+    expect(alert.textContent).toContain("Nothing was changed.");
+    expect(alert.textContent).toContain("req-500");
+    expect(within(alert).getByRole("button", { name: "Retry" })).toBeDefined();
+  });
+
+  test("RT-965: a network failure names the cause and still offers a retry", async () => {
+    consoleListDevices.mockRejectedValueOnce(new TypeError("Failed to fetch"));
+    renderList();
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("The server could not be reached.");
+    expect(within(alert).getByRole("button", { name: "Retry" })).toBeDefined();
+  });
+
   test("the first request asks only for a page; the order note explains stale", async () => {
     renderList();
     await tableReady();

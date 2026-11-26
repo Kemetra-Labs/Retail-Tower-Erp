@@ -115,6 +115,7 @@ export const shell = {
   "shell.leave.discard": "تجاهل التغييرات",
 
   "components.banner.requestRef": "المرجع: {id}",
+  "components.readingNote.summary": "كيف تُقرأ هذه الصفحة",
   "components.list.loading": "جارٍ تحميل {label}…",
   "components.list.loadingDefault": "العناصر",
   "components.confirmDelete.label": "تأكيد: {action}",

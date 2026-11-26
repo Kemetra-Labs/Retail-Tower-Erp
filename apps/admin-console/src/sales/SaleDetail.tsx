@@ -2,7 +2,9 @@ import { BackArrow } from "@/components/BackArrow";
 import { Banner } from "@/components/Banner";
 import { DetailGrid } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
+import { LoadErrorBanner } from "@/components/LoadErrorBanner";
 import { PageHeader } from "@/components/PageHeader";
+import { ReadingNote } from "@/components/ReadingNote";
 import { DateTime, Money, useT } from "@/i18n";
 import type { SaleDetail as Detail } from "@/lib/sale-queries";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
@@ -176,6 +178,12 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
         </p>
       </PageHeader>
       <ErpFailureBanner detail={detail} role={role} />
+      <ReadingNote>
+        {detail.lineOrder === "not_recorded" ? <p>{t("sales.lines.orderNotRecorded")}</p> : null}
+        <p>{t("sales.payments.netNote")}</p>
+        <p>{t("sales.void.approverRoleNote")}</p>
+        <p>{t("sales.erp.note")}</p>
+      </ReadingNote>
       <DetailGrid>
         <SummarySection detail={detail} />
         <PaymentsSection detail={detail} index={2} />
@@ -209,18 +217,20 @@ function ErrorView({
   const session = error.kind === "session";
   return (
     <div className="surface">
-      <Banner
-        variant="danger"
-        message={t(session ? "sales.list.sessionExpired" : "sales.detail.loadFailed")}
-        requestId={error.requestId}
-        action={
-          session ? undefined : (
-            <button type="button" className="btn-secondary" onClick={onRetry}>
-              {t("sales.detail.retry")}
-            </button>
-          )
-        }
-      />
+      {session ? (
+        <Banner
+          variant="danger"
+          message={t("sales.list.sessionExpired")}
+          requestId={error.requestId}
+        />
+      ) : (
+        <LoadErrorBanner
+          what={t("sales.detail.loadFailed")}
+          failure={error.failure}
+          retryLabel={t("sales.detail.retry")}
+          onRetry={onRetry}
+        />
+      )}
       <BackLink />
     </div>
   );

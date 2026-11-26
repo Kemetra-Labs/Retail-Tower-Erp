@@ -61,6 +61,14 @@ export const common = {
   "errors.notFound": "هذا العنصر غير متاح.",
   "errors.server": "حدث خطأ ما. حاول مرة أخرى.",
   "errors.generic": "تعذّر إكمال الطلب.",
+  // RT-965: a server error whose status or code says retrying cannot help. Copy drafted, owner may overrule.
+  "errors.serverFinal": "حدث خطأ ما. إعادة المحاولة لن تحلّه: تواصل مع الدعم واذكر المرجع.",
+  // RT-965: a load error reads What → Safety → Action → Evidence (DESIGN.md §8). Copy drafted, owner may overrule.
+  "errors.load.cause.network": "تعذّر الوصول إلى الخادم.",
+  "errors.load.cause.server": "أعاد الخادم خطأً.",
+  "errors.load.cause.request": "رفض الخادم الطلب.",
+  "errors.load.safety": "لم يتغيّر شيء.",
+  "errors.load.noRetry": "إعادة المحاولة لن تحلّه: تواصل مع الدعم واذكر المرجع.",
 
   // RT-621: the shared 429 banner and the countdown on a gated control.
   "rateLimit.title": "طلبات كثيرة جدًا",

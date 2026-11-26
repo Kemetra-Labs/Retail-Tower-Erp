@@ -11,10 +11,6 @@
   gap: var(--space-5);
 }
 
-.overview__related {
-  margin: 0;
-}
-
 /* Refresh in flight: still focusable (aria-disabled), the label says "Refreshing…". */
 .overview__refresh[aria-disabled="true"] {
   cursor: progress;
