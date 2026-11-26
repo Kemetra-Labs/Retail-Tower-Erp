@@ -9,7 +9,9 @@ description: >-
   v3.0 (RT-969) adds the owner-approved Shell v3 "Daylight Commerce" frame.
   v4.0 (owner decision 2026-10-30) adopts the "Ink & Receipt" look (canvas board v9) as the
   approved visual target (§12), shipping in slices; the slices already on main are listed in
-  §10 and §12.8. The token block below stays shipped truth.
+  §10 and §12.8. v5.0 (owner decisions D7–D9, 2026-11-26, RT-1608) adopts «Console system v3»
+  as the target (§13): seven areas with tabs, a light sidebar, an Ink top bar and area band, and
+  a receipt figure strip; it ships in slices (§13.11). The token block below stays shipped truth.
 status: current-shipped-tokens
 # CURRENT SHIPPED TOKENS — a SUBSET of src/styles/tokens.css on main (colors, type, radius,
 # spacing); tokens.css is authoritative and also holds the scrim, overlay shadow, motion and
@@ -71,6 +73,19 @@ spacing:
 
 # Design System: Retail Tower Console
 
+> **Version 5.0 — "Console system v3" (owner decisions D7–D9, 2026-11-26, RT-1608).** The owner
+> judged the Console engineering-oriented and adopted a redesign that is modern but keeps the
+> Retail Tower identity:
+> - seven areas with tabs, replacing the four menu groups;
+> - a light sidebar, with Ink moving to the top bar and to a header band on every area;
+> - the day's figures in one receipt strip, plus a sale-pipeline strip;
+> - every area leading with what needs a decision and who can act;
+> - truth rules for partial and unknown data.
+>
+> §13 is the rule set and §13.9 lists what it keeps, amends or replaces from §12. It is
+> **adopted, not shipped**: `main` renders v4.0 until the §13.11 slices land, and the typeface
+> stays open (§13.4).
+>
 > **Version 4.0 — "Ink & Receipt" visual direction (owner decision, 2026-10-30).** The same
 > day the owner judged the v3.0 look (and its v4 canvas redraw) "too plain" and locked board
 > **v9** «✓ المعتمد · نظرة عامة v9» on the design canvas
@@ -124,6 +139,7 @@ spacing:
 | --- | --- |
 | `DESIGN.md` v1.0 (dark default, Tower Gold authority, navy action, Inter, English/LTR shell) | **Superseded** by this version. |
 | `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
+| `DESIGN.md` v4.0 visual layer (§12: Ink sidebar with Mint signal line, hero receipt, glows, 20px radius, Readex Pro) | **Superseded as target** by v5.0 §13 (owner decision D9, 2026-11-26; §13.9 lists what is kept). Still the shipped look on `main` until the §13.11 slices land. |
 | `DESIGN.md` v3.0 visual layer ("Daylight Commerce": light sidebar, one KPI ledger strip, shadowless panels, Dubai-only type) | **Superseded as target** by v4.0 §12 (owner decision 2026-10-30). Still the shipped look on `main` until the §10 v4.0 slices land. The v3.0 structure stays. |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
 | `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
@@ -941,3 +957,347 @@ recorded and item 6 was amended for three widgets by owner decision on 2026-11-0
 7. **Selected segment on light surfaces — decided: Ink.** D-V3 was amended in Confluence
    62816260 (version 3): Ink with white text on light surfaces, Mint on Ink; every other
    selection on light surfaces stays Teal (§12.6).
+
+## 13. v5.0 "Console system v3" (owner decisions D7–D9, 2026-11-26; adopted target, shipping in slices)
+
+On 2026-11-26 the owner adopted «Console system v3» as the Admin Console target (RT-1608; decisions
+D7, D8 and D9 below). v5.0 is the documented authority for that target. **It is adopted, not
+shipped:** `main` renders v4.0 (§12) until the v3 slices in §13.11 land. Each slice moves one
+part. Until a slice lands, §12 remains the rule for the part it has not moved.
+
+- **Source boards:** the canvas page «Console system (D7/D8)» on
+  <https://claude.ai/artifact/UM38B46McW41STtVDrY5Pi> (private). A versioned copy of every board,
+  with an index mapping each board to its slice, is in [`docs/design/v3/`](docs/design/v3/README.md).
+- **Rules win over boards.** Where a board and this section differ, this section wins. The
+  known differences are listed under the rule concerned, for example control borders in §13.2.
+- **Governing decision page:** Confluence RETAIL 62816260 holds the v4.0 decisions
+  (D-V1…D-V10). Its supersession section records, for each one, what v3 keeps, amends or
+  replaces (§13.9).
+
+### 13.1 Decisions
+
+| ID | Decision (owner, 2026-11-26) | Record |
+| --- | --- | --- |
+| D7 | Reopen the visual direction: modernise toward the reference pack (Shopify App Home patterns, Linear's calm interface, Ramp approvals, Stripe search) **as behaviour references only**. No third-party identity, layout, asset or code is copied. | RT-1608 comment 19027 |
+| D8 | Seven areas with tabs replace the four menu groups (supersedes D4). Alerts, Search and the organisation switch move to the top bar. No page is removed, and role gates are unchanged. | RT-1608 comment 19028 |
+| D9 | Adopt Console system v3: the D8 navigation, the Understand → Decide → Act rhythm, the "Retail Tower Soft" look with the Ink band and receipt strip kept, and the truth rules in §13.7. | RT-1608 comment 19041 |
+
+Earlier RT-1608 decisions still apply:
+- **D1:** the non-technical merchant owner is the primary user.
+- **D2:** the business-word glossary; ERPNext terms appear only behind «تفاصيل فنية».
+- **D3:** one Overview whose content is ordered by role.
+
+### 13.2 Colour roles (target)
+
+Components consume roles only. `src/styles/tokens.css` stays the only place a value is
+spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
+
+| Role | Light | Dark | Use |
+| --- | --- | --- | --- |
+| `--color-canvas` | `#f3f4f2` | `#0e1415` | Work surface. A warm neutral, replacing the cool `#f2f5f6`. |
+| `--color-surface` | `#ffffff` | `#172021` | Panels, tables, drawers. |
+| `--color-surface-sunken` | `#f7f8f6` | `#121a1b` | Table head, recessed tracks, inputs on panels. |
+| `--color-text` | `#14201f` | `#e9efee` | Primary text. |
+| `--color-text-muted` | `#56605e` | `#a5b3b1` | Secondary text. It is also `--color-control-border`, the control boundary. |
+| `--color-border` | `#dfe3e0` | `#2a3738` | Decorative dividers only, never a control edge. |
+| `--color-primary` | `#007560` | `#4cc7ac` | Tower teal intent: links, focus, selection, chart series 1. Darkened from `#0f766e` to pass 4.5:1 on the new canvas. |
+| `--color-primary-soft` | `#e2f2ee` | `#12302b` | Applied-filter chip fill, current-context wash. |
+| `--color-selection` *new* | `#eef6f4` | `#1b2c2a` | Selected table row, with a 3px inline-start bar in `--color-primary`. |
+| `--color-side` *new* | `#e9ece9` | `#121a1b` | The light sidebar surface (replaces the Ink sidebar; switched by V3-4, not by tokens alone). |
+| `--color-side-text` / `--color-side-muted` *new* | `#24302f` / `#55625f` | `#dfe7e6` / `#9fb0ae` | Sidebar labels and icons. The active item is a raised `--color-surface` pill with a `--color-primary` icon. |
+| `--color-ink` | `#0a2125` | `#0a2125` | Top bar, area header band, primary action fill on light. Unchanged. |
+| `--color-mint` | `#5fe0cf` | `#5fe0cf` | **On Ink only** in light (D-V2): brand tile, avatar, primary action on the band. The dark primary fill (D-V10). Never text or fill on a light surface. |
+| `--color-ink-muted` / `--color-on-ink` | `#a9c2c5` / `#ffffff` | same | Secondary and primary text on Ink. |
+| `--color-topbar-field` *new* | `#14353a` | `#14292c` | Search field and switchers on the Ink top bar, with `--color-topbar-line` `#2d4d52` / `#2a4246` and `--color-topbar-muted` `#b9cccf` / `#a5b3b1`. |
+| `--color-attention` *new* | `#ff6b5e` | `#ff6b5e` | The alert-count badge on the Ink top bar only, with Ink text. Never a status colour elsewhere. |
+| `--color-action-fill` / `--color-on-action-fill` | Ink / white | Mint / Ink | Unchanged from RT-1037. |
+| `--color-success` / `-soft` | `#1f6f43` / `#e4f3ea` | `#6fd39a` / `#16301f` | Proven success only. |
+| `--color-warning` / `-soft` | `#8f5300` / `#fff2dc` | `#f0b45c` / `#3a2a12` | Caution, degraded, "working with problems". |
+| `--color-danger` / `-soft` | `#b3261e` / `#fcebe9` | `#ff8a80` / `#3a1d1b` | Failure and consequence. **No longer the UNKNOWN colour** (see the unknown style below). |
+| `--color-info` | unchanged | unchanged | Pending, information. Its pairs carry over from §12 and are re-measured on the new canvas by RT-1610. |
+| `--color-viz-*` | unchanged | unchanged | Charts keep the RT-822 data palette. Series 1 in the daily-sales chart is `--color-primary`, as in v4.0. |
+
+- **Unknown style (*new*, replaces "danger also means UNKNOWN"):** a pill or mark with a 1px
+  **dashed** `--color-text-muted` outline, a «؟» glyph and the word «غير معروف» in `--color-text`.
+  It differs from danger (filled red) and from in-progress (filled `--color-surface-sunken`)
+  in shape and text, not only colour. Under forced colours the outline is `CanvasText` dashed.
+- **Control boundary:** inputs, filter chips and segmented tracks draw their edge with
+  `--color-control-border` (≥ 3:1). *Known board difference:* the v3 boards draw these edges
+  with `--color-border` (`#dfe3e0`, 1.30:1 on `--color-surface`). This rule wins over the boards.
+- **Dark theme:** the dark values above are the boards' values, and RT-1610 must confirm them
+  with the token test. Ink keeps separating by edge on dark (§12.8 item 4).
+
+### 13.3 Signatures (what keeps it Retail Tower)
+
+- **Ink area header band.** Every area opens with an Ink band holding:
+  - the area name as the `h1`
+  - a one-line summary in `--color-ink-muted`
+  - at most one Mint primary (Ink text) and outlined secondaries
+  - a faint Tower grid (Mint at about 5%, `aria-hidden`)
+
+  It extends D-V9 from list pages to every area. It is at most 132px tall at 1280px and becomes a
+  plain light header below 640px. It never changes colour with state.
+- **Receipt figure strip.** The day's figures sit on one `--color-surface` card split by a 2px
+  dashed perforation, with half-circle notches in `--color-canvas` at both inline edges
+  (`aria-hidden`). Above the perforation are the figures. Below it is one context line naming
+  the scope, the period, the date, an absolute "as of" time and the comparison baseline. This
+  replaces the v4.0 hero receipt and separate receipt cards (§12.2).
+- **Pipeline strip.** «أجهزة البيع ← الخادم ← المحاسبة» as three nodes. Each node has a
+  status dot and a **text fact** (for example «مسجّلة: 410 من 412»), joined by dotted rules in a
+  `role="group"` named «مسار البيع». A note line under the nodes holds the shipped POS note
+  (`overview.pipeline.posNote`) and the absolute as-of time. It continues the RT-992 rail.
+- **Brand mark:** three ascending bars on a Mint tile, on the Ink top bar.
+- **Not kept from v4.0:** the Ink sidebar with the Mint signal line, the Mint radial glow, the
+  hero receipt, section index badges and the 20px radius.
+
+### 13.4 Typography (target; face open)
+
+- **Scale (px):**
+  - 24/600: page title (`h1` in the band)
+  - 17/600: section title
+  - 15: navigation and decision headings
+  - 14: body and table text (Arabic tables move up from 13.5)
+  - 13: secondary text, meta, chart labels
+
+  The Arabic floor is **13px** (raised from 12). Figures are tabular and LTR-isolated. Money is
+  written «1,250.00 EGP» (UX-12).
+- **Face: open.** The v3 boards use Google-hosted stand-ins: IBM Plex Sans Arabic for
+  everything, and Noto Kufi Arabic for the page title only. §12.8 item 3 (Readex Pro display,
+  Dubai body) is **not** re-decided here. RT-994 is re-scoped by V3-3 to choose between IBM Plex
+  Sans Arabic and Dubai. Any chosen face is self-hosted: the Caddy CSP allows `'self'` only, so
+  there are no Google Fonts at runtime.
+
+### 13.5 Shell and navigation
+
+- **Top bar (Ink, 52px):**
+  - the brand mark
+  - the organisation name as a menu (`aria-haspopup="menu"`, replaces `/tenants` in the menu)
+  - search with `Ctrl K`, which finds receipts, items and stores
+  - the store switcher
+  - the alerts bell with a **visible count**
+  - the account menu
+- **Sidebar (light, 236px):** seven areas with icons, in this order:
+  1. الرئيسية
+  2. المبيعات
+  3. الأصناف
+  4. المخزون
+  5. التقارير
+  6. المحاسبة
+  7. الإعدادات
+
+  The parent area stays selected on child routes (UX-09.14). Role gates are unchanged: an area
+  or tab the role cannot read is not rendered.
+- **Tabs:** each area's pages are tabs under the band: underline tabs, the active tab in
+  weight 600 with a 2px `--color-action-fill` underline (Ink in light, Mint in dark), real links
+  with `aria-current="page"`. Tab labels are proposed copy: each needs UX-12 review and a message
+  key.
+- **Route mapping:** every route on today's menu or `Ctrl K` has an area and a tab. The mapping
+  is board `S12-Route-map` in `docs/design/v3/` and is the input for V3-4. Every old URL
+  redirects to its new place, and a moved page shows a one-time «انتقلت هذه الصفحة إلى …»
+  notice.
+  - Placements marked INVENTED on the board need the owner's confirmation: offers and vouchers,
+    payer accounts, and the organisation switch.
+  - `/posting-health` is marked *needs verification*.
+- **Route mapping table** (normative; the same list is drawn on board `S12-Route-map`):
+
+  | Route | Today (group · label) | Area | Tab | Read gate | Note |
+  | --- | --- | --- | --- | --- | --- |
+  | `/` | اليومية · نظرة عامة | الرئيسية | — | `always` |  |
+  | `/alerts` | اليومية · التنبيهات | الشريط العلوي | جرس التنبيهات → صفحة التنبيهات | `always` |  |
+  | `/search` | اليومية · بحث | الشريط العلوي | البحث + Ctrl K | `always` |  |
+  | `/sales` | اليومية · المبيعات | المبيعات | كل المبيعات | `canReadSales` |  |
+  | `/sales-daily` | Ctrl K فقط | المبيعات | اليومية (وأيضًا في التقارير) | `canReadSales` |  |
+  | `/sales-by-store` | Ctrl K فقط | المبيعات | حسب المتجر (وأيضًا في التقارير) | `canReadSales` |  |
+  | `/shift-closes` | اليومية · إقفالات الورديات | المبيعات | إقفالات الورديات | `canReadShiftCloses` |  |
+  | `/offers` | الإدارة · العروض | المبيعات | العروض والقسائم | `canReadOffers` | INVENTED placement |
+  | `/vouchers` | الإدارة · القسائم | المبيعات | العروض والقسائم | `canReadVouchers` | INVENTED placement |
+  | `/payer-accounts` | الإدارة · حسابات جهات الدفع | المبيعات | جهات الدفع | `canReadPayers` | INVENTED placement |
+  | `/reports` | اليومية · التقارير | التقارير | — | `canOpenAnyReport` |  |
+  | `/catalog/products` | المخزون والأصناف · الأصناف | الأصناف | الأصناف | `canReadCatalog` |  |
+  | `/catalog/import` | المخزون والأصناف · استيراد | الأصناف | استيراد | `canImportCatalog` |  |
+  | `/catalog/brands` | المخزون والأصناف · العلامات التجارية | الأصناف | العلامات التجارية | `canReadBrands` |  |
+  | `/unknown-items` | المخزون والأصناف · أصناف غير معروفة | الأصناف | أصناف غير معروفة | `canReadUnknownItems` |  |
+  | `(new) /inventory overview` | — | المخزون | نظرة عامة | `canReadInventory` | CONCEPT: new workspace tab |
+  | `/inventory` | المخزون والأصناف · حركات المخزون | المخزون | الحركات | `canReadInventory` |  |
+  | `/inventory/transfers` | من داخل المخزون | المخزون | التحويلات | `canReadInventory` |  |
+  | `/inventory/redistribution` | المخزون والأصناف · إعادة التوزيع | المخزون | إعادة التوزيع | `canReadRedistribution` |  |
+  | `/tracking` | المخزون والأصناف · الحجز والاستدعاء | المخزون | الحجز والاستدعاء | `tracking gate` |  |
+  | `/stock-discrepancies` | المخزون والأصناف · فروقات المخزون | المخزون | الفروقات | `canReadStockDiscrepancies` |  |
+  | `/erp-connection` | التكامل · الاتصال والمزامنة | المحاسبة | حالة الربط | `canReadErpStatus` |  |
+  | `/sales-needing-repair` | التكامل · مبيعات تحتاج إلى إصلاح | المحاسبة | مبيعات لم تصل للمحاسبة | `canUseSaleSyncOps` | label per D2 |
+  | `/quarantined-sales` | التكامل · مبيعات تعذّر إرسالها | المحاسبة | لم تصل من الجهاز | `canUseSaleSyncOps` | label per D2 |
+  | `/product-reconciliation` | التكامل · مطابقة المنتجات | المحاسبة | مطابقة المنتجات | `canUseProductReconciliation` |  |
+  | `/posting-health` | مسار بلا عنصر قائمة | المحاسبة | صحة التسجيل | `?` | NEEDS VERIFICATION: tenant-facing? |
+  | `/audit` | التكامل · سجل التدقيق | الإعدادات | سجل التدقيق | `always` | moved out of Integration |
+  | `/stores` | الإدارة · المتاجر | الإعدادات | المتاجر | `always` | store roles = RT-1289 S2 |
+  | `/operators` | الإدارة · المستخدمون | الإعدادات | المستخدمون | `always` | store roles = RT-1289 S2 |
+  | `/devices` | اليومية · الأجهزة | الإعدادات | الأجهزة | `canReadDevices` | moved out of Daily |
+  | `/devices/pairing-codes` | Ctrl K فقط | الإعدادات | الأجهزة › رموز الربط | `canReadDevices` |  |
+  | `/devices/download-pos` | Ctrl K فقط | الإعدادات | الأجهزة › تنزيل تطبيق البيع | `canReadDevices` |  |
+  | `/settings` | الإدارة · الإعدادات | الإعدادات | إعدادات المؤسسة (الهوية، سياسة النقد، خطة الذكاء، البيع المتتبَّع) | `canOpenSettings` |  |
+  | `/tenants` | الإدارة · المؤسسات | الشريط العلوي | مبدّل المؤسسة (اسم المؤسسة) | `always` | INVENTED placement |
+  | `/platform/*` | Platform Console | خارج هذا الهيكل | — | `platform_admin` | unchanged, RT-1589 |
+- **Platform Console** (`/platform`) is outside this shell and is unchanged (RT-1589).
+
+### 13.6 Page rhythm and patterns
+
+- **Rhythm in every area: Understand → Decide → Act.**
+  - Understand: a sentence and a few figures.
+  - Decide: what needs the user, why, and who can act.
+  - Act: one button, with the same label everywhere, that opens an existing screen.
+  - Technical detail sits behind «تفاصيل فنية» for authorised roles (D2).
+- **Decision card:** one list item with:
+  - a status mark (a dot, or the dashed «؟» for unknown)
+  - the head (what happened)
+  - "why it matters"
+  - «من يستطيع: …» (always present; a role that cannot act sees who can)
+  - one button
+
+  Only the first card in a region carries the primary fill. Each fix has one label everywhere
+  (for example «أصلِح البيعتين»).
+- **Work table:**
+  - Full width and never inside a card (UX-10.1, UX-04.16).
+  - The record identifier (for example the receipt number) is the keyboard target and opens
+    the side drawer. The drawer keeps the list place.
+  - A visible sort indicator with `aria-sort`.
+  - The selected row has `--color-selection` and a 3px inline-start bar.
+  - Money is end-aligned and tabular. One status pill per row.
+- **Side drawer:** opens from the record identifier and keeps the list place: the list stays
+  mounted, its scroll position and selection are kept, and the opened row is the selected row.
+  - **Size:** 340–480px at the inline end; full width below 640px.
+  - **Address:** the drawer has its own deep-link URL (the record route), so reload and share
+    open the same record over its list.
+  - **Order inside:** status in words, then content, then actions (one primary), then
+    «تفاصيل فنية» for authorised roles.
+  - **Behaviour:** it is a dialog with a focus trap. Focus moves to its heading on open, and
+    Esc or the close button returns focus to the identifier that opened it (UX-11.8, UX-11.9).
+- **Filters:** a search field, applied filters as solid `--color-primary-soft` chips with a
+  chevron, and one dashed «+ مرشح» chip to add a filter.
+- **States:** each panel loads and fails on its own.
+  - Loading keeps the layout.
+  - Empty says what was checked and when.
+  - Stale shows the age and keeps the data.
+  - Partial is labelled «جزئي».
+  - Unknown uses the unknown style.
+  - Error reads What → Safety → Action.
+  - Permission shows who can act.
+  - Approval states consequence, reversibility and audit before the button.
+- **Home (D3, D9):** the order is:
+  1. the pipeline strip
+  2. «يحتاج قرارك»
+  3. the receipt strip (received sales, transactions, returns, voids)
+  4. the daily trend chart, with a matching legend, a hatched "today, incomplete" bar and
+     «اعرض كجدول»
+  5. latest sales
+
+  A side column holds the owner's shortcuts, low stock (with the shipped caveat) and
+  «من غيّر ماذا» with the audit link. The AI panel appears only when its rollout flag is on
+  (RT-1541).
+- **Reports:** a list grouped as today, with «يجيب عن:» per report, one headline figure and an
+  as-of time for each available report, and «مقترح، غير متاح بعد» for proposed ones, which are
+  not links.
+- **Accounting:** a status sentence first (amber «يعمل، مع مشكلتين» while any sale is missing;
+  green only when all are recorded), then the figures, the decision cards, the shipped
+  repair-list caveat, and «تفاصيل فنية».
+
+### 13.7 Truth rules
+
+1. A total that can be incomplete says so: it is either labelled «جزئي» or carries the shipped
+   «المستلَم فقط…» caveat. It is never compared as if complete.
+2. Comparisons use **only the previous full business day** (`overview.kpi.compareNote`) until
+   a contract serves another baseline. "Same hour yesterday" is not shown.
+3. A card renders only when its backing read exists. Without the per-store read (C3), Home
+   shows «حالة كل متجر على حدة غير متاحة بعد» instead of per-store cards.
+4. Unknown is never zero and never danger-coloured: it uses the unknown style (§13.2).
+5. Green appears only after the fact is proven (UX-05.16).
+6. Shipped caveats carry over word for word, among them `overview.lowStock` «المستلَم فقط…»
+   and the repair-list note «ظهور البيع … لا يعني …».
+7. Every time on a decision surface is absolute first («حتى 9:12 م»), with relative time
+   secondary.
+
+### 13.8 Contrast (measured 2026-11-26; WCAG relative luminance)
+
+Every small-text pair below is ≥ 4.5:1. Non-text marks (control border, focus, chart marks)
+are ≥ 3:1. RT-1610 adds these pairs to `.design-sync/contrast-pairs.mjs`, next to the v4.0
+pairs.
+
+| Foreground | Background | Light | Dark |
+| --- | --- | --- | --- |
+| `text` | `canvas` / `surface` / `surface-sunken` | 15.15 / 16.72 / 15.69 | 15.98 / 14.27 / 15.17 |
+| `text-muted` | `surface` / `canvas` / `surface-sunken` | 6.50 / 5.89 / 6.10 | 7.65 / 8.57 / 8.14 |
+| `side-text` / `side-muted` | `side` | 11.46 / 5.35 | 14.05 / 7.82 |
+| `primary` | `surface` / `canvas` / `selection` / `primary-soft` | 5.66 / 5.13 / 5.15 / 4.89 | 7.96 / 8.92 / 6.99 / 6.79 |
+| `text` | `primary-soft` / `selection` | 14.46 / 15.22 | 12.17 / 12.53 |
+| `success` | `success-soft` / `surface` | 5.36 / 6.15 | 7.76 / 9.06 |
+| `warning` | `warning-soft` / `surface` | 5.58 / 6.17 | 7.49 / 9.00 |
+| `danger` | `danger-soft` / `surface` | 5.66 / 6.54 | 6.71 / 7.27 |
+| `on-ink` / `ink-muted` | `ink` | 16.70 / 8.92 | same |
+| `on-ink` | `topbar-field` (typed search text) | 13.12 | 15.18 |
+| `ink` | `mint` | 10.38 | 10.38 (dark action fill) |
+| `topbar-muted` | `topbar-field` | 7.88 | 7.00 |
+| `ink` | `attention` | 5.98 | 5.98 |
+
+### 13.9 What v5.0 keeps, amends or replaces from v4.0
+
+| v4.0 rule (§12, Confluence D-V#) | v5.0 |
+| --- | --- |
+| D-V1 Ink sidebar in both themes | **Replaced:** light sidebar (`--color-side`); Ink moves to the top bar and area bands. |
+| D-V2 Mint on Ink only | **Kept** (light), with the D-V10 dark fill. |
+| D-V3 Ink primary fill; Ink selected segment on light | **Kept.** |
+| D-V4 expressive surfaces | **Amended:** the Tower grid only on Ink bands. No glows, no hero gradient. |
+| D-V5 receipt card, data illustrations | **Amended:** one receipt strip per area replaces the hero and the separate receipt cards. The pipeline rail becomes the pipeline strip. |
+| D-V6 elevation, 20px radius | **Replaced:** 12px panels, 9px controls, one light resting shadow. |
+| D-V7 Overview composition | **Replaced** by the Home order in §13.6. |
+| D-V8 Readex Pro display face | **Open** again (§13.4, V3-3). |
+| D-V9 list and drawer bands | **Extended** to every area header. |
+| D-V10 dark values | **Amended:** new dark neutrals (§13.2), the Mint dark fill kept. |
+| §12.2 section index badges | **Dropped.** |
+| §12.8 item 2 (delta colour by good direction) | **Kept** for deltas that are shown. Home figures show the baseline value instead of a coloured delta while today is "so far". |
+| §12.8 item 6 (render nothing without a backing read) | **Kept** and generalised as truth rule 3. |
+
+### 13.9b What v5.0 amends in the earlier sections and the Constitution
+
+§1 places the UX Constitution above this file. The rows below change rules that the Constitution
+backs, so they are Constitution amendments in the same way as §12.7 and §12.8 item 1. Each
+must be **recorded as an owner decision** before the slice that implements it merges (§13.10
+item 1). D9 adopted the v3 design, but the Constitution-level wording is not recorded yet.
+
+| Earlier rule | v5.0 | Constitution rule |
+| --- | --- | --- |
+| §3 colour table and §9 status vocabulary: red marks danger **and every UNKNOWN**, never neutral. | UNKNOWN gets its own unknown style: a dashed outline, «؟» and the word «غير معروف». It is distinct from danger, from in-progress and from zero. Red stays for failure and consequence. A code the Console does not recognise is still shown as UNKNOWN, never as success. | UX-02 «Truth colours» |
+| §6: scope lives in the sidebar; the ≤768px scope row. | The organisation and the store scope move to the top bar as menus. The top bar is visible at every width, so scope is never behind a menu (PRODUCT.md principle 1 kept). Scope change is still a guarded context transition. | UX-09 «Scope» |
+| §4 and frontmatter `meta`: 12px readability floor. | Arabic text floor 13px. `tests/unit/tokens-identity.test.ts` keeps enforcing 12px until RT-1610 or V3-3 raises it. | UX-03 / UX-11 |
+| §5 shape: 8px controls, 12px objects. | 9px controls, 12px panels and cards, overlays unchanged. | UX-04 «Radius rhythm» |
+| §12.4 / D-V7 Overview composition (Constitution amendment of 2026-10-30) | The Home order in §13.6. | UX-04 (as amended by 62816260) |
+
+### 13.10 Open items
+
+0. **Record the §13.9b Constitution amendments** (UX-02 unknown style, UX-09 scope in the top
+   bar, UX-03 13px floor, UX-04 radius) as owner decisions on Confluence 62816260, with pointers
+   from the UX pages. This must happen before the first slice that implements them merges.
+
+1. Typeface: IBM Plex Sans Arabic or Dubai, self-hosted (V3-3, RT-994).
+2. The decision-queue source and ordering rule (which alerts become decisions, in what order).
+3. The per-store read (C3, Backend-Core): until it exists, no per-store cards.
+4. Global receipt search in `Ctrl K` needs a search contract.
+5. What «أصلِح البيعتين» does: does linking an unmapped item re-post the sales automatically?
+6. The stale threshold for Home, and the inventory overview contracts (excess, expiry: RT-1430).
+7. INVENTED menu placements, whether `/posting-health` is tenant-facing, and which areas store
+   roles see (RT-1289 S2).
+8. Arabic tab labels and new copy need UX-12 review and message keys.
+9. Phone: Admin phone workflows are not promised (UX-09). The boards show a read-only glance only.
+
+### 13.11 Slices
+
+| # | Slice | Jira |
+| --- | --- | --- |
+| V3-1 | This section, the v3 board sources, and the supersession record on 62816260 (Docs) | RT-1609 |
+| V3-2 | v3 role tokens, light and dark | RT-1610 |
+| V3-3 | Typeface A/B, self-hosted | re-scope RT-994 |
+| V3-4 | Shell: top bar, light sidebar with 7 areas, area band, tabs, redirects | not created |
+| V3-5 | Home v3 on existing reads | not created (amends RT-1406 F4, RT-975) |
+| V3-6 | D2 glossary copy pass | not created (after RT-965) |
+| V3-7 | Accounting area | not created |
+| V3-8 | Reports list | not created |
+| V3-9 | Sales list + side drawer | not created |
+| V3-10 | Usability baseline, today vs v3 (Verification) | not created |
