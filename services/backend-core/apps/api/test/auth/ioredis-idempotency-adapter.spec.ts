@@ -228,7 +228,7 @@ describe("IoredisIdempotencyAdapter — single client instance", () => {
 });
 
 // ===========================================================================
-// AuthModule factory — REDIS_CLIENT provider resolves to IoredisIdempotencyAdapter
+// RedisModule factory (RT-1466; AuthModule before) — REDIS_CLIENT provider resolves to IoredisIdempotencyAdapter
 // ===========================================================================
 
 /**
