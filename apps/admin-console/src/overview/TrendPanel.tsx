@@ -252,7 +252,12 @@ export function TrendPanel({
               <PanelSkeleton lines={4} />
             ) : (
               // The receipt row reads the same summary and announces its failure.
-              <PanelError requestId={state.requestId} retry={state.retry} announce={false} />
+              <PanelError
+                requestId={state.requestId}
+                failure={state.failure}
+                retry={state.retry}
+                announce={false}
+              />
             )}
           </div>
         </>

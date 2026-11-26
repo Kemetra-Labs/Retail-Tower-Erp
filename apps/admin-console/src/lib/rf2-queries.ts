@@ -18,7 +18,8 @@
 import { apiClient } from "@/generated/client";
 import type { components } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
-import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
+import { type ErrorEnvelope, errorCodeStringOf, requestIdOf } from "@/lib/backend-envelope";
+import { serverErrorKey } from "@/lib/error-recovery";
 import { rateLimitSeqOf } from "./rate-limit";
 
 // --- Typed operation wrappers -------------------------------------------------
@@ -174,7 +175,6 @@ const COPY = {
   timezoneInvalid: "stores.errors.timezoneInvalid",
   timezoneChangedConcurrently: "stores.errors.timezoneChangedConcurrently",
   storeHasOpenShift: "stores.errors.storeHasOpenShift",
-  serverError: "errors.server",
   generic: "errors.generic",
 } as const satisfies Record<string, MessageKey>;
 
@@ -240,7 +240,9 @@ export function mapRf2Error(input: Rf2ErrorContext): Rf2ErrorRender {
       return conflictRender(input);
     default:
       if (input.status >= 500) {
-        return { kind: "banner", messageKey: COPY.serverError, requestId, retryable: true };
+        const key = serverErrorKey(input.status, errorCodeStringOf(input.error));
+        if (key === "errors.serverFinal") return { kind: "generic", messageKey: key, requestId };
+        return { kind: "banner", messageKey: key, requestId, retryable: true };
       }
       return { kind: "generic", messageKey: COPY.generic, requestId };
   }

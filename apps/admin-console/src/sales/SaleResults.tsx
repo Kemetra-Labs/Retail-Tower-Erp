@@ -13,6 +13,7 @@
 import { Banner } from "@/components/Banner";
 import { DataTable, type DataTableColumn } from "@/components/DataTable";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
+import { LoadErrorBanner } from "@/components/LoadErrorBanner";
 import { DateTime, Money, type T, useT } from "@/i18n";
 import type { SaleItem } from "@/lib/sale-queries";
 import { Notice, Pager, Unavailable } from "./SalePager";
@@ -72,15 +73,11 @@ function ErrorView({
   if (error.kind === "not-found") return <Unavailable />;
   if (error.kind === "generic") {
     return (
-      <Banner
-        variant="danger"
-        message={t("sales.list.loadFailed")}
-        requestId={error.requestId}
-        action={
-          <button type="button" className="btn-secondary" onClick={onRetry}>
-            {t("sales.list.retry")}
-          </button>
-        }
+      <LoadErrorBanner
+        what={t("sales.list.loadFailed")}
+        failure={error.failure}
+        retryLabel={t("sales.list.retry")}
+        onRetry={onRetry}
       />
     );
   }

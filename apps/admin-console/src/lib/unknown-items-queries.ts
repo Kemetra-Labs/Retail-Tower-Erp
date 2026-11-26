@@ -35,6 +35,7 @@ import { apiClient } from "@/generated/client";
 import type { components, operations } from "@/generated/schema";
 import type { MessageKey } from "@/i18n";
 import { type ErrorEnvelope, requestIdOf } from "@/lib/backend-envelope";
+import { serverErrorKey } from "@/lib/error-recovery";
 
 // --- Generated projections (no hand-typed shapes) -----------------------------
 
@@ -257,7 +258,6 @@ const COPY = {
   keyConflict: "unknownItems.errors.keyConflict",
   inProgress: "unknownItems.errors.inProgress",
   rateLimited: "unknownItems.errors.rateLimited",
-  serverError: "errors.server",
   badRequest: "errors.generic",
 } as const satisfies Record<string, MessageKey>;
 
@@ -414,7 +414,9 @@ export function mapUnknownItemError(input: UnknownItemErrorContext): UnknownItem
       return { kind: "generic", messageKey: COPY.badRequest, requestId };
     default:
       if (input.status >= 500) {
-        return { kind: "banner", messageKey: COPY.serverError, requestId, retryable: true };
+        const key = serverErrorKey(input.status, codeOf(input));
+        if (key === "errors.serverFinal") return { kind: "generic", messageKey: key, requestId };
+        return { kind: "banner", messageKey: key, requestId, retryable: true };
       }
       // 401 / any other documented-but-non-specific status.
       return { kind: "generic", messageKey: COPY.badRequest, requestId };

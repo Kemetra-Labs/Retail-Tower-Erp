@@ -1,4 +1,4 @@
-import { requestIdOf } from "@/lib/backend-envelope";
+import { type LoadFailure, NETWORK_FAILURE, loadFailureOf } from "@/lib/error-recovery";
 /**
  * RT-559 one panel's read (spec 009 §6.2–§6.4). Every Overview panel reads
  * through an existing typed wrapper and lands in exactly one state:
@@ -21,14 +21,14 @@ import { isRefusal } from "./overviewLogic";
 export type PanelState<T> =
   | { status: "loading" }
   | { status: "hidden" }
-  | { status: "error"; requestId?: string; retry: () => void }
+  | { status: "error"; requestId?: string; failure: LoadFailure; retry: () => void }
   | { status: "ready"; data: T };
 
 /** What one read proved; `undefined` data from `select` means malformed. */
 export type PanelRead<T> =
   | { kind: "ready"; data: T }
   | { kind: "hidden" }
-  | { kind: "error"; requestId?: string };
+  | { kind: "error"; requestId?: string; failure: LoadFailure };
 
 export interface ApiResult {
   status: number;
@@ -55,12 +55,15 @@ export function readResult<T>(
   select: (data: unknown) => T | undefined,
 ): PanelRead<T> {
   if (res.status >= 400) {
-    return isRefusal(res.status)
-      ? { kind: "hidden" }
-      : { kind: "error", requestId: requestIdOf(res.error) ?? undefined };
+    if (isRefusal(res.status)) return { kind: "hidden" };
+    const failure = loadFailureOf(res);
+    return { kind: "error", requestId: failure.requestId, failure };
   }
   const data = select(res.data);
-  return data === undefined ? { kind: "error" } : { kind: "ready", data };
+  // A malformed answer is the server's failure; asking again can fetch a good one.
+  return data === undefined
+    ? { kind: "error", failure: { cause: "server", retryable: true } }
+    : { kind: "ready", data };
 }
 
 /** A page body's item list, or undefined when the body has none. */
@@ -85,7 +88,7 @@ const HIDDEN = { status: "hidden" } as const;
 function settledState<T>(result: PanelRead<T>, retry: () => void): PanelState<T> {
   if (result.kind === "ready") return { status: "ready", data: result.data };
   if (result.kind === "hidden") return HIDDEN;
-  return { status: "error", requestId: result.requestId, retry };
+  return { status: "error", requestId: result.requestId, failure: result.failure, retry };
 }
 
 interface QuerySnapshot<T> {
@@ -109,6 +112,6 @@ export function usePanelQuery<T>({ key, gate, read }: PanelQuery<T>): PanelState
   if (gate === "skip") return HIDDEN;
   if (gate === "wait" || isRetrying(query)) return LOADING;
   const retry = () => void query.refetch();
-  if (query.isError) return { status: "error", retry };
+  if (query.isError) return { status: "error", failure: NETWORK_FAILURE, retry };
   return query.data ? settledState(query.data, retry) : LOADING;
 }

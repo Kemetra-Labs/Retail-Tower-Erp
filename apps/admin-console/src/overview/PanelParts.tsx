@@ -4,7 +4,9 @@
  * labelled «غير متاح» where there is no source. Never a zero in their place.
  */
 import { Icon } from "@/components/icons/Icon";
+import { loadFailureDetail } from "@/components/loadFailureCopy";
 import { useT } from "@/i18n";
+import type { LoadFailure } from "@/lib/error-recovery";
 import type { DeltaTone } from "@/metrics/metricRegistry";
 import type { Trend } from "./glanceLogic";
 
@@ -23,27 +25,37 @@ export function PanelSkeleton({ lines = 3 }: Readonly<{ lines?: number }>): Reac
 }
 
 /**
- * What failed, that nothing changed, the retry, and the request reference.
+ * What failed and why, that nothing changed, the retry only when it can help, and the request reference.
  * `announce` false for a second panel over the same failed read, so assistive
  * tech hears the failure once.
  */
 export function PanelError({
   requestId,
+  failure,
   retry,
   announce = true,
-}: Readonly<{ requestId?: string; retry: () => void; announce?: boolean }>): React.JSX.Element {
+}: Readonly<{
+  requestId?: string;
+  failure: LoadFailure;
+  retry: () => void;
+  announce?: boolean;
+}>): React.JSX.Element {
   const t = useT();
   return (
     <div className="glance-error" role={announce ? "alert" : undefined}>
-      <span>{t("overview.panel.failed")}</span>
+      <span>
+        {t("overview.panel.failed")} {loadFailureDetail(t, failure)}
+      </span>
       {requestId ? (
         <span className="glance-error__ref">
           {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{requestId}</bdi> })}
         </span>
       ) : null}
-      <button type="button" className="btn-secondary" onClick={retry}>
-        {t("overview.panel.retry")}
-      </button>
+      {failure.retryable ? (
+        <button type="button" className="btn-secondary" onClick={retry}>
+          {t("overview.panel.retry")}
+        </button>
+      ) : null}
     </div>
   );
 }

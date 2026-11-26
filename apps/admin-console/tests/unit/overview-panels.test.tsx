@@ -305,7 +305,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
     listUnknownItems.mockImplementationOnce(() => fail(500));
     renderOverview();
     const unknown = await findRow(UNKNOWN);
-    await within(unknown).findByText("Couldn't load.");
+    await within(unknown).findByText(/^Couldn't load\./);
     expect(within(unknown).queryByText("None")).toBeNull();
     expect(within(unknown).queryByText(/: 0/)).toBeNull();
     await within(await findRow(SHIFT)).findByText("Closes: 2");
@@ -320,7 +320,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
     listUnknownItems.mockImplementation(() => ok({}));
     renderOverview();
     const unknown = await findRow(UNKNOWN);
-    expect(await within(unknown).findByText("Couldn't load.")).toBeTruthy();
+    expect(await within(unknown).findByText(/^Couldn't load\./)).toBeTruthy();
     expect(within(unknown).queryByText("None")).toBeNull();
   });
 
@@ -331,7 +331,7 @@ describe("Overview panels (RT-559, spec 009)", () => {
     );
     renderOverview();
     const stock = await findRow("Stock discrepancies");
-    await within(stock).findByText("Couldn't load.");
+    await within(stock).findByText(/^Couldn't load\./);
     expect(screen.queryByText(/Cairo Festival City/)).toBeNull();
   });
 
@@ -457,7 +457,11 @@ describe("Overview panels (RT-559, spec 009)", () => {
         </QueryClientProvider>,
       );
       await within(await findRow(UNKNOWN)).findByText("Items: 1");
-      expect(screen.getByRole("link", { name: "Audit" }).getAttribute("href")).toBe("/audit");
+      const link = screen.getByRole("link", { name: "Audit" });
+      expect(link.getAttribute("href")).toBe("/audit");
+      // RT-965: the link sits under a section heading, not orphaned.
+      const heading = screen.getByRole("heading", { name: "Who changed what" });
+      expect(link.closest("section")?.contains(heading)).toBe(true);
       unmount();
     }
     // P-5 is deferred (OD-009-3, RT-567): no recent-activity list. The only audit read is the

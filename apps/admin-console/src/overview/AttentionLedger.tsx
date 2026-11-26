@@ -11,6 +11,7 @@
  * tone reinforces what the words already say (work waiting, failed, quiet);
  * the text carries the meaning, never the dot alone.
  */
+import { loadFailureDetail } from "@/components/loadFailureCopy";
 import { DateTime, type MessageKey, useT } from "@/i18n";
 import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries";
 import {
@@ -89,15 +90,17 @@ function PendingValue({
   }
   return (
     <span className="ledger__error" role="alert">
-      {t("overview.row.failed")}
+      {t("overview.row.failed")} {loadFailureDetail(t, state.failure)}
       {state.requestId ? (
         <span className="glance-error__ref">
           {t.rich("components.banner.requestRef", { id: <bdi dir="ltr">{state.requestId}</bdi> })}
         </span>
       ) : null}
-      <button type="button" className="btn-secondary ledger__retry" onClick={state.retry}>
-        {t("overview.row.retry")}
-      </button>
+      {state.failure.retryable ? (
+        <button type="button" className="btn-secondary ledger__retry" onClick={state.retry}>
+          {t("overview.row.retry")}
+        </button>
+      ) : null}
     </span>
   );
 }

@@ -25,12 +25,15 @@ import {
   consoleGetDevice,
   consoleListDevices,
 } from "@/lib/device-queries";
+import { type LoadFailure, NETWORK_FAILURE, loadFailureOf } from "@/lib/error-recovery";
 import { useInfiniteQuery, useQuery } from "@tanstack/react-query";
 import { flattenDevicePages, isUuid, nextDeviceCursor } from "./deviceLogic";
 
 export type DeviceError = {
   kind: "not-found" | "session" | "rejected" | "generic";
   requestId?: string;
+  /** RT-965: cause and whether a retry can help (a thrown read is the network). */
+  failure: LoadFailure;
 };
 
 export interface DeviceScope {
@@ -74,7 +77,9 @@ const STATUS_KINDS: Record<number, DeviceError["kind"]> = {
 
 function errorOf(error: unknown): DeviceError | undefined {
   if (!error) return undefined;
-  return error instanceof DeviceFetchError ? error.detail : { kind: "generic" };
+  return error instanceof DeviceFetchError
+    ? error.detail
+    : { kind: "generic", failure: NETWORK_FAILURE };
 }
 
 /** Unwrap one wrapper result: its payload, or the typed error. */
@@ -85,6 +90,7 @@ function dataOrThrow<P>(res: ApiResult<P>): P {
       new DeviceFetchError({
         kind: statusKindOf(STATUS_KINDS, r.status),
         requestId: requestIdOf(r.error),
+        failure: loadFailureOf(r),
       }),
   );
 }
@@ -141,7 +147,7 @@ export interface DeviceDetailState {
   retry: () => void;
 }
 
-const INVALID_ID: DeviceError = { kind: "not-found" };
+const INVALID_ID: DeviceError = { kind: "not-found", failure: loadFailureOf({ status: 404 }) };
 
 export function useDeviceDetail(scope: ScopeKey, deviceId: string | undefined): DeviceDetailState {
   const validId = isUuid(deviceId);

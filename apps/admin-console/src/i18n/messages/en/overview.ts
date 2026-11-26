@@ -16,6 +16,7 @@ export const overview: MessagesOf<typeof ar> = {
   "overview.count.unproven": "The list has more to check",
   "overview.row.loading": "Loading…",
   "overview.row.failed": "Couldn't load.",
+  "overview.audit.title": "Who changed what",
   "overview.row.retry": "Retry",
 
   "overview.stock.label": "Stock discrepancies · {store}",
@@ -43,7 +44,7 @@ export const overview: MessagesOf<typeof ar> = {
 
   // --- Overview v2 (RT-970) ---------------------------------------------------
   "overview.unavailable": "Not available",
-  "overview.panel.failed": "Couldn't load this part. Nothing was changed.",
+  "overview.panel.failed": "Couldn't load this part.",
   "overview.panel.retry": "Try again",
 
   "overview.greeting": "Welcome, {name}",

@@ -103,6 +103,7 @@ export const shell: MessagesOf<typeof ar> = {
   "shell.leave.discard": "Discard changes",
 
   "components.banner.requestRef": "request_id: {id}",
+  "components.readingNote.summary": "How to read this page",
   "components.list.loading": "Loading {label}…",
   "components.list.loadingDefault": "items",
   "components.confirmDelete.label": "Confirm: {action}",

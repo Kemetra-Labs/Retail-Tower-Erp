@@ -21,6 +21,7 @@ export const overview = {
   "overview.count.unproven": "في القائمة المزيد للمراجعة",
   "overview.row.loading": "جارٍ التحميل…",
   "overview.row.failed": "تعذّر التحميل.",
+  "overview.audit.title": "من غيّر ماذا",
   "overview.row.retry": "إعادة المحاولة",
 
   "overview.stock.label": "فروقات المخزون · {store}",
@@ -48,7 +49,7 @@ export const overview = {
 
   // --- Overview v2 (RT-970) ---------------------------------------------------
   "overview.unavailable": "غير متاح",
-  "overview.panel.failed": "تعذّر تحميل هذا الجزء. لم يتغيّر شيء.",
+  "overview.panel.failed": "تعذّر تحميل هذا الجزء.",
   "overview.panel.retry": "إعادة المحاولة",
 
   "overview.greeting": "مرحبًا، {name}",

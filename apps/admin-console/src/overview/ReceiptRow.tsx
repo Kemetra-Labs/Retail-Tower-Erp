@@ -392,7 +392,7 @@ export function ReceiptRow({
     <section className="glance-kpis" aria-label={t("overview.kpi.label")}>
       {state.status === "loading" ? <PanelSkeleton lines={2} /> : null}
       {state.status === "error" ? (
-        <PanelError requestId={state.requestId} retry={state.retry} />
+        <PanelError requestId={state.requestId} failure={state.failure} retry={state.retry} />
       ) : null}
       {state.status === "ready" ? <Body summary={state.data} scope={scope} /> : null}
     </section>

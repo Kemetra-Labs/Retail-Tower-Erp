@@ -143,7 +143,7 @@ export function LowStockPanel({ session }: Readonly<{ session: OverviewSession }
       <div className="section-panel__body">
         {state.status === "loading" ? <PanelSkeleton lines={3} /> : null}
         {state.status === "error" ? (
-          <PanelError requestId={state.requestId} retry={state.retry} />
+          <PanelError requestId={state.requestId} failure={state.failure} retry={state.retry} />
         ) : null}
         {state.status === "ready" ? <Body list={state.data} /> : null}
       </div>
