@@ -185,7 +185,6 @@ describe('RT-1209 cashier-admission wire: an answer whose body cannot be read', 
     ['reconcile', 200, 'rejected'],
     ['listRoster', 200, 'rejected'],
     ['end', 200, 'ended'],
-    ['end', 204, 'ended'],
     ['admit', 401, 'device_unauthorized'],
     ['admit', 403, 'refused'],
     ['reconcile', 409, 'idempotency_conflict'],
@@ -246,6 +245,8 @@ describe('RT-1209 cashier-admission wire: response classes', () => {
     ['listRoster', () => empty(429), { kind: 'rejected' }],
     ['listRoster', () => empty(500), { kind: 'unavailable' }],
     ['end', () => empty(202), { kind: 'ended' }],
+    // A 204 is a null-body status: it can carry no body, so it is never a broken-body case.
+    ['end', () => empty(204), { kind: 'ended' }],
     ['end', () => empty(302), { kind: 'rejected' }],
     ['end', () => empty(409), { kind: 'rejected' }],
   ] as const)('%s → %j', async (name, make, expected) => {
