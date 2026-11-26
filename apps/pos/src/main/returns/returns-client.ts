@@ -38,12 +38,22 @@
  *
  * `unknown` is never success: nothing proves the server did or did not record
  * the return. Never throws.
+ *
+ * RT-1209: the HTTP exchange (bearer, timeout, bounded body, transport faults) runs on the shared
+ * Backend-Core transport (`../http/transport.ts`); the outcome table above is unchanged. The
+ * transport reports every fault as `null`, so the client tells a timeout from a network fault
+ * itself, from the error `fetch` threw or from the request signal having fired.
  */
 import type { ReturnUnknownCause, ServerReturnRefusal } from '../../shared/returns/types.js';
+import {
+  createBackendTransport,
+  type BackendAnswer,
+  type BackendMethod,
+  type FetchLike,
+} from '../http/transport.js';
 import type { ExecutionRefusal } from './returns-execution-repository.js';
 import {
   isUuid,
-  parseJsonBody,
   readErrorCode,
   readRefundExecutionBody,
   readSaleBody,
@@ -59,6 +69,9 @@ const SALES_PATH = '/api/pos/v1/sales';
  * drain bound (`RETURNS_DRAIN_TIMEOUT_MS`) is derived from it.
  */
 export const RETURNS_REQUEST_TIMEOUT_MS = 15_000;
+
+/** The largest answer body read, in bytes (a sale or a return answer is a few KB at most). */
+const RETURNS_MAX_BODY_BYTES = 2_000_000;
 
 export type ReadSaleOutcome =
   | { readonly kind: 'ok'; readonly sale: WireSale }
@@ -131,11 +144,9 @@ export interface ReturnsClient {
 export interface CreateReturnsClientDeps {
   /** Backend-Core base URL. */
   readonly baseUrl: string;
-  readonly fetch: (input: RequestInfo | URL, init?: RequestInit) => Promise<Response>;
+  readonly fetch: FetchLike;
   readonly timeoutMs?: number;
 }
-
-type HttpAnswer = { readonly status: number; readonly headers: Headers; readonly json: unknown };
 
 /** An exchange that produced no HTTP answer, and why. */
 type ExchangeFault = { readonly fault: 'no_credential' | 'timeout' | 'network' };
@@ -174,8 +185,8 @@ export function classifyRefusal(status: number, code: string | null): ServerRetu
   return STATUS_REFUSALS[status] ?? null;
 }
 
-function isReplay(answer: HttpAnswer): boolean {
-  return answer.status === 200 || answer.headers.get('Idempotent-Replayed') === 'true';
+function isReplay(answer: BackendAnswer): boolean {
+  return answer.status === 200 || answer.headers?.['idempotent-replayed'] === 'true';
 }
 
 /**
@@ -202,12 +213,12 @@ function causeOfStatus(status: number): ReturnUnknownCause {
  * recorded, so it stays unknown. The credit refusal is the exception: decided
  * AFTER the provenance replay, so terminal even on a resend (OD-196-9).
  */
-function isInconclusiveResend(answer: HttpAnswer, resend: boolean, reason: string | null) {
+function isInconclusiveResend(answer: BackendAnswer, resend: boolean, reason: string | null) {
   if (!resend || !PRE_REPLAY_STATUSES.has(answer.status)) return false;
   return reason !== CREDIT_REVERSAL_CODE;
 }
 
-function toRecordOutcome(answer: HttpAnswer, resend: boolean): RecordReturnOutcome {
+function toRecordOutcome(answer: BackendAnswer, resend: boolean): RecordReturnOutcome {
   if (answer.status === 200 || answer.status === 201) {
     const saleReturn = readSaleReturnBody(answer.json);
     if (saleReturn === null) return { kind: 'unknown', cause: 'unreadable_body' };
@@ -239,7 +250,7 @@ const EXECUTION_REFUSALS: Readonly<Record<number, ExecutionRefusal>> = {
   422: 'exceeds_allocation',
 };
 
-function toExecutionOutcome(answer: HttpAnswer): RecordExecutionOutcome {
+function toExecutionOutcome(answer: BackendAnswer): RecordExecutionOutcome {
   if (answer.status === 200 || answer.status === 201) {
     const execution = readRefundExecutionBody(answer.json);
     if (execution === null) return { kind: 'unknown', cause: 'unreadable_body' };
@@ -251,7 +262,7 @@ function toExecutionOutcome(answer: HttpAnswer): RecordExecutionOutcome {
   return { kind: 'unknown', cause: preReplay ?? causeOfStatus(answer.status) };
 }
 
-function toReadOutcome(answer: HttpAnswer): ReadSaleOutcome {
+function toReadOutcome(answer: BackendAnswer): ReadSaleOutcome {
   if (answer.status === 200) {
     const sale = readSaleBody(answer.json);
     return sale === null ? { kind: 'unavailable' } : { kind: 'ok', sale };
@@ -260,7 +271,7 @@ function toReadOutcome(answer: HttpAnswer): ReadSaleOutcome {
   return reason === null ? { kind: 'unavailable' } : { kind: 'refused', reason };
 }
 
-function isFault(answer: HttpAnswer | ExchangeFault): answer is ExchangeFault {
+function isFault(answer: BackendAnswer | ExchangeFault): answer is ExchangeFault {
   return 'fault' in answer;
 }
 
@@ -271,31 +282,50 @@ function isTimeout(err: unknown): boolean {
 }
 
 export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClient {
-  const root = deps.baseUrl.replace(/\/$/, '');
   const timeoutMs = deps.timeoutMs ?? RETURNS_REQUEST_TIMEOUT_MS;
 
   /** One HTTP exchange; a fault (never thrown) on no credential or any transport/body failure. */
   async function exchange(request: {
+    method: BackendMethod;
     path: string;
-    init: RequestInit;
+    headers?: Readonly<Record<string, string>>;
+    body?: string;
     envelope: OperatorEnvelope;
-  }): Promise<HttpAnswer | ExchangeFault> {
+  }): Promise<BackendAnswer | ExchangeFault> {
     const token = request.envelope;
     if (token === null || token.length === 0) return { fault: 'no_credential' };
-    try {
-      const response = await deps.fetch(`${root}${SALES_PATH}${request.path}`, {
-        ...request.init,
-        headers: {
-          ...(request.init.headers as Record<string, string>),
-          Authorization: `Bearer ${token}`,
-        },
-        signal: AbortSignal.timeout(timeoutMs),
-      });
-      const json = parseJsonBody(await response.text());
-      return { status: response.status, headers: response.headers, json };
-    } catch (err) {
-      return { fault: isTimeout(err) ? 'timeout' : 'network' };
-    }
+    // The transport answers null for every fault; watch the fetch it makes to name a timeout.
+    const probe: { threw: boolean; err?: unknown; signal?: AbortSignal | undefined } = {
+      threw: false,
+    };
+    const transport = createBackendTransport({
+      baseUrl: deps.baseUrl,
+      fetch: async (input, init) => {
+        probe.signal = init?.signal ?? undefined;
+        try {
+          return await deps.fetch(input, init);
+        } catch (err) {
+          probe.threw = true;
+          probe.err = err;
+          throw err;
+        }
+      },
+      timeoutMs,
+      maxBodyBytes: RETURNS_MAX_BODY_BYTES,
+    });
+    const answer = await transport.send({
+      method: request.method,
+      path: `${SALES_PATH}${request.path}`,
+      bearer: token,
+      ...(request.headers === undefined ? {} : { headers: request.headers }),
+      ...(request.body === undefined ? {} : { body: request.body }),
+      readHeaders: ['Idempotent-Replayed'],
+    });
+    if (answer !== null) return answer;
+    // fetch threw: its own error says (a TimeoutError / AbortError); else the body read failed,
+    // and the request signal having fired says.
+    const timedOut = probe.threw ? isTimeout(probe.err) : probe.signal?.aborted === true;
+    return { fault: timedOut ? 'timeout' : 'network' };
   }
 
   /** POST the outboxed bytes verbatim under their Idempotency-Key (a return, an execution). */
@@ -308,14 +338,13 @@ export function createReturnsClient(deps: CreateReturnsClientDeps): ReturnsClien
       'Content-Type': 'application/json',
       'Idempotency-Key': frozen.idempotencyKey,
     };
-    return exchange({ envelope, path, init: { method: 'POST', headers, body: frozen.bodyJson } });
+    return exchange({ envelope, path, method: 'POST', headers, body: frozen.bodyJson });
   }
 
   return {
     async readSale(saleRef: string, envelope: OperatorEnvelope): Promise<ReadSaleOutcome> {
       if (!isUuid(saleRef)) return { kind: 'refused', reason: 'returns_unavailable' };
-      const init: RequestInit = { method: 'GET', headers: {} };
-      const answer = await exchange({ path: `/${saleRef}`, init, envelope });
+      const answer = await exchange({ method: 'GET', path: `/${saleRef}`, envelope });
       return isFault(answer) ? { kind: 'unavailable' } : toReadOutcome(answer);
     },
 

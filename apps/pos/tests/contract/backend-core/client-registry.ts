@@ -350,6 +350,8 @@ export const CLIENT_MODULES: readonly ClientModule[] = [
     fetchCallSites: 1,
     surface: saleSyncClient,
   },
+  // RT-1209: on the shared transport. The one fetch site is a pass-through that watches the call's
+  // own error and signal to tell a timeout from a network fault (the transport answers null for both).
   { module: 'src/main/returns/returns-client.ts', fetchCallSites: 1, surface: returnsClient },
   // RT-1498 close slice: the return status read (operator envelope, on the shared transport).
   {
