@@ -53,6 +53,37 @@ export const V4_DARK_PAIRS = [
 // Light only: the Mint fill is sanctioned on dark (D-V10).
 export const V4_FORBIDDEN_PAIRS = [['mint', 'surface', 3]];
 
+// v5.0 «Console system v3» roles (RT-1610, DESIGN.md §13.2 and §13.8). Shipped
+// tokens only: the Claude Design bundle does not define them, so they stay out of
+// CONTRAST_PAIRS like the v4.0 roles. V5_RETUNED are earlier roles whose values
+// v5.0 replaces; V5_COLOUR_ROLES are the roles v5.0 adds.
+export const V5_RETUNED = [
+  'background', 'surface', 'surface-sunken', 'text', 'text-muted', 'border',
+  'primary', 'primary-soft', 'success', 'warning', 'danger',
+];
+export const V5_COLOUR_ROLES = [
+  'selection', 'success-soft', 'warning-soft', 'danger-soft', 'unknown-border', 'unknown-text',
+  'side', 'side-text', 'side-muted', 'topbar-field', 'topbar-line', 'topbar-muted', 'attention',
+  'band', 'on-band', 'band-action-fill', 'on-band-action-fill', 'perforation',
+];
+// The §13.8 pairs, the same in both themes. Primary is also link text (4.5).
+// The unknown outline is a non-text mark (3); its word is text (4.5).
+export const V5_PAIRS = [
+  ['side-text', 'side', 4.5], ['side-muted', 'side', 4.5],
+  ...['surface', 'canvas', 'selection', 'primary-soft'].map((bg) => ['primary', bg, 4.5]),
+  ['text', 'primary-soft', 4.5], ['text', 'selection', 4.5], ['text-muted', 'selection', 4.5],
+  ...['success', 'warning', 'danger'].flatMap((s) => [[s, `${s}-soft`, 4.5], [s, 'surface', 4.5]]),
+  ['on-ink', 'topbar-field', 4.5], ['topbar-muted', 'topbar-field', 4.5], ['ink', 'attention', 4.5],
+  // The top-bar field's edge (a control boundary on Ink).
+  ['topbar-muted', 'ink', 3],
+  // §13.2: info and teal text carried over, re-measured on the new soft layers.
+  ...['primary-soft', 'selection', 'success-soft', 'warning-soft', 'danger-soft']
+    .flatMap((bg) => [['info', bg, 4.5], ['primary-emphasis', bg, 4.5]]),
+  ['on-band', 'band', 4.5], ['ink-muted', 'band', 4.5],
+  ['on-band-action-fill', 'band-action-fill', 4.5],
+  ...LAYERS.flatMap((bg) => [['unknown-border', bg, 3], ['unknown-text', bg, 4.5]]),
+];
+
 export const CONTRAST_PAIRS = [
   ...LAYERS.flatMap((bg) => [
     ['text', bg, 4.5], ['text-muted', bg, 4.5], ['control-border', bg, 3], ['focus-ring', bg, 3],

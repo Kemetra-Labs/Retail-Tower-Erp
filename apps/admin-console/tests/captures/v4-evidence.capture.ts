@@ -1,6 +1,7 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import AxeBuilder from "@axe-core/playwright";
+import { context } from "../e2e/compact-shell-data";
 import { type Page, expect, test } from "../e2e/fixtures";
 import { FAILED, FIXED_NOW, LONG_TENANT_AR, contextNamed, json } from "./screen-data";
 import { SCREENS, type Screen } from "./screens";
@@ -10,8 +11,8 @@ import { SCREENS, type Screen } from "./screens";
  * browser on the owner's laptop). For every screen in `screens.ts`, in the
  * locale of the Playwright project, light theme, at 1280x800 and 390 wide:
  * normal, a banner under the band (its primary read fails), a long Arabic
- * tenant name and a dense table; plus forced colours at 1280 (C2) and the axe
- * results as JSON. Reduced motion is on for every capture (the config), so
+ * tenant name and a dense table; plus forced colours at 1280 (C2), dark at 1280
+ * (RT-1610) and the axe results as JSON, light and dark. Reduced motion is on for every capture (the config), so
  * nothing that pulses is caught mid-frame.
  *
  * A capture never fails on what it shows. It fails only when the route does
@@ -167,6 +168,26 @@ for (const s of SCREENS) {
       await page.goto(route);
       await expectRendered(page, t, errors, `${route} forced-colors`);
       await shoot(page, `${base(s, appLocale)}__1280__forced-colors`);
+    });
+
+    // RT-1610: the dark theme at 1280 with its own axe results, so a token change is
+    // checked in both themes. Extra files beside the meta's list (build-index.mjs only
+    // requires the listed ones). The user's stored choice is seeded before load, as the
+    // top-bar switch stores it (src/theme/theme.ts); the shell re-applies the stored
+    // choice on mount, so setting data-theme after load is reverted.
+    test("dark (RT-1610)", async ({ page, t, appLocale }) => {
+      const errors = watchErrors(page);
+      const route = await prepare(page, s, "normal");
+      await page.addInitScript((userId: string) => {
+        localStorage.setItem(`rt.theme.v1:user:${userId}`, "dark");
+        localStorage.setItem("rt.theme.v1:last", "dark");
+      }, context.user.id);
+      await page.setViewportSize({ width: 1280, height: HEIGHT });
+      await page.goto(route);
+      await expectRendered(page, t, errors, `${route} dark`);
+      await expect(page.locator("html"), `${route} dark`).toHaveAttribute("data-theme", "dark");
+      await shoot(page, `${base(s, appLocale)}__1280__dark`);
+      await saveAxe(page, `${base(s, appLocale)}__dark-axe.json`);
     });
   });
 }

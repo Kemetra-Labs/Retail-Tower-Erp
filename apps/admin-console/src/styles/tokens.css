@@ -1,34 +1,64 @@
 /* Admin Console design tokens — production source.
  *
  * Colour, radius and elevation follow the approved Retail Tower target identity
- * (RT-392, RT-396): light-first Mineral Daylight + Tower Teal. Every colour is a
- * value from the light block of design/claude-design-system/colors_and_type.css,
- * or an alias/alpha of one; tests/unit/tokens-identity.test.ts checks that and
- * the WCAG AA pairings. Components consume these role names, never hex values,
+ * (RT-392, RT-396): light-first Mineral Daylight + Tower Teal. A colour is a value
+ * from the light block of design/claude-design-system/colors_and_type.css, an
+ * alias/alpha of one, or a role whose value a later owner decision sets: v4.0
+ * (RT-989, DESIGN.md §12) and v5.0 (RT-1610, DESIGN.md §13.2).
+ * tests/unit/tokens-identity.test.ts pins each group and checks the WCAG AA
+ * pairings. Components consume these role names, never hex values,
  * so a theme can remap the roles without changing what a component means.
  */
 
 :root {
   color-scheme: light;
 
-  /* Approved colour roles (RT-392 light table) */
-  --color-background: #f7f9fa; /* canvas */
-  --color-surface: #ffffff; /* work surface, panel, overlay */
-  --color-surface-sunken: #eef2f6; /* recessed: headers, hover rows, read-only */
-  --color-text: #0f1d2e;
-  --color-text-muted: #53647a; /* secondary text; also control boundaries */
-  --color-border: #d8dfe7; /* decorative dividers ONLY (1.34:1), never a control edge */
+  /* Colour roles. The v5.0 «Console system v3» values (RT-1610; DESIGN.md §13.2,
+   * owner decision D9 of RT-1608) replace the RT-392 light table for the roles
+   * below; tests/unit/tokens-identity.test.ts pins them. The page background is
+   * the v5.0 canvas, so every screen takes the warm neutral. */
+  --color-canvas: #f3f4f2; /* the work-surface background */
+  --color-background: var(--color-canvas);
+  --color-surface: #ffffff; /* panels, tables, drawers, overlays */
+  --color-surface-sunken: #f7f8f6; /* table head, recessed tracks, inputs on panels */
+  --color-text: #14201f;
+  --color-text-muted: #56605e; /* secondary text; also control boundaries */
+  --color-border: #dfe3e0; /* decorative dividers ONLY (1.30:1), never a control edge */
 
-  /* Tower Teal: intent (primary action, selection, focus) */
-  --color-primary: #0f766e;
-  --color-primary-emphasis: #0b5b55; /* hover, pressed, teal text */
-  --color-primary-soft: #e6f4f1; /* selection / current-context wash */
+  /* Tower Teal: intent (links, focus, selection, chart series 1) */
+  --color-primary: #007560;
+  --color-primary-emphasis: #0b5b55; /* hover, pressed, teal text (RT-392, unchanged) */
+  --color-primary-soft: #e2f2ee; /* applied-filter chip, current-context wash */
+  --color-selection: #eef6f4; /* selected table row, with a 3px primary bar */
 
-  /* Status: text first, never colour alone */
-  --color-success: #15774d; /* proven success only */
-  --color-warning: #a35a00; /* caution / degraded */
-  --color-danger: #b3261e; /* danger / consequence / UNKNOWN */
-  --color-info: #1b6ca8; /* information / pending */
+  /* Status: text first, never colour alone. Each has a soft fill for its pill. */
+  --color-success: #1f6f43; /* proven success only */
+  --color-success-soft: #e4f3ea;
+  --color-warning: #8f5300; /* caution / degraded */
+  --color-warning-soft: #fff2dc;
+  --color-danger: #b3261e; /* failure / consequence */
+  --color-danger-soft: #fcebe9;
+  --color-info: #1b6ca8; /* information / pending (RT-392, unchanged) */
+  /* UNKNOWN has its own style, not danger (UX-02 as amended 2026-11-26): a 1px
+   * dashed outline, «؟» and «غير معروف». Components still show UNKNOWN in danger
+   * until the slice that adopts this style ships. */
+  --color-unknown-border: var(--color-text-muted);
+  --color-unknown-text: var(--color-text);
+
+  /* The light sidebar (v5.0). A role only: the live sidebar stays Ink until the
+   * shell slice (V3-4) switches it, because Mint is allowed on Ink only. */
+  --color-side: #e9ece9;
+  --color-side-text: #24302f;
+  --color-side-muted: #55625f;
+
+  /* The Ink top bar (v5.0): its search field and switchers, and the alert badge.
+   * The field's edge is --color-topbar-muted (>= 3:1 on Ink and on the field);
+   * --color-topbar-line is a decorative divider only, like --color-border.
+   * Attention is for that badge only, with Ink text, never a status colour. */
+  --color-topbar-field: #14353a;
+  --color-topbar-line: #2d4d52;
+  --color-topbar-muted: #b9cccf;
+  --color-attention: #ff6b5e;
 
   /* v4.0 "Ink & Receipt" roles (RT-989; DESIGN.md §12.1; Confluence 62816260
    * D-V1..D-V3). The dark block restates them with the D-V10 values (RT-1037).
@@ -38,12 +68,19 @@
   --color-mint: #5fe0cf; /* highlight on Ink only (D-V2) */
   --color-ink-muted: #a9c2c5; /* secondary text on Ink */
   --color-on-ink: #ffffff; /* primary text and icons on Ink; white in every theme, as Ink is dark in both (RT-991) */
-  --color-canvas: #f2f5f6; /* the v4.0 work-surface background */
   /* The primary-action fill pair (D-V3, D-V10): Ink with on-ink text in light,
    * Mint with Ink text in dark. --color-ink itself never becomes Mint, as it is
    * also the sidebar, band and hero surface. */
   --color-action-fill: var(--color-ink);
   --color-on-action-fill: var(--color-on-ink);
+  /* The Ink area header band (DESIGN.md §13.3): Ink in both themes, on-ink text,
+   * and at most one Mint primary with Ink text. The band never changes colour. */
+  --color-band: var(--color-ink);
+  --color-on-band: var(--color-on-ink);
+  --color-band-action-fill: var(--color-mint);
+  --color-on-band-action-fill: var(--color-ink);
+  /* The receipt strip's dashed perforation: decorative and aria-hidden. */
+  --color-perforation: var(--color-border);
 
   /* Data visualisation (RT-822, UX-13): a separate family that never reuses a
    * status or intent role. Every mark clears 3:1 on all three layers; the
@@ -78,7 +115,9 @@
   --color-on-primary: var(--color-surface); /* text on a primary or danger fill */
   --color-control-border: var(--color-text-muted); /* >= 3:1 control boundary */
   --color-focus-ring: var(--color-primary);
-  --color-scrim: rgb(15 29 46 / 0.45); /* text at 45% */
+  /* The scrim and overlay shadow keep the RT-392 values (the pre-v5.0 text and
+   * background rgb), pinned by the RT-392 test; moving them is not in RT-1610. */
+  --color-scrim: rgb(15 29 46 / 0.45); /* RT-392 text at 45% */
   --shadow-overlay: 0 12px 32px rgb(15 29 46 / 0.16), 0 2px 6px rgb(15 29 46 / 0.08);
   /* v4.0 resting elevation (RT-989, D-V6): a hairline plus a 32px, -24px spread
    * shadow at 25% Ink (rgb of --color-ink). Panels and receipt cards only. */
@@ -170,21 +209,38 @@
 [data-theme="dark"] {
   color-scheme: dark;
 
-  --color-background: #0e161f;
-  --color-surface: #16212d;
-  --color-surface-sunken: #111a24;
-  --color-text: #e7edf3;
-  --color-text-muted: #9fb0c2;
-  --color-border: #2a3846;
+  /* v5.0 dark values (RT-1610, DESIGN.md §13.2). */
+  --color-canvas: #0e1415;
+  --color-background: var(--color-canvas);
+  --color-surface: #172021;
+  --color-surface-sunken: #121a1b;
+  --color-text: #e9efee;
+  --color-text-muted: #a5b3b1;
+  --color-border: #2a3738;
 
-  --color-primary: #3fb8a8;
+  --color-primary: #4cc7ac;
   --color-primary-emphasis: #6fd0c2;
-  --color-primary-soft: #12322f;
+  --color-primary-soft: #12302b;
+  --color-selection: #1b2c2a;
 
-  --color-success: #5cc995;
-  --color-warning: #e9a84a;
-  --color-danger: #ff8b7f;
+  --color-success: #6fd39a;
+  --color-success-soft: #16301f;
+  --color-warning: #f0b45c;
+  --color-warning-soft: #3a2a12;
+  --color-danger: #ff8a80;
+  --color-danger-soft: #3a1d1b;
   --color-info: #6db3ea;
+  --color-unknown-border: var(--color-text-muted);
+  --color-unknown-text: var(--color-text);
+
+  --color-side: #121a1b;
+  --color-side-text: #dfe7e6;
+  --color-side-muted: #9fb0ae;
+
+  --color-topbar-field: #14292c;
+  --color-topbar-line: #2a4246;
+  --color-topbar-muted: #a5b3b1;
+  --color-attention: #ff6b5e;
 
   /* Data visualisation (RT-822): the same hues stepped for the dark surfaces.
    * Sequential and diverging run from the surface outward, so the least value
@@ -212,23 +268,27 @@
 
   /* v4.0 roles in dark (RT-1037; DESIGN.md §12.8.4, D-V10). Ink is dark in both
    * themes and Mint is fixed, so four roles repeat their light value; canvas is
-   * the dark background and the resting shadow is an alpha of it. Mint becomes
-   * the primary-action fill here, with Ink text. */
+   * the dark background (above) and the resting shadow is an alpha of it. Mint
+   * becomes the primary-action fill here, with Ink text. */
   --color-ink: #0a2125;
   --color-mint: #5fe0cf;
   --color-ink-muted: #a9c2c5;
   --color-on-ink: #ffffff;
-  --color-canvas: #0e161f;
   --color-action-fill: var(--color-mint);
   --color-on-action-fill: var(--color-ink);
+  --color-band: var(--color-ink);
+  --color-on-band: var(--color-on-ink);
+  --color-band-action-fill: var(--color-mint);
+  --color-on-band-action-fill: var(--color-ink);
+  --color-perforation: var(--color-border);
 
   --color-on-primary: var(--color-background); /* text on a teal or danger fill is dark */
   --color-control-border: var(--color-text-muted);
   --color-focus-ring: var(--color-primary);
-  --color-scrim: rgb(14 22 31 / 0.7); /* background at 70% */
+  --color-scrim: rgb(14 22 31 / 0.7); /* RT-392 dark background at 70% */
   --shadow-overlay: 0 12px 32px rgb(14 22 31 / 0.7), 0 2px 6px rgb(14 22 31 / 0.5);
   /* A depth cue only: the 1px --color-border carries the panel edge on dark. */
-  --shadow-resting: 0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9);
+  --shadow-resting: 0 1px 2px rgb(14 20 21 / 0.6), 0 12px 32px -24px rgb(14 20 21 / 0.9);
 }
 
 @media (prefers-reduced-motion: reduce) {
@@ -268,6 +328,32 @@
     --color-viz-div-pos-1: GrayText;
     --color-viz-div-pos-2: CanvasText;
     --color-viz-div-pos-3: CanvasText;
+    /* v5.0 roles (RT-1610): surfaces take Canvas, text CanvasText, secondary
+     * text and decorative lines GrayText. The unknown outline stays a visible
+     * dashed CanvasText edge (DESIGN.md §13.2). Selection and the alert badge
+     * are Canvas, not Highlight: the user agent keeps their text CanvasText, which
+     * a Highlight fill can make unreadable. The 3px primary bar marks the
+     * selected row; the badge component adds its own forced-colours edge. */
+    --color-selection: Canvas;
+    --color-success-soft: Canvas;
+    --color-warning-soft: Canvas;
+    --color-danger-soft: Canvas;
+    --color-unknown-border: CanvasText;
+    --color-unknown-text: CanvasText;
+    --color-side: Canvas;
+    --color-side-text: CanvasText;
+    --color-side-muted: GrayText;
+    --color-topbar-field: Canvas;
+    /* The top-bar field's edge is --color-topbar-muted, so it keeps a CanvasText
+     * edge (GrayText is not sure to reach 3:1); topbar-line is decorative. */
+    --color-topbar-line: GrayText;
+    --color-topbar-muted: CanvasText;
+    --color-attention: Canvas;
+    --color-band: Canvas;
+    --color-on-band: CanvasText;
+    --color-band-action-fill: ButtonFace;
+    --color-on-band-action-fill: ButtonText;
+    --color-perforation: GrayText;
   }
 }
 

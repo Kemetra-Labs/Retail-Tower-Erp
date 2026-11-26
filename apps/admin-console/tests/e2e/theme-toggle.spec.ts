@@ -42,18 +42,18 @@ test("toggle on, reload: still dark, restored before the app bundle runs", async
   const toggle = page.getByRole("button", { name: t("theme.darkMode") });
   await expect(toggle).toHaveAttribute("aria-pressed", "false");
   expect(await theme(page)).toBe("");
-  expect(await bodyBackground(page)).toBe("rgb(247, 249, 250)"); // light canvas
+  expect(await bodyBackground(page)).toBe("rgb(243, 244, 242)"); // light canvas #f3f4f2 (RT-1610)
 
   await toggle.click();
   await expect(toggle).toHaveAttribute("aria-pressed", "true");
   expect(await theme(page)).toBe("dark");
-  expect(await bodyBackground(page)).toBe("rgb(14, 22, 31)"); // dark canvas #0e161f
+  expect(await bodyBackground(page)).toBe("rgb(14, 20, 21)"); // dark canvas #0e1415 (RT-1610)
 
   // With every script bundle blocked, only the pre-paint file (/pre-paint.js) can set it.
   await page.route("**/assets/*.js", (r) => r.abort());
   await page.reload();
   expect(await theme(page)).toBe("dark");
-  expect(await bodyBackground(page)).toBe("rgb(14, 22, 31)");
+  expect(await bodyBackground(page)).toBe("rgb(14, 20, 21)");
 
   // And with the app running again, the toggle reflects the stored choice.
   await page.unroute("**/assets/*.js");
@@ -103,7 +103,7 @@ test("toggle off returns to the light default and persists it across a reload", 
     "false",
   );
   expect(await theme(page)).toBe("");
-  expect(await bodyBackground(page)).toBe("rgb(247, 249, 250)"); // light canvas
+  expect(await bodyBackground(page)).toBe("rgb(243, 244, 242)"); // light canvas #f3f4f2 (RT-1610)
   expect(await page.evaluate(() => localStorage.getItem("rt.theme.v1:user:u1"))).toBe("light");
 });
 
