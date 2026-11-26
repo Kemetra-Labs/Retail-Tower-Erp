@@ -35,7 +35,7 @@ import {
 import type { Response } from 'express';
 import { z } from 'zod';
 
-import { DashboardAuthGuard, Roles, RolesGuard } from '../../auth';
+import { Roles, RolesGuard, SessionOnlyAdminGuard } from '../../auth';
 import { ZodValidationPipe } from '../../common/zod-validation.pipe';
 import { ConsoleRateLimit } from '../../console-rate-limit';
 import { TenantContextGuard, type TenantContextRequest } from '../../context';
@@ -99,7 +99,9 @@ function sessionCaller({ context }: TenantContextRequest): RedistributionCaller 
 }
 
 @Controller()
-@UseGuards(DashboardAuthGuard, TenantContextGuard, RolesGuard, RedistributionPhaseGuard)
+// The contract's only security scheme is the `dp2_session` cookie: any bearer, even a privileged `dashboard_api`
+// token, is 401 before the tenant, role or allowlist checks (review, PR #901).
+@UseGuards(SessionOnlyAdminGuard, TenantContextGuard, RolesGuard, RedistributionPhaseGuard)
 export class RedistributionProposalsController {
   constructor(private readonly service: RedistributionProposalsService) {}
 

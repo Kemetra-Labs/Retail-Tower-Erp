@@ -81,9 +81,14 @@ export function effectiveState(row: Pick<ProposalRow, 'state' | 'expires_at'>, n
   return live && row.expires_at.getTime() <= nowMs ? 'expired' : row.state;
 }
 
-/** Serialises every proposal command of one tenant (compute, review, accept, reject). */
-export async function lockTenantProposals(client: PoolClient, tenantId: string): Promise<void> {
-  await client.query(`SELECT pg_advisory_xact_lock(hashtextextended('redistribution_proposals:' || $1::text, 0))`, [tenantId]);
+/**
+ * The tenant's proposal lock, held to the end of the transaction. Every command (compute, review, accept, reject)
+ * takes it `exclusive`, so commands serialise; every read takes it `shared`, so a read waits for an in-flight command
+ * and its separate statements (a proposal header, then its lines) see one consistent state (review, PR #901).
+ */
+export async function lockTenantProposals(client: PoolClient, tenantId: string, mode: 'exclusive' | 'shared'): Promise<void> {
+  const fn = mode === 'exclusive' ? 'pg_advisory_xact_lock' : 'pg_advisory_xact_lock_shared';
+  await client.query(`SELECT ${fn}(hashtextextended('redistribution_proposals:' || $1::text, 0))`, [tenantId]);
 }
 
 /**
@@ -283,8 +288,12 @@ export async function listProposals(
   return { rows, nextCursor };
 }
 
-/** The database clock of the caller's transaction (heartbeats are stamped with it, so their age is measured on it). */
-export async function transactionNow(client: PoolClient): Promise<Date> {
-  const r = await client.query<{ now: Date }>(`SELECT now() AS now`);
+/**
+ * The database wall clock at this statement (`clock_timestamp()`), not the transaction start (`now()`): heartbeats
+ * are stamped with the database clock, and a command can wait on the tenant lock after its transaction began, so a
+ * heartbeat's age is measured when it is read (review, PR #901).
+ */
+export async function databaseClock(client: PoolClient): Promise<Date> {
+  const r = await client.query<{ now: Date }>(`SELECT clock_timestamp() AS now`);
   return r.rows[0]!.now;
 }

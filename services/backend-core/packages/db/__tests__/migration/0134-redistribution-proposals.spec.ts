@@ -78,6 +78,8 @@ interface ProposalFixture {
   readonly state?: string;
   readonly decidedAt?: string | null;
   readonly rejectReason?: string | null;
+  readonly deficitBefore?: string;
+  readonly deficitAfter?: string;
 }
 
 async function insertProposal(c: PoolClient, p: ProposalFixture = {}): Promise<string> {
@@ -87,8 +89,12 @@ async function insertProposal(c: PoolClient, p: ProposalFixture = {}): Promise<s
        (id, tenant_id, state, created_by, expires_at, decided_at, reject_reason, rule_name, rule_version, computed_at,
         limits, buffer, stores, warnings, objective_deficit_before, objective_deficit_after, objective_store_pairs, objective_lines)
      VALUES ($1, $2, $3, $4, now() + interval '1 day', $5, $6, 'reorder_gap_greedy', '1.0.0', now(),
-             '{"maxStores":50}'::jsonb, '{"minimum":"1.0000"}'::jsonb, '[]'::jsonb, '[]'::jsonb, 12, 4, 1, 1)`,
-    [proposalId, p.tenantId ?? TENANT_A, p.state ?? "open", ACTOR, p.decidedAt ?? null, p.rejectReason ?? null],
+             '{"maxStores":50}'::jsonb, '{"minimum":"1.0000"}'::jsonb, '[]'::jsonb, '[]'::jsonb,
+             $7::numeric(19,4), $8::numeric(19,4), 1, 1)`,
+    [
+      proposalId, p.tenantId ?? TENANT_A, p.state ?? "open", ACTOR, p.decidedAt ?? null, p.rejectReason ?? null,
+      p.deficitBefore ?? "12", p.deficitAfter ?? "4",
+    ],
   );
   return proposalId;
 }
@@ -102,6 +108,7 @@ interface LineFixture {
   readonly created?: string | null;
   readonly transfer?: string | null;
   readonly reason?: string | null;
+  readonly quantity?: string;
 }
 
 async function insertLine(c: PoolClient, proposalId: string, l: LineFixture = {}): Promise<void> {
@@ -110,11 +117,11 @@ async function insertLine(c: PoolClient, proposalId: string, l: LineFixture = {}
     `INSERT INTO redistribution_proposal_lines
        (id, tenant_id, proposal_id, line_seq, product_id, source_store_id, destination_store_id, quantity, stocking_unit,
         accept_outcome, accept_created_quantity, accept_transfer_id, accept_reason, accepted_at, accepted_by)
-     VALUES (gen_random_uuid(), $1, $2, 1, $3, $4, $5, 8, 'piece', $6, $7::numeric(19,4), $8, $9, $10, $11)`,
+     VALUES (gen_random_uuid(), $1, $2, 1, $3, $4, $5, $12::numeric(19,4), 'piece', $6, $7::numeric(19,4), $8, $9, $10, $11)`,
     [
       l.tenantId ?? TENANT_A, proposalId, l.product ?? PRODUCT_A, l.source ?? STORE_A1, l.destination ?? STORE_A2,
       l.outcome ?? null, l.created ?? null, l.transfer ?? null, l.reason ?? null,
-      decided ? new Date().toISOString() : null, decided ? ACTOR : null,
+      decided ? new Date().toISOString() : null, decided ? ACTOR : null, l.quantity ?? "8",
     ],
   );
 }
@@ -259,6 +266,9 @@ describe("0134 — keys and checks", () => {
     ["decided_at on a live proposal", { state: "open", decidedAt: new Date().toISOString() }, "redistribution_proposals_decided_when_terminal"],
     ["a rejection without a reason", { state: "rejected", decidedAt: new Date().toISOString() }, "redistribution_proposals_reject_reason_when_rejected"],
     ["an unknown state", { state: "approved" }, "redistribution_proposals_state_allowed"],
+    // NUMERIC admits 'NaN', which sorts above every number (review, PR #901).
+    ["a NaN deficit before", { deficitBefore: "NaN" }, "redistribution_proposals_objective_valid"],
+    ["a NaN deficit after", { deficitAfter: "NaN", deficitBefore: "NaN" }, "redistribution_proposals_objective_valid"],
   ] as const)("refuses %s", async (_label, over, constraint) => {
     if (skip()) return;
     expect(await violated((c) => insertProposal(c, over))).toBe(constraint);
@@ -272,6 +282,8 @@ describe("0134 — keys and checks", () => {
     ["reduced without a reason", { outcome: "reduced", created: "5", transfer: TRANSFER_A }, "redistribution_proposal_lines_outcome_shape"],
     ["dropped on a Transfer", { outcome: "dropped", transfer: TRANSFER_A, reason: "source_not_fresh" }, "redistribution_proposal_lines_outcome_shape"],
     ["no outcome but a reason", { reason: "source_not_fresh" }, "redistribution_proposal_lines_outcome_shape"],
+    ["a NaN quantity", { quantity: "NaN" }, "redistribution_proposal_lines_quantity_positive"],
+    ["a zero quantity", { quantity: "0" }, "redistribution_proposal_lines_quantity_positive"],
   ] as const)("accept outcome: %s", async (_label, over, expected) => {
     if (skip()) return;
     expect(await violated(async (c) => insertLine(c, await insertProposal(c), over))).toBe(expected);

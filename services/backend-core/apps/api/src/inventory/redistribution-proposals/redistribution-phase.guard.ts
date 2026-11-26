@@ -1,6 +1,6 @@
 /**
  * RT-1600 — the dark-launch gate of the redistribution proposal routes, as a guard. It runs after
- * `DashboardAuthGuard`, `TenantContextGuard` and `RolesGuard` (so the session tenant is known and a role outside owner
+ * `SessionOnlyAdminGuard`, `TenantContextGuard` and `RolesGuard` (so the session tenant is known and a role outside owner
  * and tenant_admin already had its non-disclosing 404), and BEFORE the idempotency interceptor, so a refusal claims no
  * key and writes nothing.
  *

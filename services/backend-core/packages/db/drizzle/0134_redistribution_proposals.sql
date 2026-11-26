@@ -104,9 +104,11 @@ CREATE TABLE IF NOT EXISTS redistribution_proposals (
   CONSTRAINT redistribution_proposals_json_shapes
     CHECK (jsonb_typeof(limits) = 'object' AND jsonb_typeof(buffer) = 'object'
        AND jsonb_typeof(stores) = 'array' AND jsonb_typeof(warnings) = 'array'),
-  -- A stored proposal always proposes at least one line.
+  -- A stored proposal always proposes at least one line. NUMERIC admits 'NaN', which sorts above every number, so
+  -- it is excluded explicitly (the 0101 offer-engine precedent).
   CONSTRAINT redistribution_proposals_objective_valid
     CHECK (objective_deficit_before >= 0 AND objective_deficit_after >= 0
+       AND objective_deficit_before <> 'NaN'::numeric AND objective_deficit_after <> 'NaN'::numeric
        AND objective_deficit_after <= objective_deficit_before
        AND objective_store_pairs >= 1 AND objective_lines >= objective_store_pairs)
 );
@@ -154,7 +156,7 @@ CREATE TABLE IF NOT EXISTS redistribution_proposal_lines (
   CONSTRAINT redistribution_proposal_lines_seq_uk UNIQUE (proposal_id, line_seq),
   CONSTRAINT redistribution_proposal_lines_seq_positive CHECK (line_seq >= 1),
   CONSTRAINT redistribution_proposal_lines_stores_differ CHECK (source_store_id <> destination_store_id),
-  CONSTRAINT redistribution_proposal_lines_quantity_positive CHECK (quantity > 0),
+  CONSTRAINT redistribution_proposal_lines_quantity_positive CHECK (quantity > 0 AND quantity <> 'NaN'::numeric),
   CONSTRAINT redistribution_proposal_lines_unit_length CHECK (char_length(stocking_unit) BETWEEN 1 AND 64),
   CONSTRAINT redistribution_proposal_lines_warnings_array CHECK (jsonb_typeof(warnings) = 'array'),
   -- The shadow review decision: whole or absent; a note only with a decision.

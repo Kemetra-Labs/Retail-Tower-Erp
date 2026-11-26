@@ -14,7 +14,7 @@ import { GUARDS_METADATA, HTTP_CODE_METADATA, METHOD_METADATA, PATH_METADATA } f
 import { UnauthorizedException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 
-import { DashboardAuthGuard } from '../../../src/auth/dashboard-auth.guard';
+import { SessionOnlyAdminGuard } from '../../../src/auth/session-only-admin.guard';
 import { ROLES_METADATA_KEY } from '../../../src/auth/roles.decorator';
 import { RolesGuard } from '../../../src/auth/roles.guard';
 import { resolveConsoleRateLimitClass } from '../../../src/console-rate-limit/console-rate-limit.classify';
@@ -59,9 +59,9 @@ describe('RedistributionProposalsController wiring', () => {
     else expect(policy).toBeUndefined();
   });
 
-  it('authenticates the human session, then the tenant, then the role, then the allowlist gate, for every route', () => {
+  it('authenticates the human cookie session only (any bearer is 401), then the tenant, then the role, then the allowlist gate, for every route', () => {
     expect(Reflect.getMetadata(GUARDS_METADATA, RedistributionProposalsController)).toEqual([
-      DashboardAuthGuard,
+      SessionOnlyAdminGuard,
       TenantContextGuard,
       RolesGuard,
       RedistributionPhaseGuard,

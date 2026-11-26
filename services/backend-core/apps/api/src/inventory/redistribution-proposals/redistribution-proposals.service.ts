@@ -78,7 +78,7 @@ import {
   recordReviews,
   retireLiveProposal,
   setProposalState,
-  transactionNow,
+  databaseClock,
   type LineRow,
   type ProposalRow,
 } from './redistribution-proposals.store';
@@ -157,6 +157,16 @@ const unique = (values: readonly string[]): string[] => [...new Set(values)];
 /** A product with no movement and no reservation (the facts read returns every requested id; this is a fallback). */
 const NO_FACTS = { primarySellable: '0.0000', expiredTrackedSellable: '0.0000', activeReserved: '0.0000' } as const;
 
+/** What one compute run logs (`logRun`). */
+type ComputeRun = {
+  status: string;
+  startedMs: number;
+  built?: BuiltProblem;
+  proposalId?: string;
+  lines?: number;
+  violations?: readonly string[];
+};
+
 @Injectable()
 export class RedistributionProposalsService {
   /** The clock (epoch ms). A spec may pin it. */
@@ -171,7 +181,8 @@ export class RedistributionProposalsService {
   ) {}
 
   /**
-   * One tenant transaction; a command also takes the tenant's proposal lock. Before any read, the caller's store
+   * One tenant transaction under the tenant's proposal lock: exclusive for a command, shared for a read. Before any
+   * read, the caller's store
    * scope must be tenant-wide (`redistribution-scope.ts`), else the non-disclosing 404. Rule errors map to the envelope.
    */
   private async inTenant<T>(caller: RedistributionCaller, command: boolean, fn: (client: PoolClient) => Promise<T>): Promise<T> {
@@ -179,7 +190,7 @@ export class RedistributionProposalsService {
       return await runWithTenantContext(this.pool, { tenantId: caller.tenantId, isPlatformAdmin: false }, async (client) => {
         const scope = await callerStoreScope(client, this.memberships, { tenantId: caller.tenantId, context: caller.context });
         if (!hasTenantWideAccess(caller.context, scope)) throw notFound();
-        if (command) await lockTenantProposals(client, caller.tenantId);
+        await lockTenantProposals(client, caller.tenantId, command ? 'exclusive' : 'shared');
         return await fn(client);
       });
     } catch (err) {
@@ -213,7 +224,8 @@ export class RedistributionProposalsService {
 
   async compute(caller: RedistributionCaller, storeIds: readonly string[] | undefined): Promise<{ status: 200 | 201; body: Body }> {
     const startedMs = this.clock();
-    return await this.inTenant(caller, true, async (client) => {
+    // A stored or nothing_to_move result is logged only once its transaction has committed; a refusal logs on its path.
+    const { run, ...response } = await this.inTenant(caller, true, async (client) => {
       const now = new Date(this.clock());
       const requested = storeIds === undefined ? undefined : unique(storeIds.map((s) => s.toLowerCase()));
       if (requested !== undefined) await this.assertLiveStores(client, caller.tenantId, requested);
@@ -233,6 +245,8 @@ export class RedistributionProposalsService {
       const result = proposeRedistribution(built.problem, { now: this.clock });
       return await this.storeResult(client, caller, now, built, result, startedMs);
     });
+    this.logRun(caller, run);
+    return response;
   }
 
   /** A requested store that is not a live store of the tenant is 400, never saying whether it exists elsewhere. */
@@ -252,11 +266,8 @@ export class RedistributionProposalsService {
   ): Promise<ProblemReads> {
     const storeIds = snapshot.stores.map((s) => s.storeId);
     const productIds = unique(snapshot.rows.map((r) => r.productId));
-    const dbNow = await transactionNow(client);
-    const stores = [];
-    for (const s of snapshot.stores) {
-      stores.push({ storeId: s.storeId, readAt: s.readAt, exclusion: await this.freshness(client, tenantId, s.storeId, dbNow) });
-    }
+    const exclusions = await this.freshness(client, tenantId, storeIds);
+    const stores = snapshot.stores.map((s) => ({ storeId: s.storeId, readAt: s.readAt, exclusion: exclusions.get(s.storeId) ?? null }));
     return {
       tenantId,
       computedAt: now.toISOString(),
@@ -270,10 +281,19 @@ export class RedistributionProposalsService {
     };
   }
 
-  /** The freshness gate of one store; `dbNow` is the database clock the heartbeats are stamped with. */
-  private async freshness(client: PoolClient, tenantId: string, storeId: string, dbNow: Date): Promise<ReturnType<typeof classifyStoreFreshness>> {
-    const devices = await readStoreDeviceFacts(client, { tenantId, storeId });
-    return classifyStoreFreshness(devices, dbNow.getTime(), HEARTBEAT_STALE_AFTER_MS);
+  /**
+   * The freshness gate of each store. The database clock is sampled after every device fact is read, so a heartbeat
+   * that ages out while the command waited on the tenant lock, or during the reads, is stale (fails closed).
+   */
+  private async freshness(
+    client: PoolClient,
+    tenantId: string,
+    storeIds: readonly string[],
+  ): Promise<Map<string, ReturnType<typeof classifyStoreFreshness>>> {
+    const facts = [];
+    for (const storeId of storeIds) facts.push({ storeId, devices: await readStoreDeviceFacts(client, { tenantId, storeId }) });
+    const dbNowMs = (await databaseClock(client)).getTime();
+    return new Map(facts.map((f) => [f.storeId, classifyStoreFreshness(f.devices, dbNowMs, HEARTBEAT_STALE_AFTER_MS)] as const));
   }
 
   /**
@@ -304,7 +324,7 @@ export class RedistributionProposalsService {
     built: BuiltProblem,
     result: RedistributionResultV1,
     startedMs: number,
-  ): Promise<{ status: 200 | 201; body: Body }> {
+  ): Promise<{ status: 200 | 201; body: Body; run: ComputeRun }> {
     const warnings = [...result.warnings, ...built.warnings];
     if (result.status !== 'proposed' && result.status !== 'nothing_to_move') {
       const violations = result.validator?.violations.map((v) => v.code) ?? [];
@@ -313,9 +333,8 @@ export class RedistributionProposalsService {
     }
     if (result.status === 'nothing_to_move' || result.objective === null) {
       const superseded = await this.retire(client, caller, now, null);
-      this.logRun(caller, { status: 'nothing_to_move', startedMs, built });
       const body = { result: 'nothing_to_move', supersededProposalId: superseded, rule: result.rule, computedAt: now.toISOString(), stores: built.stores, warnings };
-      return { status: 200, body };
+      return { status: 200, body, run: { status: 'nothing_to_move', startedMs, built } };
     }
     const id = newId();
     const superseded = await this.retire(client, caller, now, id);
@@ -340,15 +359,12 @@ export class RedistributionProposalsService {
       storePairs: result.objective.storePairs,
       supersededProposalId: superseded,
     });
-    this.logRun(caller, { status: 'proposed', startedMs, built, proposalId: id, lines: result.moves.length });
-    return { status: 201, body: await this.body(client, caller, id, now.getTime()) };
+    const run = { status: 'proposed', startedMs, built, proposalId: id, lines: result.moves.length };
+    return { status: 201, body: await this.body(client, caller, id, now.getTime()), run };
   }
 
   /** One structured line per compute run: ids, counts and the outcome only (no PII, no quantities). */
-  private logRun(
-    caller: RedistributionCaller,
-    run: { status: string; startedMs: number; built?: BuiltProblem; proposalId?: string; lines?: number; violations?: readonly string[] },
-  ): void {
+  private logRun(caller: RedistributionCaller, run: ComputeRun): void {
     const stores = run.built?.stores ?? [];
     this.logger?.info(
       {
@@ -478,11 +494,8 @@ export class RedistributionProposalsService {
   ): Promise<AcceptFacts> {
     const storeIds = unique(lines.flatMap((l) => [l.source_store_id, l.destination_store_id]));
     const productIds = unique(lines.map((l) => l.product_id));
-    const dbNow = await transactionNow(client);
-    const freshStores = new Set<string>();
-    for (const storeId of unique(lines.map((l) => l.source_store_id))) {
-      if ((await this.freshness(client, caller.tenantId, storeId, dbNow)) === null) freshStores.add(storeId);
-    }
+    const sources = await this.freshness(client, caller.tenantId, unique(lines.map((l) => l.source_store_id)));
+    const freshStores = new Set([...sources].filter(([, exclusion]) => exclusion === null).map(([storeId]) => storeId));
     const open = await readOpenTransferQuantities(client, { storeIds });
     const access = await readAccess(client, this.memberships, caller);
     return {
