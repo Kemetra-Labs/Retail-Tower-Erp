@@ -113,6 +113,16 @@ class TestCredentialSlotsOnASite(unittest.TestCase):
 		self.assertFalse(self._single("dp2_pending_credential_id"))
 		self.assertEqual(self.slots.reload_current_token(), NEW)
 
+	def test_an_earlier_credential_is_never_staged_after_a_later_one_was_promoted(self):
+		# The CURRENT fence is read back from the Datetime field in the site's time zone.
+		self._stage(credential_id="cred-B", issued_at="2026-11-27T10:05:00Z", secret=NEWER)
+		self.assertTrue(self.slots.promote_pending(self.slots.read_pending(frappe.get_doc(SETTINGS))))
+		self.assertEqual(self._stage(credential_id="cred-A", issued_at=T1), self.slots.STALE)
+		self.assertIsNone(self.secret_of("dp2_pending_token"))
+		self.assertEqual(
+			self._stage(credential_id="cred-C", issued_at="2026-11-27T10:06:00Z"), self.slots.WRITE
+		)
+
 	def test_a_promotion_that_fails_part_way_rolls_back_to_both_slots(self):
 		self._stage()
 		pending = self.slots.read_pending(frappe.get_doc(SETTINGS))

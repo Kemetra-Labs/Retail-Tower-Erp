@@ -295,6 +295,16 @@ def test_a_credential_already_promoted_is_a_no_op():
 	assert _decide(current_id="cred-2") == NOOP
 
 
+def test_a_credential_not_later_than_current_is_never_staged():
+	# A later credential is already CURRENT (promoted, PENDING empty): a late retry of an older one is
+	# refused, also when it would otherwise replace an earlier pending one.
+	assert _decide(current_issued_at="2026-11-27T10:00:00.000005Z") == STALE
+	assert _decide(current_issued_at=T1) == STALE  # the same instant is not later
+	assert _decide(current_issued_at=T0, pending_id="cred-1", pending_issued_at=T0) == WRITE
+	assert _decide(current_issued_at=T0) == WRITE
+	assert _decide(current_issued_at="garbage") == WRITE  # an unreadable fence is no fence
+
+
 def test_the_compare_is_made_in_utc_not_in_the_written_offset():
 	# 12:00:00+02:00 is 10:00:00Z: earlier than T1 although it reads later.
 	assert _decide(pending_id="cred-1", pending_issued_at="2026-11-27T12:00:00+02:00") == WRITE
@@ -394,8 +404,9 @@ def frappe_db(monkeypatch):
 	frappe.get_doc = get_doc
 	frappe.get_meta = lambda doctype: types.SimpleNamespace(has_field=lambda name: True)
 	utils = types.ModuleType("frappe.utils")
-	utils.get_datetime = datetime.fromisoformat
-	utils.convert_utc_to_system_timezone = lambda value: value
+	utils.get_datetime = lambda value: value if isinstance(value, datetime) else datetime.fromisoformat(value)
+	utils.convert_utc_to_system_timezone = lambda value: value  # the stand-in site runs in UTC
+	utils.get_system_timezone = lambda: "UTC"
 	password = types.ModuleType("frappe.utils.password")
 	password.set_encrypted_password = lambda dt, dn, pwd, fieldname: db.auth.__setitem__(fieldname, pwd)
 	password.remove_encrypted_password = lambda dt, dn, fieldname: db.auth.pop(fieldname, None)
@@ -501,6 +512,15 @@ def test_slot_ids_name_both_slots_and_never_a_secret(frappe_db):
 		"pending_issued_at": T1,
 	}
 	assert not frappe_db.locked
+
+
+def test_after_a_promotion_an_earlier_credential_is_refused_by_the_current_fence(frappe_db):
+	_stage(credential_id="cred-B", issued_at=T1, secret=NEWER)
+	frappe_db.commit()
+	assert credential_slots.promote_pending(PendingCredential("cred-B", NEWER, T1, "2027-02-25T10:00:00Z"))
+	assert _stage(credential_id="cred-A", issued_at=T0) == STALE  # the late retry of A
+	assert "dp2_pending_token" not in frappe_db.auth and frappe_db.auth["dp2_token"] == NEWER
+	assert _stage(credential_id="cred-C", issued_at="2026-11-27T10:00:00.000003Z") == WRITE
 
 
 def test_a_promotion_that_fails_part_way_leaves_both_slots_intact(frappe_db):

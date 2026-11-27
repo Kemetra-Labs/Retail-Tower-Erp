@@ -179,6 +179,15 @@ def test_an_older_credential_never_replaces_a_newer_staged_one(env):
 	assert env.site["credential_id"] == "cred-current"
 
 
+def test_a_late_retry_never_stages_a_credential_older_than_the_promoted_current_one(env):
+	# B was issued later and is already promoted (PENDING empty); the late retry of A stages nothing.
+	env.site["credential_id"], env.site["current_issued_at"] = "cred-B", "2026-11-14T10:05:00Z"
+	with pytest.raises(LeaseLost):
+		env.run()  # A is issued at 10:00:00.000001Z, before B
+	assert env.site["pending"] is None and env.site["credential_id"] == "cred-B"
+	assert env.state.steps == [("claimed", "done")]  # stop and re-pull, never a dependency failure
+
+
 def test_a_retry_of_an_already_staged_credential_is_a_no_op(env):
 	env.site["pending"] = {"credential_id": "cred-rot-1", "issued_at": "2026-11-14T10:00:00.000001Z"}
 	assert env.run() == VERIFIED

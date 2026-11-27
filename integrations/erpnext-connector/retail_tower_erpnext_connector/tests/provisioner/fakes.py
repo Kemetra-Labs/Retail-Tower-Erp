@@ -579,14 +579,19 @@ class FakeGateway:
 				pending_issued_at=pending.get("issued_at"),
 				new_id=args["credential_id"],
 				new_issued_at=args["issued_at"],
+				current_issued_at=s.get("current_issued_at"),
 			)
 
 		# Settle an occupant the write would replace (site_ops._settle_occupant): its own heartbeat.
-		occupant = (s.get("pending") or {}).get("credential_id")
-		if decide() == credential_slots.WRITE and occupant and occupant != args["credential_id"]:
-			status = self.probe(occupant)
+		occupant = s.get("pending") or {}
+		if (
+			decide() == credential_slots.WRITE
+			and occupant
+			and occupant["credential_id"] != args["credential_id"]
+		):
+			status = self.probe(occupant["credential_id"])
 			if status is not None and 200 <= status < 300:
-				s["credential_id"], s["pending"] = occupant, None  # accepted: promoted first
+				self._promote(s, occupant)  # accepted: promoted first
 			elif status not in (401, 403):
 				return {"ok": True, "staged": credential_slots.DEFERRED}
 		deadline = credential_slots.parse_utc(args.get("deadline"))
@@ -597,11 +602,20 @@ class FakeGateway:
 			s["pending"] = {"credential_id": args["credential_id"], "issued_at": args["issued_at"]}
 		return {"ok": True, "staged": staged}
 
+	@staticmethod
+	def _promote(s: dict, pending: dict) -> None:
+		"""PENDING becomes CURRENT, with its ``issuedAt`` (the fence a later stage compares with)."""
+		s["credential_id"], s["current_issued_at"], s["pending"] = (
+			pending["credential_id"],
+			pending["issued_at"],
+			None,
+		)
+
 	def _confirm(self, s: dict) -> dict:
 		"""One heartbeat through the dual-slot transport: PENDING first, promoted when accepted."""
 		pending = s.get("pending")
 		if pending and self.backend(pending["credential_id"]):
-			s["credential_id"], s["pending"] = pending["credential_id"], None
+			self._promote(s, pending)
 		return {
 			"ok": True,
 			"current_credential_id": s.get("credential_id"),

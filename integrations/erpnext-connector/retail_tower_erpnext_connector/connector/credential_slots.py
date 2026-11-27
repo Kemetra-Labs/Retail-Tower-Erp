@@ -81,21 +81,27 @@ def stage_decision(
 	pending_issued_at: str | None,
 	new_id: str,
 	new_issued_at: str,
+	current_issued_at: str | None = None,
 ) -> str:
 	"""The compare-and-set rule of the pending slot (contract step 4).
 
 	* ``noop``: the credential is already the CURRENT one (promoted), or already staged with the same
 	  ``credentialId`` and ``issuedAt`` (a retry after a lost write response).
-	* ``stale``: the slot holds a credential with the same or a later ``issuedAt``: a newer worker owns
-	  the rotation, so nothing is written.
-	* ``write``: the slot is empty, or holds an earlier ``issuedAt`` (or an unreadable one, which can
-	  only be damage: the rotation must not stay blocked on it).
+	* ``stale``: CURRENT was issued at the same time or later (a newer credential was already promoted,
+	  so this one can only be a late retry; decision on #934, under owner delegation), or the slot holds
+	  a credential with the same or a later ``issuedAt`` (a newer worker owns the rotation). Nothing is
+	  written.
+	* ``write``: the credential is later than CURRENT, and the slot is empty or holds an earlier
+	  ``issuedAt`` (or an unreadable one, which can only be damage: the rotation must not stay blocked).
 	"""
 	new_at = parse_utc(new_issued_at)
 	if new_at is None:
 		raise ValueError("issuedAt is not an ISO-8601 time with a zone")
 	if current_id and current_id == new_id:
 		return NOOP
+	current_at = parse_utc(current_issued_at)
+	if current_at is not None and new_at <= current_at:
+		return STALE
 	if not pending_id:
 		return WRITE
 	stored_at = parse_utc(pending_issued_at)
@@ -179,7 +185,29 @@ def _decide(values: dict, credential_id: str, issued_at: str) -> str:
 		pending_issued_at=values.get(PENDING_ISSUED) or None,
 		new_id=credential_id,
 		new_issued_at=issued_at,
+		current_issued_at=_current_issued_utc(values.get(CURRENT_ISSUED)),
 	)
+
+
+def _current_issued_utc(stored) -> str | None:
+	"""CURRENT's ``issuedAt`` as ISO-8601 UTC. The field is a Frappe Datetime in the system time zone (as
+	``bind_credential`` and a promotion write it), so it is read back in that zone. In the one ambiguous
+	hour of a DST fall-back the earlier instant is taken (``fold=0``): CURRENT then looks earlier, so the
+	rule can only let an old write through (which falls back to CURRENT on its 401), never refuse a newer
+	credential. ``None`` when unset or unreadable."""
+	if not stored:
+		return None
+	from zoneinfo import ZoneInfo
+
+	from frappe.utils import get_datetime, get_system_timezone
+
+	try:
+		local = get_datetime(stored)
+		zone = ZoneInfo(get_system_timezone())
+	except Exception:  # an unreadable stored time is no fence: the PENDING compare still applies
+		return None
+	aware = local.replace(tzinfo=zone) if local.tzinfo is None else local
+	return aware.astimezone(UTC).isoformat()
 
 
 def occupant_to_settle(credential_id: str, issued_at: str) -> PendingCredential | None:
