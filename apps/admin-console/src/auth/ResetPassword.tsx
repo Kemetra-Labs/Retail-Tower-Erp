@@ -14,7 +14,12 @@ import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
 import { PasswordInput } from "./PasswordInput";
-import { ResetErrorBanners, ResetSubmitButton, useResetSubmission } from "./ResetFeedback";
+import {
+  ResetErrorBanners,
+  ResetSubmitButton,
+  ResetSuccessView,
+  useResetSubmission,
+} from "./ResetFeedback";
 import {
   extractResetToken,
   resolvePasswordResetConfirm,
@@ -44,17 +49,12 @@ export function ResetPassword(): React.JSX.Element {
 
   if (phase.status === "done") {
     return (
-      <AuthLayout>
-        <AuthHead title={t("auth.resetPassword.title")} />
-        <Banner
-          variant="success"
-          title={t("auth.resetPassword.done.title")}
-          message={t("auth.resetPassword.done.body")}
-        />
-        <p className="auth-note">
-          <Link to="/signin">{t("auth.acceptInvitation.goToSignIn")}</Link>
-        </p>
-      </AuthLayout>
+      <ResetSuccessView
+        headTitleKey="auth.resetPassword.title"
+        bannerTitleKey="auth.resetPassword.done.title"
+        bannerBodyKey="auth.resetPassword.done.body"
+        signInLinkKey="auth.acceptInvitation.goToSignIn"
+      />
     );
   }
 

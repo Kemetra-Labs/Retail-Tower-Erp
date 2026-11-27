@@ -7,7 +7,9 @@ import { Banner } from "@/components/Banner";
 import { BusyButton } from "@/components/BusyButton";
 import { type MessageKey, useT } from "@/i18n";
 import type { ErrorEnvelope } from "@/lib/backend-envelope";
-import { useEffect, useState } from "react";
+import { type ReactNode, useEffect, useState } from "react";
+import { Link } from "react-router";
+import { AuthHead, AuthLayout } from "./AuthLayout";
 import { type ResetPhase, type ResetResolution, phaseFromResolution } from "./password-reset-flow";
 
 export function useResetSubmission(fallbackErrorKey: MessageKey) {
@@ -101,5 +103,60 @@ export function ResetSubmitButton({
     >
       {label}
     </BusyButton>
+  );
+}
+
+export function AuthEmailField({
+  autoComplete,
+  disabled,
+  invalid,
+}: Readonly<{
+  autoComplete: "username" | "email";
+  disabled: boolean;
+  invalid: boolean;
+}>): React.JSX.Element {
+  const t = useT();
+  return (
+    <div className="field">
+      <label htmlFor="email">{t("auth.signIn.email.label")}</label>
+      <input
+        className="input"
+        id="email"
+        name="email"
+        type="email"
+        dir="ltr"
+        autoComplete={autoComplete}
+        placeholder="name@company.com"
+        disabled={disabled}
+        aria-invalid={invalid}
+        required
+      />
+    </div>
+  );
+}
+
+export function ResetSuccessView({
+  headTitleKey,
+  bannerTitleKey,
+  bannerBodyKey,
+  signInLinkKey,
+  extra,
+}: Readonly<{
+  headTitleKey: MessageKey;
+  bannerTitleKey: MessageKey;
+  bannerBodyKey: MessageKey;
+  signInLinkKey: MessageKey;
+  extra?: ReactNode;
+}>): React.JSX.Element {
+  const t = useT();
+  return (
+    <AuthLayout>
+      <AuthHead title={t(headTitleKey)} />
+      <Banner variant="success" title={t(bannerTitleKey)} message={t(bannerBodyKey)} />
+      <p className="auth-note">
+        <Link to="/signin">{t(signInLinkKey)}</Link>
+      </p>
+      {extra}
+    </AuthLayout>
   );
 }

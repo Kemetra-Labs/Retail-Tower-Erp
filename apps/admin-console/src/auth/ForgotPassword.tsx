@@ -6,13 +6,18 @@
  * UI renders one opaque confirmation message whether or not the address exists
  * (no account enumeration).
  */
-import { Banner } from "@/components/Banner";
 import { useT } from "@/i18n";
 import { requestPasswordReset } from "@/lib/client";
 import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
-import { ResetErrorBanners, ResetSubmitButton, useResetSubmission } from "./ResetFeedback";
+import {
+  AuthEmailField,
+  ResetErrorBanners,
+  ResetSubmitButton,
+  ResetSuccessView,
+  useResetSubmission,
+} from "./ResetFeedback";
 import { resolvePasswordResetRequest, validateResetEmail } from "./password-reset-flow";
 
 export function ForgotPassword(): React.JSX.Element {
@@ -34,22 +39,23 @@ export function ForgotPassword(): React.JSX.Element {
 
   if (phase.status === "sent") {
     return (
-      <AuthLayout>
-        <AuthHead title={t("auth.forgotPassword.title")} />
-        <Banner
-          variant="success"
-          title={t("auth.forgotPassword.sent.title")}
-          message={t("auth.forgotPassword.sent.body")}
-        />
-        <p className="auth-note">
-          <Link to="/signin">{t("auth.forgotPassword.backToSignIn")}</Link>
-        </p>
-        <p className="auth-note">
-          <button type="button" className="btn-ghost" onClick={() => setPhase({ status: "idle" })}>
-            {t("auth.forgotPassword.tryAnother")}
-          </button>
-        </p>
-      </AuthLayout>
+      <ResetSuccessView
+        headTitleKey="auth.forgotPassword.title"
+        bannerTitleKey="auth.forgotPassword.sent.title"
+        bannerBodyKey="auth.forgotPassword.sent.body"
+        signInLinkKey="auth.forgotPassword.backToSignIn"
+        extra={
+          <p className="auth-note">
+            <button
+              type="button"
+              className="btn-ghost"
+              onClick={() => setPhase({ status: "idle" })}
+            >
+              {t("auth.forgotPassword.tryAnother")}
+            </button>
+          </p>
+        }
+      />
     );
   }
 
@@ -61,21 +67,11 @@ export function ForgotPassword(): React.JSX.Element {
       />
       <ResetErrorBanners phase={phase} />
       <form className="auth-fields" onSubmit={handleSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="email">{t("auth.signIn.email.label")}</label>
-          <input
-            className="input"
-            id="email"
-            name="email"
-            type="email"
-            dir="ltr"
-            autoComplete="email"
-            placeholder="name@company.com"
-            disabled={disabled}
-            aria-invalid={phase.status === "error"}
-            required
-          />
-        </div>
+        <AuthEmailField
+          autoComplete="email"
+          disabled={disabled}
+          invalid={phase.status === "error"}
+        />
         <ResetSubmitButton
           phase={phase}
           idleKey="auth.forgotPassword.submit"

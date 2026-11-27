@@ -21,6 +21,7 @@ import { type FormEvent, useState } from "react";
 import { Link, useInRouterContext } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
 import { PasswordInput } from "./PasswordInput";
+import { AuthEmailField } from "./ResetFeedback";
 import { type SignInResolution, resolveSignIn } from "./signin-flow";
 
 export interface SignInProps {
@@ -109,21 +110,7 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
       ) : null}
 
       <form className="auth-fields" onSubmit={handleSubmit} noValidate>
-        <div className="field">
-          <label htmlFor="email">{t("auth.signIn.email.label")}</label>
-          <input
-            className="input"
-            id="email"
-            name="email"
-            type="email"
-            dir="ltr"
-            autoComplete="username"
-            placeholder="name@company.com"
-            disabled={disabled}
-            aria-invalid={invalid}
-            required
-          />
-        </div>
+        <AuthEmailField autoComplete="username" disabled={disabled} invalid={invalid} />
         <div className="field">
           <label htmlFor="password">{t("auth.signIn.password.label")}</label>
           <PasswordInput
