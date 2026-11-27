@@ -95,8 +95,8 @@ spacing:
 > panels, templates) and replaces its **visual layer**: a dark Ink sidebar, receipt-style KPI
 > cards, a sale-pipeline rail, Mint as the highlight of the teal family, soft elevation and a
 > display face for headings and figures. §12 is the full rule set and lists what each earlier
-> rule it amends. It is **approved, not shipped**: `main` still renders v3.0 until the
-> migration slices in §10 land. §12.8 lists the decided items (1–3, each with a remaining step)
+> rule it amends. It is **shipped**: `main` renders v4.0; the remaining v4.0 slices are (e) the display
+> face, (f) the drawer headers, and (g) the remaining screens (§10). §12.8 lists the decided items (1–3, each with a remaining step)
 > and the open ones (4–6) a slice waits on.
 >
 > **Version 3.0 — Shell v3 "Daylight Commerce" (RT-969, 2026-10-30).** On 2026-10-30 the owner
@@ -141,7 +141,7 @@ spacing:
 | `DESIGN.md` v1.0 (dark default, Tower Gold authority, navy action, Inter, English/LTR shell) | **Superseded** by this version. |
 | `DESIGN.md` v2.0 shell (56px top bar holding language and theme, a recessed scope bar under it, a 240px nav-only sidebar, 30px page titles) | **Superseded** by the v3.0 shell (RT-969). |
 | `DESIGN.md` v4.0 visual layer (§12: Ink sidebar with Mint signal line, hero receipt, glows, 20px radius, Readex Pro) | **Superseded as target** by v5.0 §13 (owner decision D9, 2026-11-26; §13.9 lists what is kept). Still the shipped look on `main` until the §13.11 slices land. |
-| `DESIGN.md` v3.0 visual layer ("Daylight Commerce": light sidebar, one KPI ledger strip, shadowless panels, Dubai-only type) | **Superseded as target** by v4.0 §12 (owner decision 2026-10-30). Still the shipped look on `main` until the §10 v4.0 slices land. The v3.0 structure stays. |
+| `DESIGN.md` v3.0 visual layer ("Daylight Commerce": light sidebar, one KPI ledger strip, shadowless panels, Dubai-only type) | **Superseded as target** by v4.0 §12 (owner decision 2026-10-30). No longer the shipped look: `main` renders v4.0. The v3.0 structure stays. |
 | `PRODUCT.md` — Design Principle 6 ("dark by default … light alternate") and the dark-*default* note under Anti-references | **Superseded** by UX-02 light-first. The rest of PRODUCT.md (users, purpose, principles 1–5) stands. Reconciling PRODUCT.md is a separate docs change. |
 | `design_handoff_retail_tower_console/` — screens, charts, theme, KPI coloring, dual-axis patterns, route map, chart palette | **Reference/prototype only** (Final Audit; UX-13 prototype disposition). Nothing in it is production authority unless a Constitution-backed issue adopts it. |
 | `docs/design/_vision/`, `docs/design/rf1-auth-shell/`, `docs/design/rf6-audit-search/` mockups and their `tokens.css` | Historical slice references. They are not the target identity. |
@@ -641,7 +641,7 @@ Each debt is tracked separately. Do not fold them into feature work.
 | Admin type migration Inter → Dubai (with Arabic line-height and the 12px floor) | UX-03 | **RT-397** |
 | Reconcile `PRODUCT.md` Principle 6 and the anti-reference note with light-first | UX-02 | **RT-966** (resolved) |
 | Shell v3: sidebar with scope switcher, top bar with Ctrl K navigator and user menu, page header, content container | UX-04, UX-09 | **RT-969**. Screens follow: Overview v2 (RT-970), detail template (RT-961), forms and sign-in (RT-971), control states (RT-959) |
-| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Shipping in slices — no longer "approved, not shipped".** On `main`: (a) the Ink/Mint/action-fill role tokens, light and dark (§12.8.4 decided 2026-10-31; `--color-action-fill` shipped by RT-1037); (c) the receipt card + pipeline rail as the Overview's `ReceiptRow` + `SaleRail`; (d) Overview v4 (RT-993; §12.8.2 good directions recorded 2026-11-01 in `src/metrics/metricRegistry.ts`, §12.8.6 three widgets render «قريبًا» frames). Still to land: (b) Ink sidebar + Mint signal line; (e) display face, waiting on §12.8.3 (licence + A/B); (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice. **Not filed yet.** One Jira issue per letter. |
+| v4.0 "Ink & Receipt": (a) Ink/Mint and elevation role tokens, light now, dark after §12.8.4; (b) Ink sidebar + Mint signal line; (c) receipt card + pipeline rail components; (d) Overview v4 (charts with table views); (e) display face; (f) list header bands and drawer headers (D-V9); (g) remaining screens per slice | UX-02, UX-03, UX-04, UX-13 | **Shipping in slices — no longer "approved, not shipped".** On `main`: (a) the Ink/Mint/action-fill role tokens, light and dark (§12.8.4 decided 2026-10-31; `--color-action-fill` shipped by RT-1037); (c) the receipt card + pipeline rail as the Overview's `ReceiptRow` + `SaleRail`; (d) Overview v4 (RT-993; §12.8.2 good directions recorded 2026-11-01 in `src/metrics/metricRegistry.ts`, §12.8.6 three widgets render «قريبًا» frames). Shipped since the review: (b) Ink sidebar + Mint signal line (Ink sidebar `src/shell/app-shell.css:197-198`; Mint signal line `.sidebar .nav-entry--active::before`, `app-shell.css:476`); (f) list header bands (`src/components/ListHeaderBand.tsx`, referenced by 40 source files). Still to land: (e) display face, waiting on §12.8.3 (licence + A/B); (f) drawer headers (D-V9) — no dedicated component yet; (g) remaining screens per slice. **Not filed yet.** One Jira issue per letter. |
 
 ## 11. Do's and Don'ts
 
@@ -902,7 +902,7 @@ recorded and item 6 was amended for three widgets by owner decision on 2026-11-0
    | `--color-mint` | `#5fe0cf` | `#5fe0cf` |
    | `--color-ink-muted` | `#a9c2c5` | `#a9c2c5` |
    | `--color-on-ink` | `#ffffff` | `#ffffff` |
-   | `--color-canvas` | `#f2f5f6` | `#0e161f` (the approved dark `--color-background`) |
+   | `--color-canvas` | `#f3f4f2` | `#0e1415` (the approved dark `--color-background`) |
    | `--shadow-resting` | `0 1px 2px rgb(10 33 37 / 0.04), 0 12px 32px -24px rgb(10 33 37 / 0.25)` | `0 1px 2px rgb(14 22 31 / 0.6), 0 12px 32px -24px rgb(14 22 31 / 0.9)` |
 
    - **Mint in the dark theme (D-V10 amends D-V2):** a fill with Ink text, the primary action and
@@ -994,7 +994,7 @@ Earlier RT-1608 decisions still apply:
 ### 13.2 Colour roles (target)
 
 Components consume roles only. `src/styles/tokens.css` stays the only place a value is
-spelled (§1). Roles marked *new* do not exist on `main` yet; RT-1610 adds them.
+spelled (§1). Roles marked *new* now exist on `main` — RT-1610 (#920) is merged (`--color-selection`, `--color-side`, `--color-side-text`/`-muted`, `--color-topbar-field`/`-line`/`-muted`, `--color-attention`). Only the tokens have shipped; the v5.0 look itself has not.
 
 | Role | Light | Dark | Use |
 | --- | --- | --- | --- |
@@ -1390,7 +1390,7 @@ item 0). The owner approved all four on 2026-11-26 (Confluence 62816260 v10).
 | # | Slice | Jira |
 | --- | --- | --- |
 | V3-1 | This section, the v3 board sources, and the supersession record on 62816260 (Docs) | RT-1609 |
-| V3-2 | v3 role tokens, light and dark | RT-1610 |
+| V3-2 | v3 role tokens, light and dark — **shipped** | RT-1610 (merged, #920) |
 | V3-3 | Typeface A/B, self-hosted | re-scope RT-994 |
 | V3-4 | Shell: top bar, light sidebar with 7 areas, area band, tabs, redirects | not created |
 | V3-5 | Home v3 on existing reads | not created (amends RT-1406 F4, RT-975) |
