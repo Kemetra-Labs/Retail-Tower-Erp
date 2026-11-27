@@ -5,8 +5,9 @@
  * return, by its journaled provenance. The answer is the SERVER's; nothing is inferred locally:
  *   • `not_recorded`: a restrict-only `retry_hold` is written, so the background and bar resends stop and
  *     the quiet period can run out; it never frees the sale;
- *   • `recorded` that is this return writes nothing (the explicit resend confirms it through the
- *     dispatcher's own matcher); one that is NOT this return, or is a credit reversal, hands the return
+ *   • `recorded` that is this return CONFIRMS it (confirm-by-read, RT-196 §3.2: the dispatcher's own
+ *     matcher and its single confirmation writer, `confirmed` with `via: 'status_read'` plus
+ *     `payout_ready`, no extra approval); one that is NOT this return, or is a credit reversal, hands the return
  *     to support (`needs_support` from the read: no approval, Gap 2); a return that was already CLOSED
  *     and is now recorded is a late commit: audited, surfaced, never paid, and (RT-1553, migration 0071)
  *     handed to support by the one `needs_support` 0071 allows after a close, which blocks the sale again;
@@ -51,7 +52,7 @@ import {
   type ReturnsAuthorizer,
 } from './returns-auth.js';
 import type { SendActivity } from './returns-dispatch.js';
-import { matchingTotalMinor } from './returns-dispatch.js';
+import { commitConfirmation, matchingTotalMinor } from './returns-dispatch.js';
 import {
   isClosedState,
   type ReturnDispositionsRepository,
@@ -91,7 +92,8 @@ export interface ReturnsCloseServiceDeps {
   readonly authorizer: ReturnsAuthorizer;
   /** RT-198: true once the return domain is stopping (app shutdown). */
   readonly isStopped: () => boolean;
-  readonly repo: Pick<ReturnsRepository, 'read'>;
+  /** `markConfirmed`: a status read that matched this return confirms it (confirm-by-read). */
+  readonly repo: Pick<ReturnsRepository, 'read' | 'markConfirmed'>;
   readonly dispositions: Pick<
     ReturnDispositionsRepository,
     'stateOf' | 'insert' | 'hasEffectiveHold'
@@ -115,6 +117,8 @@ export interface ReturnsCloseServiceDeps {
 }
 
 type Operation = 'read_status' | 'close';
+/** What a `recorded` answer did to the return (the renderer's `outcome`). */
+type RecordedEffect = Extract<ReturnsReadStatusResponse, { kind: 'recorded' }>['outcome'];
 type Purpose = 'read' | 'close';
 
 interface Refused {
@@ -343,11 +347,11 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     fresh: Fresh,
     verdict: Extract<Verdict, { kind: 'recorded' }>,
     purpose: Purpose,
-  ): 'resend' | 'support' | 'late_commit' {
+  ): RecordedEffect {
     const { actor, entry } = fresh;
     return this.deps.transaction(() => {
       const earlier = this.deps.dispositions.stateOf(entry.returnId);
-      let effect: 'resend' | 'support' | 'late_commit' = 'resend';
+      let effect: RecordedEffect = 'resend';
       if (isClosedState(earlier)) {
         effect = 'late_commit';
         this.deps.audit.lateCommit(actor, {
@@ -360,6 +364,8 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       } else if (!verdict.match) {
         effect = 'support';
         if (earlier === null) this.raiseSupport(fresh);
+      } else if (this.confirmByRead(fresh)) {
+        effect = 'confirmed';
       }
       this.deps.audit.statusRead(actor, {
         return_id: entry.returnId,
@@ -368,6 +374,32 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       });
       return effect;
     });
+  }
+
+  /**
+   * Inside the transaction (RT-1498 confirm-by-read, RT-196 §3.2/§3.3): the server recorded THIS return
+   * (the dispatcher's own matcher, not a credit reversal) and it is not closed, so it is confirmed exactly
+   * as a send's answer would confirm it: the guarded `markConfirmed` plus `confirmed` (`via:
+   * 'status_read'`) and `payout_ready`, through the dispatcher's single confirmation writer. No extra
+   * approval (the server proves it). A `needs_support` or held return confirms too: neither is terminal.
+   * False when the row did not change (it was no longer open).
+   */
+  private confirmByRead(fresh: Fresh): boolean {
+    const { entry, outcome } = fresh;
+    if (outcome.kind !== 'recorded') return false;
+    const totalMinor = matchingTotalMinor(entry, outcome.saleReturn);
+    if (totalMinor === null) return false;
+    return commitConfirmation(
+      this.deps,
+      {
+        returnId: entry.returnId,
+        returnRef: outcome.saleReturn.returnRef,
+        returnTotalMinor: totalMinor,
+        now: this.deps.now(),
+      },
+      false,
+      'status_read',
+    );
   }
 
   /** Inside the transaction: `needs_support` from a read that proved a mismatch (no approval). */
@@ -489,9 +521,11 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       return this.refuse(actor, 'close', refusalForCause(verdict.cause), idsOf(entry), entry);
     }
     if (verdict.kind === 'recorded') {
-      // The server HAS it: never a close. A mismatch goes to support; the refusal says to read first.
-      this.recordedEffect(fresh, verdict, 'close');
-      return this.refuse(actor, 'close', 'close_needs_not_recorded', idsOf(entry), entry);
+      // The server HAS it: never a close. This return confirms (confirm-by-read) and the close is
+      // refused as resolved; a mismatch goes to support and the refusal says to read first.
+      const effect = this.recordedEffect(fresh, verdict, 'close');
+      const reason = effect === 'confirmed' ? 'already_resolved' : 'close_needs_not_recorded';
+      return this.refuse(actor, 'close', reason, idsOf(entry), entry);
     }
     try {
       this.deps.transaction(() => {

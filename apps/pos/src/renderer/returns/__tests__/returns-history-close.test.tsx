@@ -197,6 +197,11 @@ describe('what the read shows (the server’s words, never an inference)', () =>
       refusalMessage('quiet_period_unproven'),
     ],
     [
+      'a recorded return that is this one: the read confirmed it (RT-196 §3.9 readConfirmed)',
+      { kind: 'recorded', ret: UNKNOWN, outcome: 'confirmed' },
+      STATUS_COPY.readConfirmed,
+    ],
+    [
       'a recorded return that is this one: resend to confirm',
       { kind: 'recorded', ret: UNKNOWN, outcome: 'resend' },
       STATUS_COPY.readRecordedResend,
@@ -289,6 +294,7 @@ describe('what the read shows (the server’s words, never an inference)', () =>
   it('a read that wrote no hold (recorded, no verdict, closed) does not say so', async () => {
     const answers: ReturnsReadStatusResponse[] = [
       { kind: 'recorded', ret: UNKNOWN, outcome: 'resend' },
+      { kind: 'recorded', ret: UNKNOWN, outcome: 'confirmed' },
       { kind: 'inconclusive', ret: UNKNOWN, cause: 'server' },
     ];
     for (const answer of answers) {

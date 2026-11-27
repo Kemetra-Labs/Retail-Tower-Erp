@@ -90,7 +90,11 @@ describe('returns audit (AC11)', () => {
       currency_code: 'EGP',
       line_count: 1,
     });
-    expect(stored[1]?.payload).toMatchObject({ return_ref: RETURN_REF, replayed: true });
+    expect(stored[1]?.payload).toMatchObject({
+      return_ref: RETURN_REF,
+      replayed: true,
+      via: 'send',
+    });
     expect(stored[2]?.payload).toEqual({
       return_id: 'r1',
       sale_ref: SALE_REF,
@@ -99,6 +103,12 @@ describe('returns audit (AC11)', () => {
       currency_code: 'EGP',
       method: 'cash',
     });
+  });
+
+  it('a confirmation proved by a status read says via: status_read (RT-1498 confirm-by-read)', () => {
+    const { audit, stored } = auditWithStore();
+    audit.confirmed(ENTRY, false, 'status_read');
+    expect(stored[0]?.payload).toMatchObject({ replayed: false, via: 'status_read' });
   });
 
   it('writes a refusal with the given payload', () => {

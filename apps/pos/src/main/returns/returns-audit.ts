@@ -57,10 +57,14 @@ export type SlipAuditOutcome =
   | { readonly copy: boolean; readonly ok: true }
   | { readonly copy: boolean; readonly ok: false; readonly failureReason: string };
 
+/** What proved a confirmation (RT-196 §3.7): the send's own answer, or a status read. */
+export type ConfirmVia = 'send' | 'status_read';
+
 export interface ReturnsAudit {
   attempted(entry: JournalEntry): void;
   refused(actor: ReturnActor, payload: SaleReturnRefusedPayload): void;
-  confirmed(entry: JournalEntry, replayed: boolean): void;
+  /** RT-1498: `via` defaults to `send`; a status read that matched passes `status_read`. */
+  confirmed(entry: JournalEntry, replayed: boolean, via?: ConfirmVia): void;
   /** RT-196 S1: one send left the return unknown (cause code, attempt number). */
   attemptUnknown(entry: JournalEntry, cause: ReturnUnknownCause, operation: SendOperation): void;
   /** RT-196 S1: a manager resent this return; attributed to the REQUESTING `actor`. */
@@ -218,11 +222,12 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
     refused(actor, payload) {
       write(actor, 'sale.return.refused', payload);
     },
-    confirmed(entry, replayed) {
+    confirmed(entry, replayed, via = 'send') {
       writeConfirmedEvent(entry, 'sale.return.confirmed', (facts) => ({
         sale_id: entry.saleId,
         return_total_minor: facts.totalMinor,
         replayed,
+        via,
       }));
     },
     attemptUnknown(entry, cause, operation) {

@@ -40,7 +40,9 @@ interface ReadyMark {
 }
 
 function toneOf(res: Awaited<ReturnType<ReturnsBridgeAPI['readStatus']>>): StatusResult['tone'] {
-  if (res.kind === 'recorded') return res.outcome === 'resend' ? 'info' : 'danger';
+  if (res.kind === 'recorded') {
+    return res.outcome === 'resend' || res.outcome === 'confirmed' ? 'info' : 'danger';
+  }
   if (res.kind === 'refused') return 'danger';
   return res.kind === 'inconclusive' ? 'warning' : 'info';
 }
