@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef, useState, type JSX, type ReactNode } fr
 import type { LockStateView, OperatorBridgeAPI } from '../../shared/bridge-api';
 import { useOperatorSessionStore } from '../stores/operator-session-store';
 import { focusScanOwner } from '../scan/scan-anchor';
+import { ConflictLockScreen } from './ConflictLockScreen';
 import { LockScreen } from './LockScreen';
 
 /**
@@ -36,11 +37,15 @@ import { LockScreen } from './LockScreen';
  * push must not discard the sign-in it belongs to, so while switching it only
  * clears the switch. An unlock by the original operator (`active`) also ends
  * the switch; the sign-in route then re-enters that session with its cart.
+ *
+ * RT-309 D9 — a lock with `lock_cause: 'authority_conflict'` (the cashier is
+ * signed in on another till) shows the conflict variant instead: take over
+ * here or end here, each after the PIN, and no switch to another operator.
  */
 
 export type SessionLockOperator = Pick<
   OperatorBridgeAPI,
-  'getLockState' | 'unlockSession' | 'onSessionStateChanged'
+  'getLockState' | 'unlockSession' | 'onSessionStateChanged' | 'resolveConflict'
 >;
 
 export interface SessionLockGateProps {
@@ -127,7 +132,19 @@ export function SessionLockGate({
           </button>
         </div>
       )}
-      {locked && (
+      {locked && lockView.lock_cause === 'authority_conflict' && (
+        <ConflictLockScreen
+          resolve={
+            operator.resolveConflict === undefined
+              ? undefined
+              : (req) => operator.resolveConflict?.(req) ?? Promise.reject(new Error('no bridge'))
+          }
+          onResolved={() => {
+            setLockView(null);
+          }}
+        />
+      )}
+      {locked && lockView.lock_cause !== 'authority_conflict' && (
         <LockScreen
           view={lockView}
           unlock={(req) => operator.unlockSession(req)}

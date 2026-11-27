@@ -53,6 +53,11 @@ export const AUDIT_ACTION_CATEGORIES = [
   // establish authority; new sales were blocked. Payload `{outcome}`. Main-only,
   // local only.
   'operator.session.offline_reconcile_failed',
+  // RT-309 D9 (RT-113 10763 D9, §3) — the same cashier resolved an authority-
+  // conflict lock (the reconcile answered `active_elsewhere`): took over here or
+  // ended here. Payload `{resolution}` only. Main-only, local only. The conflict
+  // itself is `operator.session.locked` with `lock_cause: 'authority_conflict'`.
+  'operator.session.authority_conflict',
   'cashier.pin.reset',
   'cashier.pin.unlock',
   // 019-cashier-pin-provisioning (R-2) — first-PIN create path; sibling to

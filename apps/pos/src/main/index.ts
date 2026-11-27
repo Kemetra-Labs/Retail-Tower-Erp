@@ -946,12 +946,8 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // RT-117 (RT-116 S1) — inactivity LOCK of the existing session.
-    //   • push: main tells the renderer the moment the session locks/unlocks/
-    //     ends (state only — no ids, names or credentials);
-    //   • audit: operator.session.locked / operator.session.unlocked;
-    //   • IPC: same-operator unlock + the lock-screen totals read (both on the
-    //     locked-session allowlist).
+    // RT-117 (RT-116 S1) — inactivity LOCK of the existing session: the state push (state
+    // only), the lock audit, and the same-operator unlock + lock-state read (lock allowlist).
     wireSessionStatePush({
       sessionManager: operatorSessionManager,
       send: (event) => {
@@ -1056,6 +1052,9 @@ singleInstanceReady
 
     // RT-113 P2 / RT-1312 F17 / RT-309 — the cashier admission keeper (bootstrap module).
     const cashierAdmissionKeeper = registerCashierAdmissionKeeper({
+      ipcMain: guardedIpcMain, // RT-309 D9: + the conflict lock's resolveConflict
+      verifyCashierPin: (operator_id, pin) =>
+        operatorCashierSignInHandler.verifyPin(operator_id, pin),
       db,
       sessionManager: operatorSessionManager,
       pairingStore,

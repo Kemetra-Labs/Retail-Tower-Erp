@@ -45,6 +45,11 @@ export const SESSION_LOCK_IPC_CHANNELS = {
   UNLOCK_SESSION: 'operator:unlock-session',
   /** The only operator read served while locked: state + totals summary. */
   GET_LOCK_STATE: 'operator:get-lock-state',
+  /**
+   * RT-309 D9 (10763 D9) — the same cashier resolves an authority-conflict lock
+   * after a PIN check: take over here, or end here. Locked-session allowlist.
+   */
+  RESOLVE_CONFLICT: 'operator:resolve-conflict',
   /** Main → renderer push of session state changes. */
   SESSION_STATE: 'operator:session-state',
 } as const;

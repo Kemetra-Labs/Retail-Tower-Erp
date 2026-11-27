@@ -101,8 +101,12 @@ export interface ShiftForcedClosePayload {
  * (RT-115 D1). The session is not ended; no money or cart is touched.
  */
 export interface OperatorSessionLockedPayload {
-  /** Why it locked. `manual` is reserved (RT-115 left the shortcut undecided). */
-  lock_cause: 'inactivity';
+  /**
+   * Why it locked. `manual` is reserved (RT-115 left the shortcut undecided).
+   * RT-309 D9: `authority_conflict`, the reconcile found the cashier admitted
+   * on another till (10763 D9).
+   */
+  lock_cause: 'inactivity' | 'authority_conflict';
 }
 
 /**
@@ -227,6 +231,15 @@ type OperatorSessionOfflineReconciledPayload = Record<string, never>;
  */
 interface OperatorSessionOfflineReconcileFailedPayload {
   outcome: 'rejected' | 'idempotency_conflict';
+}
+
+/**
+ * RT-309 D9 — `operator.session.authority_conflict`: the cashier's decision on
+ * an authority-conflict lock. The closed resolution only; never a PIN,
+ * admission id, user id or name.
+ */
+interface OperatorSessionAuthorityConflictPayload {
+  resolution: 'take_over_here' | 'end_here';
 }
 
 /**
@@ -994,6 +1007,8 @@ export type AuditPayloadMap = {
   // RT-309 (RT-113 D8)
   'operator.session.offline_reconciled': OperatorSessionOfflineReconciledPayload;
   'operator.session.offline_reconcile_failed': OperatorSessionOfflineReconcileFailedPayload;
+  // RT-309 D9 (RT-113 10763 D9)
+  'operator.session.authority_conflict': OperatorSessionAuthorityConflictPayload;
   'cashier.pin.reset': CashierPinResetPayload;
   'cashier.pin.unlock': CashierPinUnlockPayload;
   'cashier.pin.provisioned': CashierPinProvisionedPayload;

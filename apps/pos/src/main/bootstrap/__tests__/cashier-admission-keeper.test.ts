@@ -1,8 +1,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 
 import type { AuditEvent } from '../../../shared/audit/event-shape.js';
 import type { DatabaseHandle } from '../../db/client.js';
+import { SESSION_LOCK_IPC_CHANNELS } from '../../../shared/operator/channels.js';
 import { registerCashierAdmissionKeeper } from '../cashier-admission-keeper.js';
 import { CashierAdmissionKeeper } from '../../operator/cashier-admission-keeper.js';
 import { SessionManager } from '../../operator/session-manager.js';
@@ -35,7 +37,16 @@ function wire() {
   const stops: string[] = [];
   const probe = { recheck: (): void => undefined };
   let stopper: (() => void) | undefined;
+  const handlers = new Map<string, (event: unknown, ...args: unknown[]) => unknown>();
+  const ipcMain = {
+    handle: (channel: string, fn: (event: unknown, ...args: unknown[]) => unknown) => {
+      handlers.set(channel, fn);
+    },
+  } as unknown as IpcMain;
   const keeper = registerCashierAdmissionKeeper({
+    ipcMain,
+    verifyCashierPin: (_operator_id, pin) =>
+      Promise.resolve(pin === '1234' ? null : { kind: 'refused', category: 'invalid_input' }),
     db: {} as DatabaseHandle,
     sessionManager: sessions,
     pairingStore: { getCurrentTerminalId: () => 'term-1' },
@@ -51,10 +62,66 @@ function wire() {
     deviceAuthDetector: { stop: () => stops.push('detector stopped') },
     mainLogger: silent,
   });
-  return { sessions, fake, events, stops, probe, keeper, stop: () => stopper?.() };
+  return { sessions, fake, events, stops, probe, keeper, handlers, stop: () => stopper?.() };
 }
 
 describe('registerCashierAdmissionKeeper', () => {
+  it('RT-309 D9: a reconcile conflict locks the session and resolveConflict ends it here, audited', async () => {
+    const w = wire();
+    w.fake.setReconcile({ kind: 'active_elsewhere' });
+    const ends: Array<string | undefined> = [];
+    w.sessions.onEnded((_r, cause) => ends.push(cause));
+    w.sessions.create({
+      operator_id: 'user_clerk_1',
+      display_name: 'Mona',
+      role: 'cashier',
+      tenant_id: 't1',
+      branch_id: 'b1',
+      backend_session_id: '',
+      offline_admission: {
+        user_id: FAKE_USER_ID,
+        valid_until_ms: Date.now() + 3_600_000,
+        deadline_mono_ms: performance.now() + 3_600_000,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    expect(w.sessions.getCurrent()?.lock_cause).toBe('authority_conflict');
+
+    const resolve = w.handlers.get(SESSION_LOCK_IPC_CHANNELS.RESOLVE_CONFLICT);
+    expect(resolve).toBeDefined();
+    await expect(resolve?.({}, { action: 'end_here', pin: '0000' })).resolves.toEqual({
+      kind: 'refused',
+      category: 'invalid_input',
+    });
+    await expect(resolve?.({}, { action: 'end_here', pin: '1234', extra: 'x' })).resolves.toEqual({
+      kind: 'resolved',
+      action: 'end_here',
+    });
+    expect(ends).toEqual(['superseded_by_takeover']);
+    expect(w.events.map((e) => [e.action_category, e.payload])).toEqual([
+      ['operator.session.authority_conflict', { resolution: 'end_here' }],
+    ]);
+  });
+
+  it.each([
+    null,
+    'x',
+    {},
+    { action: 'unlock', pin: '1234' },
+    { action: 'end_here', pin: '' },
+    { action: 'end_here', pin: 1234 },
+  ])(
+    'RT-309 D9: resolveConflict refuses a malformed request %o before anything runs',
+    async (bad) => {
+      const w = wire();
+      const resolve = w.handlers.get(SESSION_LOCK_IPC_CHANNELS.RESOLVE_CONFLICT);
+      await expect(resolve?.({}, bad)).resolves.toEqual({
+        kind: 'refused',
+        category: 'invalid_input',
+      });
+    },
+  );
+
   it('returns the keeper, binds the sale-boundary re-check to it and registers its stop', () => {
     const w = wire();
     expect(w.keeper).toBeInstanceOf(CashierAdmissionKeeper);

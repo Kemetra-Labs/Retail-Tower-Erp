@@ -29,6 +29,8 @@ import type {
   UnlockSessionRequest,
   UnlockSessionResponse,
   LockStateView,
+  ResolveConflictRequest,
+  ResolveConflictResponse,
   SessionStateEvent,
 } from '../bridge-api.js';
 import type { OperatorRefusal } from '../audit/event-shape.js';
@@ -73,6 +75,23 @@ describe('operator bridge typed surface (T008)', () => {
       | 'reauthenticate'
       // RT-424 (RT-251 doc 19) — manager-only cashier PIN status
       | 'listCashierPinStatus'
+      // RT-309 D9 (10763 D9) — the authority-conflict lock's two actions
+      | 'resolveConflict'
+    >();
+  });
+
+  it('RT-309 D9: resolveConflict takes {action, pin} and answers resolved, the takeover 429 or a refusal', () => {
+    type Resolve = NonNullable<OperatorBridgeAPI['resolveConflict']>;
+    expectTypeOf<Parameters<Resolve>[0]>().toEqualTypeOf<ResolveConflictRequest>();
+    expectTypeOf<ResolveConflictRequest>().toEqualTypeOf<{
+      action: 'take_over_here' | 'end_here';
+      pin: string;
+    }>();
+    expectTypeOf<Awaited<ReturnType<Resolve>>>().toEqualTypeOf<ResolveConflictResponse>();
+    expectTypeOf<ResolveConflictResponse>().toEqualTypeOf<
+      | { kind: 'resolved'; action: 'take_over_here' | 'end_here' }
+      | { kind: 'takeover_rate_limited' }
+      | OperatorRefusal
     >();
   });
 

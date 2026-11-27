@@ -1,0 +1,107 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>RT-309 D9 · قفل تعارض الجلسة · مواصفة القبول البصري</title>
+<style>
+  :root { --primary:#0f766e; --text:#0f1d2e; --muted:#53647a; --border:#d8dfe7; --bg:#f7f9fa; --surface:#fff; }
+  body { margin:0; padding:32px; background:var(--bg); color:var(--text); font-family:'Dubai','Segoe UI',Tahoma,Arial,sans-serif; font-size:15px; line-height:1.7; }
+  main { max-inline-size:1180px; margin-inline:auto; display:grid; gap:28px; }
+  h1 { margin:0; font-size:26px; } h2 { margin:0 0 8px; font-size:19px; }
+  .status { display:inline-block; padding:2px 12px; border:1px solid #0f766e; border-radius:999px; background:#e6f4f1; color:#0b5b55; font-weight:700; }
+  section { padding:20px 24px; border:1px solid var(--border); border-radius:14px; background:var(--surface); }
+  table { inline-size:100%; border-collapse:collapse; }
+  th, td { padding:8px 10px; border-block-end:1px solid var(--border); text-align:start; vertical-align:top; }
+  th { color:var(--muted); font-weight:600; }
+  .ltr { direction:ltr; unicode-bidi:isolate; }
+  code { font-family:ui-monospace,Consolas,monospace; font-size:13px; direction:ltr; unicode-bidi:isolate; }
+  ul, ol { margin:0; padding-inline-start:20px; }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <h1>قفل تعارض الجلسة (D9): «استلام هنا» و«إنهاء هنا»</h1>
+    <p><span class="status">النص والنطاق معتمدان من المالك (<span class="ltr">2026-11-27</span>)</span> · Jira <span class="ltr">RT-309</span> (التعليق <span class="ltr">19114</span>) · سجل التخطيط <span class="ltr">RT-113 10763 D9</span></p>
+    <p><b>التصنيف:</b> مواصفة قبول بصري على طريقة PK-3. الشاشة نسخة من شاشة القفل الموجودة (RT-593، <code>LockScreen.tsx</code>) على الحوار V5 نفسه وبالخلفية المعتمة نفسها (RT-161). لا يُرسم هنا شكل جديد: الإطار والرأس والشعار ولوحة الرقم السري مشتركة مع شاشة القفل (<code>lock-parts.tsx</code>)، وما يتغيّر هو النص والإجراءان فقط.</p>
+    <p><b>متى تظهر:</b> فقط حين تعيد مطابقة الجلسة المقبولة دون اتصال (<code>reconcile_offline</code>) النتيجة <code>active_elsewhere</code>: الكاشير مقبول على جهاز آخر. تُقفل الجلسة نفسها بالسبب <code>lock_cause: 'authority_conflict'</code> ولا تنتهي تلقائيًا. لا يتغيّر مسار نبض الجلسة المتصلة.</p>
+    <p><b>الصور المرجعية:</b> لم تُلتقط بعد. تُلتقط من التنفيذ عند العرضين <span class="ltr">1024×768</span> و<span class="ltr">1280×800</span> (فاتح وتباين عالٍ) وتُقارن بهذه المواصفة؛ القبول بحسب الجداول أدناه.</p>
+  </header>
+
+  <section>
+    <h2>ما يجب أن تلتزم به الشاشة</h2>
+    <ul>
+      <li><b>لا شيء من البيع (L3، RT-161):</b> لا أصناف ولا عدد ولا مبالغ ولا ملخّص ولا اسم الموظف. يرسل main <code>summary: null</code> لهذا القفل، والشاشة لا تقرأ الملخّص أصلًا. البيع خلف القفل يبقى محمّلًا ومخفيًا و<code>inert</code>.</li>
+      <li><b>إجراءان فقط، كل منهما بعد الرقم السري:</b> «استلام هنا» هو زر التأكيد في لوحة الرقم السري (ويطلقه Enter أيضًا)، و«إنهاء هنا» زر محايد تحته. لا يُطلق Enter «إنهاء هنا» أبدًا.</li>
+      <li><b>لا مخرج آخر:</b> لا زر «فتح القفل» ولا «دخول موظف آخر». فتح القفل العادي يُرفض في main لهذا السبب قبل فحص الرقم السري (فشل مغلق).</li>
+      <li><b>Esc</b> يمسح الإدخال والرسالة ولا يغلق القفل.</li>
+      <li><b>الرقم السري</b> من 4 إلى 6 أرقام؛ غير ذلك لا يصل إلى main (RT-24 I-4) ولا يُحسب ضمن الإيقاف. لا يُعرض الرقم المكتوب في أي رسالة، ويُمسح بعد كل محاولة.</li>
+      <li><b>أثناء التنفيذ:</b> المفاتيح والزرّان معطّلة، و<code>aria-busy</code> على «إنهاء هنا»، ولا يمكن تنفيذ إجراءين معًا (main يرفض الطلب المتزامن).</li>
+      <li><b>الإطار:</b> الشريط Ink في الأعلى، والحوار في الوسط، وشعار المستأجر في خانة <code>lock</code>، و«Powered by» أسفل الحوار، كما في شاشة القفل. كل هدف 44 بكسل فأكثر، والأرقام غربية.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>الحالات (عند 1024×768 و1280×800، فاتح وتباين عالٍ)</h2>
+    <table><thead><tr><th>#</th><th>الحالة</th><th>ما يظهر</th><th>المصدر في الجسر</th></tr></thead><tbody>
+      <tr><td>1</td><td>Conflict-Entry</td><td>العنوان، الرسالة، تلميح الرقم السري، لوحة المفاتيح، «استلام هنا»، «إنهاء هنا»</td><td><code>getLockState</code> → <code>lock_cause: 'authority_conflict'</code></td></tr>
+      <tr><td>2</td><td>Conflict-PinTyped</td><td>نقاط الرقم السري (بلا أرقام ظاهرة)</td><td>محلي</td></tr>
+      <tr><td>3</td><td>Conflict-Busy</td><td>كل شيء معطّل أثناء الطلب</td><td><code>resolveConflict</code> قيد التنفيذ</td></tr>
+      <tr><td>4</td><td>Conflict-PinFormat</td><td>رسالة صيغة الرقم السري مكان التلميح</td><td>محلي، بلا نداء</td></tr>
+      <tr><td>5</td><td>Conflict-WrongPin</td><td>رسالة بيانات غير صحيحة</td><td><code>refused / invalid_input</code></td></tr>
+      <tr><td>6</td><td>Conflict-PinLockout</td><td>رسالة محاولات كثيرة (إيقاف الرقم السري)</td><td><code>refused / rate_limited</code></td></tr>
+      <tr><td>7</td><td>Conflict-Takeover429</td><td>رسالة D9 المعتمدة للحد من الاستلام</td><td><code>takeover_rate_limited</code></td></tr>
+      <tr><td>8</td><td>Conflict-NoConnection</td><td>رسالة تعذّر الوصول إلى الخادم؛ يبقى القفل، وإعادة المحاولة تعيد مفتاح الطلب نفسه</td><td><code>refused / no_connection</code></td></tr>
+      <tr><td>9</td><td>Conflict-ClockSkew</td><td>رسالة ساعة الجهاز</td><td><code>refused / clock_skew</code></td></tr>
+      <tr><td>10</td><td>Conflict-Refused</td><td>الرسالة العامة؛ يبقى القفل</td><td><code>refused / state_invalid</code> وغيرها</td></tr>
+      <tr><td>11</td><td>بعد «استلام هنا»</td><td>يُغلق القفل ويعود البيع نفسه كما كان؛ الجلسة نفسها صارت مؤكدة عبر الخادم</td><td><code>resolved / take_over_here</code> ثم <code>active</code></td></tr>
+      <tr><td>12</td><td>بعد «إنهاء هنا»</td><td>شاشة تسجيل الدخول؛ البيع الحالي محفوظ (معلّق لصاحبه)</td><td><code>resolved / end_here</code> ثم <code>ended</code></td></tr>
+    </tbody></table>
+    <p>قفل خمول قائم ثم تعارض: يتحوّل إلى هذه الشاشة نفسها (لا تُعاد الحالة 1 كقفل خمول). قفل الخمول لا يحلّ محلّ قفل التعارض أبدًا.</p>
+  </section>
+
+  <section>
+    <h2>خريطة النتائج</h2>
+    <table><thead><tr><th>النتيجة من main</th><th>ما يحدث</th></tr></thead><tbody>
+      <tr><td>الرقم السري خطأ / موقوف</td><td>يبقى القفل؛ لا نداء للخادم</td></tr>
+      <tr><td>الخادم: <code>admitted</code> (استلام)</td><td>الجلسة نفسها تصبح <code>online_confirmed</code> ويُفتح القفل ويبدأ النبض؛ يُدقّق القرار</td></tr>
+      <tr><td>الخادم: 429</td><td>يبقى القفل؛ رسالة D9</td></tr>
+      <tr><td>انقطاع / 5xx</td><td>يبقى القفل؛ يُحتفظ بمفتاح الطلب لإعادة المحاولة</td></tr>
+      <tr><td>الخادم: 403</td><td>تنتهي الجلسة <code>account_disabled_mid_session</code> (البيع محفوظ)</td></tr>
+      <tr><td>الخادم: 401 للجهاز، <code>active_elsewhere</code>، غير ذلك</td><td>يبقى القفل؛ الرسالة العامة</td></tr>
+      <tr><td><code>admitted</code> بعد تغيّر الجلسة أو الإقران أو إبطال منحة أثناء الطلب، أو ساعة غير مضبوطة</td><td>لا يُعتمد: يُرسل <code>end</code> للقبول، ويبقى القفل</td></tr>
+      <tr><td>«إنهاء هنا»</td><td>تنتهي الجلسة <code>superseded_by_takeover</code>؛ قواعد نهاية الجلسة تحفظ السلة وأي دفع جارٍ (RT-116 §3.3)؛ يُدقّق القرار</td></tr>
+    </tbody></table>
+  </section>
+
+  <section>
+    <h2>النصوص</h2>
+    <table><thead><tr><th>المكان</th><th>النص</th><th>الأساس</th><th>الحالة</th></tr></thead><tbody>
+      <tr><td>الرسالة</td><td>«أنت مسجّل الدخول على جهاز آخر. البيع الحالي محفوظ.»</td><td>D9</td><td>معتمد (المالك <span class="ltr">2026-11-27</span>) · <span class="ltr">c19114</span></td></tr>
+      <tr><td>الإجراء الأول (زر التأكيد)</td><td>«استلام هنا»</td><td>D9: Take over here</td><td>معتمد (المالك <span class="ltr">2026-11-27</span>) · <span class="ltr">c19114</span></td></tr>
+      <tr><td>الإجراء الثاني</td><td>«إنهاء هنا»</td><td>D9: End here</td><td>معتمد (المالك <span class="ltr">2026-11-27</span>) · <span class="ltr">c19114</span></td></tr>
+      <tr><td>الحد من الاستلام (429)</td><td>«حاولت كثيراً، انتظر قليلاً ثم أعد المحاولة»</td><td>Backend-Core takeover rate limit</td><td>معتمد (المالك <span class="ltr">2026-11-27</span>) · <span class="ltr">c19114</span>، حرفيًا</td></tr>
+      <tr><td>العنوان</td><td>«الطرفية مقفلة»</td><td><code>LockScreen.tsx</code> (M-L1)</td><td>مأخوذ</td></tr>
+      <tr><td>تلميح الرقم السري</td><td>«من 4 إلى 6 أرقام.»</td><td><code>LockScreen.tsx</code> (RT-1095)</td><td>مأخوذ</td></tr>
+      <tr><td>صيغة الرقم السري</td><td>«الرقم السري من 4 إلى 6 أرقام.»</td><td><code>LockScreen.tsx</code> (RT-1095)</td><td>مأخوذ</td></tr>
+      <tr><td>رقم سري خطأ</td><td>«بيانات الدخول غير صحيحة. حاول مرة أخرى.»</td><td><code>messages.ts</code> <code>invalid_input</code></td><td>مأخوذ</td></tr>
+      <tr><td>إيقاف الرقم السري</td><td>«محاولات كثيرة. انتظر قليلًا ثم حاول مرة أخرى.»</td><td><code>messages.ts</code> <code>rate_limited</code></td><td>مأخوذ</td></tr>
+      <tr><td>لا اتصال</td><td>«تعذّر الوصول إلى الخادم. حاول مرة أخرى.»</td><td><code>messages.ts</code> <code>no_connection</code> (رسالة نافذة الاستلام عند تسجيل الدخول نفسها)</td><td>مأخوذ</td></tr>
+      <tr><td>ساعة الجهاز</td><td>«ساعة هذا الجهاز غير مضبوطة. اضبط التاريخ والوقت في Windows أو أبلغ المدير، ثم سجّل الدخول مرة أخرى.»</td><td><code>messages.ts</code> <code>clock_skew</code> (RT-1312 F18)</td><td>مأخوذ</td></tr>
+      <tr><td>رفض عام</td><td>«لا يمكن تنفيذ هذا الإجراء في الحالة الحالية.»</td><td><code>messages.ts</code> <code>state_invalid</code></td><td>مأخوذ</td></tr>
+    </tbody></table>
+    <p>لا نص جديد غير الأربعة المعتمدة. الإملاء «كثيراً» و«قليلاً» في نص 429 حرفي كما اعتمده المالك، ولا يُوحَّد مع «قليلًا» في رسالة إيقاف الرقم السري.</p>
+  </section>
+
+  <section>
+    <h2>لم يُرسم ولم يُنفَّذ</h2>
+    <ul>
+      <li>تعارض نبض الجلسة المتصلة (<code>active_elsewhere</code> من النبض): يبقى المسار الحالي (تُغلق الجلسة عند أول نقطة آمنة). خارج نطاق D9.</li>
+      <li>جلسات المدير: القفل لجلسة كاشير مقبولة دون اتصال فقط.</li>
+      <li>لا تغيير في عقد Backend-Core.</li>
+    </ul>
+  </section>
+</main>
+</body>
+</html>

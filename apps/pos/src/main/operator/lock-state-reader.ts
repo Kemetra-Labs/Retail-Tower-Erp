@@ -94,12 +94,15 @@ export function createLockStateReader(deps: LockStateReaderDeps): () => LockStat
         summary: null,
       };
     }
+    // RT-309 D9: a conflict lock reads no summary at all (L3).
+    const conflict = session.lock_cause === 'authority_conflict';
     return {
       state: session.lock_state,
       locked_at: session.locked_at,
       role: session.role,
       display_name: session.display_name,
-      summary: summarize(session.id),
+      summary: conflict ? null : summarize(session.id),
+      ...(session.lock_cause === undefined ? {} : { lock_cause: session.lock_cause }),
     };
   };
 }
