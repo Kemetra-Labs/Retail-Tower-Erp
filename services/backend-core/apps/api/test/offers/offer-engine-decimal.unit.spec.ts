@@ -24,6 +24,35 @@ describe('offer decimal', () => {
     expect(() => scaled(value, 2)).toThrow(OfferDecimalError);
   });
 
+  it.each([
+    ['40.0000', 2, 4_000n],
+    ['1.5', 2, 150n],
+    ['0', 2, 0n],
+    ['0.000', 2, 0n],
+    ['1.50', 2, 150n],
+    ['100', 0, 100n],
+    ['12.3400', 4, 123_400n],
+  ])('scales %j at scale %i to %s', (value, scale, expected) => {
+    expect(scaled(value, scale)).toBe(expected);
+  });
+
+  it.each([
+    ['1.001', 2],
+    ['1.', 2],
+    ['abc', 2],
+    ['1.5', 0],
+  ])('refuses %j at scale %i', (value, scale) => {
+    expect(() => scaled(value, scale)).toThrow(OfferDecimalError);
+  });
+
+  // RT-1613: the trailing-zero strip must be linear (CodeQL js/polynomial-redos, alert 83).
+  it('handles a very long zero run in linear time', () => {
+    const started = Date.now();
+    expect(() => scaled(`1.${'0'.repeat(100_000)}1`, 2)).toThrow(OfferDecimalError);
+    expect(scaled(`1.${'0'.repeat(100_000)}`, 2)).toBe(100n);
+    expect(Date.now() - started).toBeLessThan(1_000);
+  });
+
   it('names the error and keeps a given message', () => {
     const plain = new OfferDecimalError('x', 2);
     expect(plain.name).toBe('OfferDecimalError');
