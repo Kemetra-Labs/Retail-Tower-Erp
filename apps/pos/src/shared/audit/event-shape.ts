@@ -22,6 +22,9 @@ export const AUDIT_ACTION_CATEGORIES = [
   'shift.open',
   'shift.close',
   'shift.forced_close',
+  // RT-1498 S7 (RT-196 OD-196-7) — a committed close left returns unresolved on this terminal: their
+  // counts. POS-local and main-only (never uploaded: not a central `pos-audit-events` category).
+  'shift.close.unresolved_returns',
   'operator.session.takeover',
   // RT-117 (RT-116 §7.3) — inactivity lock of the EXISTING session and its
   // same-operator unlock. Neither ends the session.

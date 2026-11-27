@@ -96,6 +96,18 @@ export interface ShiftCashupBridgeDeps {
    * so the answer can warn about them. Never consulted before the close and never able to fail it.
    */
   unresolvedReturns?: () => UnresolvedReturnCounts;
+  /**
+   * RT-1498 S7 (OD-196-7: "counts go in the close summary and the close audit"): record the counts a
+   * committed close found, in the POS-local audit. Called only when there is at least one unresolved
+   * return; a failure is logged and never changes the close's answer.
+   */
+  recordUnresolvedReturns?: (closed: ClosedShiftRef, counts: UnresolvedReturnCounts) => void;
+}
+
+/** The committed close the unresolved-returns audit is keyed by. */
+interface ClosedShiftRef {
+  readonly shiftId: string;
+  readonly closedAt: string;
 }
 
 /** The service's refusals as the renderer sees them (two generic on purpose). */
@@ -249,24 +261,45 @@ export function createShiftCashupBridge(deps: ShiftCashupBridgeDeps): ShiftCashu
       ...(approver === null ? {} : { approver }),
     });
     const answer = { kind: 'closed' as const, shiftId: closed.shiftId, closedAt: closed.closedAt };
-    const returns = unresolvedAtClose();
     return {
       ...answer,
       ...(approver === null ? {} : { varianceMinor: closed.varianceMinor }),
-      ...(returns === null ? {} : { unresolvedReturns: returns }),
+      ...unresolvedAtClose(answer),
     };
   }
 
-  /** RT-1498 S7: the warning counts after a committed close; null when there is nothing to say. */
-  function unresolvedAtClose(): UnresolvedReturnCounts | null {
-    if (deps.unresolvedReturns === undefined) return null;
+  /**
+   * RT-1498 S7: after a committed close, what the answer says about unresolved returns: their counts
+   * (also recorded in the local audit), that they could not be counted, or nothing when there are none.
+   */
+  function unresolvedAtClose(closed: ClosedShiftRef): {
+    unresolvedReturns?: UnresolvedReturnCounts;
+    unresolvedReturnsUnavailable?: true;
+  } {
+    if (deps.unresolvedReturns === undefined) return {};
+    let counts: UnresolvedReturnCounts;
     try {
-      const counts = deps.unresolvedReturns();
-      return counts.unresolved > 0 ? { ...counts } : null;
-    } catch {
-      deps.logger.warn({ op: 'close' }, 'shift_cashup:unresolved_returns_count_failed');
-      return null;
+      counts = { ...deps.unresolvedReturns() };
+    } catch (error) {
+      deps.logger.warn(
+        { op: 'close', err: error instanceof Error ? error.name : 'unknown' },
+        'shift_cashup:unresolved_returns_count_failed',
+      );
+      return { unresolvedReturnsUnavailable: true };
     }
+    if (counts.unresolved <= 0) return {};
+    try {
+      deps.recordUnresolvedReturns?.(
+        { shiftId: closed.shiftId, closedAt: closed.closedAt },
+        counts,
+      );
+    } catch (error) {
+      deps.logger.warn(
+        { op: 'close', err: error instanceof Error ? error.name : 'unknown' },
+        'shift_cashup:unresolved_returns_audit_failed',
+      );
+    }
+    return { unresolvedReturns: counts };
   }
 
   /** RT-388: the policy refresh before an open; its failure is never the open's. */

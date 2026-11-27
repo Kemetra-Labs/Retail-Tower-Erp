@@ -3,10 +3,13 @@
  * whose outcome is still not settled (pending or unknown, and not freed by a close), and how many of
  * those wait for support. A close never depends on them: they only feed the warning.
  */
-import { afterEach, beforeAll, describe, expect, it } from 'vitest';
+import { afterEach, beforeAll, describe, expect, it, vi } from 'vitest';
 
+import type { AuditEvent } from '../../../shared/audit/event-shape.js';
+import { isCentralAuditCategory } from '../../audit/central-audit-categories.js';
 import {
   createUnresolvedReturnCounter,
+  createUnresolvedReturnsCloseAudit,
   unresolvedReturnsAtClose,
 } from '../returns-unresolved-count.js';
 import {
@@ -109,6 +112,67 @@ describe('createUnresolvedReturnCounter', () => {
     harness();
     await unknownReturn();
     expect(count('another-terminal')).toEqual({ unresolved: 0, awaitingSupport: 0 });
+  });
+});
+
+describe('createUnresolvedReturnsCloseAudit (OD-196-7: the counts in the local close audit)', () => {
+  const SESSION = {
+    id: 'sess-1',
+    operator_id: 'op-cashier',
+    tenant_id: SCOPE.tenantId,
+    branch_id: SCOPE.branchId,
+  };
+  const CLOSED = { shiftId: 'shift-9', closedAt: '2026-10-06T16:00:00.000Z' };
+
+  it('emits one POS-local event keyed by the closed shift, with the counts only', () => {
+    const emitted: AuditEvent[] = [];
+    const record = createUnresolvedReturnsCloseAudit({
+      emit: (e) => emitted.push(e),
+      session: () => SESSION,
+      terminalId: () => SCOPE.terminalId,
+      now: () => '2026-10-06T16:00:01.000Z',
+      newEventId: () => 'evt-1',
+    });
+    record(CLOSED, { unresolved: 3, awaitingSupport: 1 });
+    expect(emitted).toEqual([
+      {
+        event_id: 'evt-1',
+        tenant_id: SCOPE.tenantId,
+        branch_id: SCOPE.branchId,
+        originating_terminal_id: SCOPE.terminalId,
+        acting_operator_id: 'op-cashier',
+        session_id: 'sess-1',
+        shift_id: 'shift-9',
+        action_category: 'shift.close.unresolved_returns',
+        created_at: '2026-10-06T16:00:01.000Z',
+        approving_supervisor_id: null,
+        payload: {
+          shift_id: 'shift-9',
+          closed_at: '2026-10-06T16:00:00.000Z',
+          unresolved_returns: 3,
+          awaiting_support: 1,
+        },
+      },
+    ]);
+    expect(isCentralAuditCategory('shift.close.unresolved_returns')).toBe(false);
+  });
+
+  it.each<[string, () => typeof SESSION | null, () => string | null]>([
+    ['no session', () => null, () => SCOPE.terminalId],
+    ['no pairing', () => SESSION, () => null],
+  ])('throws with %s (the bridge logs it; the close stands)', (_n, session, terminalId) => {
+    const emit = vi.fn();
+    const record = createUnresolvedReturnsCloseAudit({
+      emit,
+      session,
+      terminalId,
+      now: () => 'x',
+      newEventId: () => 'e',
+    });
+    expect(() => {
+      record(CLOSED, { unresolved: 1, awaitingSupport: 0 });
+    }).toThrow();
+    expect(emit).not.toHaveBeenCalled();
   });
 });
 

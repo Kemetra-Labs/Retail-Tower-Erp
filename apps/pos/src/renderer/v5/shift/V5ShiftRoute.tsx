@@ -11,7 +11,12 @@ import type {
 import { CashMovementDialog, type MovementKind } from './CashMovementDialog';
 import { CloseShiftPanel, type ShiftClosed } from './CloseShiftPanel';
 import { callShift, useShiftStatus, useSingleFlight } from './shift-bridge';
-import { SHIFT_COPY, shiftRefusalMessage, unresolvedReturnsWarning } from './shift-copy';
+import {
+  SHIFT_COPY,
+  UNRESOLVED_RETURNS_UNAVAILABLE,
+  shiftRefusalMessage,
+  unresolvedReturnsWarning,
+} from './shift-copy';
 import { parseShiftAmount } from './shift-format';
 import {
   amountOutOfRange,
@@ -172,7 +177,8 @@ function ShiftOutcome({ outcome }: Readonly<{ outcome: Outcome }>): JSX.Element 
     const text = outcome.movement === 'payIn' ? SHIFT_COPY.recordedIn : SHIFT_COPY.recordedOut;
     return <Notice tone="success">{text}</Notice>;
   }
-  const { varianceMinor, currencyCode, unresolvedReturns } = outcome.closed;
+  const { varianceMinor, currencyCode, unresolvedReturns, unresolvedReturnsUnavailable } =
+    outcome.closed;
   return (
     <>
       <Notice tone="success" testId="shift-closed-outcome">
@@ -188,6 +194,11 @@ function ShiftOutcome({ outcome }: Readonly<{ outcome: Outcome }>): JSX.Element 
       {unresolvedReturns !== undefined && (
         <Notice tone="warning" testId="shift-unresolved-returns">
           {unresolvedReturnsWarning(unresolvedReturns)}
+        </Notice>
+      )}
+      {unresolvedReturnsUnavailable === true && (
+        <Notice tone="warning" testId="shift-unresolved-returns">
+          {UNRESOLVED_RETURNS_UNAVAILABLE}
         </Notice>
       )}
     </>

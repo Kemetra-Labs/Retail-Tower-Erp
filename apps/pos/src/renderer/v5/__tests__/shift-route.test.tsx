@@ -9,7 +9,12 @@ import '@testing-library/jest-dom/vitest';
 
 import type { ShiftCloseResponse, ShiftStatusResponse } from '../../../shared/shift-cashup/types';
 import { V5ShiftRoute } from '../shift/V5ShiftRoute';
-import { SHIFT_COPY, shiftRefusalMessage, unresolvedReturnsWarning } from '../shift/shift-copy';
+import {
+  SHIFT_COPY,
+  UNRESOLVED_RETURNS_UNAVAILABLE,
+  shiftRefusalMessage,
+  unresolvedReturnsWarning,
+} from '../shift/shift-copy';
 import { PARKED_SALES_PATH } from '../park/ParkedSalesRoute';
 import { PARK_COPY, terminalParkedCount } from '../park/park-copy';
 import {
@@ -410,6 +415,23 @@ describe('V5ShiftRoute — the blind-count close', () => {
       expect(warning).toHaveAttribute('data-tone', 'warning');
     },
   );
+
+  it('RT-1498 S7: a close whose returns could not be counted succeeds and says so (never "none")', async () => {
+    const { bridge, panel } = await startClose();
+    bridge.status.mockResolvedValue({ kind: 'status', status: statusView() });
+    bridge.close.mockResolvedValue({
+      kind: 'closed',
+      shiftId: 'shift-1',
+      closedAt: '2026-10-06T16:00:00.000Z',
+      unresolvedReturnsUnavailable: true,
+    });
+    type(SHIFT_COPY.countLabel, '515');
+    press(SHIFT_COPY.closeCommit, panel);
+    expect(await screen.findByTestId('shift-closed-outcome')).toHaveTextContent(SHIFT_COPY.closed);
+    const warning = screen.getByTestId('shift-unresolved-returns');
+    expect(warning).toHaveTextContent(UNRESOLVED_RETURNS_UNAVAILABLE);
+    expect(warning).toHaveAttribute('data-tone', 'warning');
+  });
 
   it('does not send an invalid count', async () => {
     const { bridge, panel } = await startClose();

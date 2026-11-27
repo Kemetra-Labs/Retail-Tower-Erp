@@ -7,6 +7,7 @@
  * late commit re-blocked counts again, RT-1553). Awaiting support = the unresolved ones with a
  * `needs_support` disposition. Read only; counts, never ids or amounts.
  */
+import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type { UnresolvedReturnCounts } from '../../shared/shift-cashup/types.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { releasedByCloseSql } from './returns-dispositions-repository.js';
@@ -34,6 +35,57 @@ const COUNT_SQL = `
    WHERE terminal_id = ?
      AND state IN ('pending', 'unknown')
      AND NOT ${releasedByCloseSql('return_journal')}`;
+
+/** Who closed the shift: the session's ids and scope (the operator session record's fields). */
+interface ClosingSession {
+  readonly id: string;
+  readonly operator_id: string;
+  readonly tenant_id: string;
+  readonly branch_id: string;
+}
+
+interface UnresolvedReturnsCloseAuditDeps {
+  readonly emit: (event: AuditEvent) => void;
+  readonly session: () => ClosingSession | null;
+  readonly terminalId: () => string | null;
+  readonly now: () => string;
+  readonly newEventId: () => string;
+}
+
+/**
+ * RT-1498 S7 (OD-196-7): the POS-local `shift.close.unresolved_returns` event of a committed close,
+ * attributed to the session that closed it and keyed by the closed shift. Throws when there is no
+ * session or pairing to attribute it to; the caller logs that and the close stands.
+ */
+export function createUnresolvedReturnsCloseAudit(
+  deps: UnresolvedReturnsCloseAuditDeps,
+): (closed: { shiftId: string; closedAt: string }, counts: UnresolvedReturnCounts) => void {
+  return (closed, counts) => {
+    const session = deps.session();
+    const terminalId = deps.terminalId();
+    if (session === null || terminalId === null) {
+      throw new Error('unresolved-returns close audit: no session or pairing');
+    }
+    deps.emit({
+      event_id: deps.newEventId(),
+      tenant_id: session.tenant_id,
+      branch_id: session.branch_id,
+      originating_terminal_id: terminalId,
+      acting_operator_id: session.operator_id,
+      session_id: session.id,
+      shift_id: closed.shiftId,
+      action_category: 'shift.close.unresolved_returns',
+      created_at: deps.now(),
+      approving_supervisor_id: null,
+      payload: {
+        shift_id: closed.shiftId,
+        closed_at: closed.closedAt,
+        unresolved_returns: counts.unresolved,
+        awaiting_support: counts.awaitingSupport,
+      },
+    });
+  };
+}
 
 /**
  * The counts for the terminal paired NOW (the one whose shift is closing). An unpaired till has no

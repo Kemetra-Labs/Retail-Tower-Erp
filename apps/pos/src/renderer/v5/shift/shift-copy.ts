@@ -217,14 +217,23 @@ export function shiftRefusalMessage(reason: ShiftCashupRefusal): string {
 
 /**
  * RT-1498 S7 (RT-196 §3.8, OD-196-7) — the warning after a close that left returns unresolved on this
- * terminal. PROPOSED copy, pending owner review. Counts only; it keeps saying no cash was paid for them
- * (RT-196 §3.8: «لا تصرف أي نقد» while a return is unknown) and never blocks or reverses the close.
+ * terminal. PROPOSED copy, pending owner review. Counts only. It says only what the POS knows (it recorded
+ * no payout for them; it cannot know about cash handed over off-system, §3.8) and tells the manager to
+ * withhold cash while the outcome is unresolved (RT-196 §3.8: «لا تصرف أي نقد»). It never blocks or
+ * reverses the close.
  */
 export function unresolvedReturnsWarning(counts: UnresolvedReturnCounts): string {
   const support =
     counts.awaitingSupport > 0 ? `، منها ${String(counts.awaitingSupport)} بانتظار الدعم` : '';
-  return `لم تتأكد بعد نتيجة ${String(counts.unresolved)} من المرتجعات على هذا الجهاز${support}. لم يُصرف لها أي نقد ولا تدخل في النقد المتوقع. راجعها في سجل المرتجعات.`;
+  return `لم تتأكد بعد نتيجة ${String(counts.unresolved)} من المرتجعات على هذا الجهاز${support}. لم يسجّل هذا الجهاز صرف أي نقد لها، فهي خارج النقد المتوقع. لا تصرف أي نقد لأي منها حتى تتأكد نتيجته، وراجعها في سجل المرتجعات.`;
 }
+
+/**
+ * RT-1498 S7: the close succeeded but the POS could not count its unresolved returns. PROPOSED copy,
+ * pending owner review: never read as "none".
+ */
+export const UNRESOLVED_RETURNS_UNAVAILABLE =
+  'أُغلقت الوردية، لكن تعذّر التحقق من المرتجعات غير المؤكدة على هذا الجهاز. راجع سجل المرتجعات، ولا تصرف أي نقد لمرتجع لم تتأكد نتيجته.';
 
 /** RT-998 — the line for a cash apply main refused `shift_not_open`, by who is signed in. */
 export function cashNeedsShiftMessage(role: Role | null): string {

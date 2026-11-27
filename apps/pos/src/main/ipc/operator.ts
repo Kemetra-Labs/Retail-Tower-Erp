@@ -170,6 +170,8 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'sale.return.attempted',
   'sale.return.refused',
   'sale.return.confirmed',
+  // RT-1498 S7: the unresolved-returns counts of a committed shift close (main writes them).
+  'shift.close.unresolved_returns',
   'sale.return.payout_ready',
   'sale.return.payout_started',
   'sale.return.drawer_opened',

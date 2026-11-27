@@ -143,6 +143,11 @@ export type ShiftCloseResponse =
        * not settled. A warning: the close succeeded and Expected Cash never includes them.
        */
       unresolvedReturns?: UnresolvedReturnCounts;
+      /**
+       * RT-1498 S7: the close succeeded but this terminal's returns could not be counted, so the
+       * manager is told to check them (never read as "none").
+       */
+      unresolvedReturnsUnavailable?: true;
     }
   | ShiftCashupRefused;
 

@@ -31,6 +31,8 @@ export interface ShiftClosed {
   readonly currencyCode: string;
   /** RT-1498 S7: returns still unresolved on this terminal (a warning, never a refusal). */
   readonly unresolvedReturns?: UnresolvedReturnCounts;
+  /** RT-1498 S7: they could not be counted (shown as a warning, never as "none"). */
+  readonly unresolvedReturnsUnavailable?: true;
 }
 
 interface Props {
@@ -78,6 +80,9 @@ export function CloseShiftPanel(props: Props): JSX.Element {
       ...(answer.unresolvedReturns === undefined
         ? {}
         : { unresolvedReturns: answer.unresolvedReturns }),
+      ...(answer.unresolvedReturnsUnavailable === true
+        ? { unresolvedReturnsUnavailable: true as const }
+        : {}),
     });
   };
 
