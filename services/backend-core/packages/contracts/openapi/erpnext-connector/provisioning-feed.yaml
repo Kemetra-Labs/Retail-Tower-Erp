@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core — ERP Provisioning Feed and Provisioner Credential API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Jira RT-1356 (Epic RT-1332; RT-1352 breakdown item PB-A). The contract
     between Backend-Core and the Connector's tenant provisioner: the feed the
@@ -125,8 +125,9 @@ info:
         live lease, a registration that is not managed, another provisioner's
         lease, an unknown request, or a request not in a state that allows
         issue) is the same non-disclosing `404 not_found`, with no side
-        effects. The provisioner reports that refusal as the `dependency`
-        outcome.
+        effects. On a `tenant.provision` request the provisioner reports that
+        refusal as the `dependency` outcome; on a `credential.rotate` request it
+        does not (see "Credential rotation" below).
       - It is AUDITED with the request id and the lease id, in the same
         transaction as the issue, like the other connector lifecycle actions.
       - The SECRET IS RETURNED ONCE, in the response body, with
@@ -135,15 +136,216 @@ info:
         store. The provisioner writes it in-process into the site's Connector
         Settings: never on a command line, in the environment, in logs or in a
         file.
-      - A REPEAT for a credential that has never been presented (the registration
-        is still `never_seen`) is a ROTATION: Backend-Core revokes the earlier
-        credential and issues a new one in one transaction. That is safe because
-        nothing could have used the lost one. This is the lost-response
-        recovery: the provisioner first checks the site (a stored credential id
-        means the step is done) and otherwise repeats the call. A repeat for a
-        credential that HAS been presented is refused as the same `404`.
+      - On a `tenant.provision` request, a REPEAT for a credential that has
+        never been presented (the registration is still `never_seen`) is a
+        ROTATION: Backend-Core revokes the earlier credential and issues a new
+        one in one transaction. That is safe because nothing could have used
+        the lost one. This is the lost-response recovery: the provisioner first
+        checks the site (a stored credential id means the step is done) and
+        otherwise repeats the call. A repeat for a credential that HAS been
+        presented is refused as the same `404`.
+      - On a `credential.rotate` request (version 1.2.0-draft, RT-1362), the
+        registration's current credential is in use, so the `never_seen` test
+        above does not apply. The rule is OVERLAP (owner decision on RT-1362
+        comment 19107, the RT-369 pattern; it amends the RT-1432 no-overlap
+        decision):
+          - The FIRST call under the live lease issues ONE PENDING credential
+            for the registration, audited. The current credential is NOT
+            revoked and keeps working: posting never pauses.
+          - A REPEAT on the same request, while the pending credential has
+            never been presented (Backend-Core has accepted no request
+            authenticated with it), revokes that pending credential and
+            issues a new pending one in one transaction. The current
+            credential still keeps working. This is the lost-response and
+            failed-write recovery, with no human step.
+          - Backend-Core revokes the OLD credential server-side, in the same
+            transaction that first accepts a request authenticated with the
+            pending one; the pending credential becomes the current one and
+            the request is done. A repeat after that is the same
+            non-disclosing `404`.
+        So a registration has at most TWO unrevoked credentials, and only
+        while a rotation is open: the current one and at most one pending one
+        (the one-unrevoked-credential index becomes at most one current plus
+        one pending, RT-1362 S2, `[GATED: migration]`). A repeat cannot return
+        the SAME secret, because the secret is never stored recoverably; it
+        returns a fresh pending one. The call stays LEASE-BOUND (and, on this
+        kind, CLAIM-BOUND: see "Claim fencing" below).
       - The expiry of a managed tenant credential is set by Backend-Core, not by
         the caller. This call takes no body.
+
+
+    **Credential rotation (`credential.rotate`), version 1.2.0-draft.** Jira
+    RT-1362 slice S1. Owner decisions on RT-1362: comment 19102 (approval),
+    comment 19104 (adopted registrations are eligible) and comment 19107
+    (OVERLAP, the RT-369 pattern; it amends the RT-1432 no-overlap decision,
+    the "no-overlap unchanged" line of comment 19104, AC2 and the
+    one-unrevoked-credential exclusion). A `credential.rotate` request is
+    created by Backend-Core only: by its scheduler, 14 days before the managed
+    credential's expiry, or by a platform admin through
+    `platformRequestConnectorCredentialRotation` ("rotate now"), due
+    immediately. At most one `credential.rotate` request is open per
+    registration; a second trigger returns the open one. An open
+    `store.provision` request does not block it.
+      - **Which registrations.** A registration is eligible when it is managed
+        (`managed_by` = provisioner), enabled, and bound to a site: either its
+        `tenant.provision` request has `succeeded`, or it was adopted with
+        `platformAdoptConnectorRegistration` (a hand-made registration, for
+        example the lab one, whose site was never provisioned here). A managed
+        registration that is neither (its `tenant.provision` request ended
+        `failed_permanent`, `compensated` or `cancelled`, so no site was ever
+        bound to it, and it was not adopted) gets none: "rotate now" refuses
+        it with `409 site_not_bound` and the scheduler skips it.
+      - **Which site.** Rotation keys on the registration's STORED SITE BINDING,
+        never on `tenant.provision` fields. The request carries it as
+        `erpnextSiteRef` (the registration's recorded ERP site reference),
+        always present on `credential.rotate`; the provisioner locates the
+        site by it. `siteName`, `template` and `locale` stay required on every
+        request for compatibility with the pinned Connector, but on
+        `credential.rotate` they are compatibility fields that the provisioner
+        must never use to find or change the site: `siteName` is the
+        tenant-derived name (the `siteName` rule, which can differ from the
+        real site of an adopted registration), and `template` and `locale`
+        are those of the registration's succeeded `tenant.provision` request,
+        or, for an adopted registration, the deployment's current
+        provisioning template and locale. The request also carries
+        `connectorRegistrationId` and `environment`, no `legalName`, and
+        `stores: []`; nothing on the site is re-provisioned. Making these
+        fields optional per kind is a follow-up contract change that must land
+        together with the Connector change (RT-1362 S3).
+      - **Which host (routing).** Every `credential.rotate` request is routed to
+        ONE ERP host label, so an adopted site is never worked by a
+        provisioner on the wrong host: for a provisioned registration, the
+        host that provisioned it (`provisioned_host_label` of its succeeded
+        `tenant.provision` request), CONFIRMED from the start; for an adopted
+        registration, the provisioner host recorded on the registration (a
+        stored binding with a revision number, RT-1362 S2, `[GATED:
+        migration]`). The adopt operation records none, so the first "rotate
+        now" names it in its body (`hostLabel`). An adopted binding is
+        PROVISIONAL until the first credential call of a rotation routed to
+        it CONFIRMS it (the provisioner makes that call only after its site
+        check on that host passed). While it is provisional, a platform admin
+        may CORRECT it: a "rotate now" naming a different `hostLabel` together
+        with the `expectedHostBindingRevision` it last saw replaces the
+        binding, increments the revision, re-routes the open request and
+        clears its lease, in one audited transaction
+        (`connector.registration.provisioner_host_corrected`). A correction
+        whose expected revision is not the current one is refused (`409
+        host_binding_stale`), so a delayed retry can never undo a newer
+        correction. Once confirmed, a different label is refused (`409
+        host_mismatch`). A registration whose host cannot be resolved gets no
+        request (`409 host_not_bound` on "rotate now"; the scheduler skips
+        it). Pull offers a `credential.rotate` request ONLY to the provisioner
+        principal whose credential's host label is the routed label; `claimed`
+        and the credential call from any other host are the non-disclosing
+        `404`.
+      - **Claim fencing (lease id).** The lease holder is the host label, so
+        two workers on the same host share a bearer. Every `200` step
+        acknowledgement returns the claim's `leaseId`, new on each claim and
+        unchanged on renewals. On a `credential.rotate` request:
+          - the provisioner sends it back in the `Provisioning-Lease-Id` header
+            on every later step acknowledgement, the credential call and the
+            outcome, and Backend-Core compares it with the request's current
+            lease under the request lock BEFORE any issue, revoke or state
+            change; a missing or stale value is `409 lease_lost` on a step or
+            the outcome and the non-disclosing `404` on the credential call,
+            with no side effect;
+          - a REPLAYED `claimed` acknowledgement (the same `Idempotency-Key`)
+            is answered `409 lease_lost`, never the stored result, so two
+            same-host workers that sent the same key cannot both hold one
+            lease id; the original worker re-pulls, and the request is offered
+            again when that lease expires.
+        The header is optional in the schema and is not enforced on the other
+        kinds, so `tenant.provision` and the pinned Connector are unchanged.
+      - **Activation (compatibility gate).** A provisioner released before
+        RT-1362 S3 skips every kind except `tenant.provision`. Backend-Core
+        therefore creates `credential.rotate` requests (scheduler and "rotate
+        now") only on a deployment where rotation is switched on, and it is
+        switched on only after a provisioner that handles the kind is deployed
+        on the ERP host. While it is off, the scheduler creates nothing and
+        "rotate now" refuses with `409 rotation_unavailable`.
+      - **One completion sequence.**
+          1. `claimed` (keep the returned `leaseId`).
+          2. SITE CHECK, before any credential is issued: the site named by
+             `erpnextSiteRef` exists on this host and its Connector Settings
+             already name `connectorRegistrationId`. A missing site or a
+             mismatch is a `conflict` step outcome, then a `conflict` outcome;
+             no credential call is made.
+          3. The credential call (the `credential.rotate` rule above): a
+             pending credential is issued, the current one keeps working.
+          4. A FENCED write of the pending secret, its ids and its expiry into
+             the PENDING SLOT of the site's Connector Settings (DUAL-SLOT
+             STAGING, below), in one site transaction. It NEVER touches the
+             CURRENT slot. It is a compare-and-set on the pending slot: it
+             writes only if the pending slot is empty or holds a credential
+             with an earlier `issuedAt` (`issuedAt` increases with every issue
+             for the registration: the fencing token); a write whose
+             `issuedAt` is older than the stored pending one is refused; a
+             write of the credential already staged (same `credentialId` and
+             `issuedAt`, for example a retry after a lost write response) is a
+             no-op. The provisioner checks first that its lease has not
+             expired. If a check fails it writes nothing, reports nothing and
+             re-pulls: a newer worker owns the rotation.
+          5. `credential_bound`.
+          6. The Connector's next authenticated call uses the PENDING secret
+             (ORDERING: the write completes before that call, because the
+             Connector reads both slots from Connector Settings for each
+             call). Backend-Core accepts it, promotes it to current, revokes
+             the old credential in the same transaction and records
+             `succeeded`; on that first successful call the Connector promotes
+             PENDING to CURRENT locally.
+          7. `verified`. The provisioner sends NO `succeeded` outcome for this
+             kind (an adopted site cannot supply `ProvisioningResult`).
+      - **Dual-slot staging (the Connector).** Connector Settings keep the
+        CURRENT credential and at most one PENDING credential in separate
+        slots. The Connector authenticates with PENDING when one is present.
+        If a call with PENDING gets `401` (the pending credential was revoked
+        by a newer repeat or by a failed rotation, or a superseded worker
+        staged a stale one), the Connector falls back to CURRENT for that call
+        and clears nothing; the next rotation step replaces the pending slot.
+        On the first successful call with PENDING it promotes PENDING to
+        CURRENT locally and empties the pending slot. So a lost write
+        response, a failed rotation or a stale pending write never stops
+        posting: CURRENT is only ever replaced by a pending credential that
+        Backend-Core has just accepted. A call with the OLD current secret
+        that reaches Backend-Core after the pending one was accepted gets the
+        generic `401`; the Connector, which has by then promoted the pending
+        one, retries with it (it never treats such a refusal as a lasting
+        credential failure while its stored credentials changed). For this
+        kind the status model's `succeeded` means only that the pending
+        credential has been presented; no store map is acknowledged.
+      - **No heartbeat completion.** The heartbeat-based completion of
+        `connectorCompleteProvisioning` (`verifying` until the first
+        heartbeat) applies to `tenant.provision` only: under overlap the
+        CURRENT credential keeps heartbeating, so a heartbeat proves nothing
+        about the pending one. On an open `credential.rotate` request a
+        `succeeded` outcome is refused with `409 lease_lost` and changes
+        nothing; only Backend-Core's acceptance of the pending credential
+        completes the rotation.
+      - **Late reports.** After `succeeded`, a step acknowledgement or a
+        `succeeded` outcome carrying the request's FINAL lease id (the claim
+        that was live when it succeeded) is answered `200`, recorded for the
+        audit trail, and changes nothing; one carrying a SUPERSEDED or missing
+        lease id is `409 lease_lost`; the credential call is the `404` above.
+        On this kind neither refusal is a `dependency` failure: the
+        provisioner stops and re-pulls. A request missing from a pull is not
+        proof of completion; only Backend-Core's acceptance of the new
+        credential completes a rotation.
+      - **Failure.** Because the current credential stays valid throughout, a
+        rotation that fails never interrupts posting. The usual retry rules
+        and terminal outcomes apply (the transient retry cap, then
+        `failed_permanent`; or a `permanently_rejected` or `conflict`
+        outcome). When a `credential.rotate` request ends in any terminal
+        state other than `succeeded`, Backend-Core revokes its pending
+        credential (if any) in the same transaction, the current credential
+        stays the only unrevoked one, and an alert fires. The scheduler
+        creates a new request on its next pass while the current credential
+        is inside the 14-day window (the 7-day alert, RT-1362 S4, covers a
+        rotation still not done). There is nothing to compensate.
+    The runtime of this section is RT-1362 slice S2 (Backend-Core) and S3 (the
+    provisioner handler): until both ship and rotation is switched on,
+    Backend-Core creates no `credential.rotate` request, so the rotation branch
+    of the credential call cannot be reached, and the "rotate now" operation is
+    contract only. `tenant.provision` behaviour is unchanged.
 
 
     **Provisioner credential routes (platform admin, session only).** Three
@@ -181,7 +383,17 @@ info:
     operation changes.
 
 
-    **Auth and scope.** The four platform routes accept the HUMAN `cookieAuth`
+    **Rotate now (platform admin, session only).** Version 1.2.0-draft (Jira
+    RT-1362 S1) adds `platformRequestConnectorCredentialRotation`: it creates
+    the `credential.rotate` request of ONE managed registration, due
+    immediately, so the emergency path is the normal path and nobody handles
+    a secret (RT-1432 D2, amended). It never issues, rotates or revokes a
+    credential itself, returns no secret and never contacts the site: the
+    provisioner does the rotation through the credential call. It is
+    `x-runtime-status: contract-only` until RT-1362 S2.
+
+
+    **Auth and scope.** The platform routes accept the HUMAN `cookieAuth`
     session only (`SessionOnlyAdminGuard`): a bearer-only request is `401`; a
     cookie write without a trusted `Origin` is `403 origin_rejected` (RT-430); a
     caller who is not a platform admin (`users.is_platform_admin`) is `403
@@ -227,6 +439,10 @@ tags:
     description: >
       Platform-admin adoption of one existing connector registration as
       provisioner-managed.
+  - name: erpnext-credential-rotation
+    description: >
+      Platform-admin "rotate now": a `credential.rotate` request for one managed
+      connector registration, due immediately.
 
 paths:
   /api/connector/v1/erpnext/provisioning/requests:
@@ -246,7 +462,8 @@ paths:
         `tenant.provision` requests while the host label already provisioned 20
         sites (the per-bench ceiling, decision OD-10); the provisioner's own
         queue-depth check is reported as the `capacity` outcome. A request whose lease is live for another provisioner is
-        not returned. Scope is the provisioner principal only, which is
+        not returned. A `credential.rotate` request is returned only to the
+        provisioner of its routed host label (see "Credential rotation"). Scope is the provisioner principal only, which is
         tenant-independent; query scope is never trusted. A cursor that cannot
         be served is a `400 validation_error`; the provisioner re-pulls from the
         start (omit `cursor`), which is safe because acknowledgements are
@@ -335,11 +552,16 @@ paths:
         for the others. A caller who does not
         hold a live lease on the request gets `409 lease_lost`, except for the
         `claimed` step on a request that is `requested` or whose lease has
-        expired, which takes a new lease. `detail` is scrubbed by the caller and is stored for the audit
+        expired, which takes a new lease, and except for a late report with the
+        FINAL lease id on a `credential.rotate` request that is already
+        `succeeded` (see "Credential rotation" in the file description: `200`,
+        changes nothing). On `credential.rotate`, a replayed `claimed` is
+        `409 lease_lost` and later calls need `Provisioning-Lease-Id`. `detail` is scrubbed by the caller and is stored for the audit
         trail only.
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       requestBody:
         required: true
         content:
@@ -413,22 +635,44 @@ paths:
         LEASE-BOUND to the calling provisioner's live lease on `{requestId}`,
         MANAGED-ONLY, AUDITED with the request id and lease id in the same
         transaction, and the SECRET IS RETURNED ONCE with `Cache-Control:
-        no-store`; it is never logged or stored recoverably. A REPEAT call for a
-        credential that has never been presented (the registration is still
-        `never_seen`) is a ROTATION: the earlier credential is revoked and a new
-        one issued in one transaction; a repeat after the credential has been
-        presented is refused. Any call that is not for a managed registration
-        under the caller's live lease is the same non-disclosing `404`, with no
-        side effects. The call takes no request body and no `Idempotency-Key`:
-        its repeat rule is the rotation above, because an idempotent replay
-        would have to store the secret.
+        no-store`; it is never logged or stored recoverably.
+
+        On a `tenant.provision` request, a REPEAT call for a credential that has
+        never been presented (the registration is still `never_seen`) is a
+        ROTATION: the earlier credential is revoked and a new one issued in one
+        transaction; a repeat after the credential has been presented is
+        refused.
+
+        On a `credential.rotate` request (1.2.0-draft, RT-1362, OVERLAP per
+        RT-1362 comment 19107), the first call issues one PENDING credential
+        and leaves the current one valid; a repeat, while the pending
+        credential has never been presented, revokes it and issues a new
+        pending one (the lost-response and failed-write recovery), the
+        current one still valid; Backend-Core revokes the OLD credential
+        server-side in the same transaction that first accepts a request
+        authenticated with the pending one, and a repeat after that is the
+        same `404`. A registration has at most two unrevoked credentials, and
+        only while a rotation is open. The call also requires the claim's
+        `Provisioning-Lease-Id` on this kind. The response is always
+        `rotated: true`. The rotation branch is served from RT-1362 slice S2;
+        until then no `credential.rotate` request exists, so it cannot be
+        reached.
+
+        Any call that is not for a managed registration under the caller's live
+        lease is the same non-disclosing `404`, with no side effects. The call
+        takes no request body and no `Idempotency-Key`: its repeat rule is the
+        per-kind rule above, because an idempotent replay would have to store
+        the secret.
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       responses:
         "201":
           description: >
-            The credential was issued (or rotated, on a repeat for a
-            never-presented credential). The secret is in this response only.
+            The credential was issued, or rotated (a repeat for a
+            never-presented credential, or any call on a `credential.rotate`
+            request, which issues a pending credential and revokes nothing
+            but an earlier pending one). The secret is in this response only.
           headers:
             Cache-Control:
               description: Always `no-store`; the body holds a secret.
@@ -472,11 +716,17 @@ paths:
         not_assessed`, and per store the `warehouseRef` and `customerRef`
         Backend-Core records (for stores that existed at request time). A
         `permanently_rejected` or `conflict` outcome carries a `reason`.
-        Backend-Core, not the provisioner, decides when a request is `succeeded`:
-        the provisioner's `verified` step checks the site only, so Backend-Core
+        Backend-Core, not the provisioner, decides when a request is `succeeded`.
+        On a `tenant.provision` request (and `store.provision`), the
+        provisioner's `verified` step checks the site only, so Backend-Core
         accepts the outcome (200) and keeps the request `verifying` until the
         first heartbeat of the managed registration arrives, then records
-        `succeeded`; with no heartbeat within the timeout (30 minutes by
+        `succeeded`. That heartbeat path does NOT apply to `credential.rotate`
+        (the current credential keeps heartbeating under overlap): there a
+        `succeeded` outcome on an open request is refused with `409
+        lease_lost` and changes nothing, and the request succeeds only when
+        Backend-Core first accepts the pending credential (see "Credential
+        rotation" in the file description); with no heartbeat within the timeout (30 minutes by
         default) the request fails with an alert. Backend-Core also decides
         what `succeeded` does to the tenant's access state; the outcome never
         lifts a restriction by itself on this contract (a platform admin does
@@ -484,7 +734,10 @@ paths:
         RT-1361, is on `main`).
 
         Requires the caller's live lease on `{requestId}`; otherwise `409
-        lease_lost`. The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
+        lease_lost`, except for a late `succeeded` outcome with the FINAL lease
+        id on a `credential.rotate` request that is already `succeeded` (see
+        "Credential rotation" in the file description: `200`, changes
+        nothing). The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
         form is recommended; the shared 16 to 128 printable ASCII rule applies):
         the same key and body replay the stored result with
         `Idempotent-Replayed: true`; a different outcome under the same key is
@@ -493,6 +746,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       requestBody:
         required: true
         content:
@@ -794,6 +1048,190 @@ paths:
         "500":
           $ref: "#/components/responses/SystemFailure"
 
+  /api/v1/platform/tenants/{tenant_id}/connector-instances/{id}/rotate-now:
+    post:
+      summary: Request an immediate credential rotation of a managed connector registration (platform admin).
+      operationId: platformRequestConnectorCredentialRotation
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1362 S1: contract only. No route is registered until the RT-1362 S2
+        runtime (request creation with per-registration idempotency, the
+        14-day scheduler, this endpoint with its audit and refusals, and the
+        rotation branch of `connectorIssueProvisionedCredential`). Rotation is
+        switched on per deployment only after the RT-1362 S3 provisioner
+        handler is deployed.
+      tags: [erpnext-credential-rotation]
+      security:
+        - cookieAuth: []
+      description: >
+        Creates the `credential.rotate` request of the connector registration
+        `{id}` of tenant `{tenant_id}`, due immediately (RT-1432 D2, amended).
+        The provisioner then delivers the new secret to the site in-process,
+        exactly as for a scheduled rotation (see "Credential rotation" in the
+        file description). In one transaction that locks the registration
+        row, the call decides, writes the request and records one audit row
+        `connector.credential.rotation_requested` (acting platform admin,
+        tenant, registration id, the `provisioningRequestId` and the request
+        id; ids only, no secret). The tenant is in the path because the
+        registration is tenant-scoped; a registration that does not belong to
+        `{tenant_id}`, and a tenant that does not exist, are the same
+        non-disclosing `404 not_found`. The checks run in this order, and the
+        first that applies decides:
+          0. While rotation is not switched on for this deployment (no
+             provisioner that handles `credential.rotate` is deployed; see
+             "Credential rotation" in the file description), every call is
+             refused: `409 rotation_unavailable`.
+          1. A registration that is not managed (`managed_by` is null) is
+             refused: `409 not_managed`. No credential of a non-managed
+             registration is ever rotated by the provisioner.
+          2. A disabled registration is refused: `409 registration_disabled`.
+          3. A registration whose `tenant.provision` request is still open is
+             refused: `409 provisioning_in_progress` (that request issues the
+             credential).
+          4. A managed registration that is not bound to a site (its
+             `tenant.provision` request ended `failed_permanent`,
+             `compensated` or `cancelled` and it was not adopted) is refused:
+             `409 site_not_bound`. An ADOPTED registration is eligible, like a
+             provisioned one (owner decision, RT-1362 comment 19104; see
+             "Credential rotation" in the file description).
+          5. Host routing ("Which host" in the file description).
+             - No resolved host and no body `hostLabel` (an adopted
+               registration rotated for the first time): `409
+               host_not_bound`.
+             - A body `hostLabel` on an adopted registration with no recorded
+               host is recorded on it, in the same transaction, as its
+               PROVISIONAL provisioner host (revision 1).
+             - A body `hostLabel` equal to the current binding changes
+               nothing.
+             - A body `hostLabel` that differs from a PROVISIONAL adopted
+               binding, sent with `expectedHostBindingRevision` equal to the
+               binding's current revision, CORRECTS it (audited
+               `connector.registration.provisioner_host_corrected`: acting
+               platform admin, old and new label, old and new revision,
+               registration id, request id): the binding is replaced, its
+               revision increments, and an open `credential.rotate` request is
+               re-routed to the new label with its lease cleared, in the same
+               transaction. The call then continues with step 6 (usually `200
+               already_open`, returning the re-routed request).
+             - The same, with `expectedHostBindingRevision` missing or not the
+               current revision (for example a delayed retry of an older
+               correction): `409 host_binding_stale`; nothing changes.
+             - A body `hostLabel` that differs from a CONFIRMED host (a
+               provisioned registration's host, or an adopted binding that a
+               credential call has confirmed): `409 host_mismatch`.
+             The response always names the routed `hostLabel`, whether its
+             binding is `provisional` or `confirmed`, and its
+             `hostBindingRevision`.
+          6. While a `credential.rotate` request of the registration is open
+             (not `succeeded`, `failed_permanent`, `compensated` or
+             `cancelled`), whoever or whatever created it (this operation,
+             another admin, or the 14-day scheduler), the call creates
+             nothing, writes no second audit row and returns the OPEN request:
+             `200` with `outcome: already_open`.
+          7. Otherwise a request is created, routed to the resolved host: `201`
+             with `outcome: requested` and `trigger: forced`.
+        A lost response is recovered by calling again, which returns the open
+        request. If that rotation already finished before the retry, the retry
+        starts a new rotation (`201`); this is accepted, because under overlap
+        a rotation never pauses posting and is safe to repeat, and the call
+        takes no `Idempotency-Key`.
+        Refusals change nothing and write no request. The call never issues,
+        rotates or revokes a credential itself, returns no secret and never
+        contacts the ERP site: the current credential keeps working until the
+        site first uses the new one (overlap). An expired credential can be
+        rotated this way. A platform admin only
+        (`users.is_platform_admin`), session only; a tenant owner or admin is
+        `403 forbidden`. The request body is optional and carries only
+        `hostLabel` and `expectedHostBindingRevision` (step 5).
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/ConnectorInstanceId"
+      requestBody:
+        required: false
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RequestConnectorCredentialRotation"
+            examples:
+              adoptedFirstRotation:
+                summary: First rotation of an adopted registration names its provisioner host.
+                value:
+                  hostLabel: lab-03
+              correctProvisionalHost:
+                summary: Correct a provisional binding, naming the revision last seen.
+                value:
+                  hostLabel: lab-04
+                  expectedHostBindingRevision: 1
+      responses:
+        "201":
+          description: A `credential.rotate` request was created, due immediately.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorRotationRequest"
+              examples:
+                requested:
+                  value:
+                    outcome: requested
+                    provisioningRequestId: "0c3e5a7b-9d1f-4e2a-8b6c-1d3f5a7b9c0e"
+                    kind: credential.rotate
+                    trigger: forced
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    requestedAt: "2026-11-27T10:00:00Z"
+                    hostLabel: lab-03
+                    hostBinding: provisional
+                    hostBindingRevision: 1
+        "200":
+          description: >
+            A `credential.rotate` request of this registration is already open;
+            it is returned and nothing changed.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorRotationRequest"
+              examples:
+                alreadyOpen:
+                  value:
+                    outcome: already_open
+                    provisioningRequestId: "0c3e5a7b-9d1f-4e2a-8b6c-1d3f5a7b9c0e"
+                    kind: credential.rotate
+                    trigger: scheduled
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    requestedAt: "2026-11-20T02:00:00Z"
+                    hostLabel: bench-01
+                    hostBinding: confirmed
+                    hostBindingRevision: 1
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RotationRefused"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
 components:
   securitySchemes:
     connectorProvisionerBearer:
@@ -872,6 +1310,20 @@ components:
         type: string
         format: uuid
       description: The connector registration (instance) id.
+    ProvisioningLeaseId:
+      name: Provisioning-Lease-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Version 1.2.0-draft (RT-1362 S1). The `leaseId` returned by the step
+        acknowledgement that took or renewed the caller's lease. REQUIRED by
+        Backend-Core on every call after `claimed` on a `credential.rotate`
+        request (a missing or stale value is `409 lease_lost`, or `404` on the
+        credential call); optional and ignored on the other kinds. See "Claim
+        fencing" in the file description.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1035,6 +1487,8 @@ components:
             tenant id with the hyphens removed, then `-`, then the deployment
             environment (for example `t0b9a3f0e6c5d4e2a8d52-pilot`). The provisioner verifies it; a mismatch or a site
             with this name that carries another tenant's marker is `conflict`.
+            On `credential.rotate` it is a compatibility field only: the site
+            is identified by `erpnextSiteRef`.
         template:
           $ref: "#/components/schemas/Template"
         locale:
@@ -1053,6 +1507,16 @@ components:
         environment:
           type: string
           enum: [dev, staging, pilot, prod]
+        erpnextSiteRef:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >
+            Version 1.2.0-draft (RT-1362 S1). The registration's stored ERP site
+            reference (its site binding). Always present on `credential.rotate`,
+            where it, not `siteName`, identifies the site the provisioner works
+            on (an adopted registration's site need not follow the `siteName`
+            rule). Absent on the other kinds.
         attemptFloor:
           type: integer
           minimum: 0
@@ -1167,6 +1631,15 @@ components:
           type: string
           format: date-time
           description: The renewed lease expiry. Progress acknowledgements renew it.
+        leaseId:
+          type: string
+          format: uuid
+          description: >
+            Version 1.2.0-draft (RT-1362 S1). The id of the caller's current
+            claim: new on each `claimed`, unchanged on renewals. Optional in
+            the schema; on a `credential.rotate` request Backend-Core always
+            returns it and requires it back in `Provisioning-Lease-Id` (see
+            "Claim fencing").
 
     IssuedProvisionedCredential:
       type: object
@@ -1190,6 +1663,10 @@ components:
         issuedAt:
           type: string
           format: date-time
+          description: >
+            Set by Backend-Core; strictly later for every new credential of the
+            registration. On `credential.rotate` it is the fencing token of the
+            provisioner's site write (see "Credential rotation").
         expiresAt:
           type: string
           format: date-time
@@ -1199,8 +1676,12 @@ components:
         rotated:
           type: boolean
           description: >
-            `true` when this call replaced an earlier credential that was never
-            presented (the repeat rule).
+            `true` when this call issued a replacement: on a `tenant.provision`
+            request, for an earlier credential that was never presented (the
+            repeat rule, which revokes it); on a `credential.rotate` request,
+            always: the credential is PENDING, the current one is not revoked
+            by this call (Backend-Core revokes it when the pending one is first
+            used), and a repeat revokes only the earlier pending one.
 
     ProvisioningResultStore:
       type: object
@@ -1422,6 +1903,138 @@ components:
               type: string
               format: uuid
 
+    RequestConnectorCredentialRotation:
+      type: object
+      additionalProperties: false
+      description: >
+        Optional body of `platformRequestConnectorCredentialRotation`.
+        Server-owned fields (tenant, actor, kind, trigger) are rejected if
+        body-supplied.
+      properties:
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+          pattern: "^[a-z0-9][a-z0-9-]*$"
+          description: >
+            The ERP host label (as in `IssueProvisionerCredentialRequest`) whose
+            provisioner works this registration's rotations. Needed only for
+            an adopted registration with no recorded provisioner host; it is
+            then recorded on the registration as PROVISIONAL. A different
+            label corrects a provisional binding only with the matching
+            `expectedHostBindingRevision`; it is `409 host_mismatch` against a
+            confirmed one.
+        expectedHostBindingRevision:
+          type: integer
+          minimum: 1
+          description: >
+            The `hostBindingRevision` the caller last saw. Required to correct
+            a provisional binding; a missing or older value is `409
+            host_binding_stale`, so a delayed retry never undoes a newer
+            correction.
+
+    ConnectorRotationRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome, provisioningRequestId, kind, trigger, tenantId, instanceId, requestedAt, hostLabel, hostBinding, hostBindingRevision]
+      description: >
+        The open `credential.rotate` request of the registration after
+        `platformRequestConnectorCredentialRotation`. An explicit projection,
+        never a database row: no credential, no secret.
+      properties:
+        outcome:
+          type: string
+          enum: [requested, already_open]
+          description: >
+            `requested`: this call created the request. `already_open`: a
+            rotation request was already open; it is returned and nothing
+            changed.
+        provisioningRequestId:
+          type: string
+          format: uuid
+          description: The request the provisioner pulls and works.
+        kind:
+          type: string
+          enum: [credential.rotate]
+        trigger:
+          type: string
+          enum: [forced, scheduled]
+          description: >
+            What created the open request: `forced` (this operation) or
+            `scheduled` (the 14-day scheduler).
+        tenantId:
+          type: string
+          format: uuid
+        instanceId:
+          type: string
+          format: uuid
+        requestedAt:
+          type: string
+          format: date-time
+          description: When the open request was created.
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The ERP host label the request is routed to.
+        hostBinding:
+          type: string
+          enum: [provisional, confirmed]
+          description: >
+            `confirmed`: the provisioning host of a provisioned registration, or
+            an adopted binding a credential call has confirmed (a different
+            label is `409 host_mismatch`). `provisional`: an adopted binding no
+            credential call has confirmed yet (a different label corrects it).
+        hostBindingRevision:
+          type: integer
+          minimum: 1
+          description: >
+            The revision of the host binding; it increments on every
+            correction. Send it as `expectedHostBindingRevision` to correct a
+            provisional binding.
+        hostCorrected:
+          type: boolean
+          description: >
+            Present and `true` when this call corrected a provisional host
+            binding (audited `connector.registration.provisioner_host_corrected`).
+
+    RotationRefusedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        The 409 envelope of `platformRequestConnectorCredentialRotation`. Same
+        shape as `Error`, with its own closed code set so the shared `Error`
+        enum does not change.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [rotation_unavailable, not_managed, registration_disabled, provisioning_in_progress, site_not_bound, host_mismatch, host_not_bound, host_binding_stale]
+              description: >
+                `rotation_unavailable`: rotation is not switched on for this
+                deployment (no provisioner that handles `credential.rotate`).
+                `not_managed`: the registration is not managed by the
+                provisioner. `registration_disabled`: it is disabled.
+                `provisioning_in_progress`: its `tenant.provision` request is
+                still open. `site_not_bound`: it is bound to no site (its
+                `tenant.provision` request did not succeed and it was not
+                adopted). `host_mismatch`: the body `hostLabel` differs from
+                the registration's CONFIRMED provisioner host (a provisional
+                adopted binding is corrected instead). `host_not_bound`:
+                no provisioner host is resolved and the body names none.
+                `host_binding_stale`: a correction of a provisional binding
+                named a missing or outdated `expectedHostBindingRevision`.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+
     Error:
       type: object
       required: [error]
@@ -1517,8 +2130,10 @@ components:
       description: >
         `not_found`: non-disclosing. Identical for an unknown id, a request or
         credential outside the caller's scope, a request the caller holds no
-        live lease on (credential issue), a registration that is not managed,
-        and another provisioner's lease. No existence leak.
+        live lease on (credential issue), a registration that is not managed
+        (on the feed operations; the platform adopt and rotate-now operations
+        answer that case with their own 409), and another provisioner's lease.
+        No existence leak.
       content:
         application/json:
           schema:
@@ -1594,6 +2209,25 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/AdoptRefusedError"
+    RotationRefused:
+      description: >
+        `rotation_unavailable` (409): rotation is not switched on for this
+        deployment (no provisioner that handles `credential.rotate` is
+        deployed). `not_managed` (409): the registration is not managed by the
+        provisioner. `registration_disabled` (409): it is disabled.
+        `provisioning_in_progress` (409): its `tenant.provision` request is
+        still open. `site_not_bound` (409): it is managed but bound to no site
+        (its `tenant.provision` request ended `failed_permanent`,
+        `compensated` or `cancelled`, and it was not adopted). `host_mismatch`
+        (409): the body `hostLabel` differs from the confirmed provisioner host.
+        `host_not_bound` (409): no provisioner host is resolved and the body
+        names none. `host_binding_stale` (409): a correction named a missing or
+        outdated `expectedHostBindingRevision`. Deterministic, nothing is changed and no request is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RotationRefusedError"
     TooManyRequests:
       description: >
         429 `rate_limited` (RT-574): the caller's per-user budget for this class
