@@ -242,7 +242,7 @@ export const devices = {
   "devices.impact.source.legacy": "قديمة",
   "devices.impact.field.cashFacts": "وقائع النقد",
   "devices.impact.cashFacts.value": {
-    zero: "استلم الخادم {count} واقعة، آخرها {time}",
+    zero: "استلم الخادم صفر واقعة، آخرها {time}",
     one: "استلم الخادم واقعة واحدة، آخرها {time}",
     two: "استلم الخادم واقعتين، آخرها {time}",
     few: "استلم الخادم {count} وقائع، آخرها {time}",
@@ -347,7 +347,7 @@ export const devices = {
   "devices.issue.issued.once":
     "يظهر مرة واحدة فقط ولا يحتفظ به الخادم. اكتبه في الجهاز الجديد الآن. إن ضاع فألغِه من قائمة الرموز المعلّقة وأصدر رمزًا جديدًا.",
   "devices.issue.issued.valid": {
-    zero: "صالح لمدة {count} دقيقة، حتى {time}.",
+    zero: "صالح لمدة صفر دقيقة، حتى {time}.",
     one: "صالح لمدة دقيقة واحدة، حتى {time}.",
     two: "صالح لمدة دقيقتين، حتى {time}.",
     few: "صالح لمدة {count} دقائق، حتى {time}.",
@@ -355,7 +355,7 @@ export const devices = {
     other: "صالح لمدة {count} دقيقة، حتى {time}.",
   },
   "devices.issue.issued.validHours": {
-    zero: "صالح لمدة {count} ساعة، حتى {time}.",
+    zero: "صالح لمدة صفر ساعة، حتى {time}.",
     one: "صالح لمدة ساعة واحدة، حتى {time}.",
     two: "صالح لمدة ساعتين، حتى {time}.",
     few: "صالح لمدة {count} ساعات، حتى {time}.",

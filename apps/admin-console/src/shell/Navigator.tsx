@@ -19,7 +19,7 @@
  */
 import { Icon, type IconNameFor } from "@/components/icons/Icon";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
-import { useT } from "@/i18n";
+import { tFor, useLocale, useT } from "@/i18n";
 import { useStoreList } from "@/stores/useStoreQueries";
 import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router";
@@ -62,6 +62,8 @@ type PageIcon = IconNameFor<"md">;
 interface Option {
   id: string;
   label: string;
+  /** The label in the other locale, so either language finds the page. */
+  altLabel?: string;
   /** A page's path. */
   to?: string;
   icon?: PageIcon;
@@ -90,7 +92,12 @@ export function foldForSearch(text: string): string {
 }
 
 function matches(option: Option, query: string): boolean {
-  return query === "" || foldForSearch(option.label).includes(query);
+  if (query === "") return true;
+  // The path is the identifier both locales share: typing it finds the page.
+  const haystacks = [option.label, option.altLabel, option.to].filter(
+    (h): h is string => h !== undefined,
+  );
+  return haystacks.some((h) => foldForSearch(h).includes(query));
 }
 
 /** The top-bar button. It looks like a field but opens the dialog. */
@@ -173,6 +180,8 @@ export function NavigatorDialog({
   onClose,
 }: Readonly<NavigatorDialogProps>): React.JSX.Element {
   const t = useT();
+  const locale = useLocale();
+  const tOther = tFor(locale === "ar" ? "en" : "ar");
   const navigate = useNavigate();
   const scopeChange = useScopeChange();
   const baseId = `navigator-${useId().replaceAll(":", "")}`;
@@ -185,9 +194,15 @@ export function NavigatorDialog({
   const pages = useMemo<Option[]>(
     () =>
       groups.flatMap((g) =>
-        g.entries.map((e) => ({ id: `page:${e.to}`, label: t(e.label), to: e.to, icon: e.icon })),
+        g.entries.map((e) => ({
+          id: `page:${e.to}`,
+          label: t(e.label),
+          altLabel: tOther(e.label),
+          to: e.to,
+          icon: e.icon,
+        })),
       ),
-    [groups, t],
+    [groups, t, tOther],
   );
   const stores = useStoreOptions(withStores);
   const folded = foldForSearch(query);

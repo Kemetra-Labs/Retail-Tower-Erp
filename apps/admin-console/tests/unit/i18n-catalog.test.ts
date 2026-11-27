@@ -85,6 +85,56 @@ describe("placeholders and plurals", () => {
     }
   });
 
+  test("all branches of a count phrase agree apart from {count}", () => {
+    // A branch that drops a param (say {time}) would render a sentence with a
+    // hole; {count} is the one exception — Arabic spells it out in zero/one/
+    // two while English counts it, so it is compared separately below.
+    for (const [key, m] of [...arEntries, ...Object.entries(enCatalog)]) {
+      if (typeof m === "string") continue;
+      const sets = branches(m).map((b) =>
+        placeholders(b).filter((p) => p !== "count"),
+      );
+      for (const s of sets.slice(1)) expect(s, key).toEqual(sets[0]);
+    }
+  });
+
+  test("the numeral branches (few/many/other) agree on {count} too", () => {
+    for (const [key, m] of [...arEntries, ...Object.entries(enCatalog)]) {
+      if (typeof m === "string") continue;
+      for (const b of ["few", "many", "other"] as const) {
+        if (m[b] === undefined) continue;
+        expect(placeholders(m[b]), `${key} (${b})`).toEqual(
+          placeholders(m.other),
+        );
+      }
+    }
+  });
+
+  // The house pattern (overview.insight.failedPosting): zero/one/two spell the
+  // count out; {count} is only for few/many/other. The catalog still has
+  // pre-existing keys that interpolate {count} in zero (retry-after sentences,
+  // bare count labels), so this is asserted only for the keys fixed here —
+  // not as a catalog-wide rule.
+  test("the fixed zero branches spell the count out", () => {
+    const arByKey = new Map(arEntries);
+    for (const key of [
+      "devices.impact.cashFacts.value",
+      "devices.issue.issued.valid",
+      "devices.issue.issued.validHours",
+      "inventory.error.rateLimitedFor",
+    ]) {
+      const m = arByKey.get(key);
+      expect(m, key).toBeDefined();
+      expect(typeof m, key).not.toBe("string");
+      if (typeof m !== "string") {
+        expect(m.zero, key).toBeDefined();
+        if (m.zero !== undefined) {
+          expect(placeholders(m.zero), key).not.toContain("count");
+        }
+      }
+    }
+  });
+
   test("an English count phrase defines one and other", () => {
     for (const [key, m] of Object.entries(enCatalog)) {
       if (typeof m === "string") continue;

@@ -234,6 +234,18 @@ describe("what it offers", () => {
     expect(combobox().getAttribute("aria-expanded")).toBe("false");
   });
 
+  test("a path or the other locale's label finds the page", async () => {
+    renderShell();
+    fireEvent.click(trigger());
+    await screen.findByRole("option", { name: /New Cairo Mall/ });
+    // The path is the one identifier both locales share.
+    type("/sales-daily");
+    expect(optionNames()).toEqual(["Daily received sales"]);
+    // The Arabic label finds it while the UI is English.
+    type("المبيعات المستلمة يوميًا");
+    expect(optionNames()).toEqual(["Daily received sales"]);
+  });
+
   test("a failed store list says so and offers a retry, never 'no stores'", async () => {
     listStores.mockResolvedValue({ status: 500, error: { error: { code: "internal" } } });
     renderShell();

@@ -788,8 +788,8 @@ keeps gaps for missing buckets; the hero sparkline states its period (for exampl
   received count. The legend is a real `<table>` with state, count and share.
 - **Side column.** It holds quick actions, the attention list (RT-559), and «قريبًا» frames
   for stores today and low stock (§12.8.6).
-- **Not shipped:** the alert banner (it needs a decided alert source) and the Readex Pro face
-  (§12.8.3).
+- **Not shipped:** the alert banner (the alert source is decided — the attention ledger, shipped
+  as its own `/alerts` page) and the Readex Pro face (§12.8.3).
 
 ### 12.5 Surfaces, shape and elevation
 

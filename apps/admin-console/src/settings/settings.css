@@ -36,7 +36,9 @@
 .settings-card {
   padding: var(--space-4) var(--space-5);
 }
-/* A gated section renders null (the AI plan is off by default): no empty card. */
+/* Belt-and-braces: the page gates the AI-plan card on the same condition the
+ * section uses, so a gated-off section leaves no card at all; this rule only
+ * catches a card whose section renders nothing. */
 .settings-card:empty {
   display: none;
 }

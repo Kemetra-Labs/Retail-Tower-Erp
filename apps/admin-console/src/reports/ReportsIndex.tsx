@@ -18,8 +18,12 @@
  * - Wider rhythm: the page, group and grid gaps and the card padding grow one
  *   token step each (rule 1, less crowded), and cards widen to 20rem so fewer
  *   sit on a row. The cards keep the DESIGN v4 panel radius, resting shadow
- *   and existing colour roles; the root drops the dead `surface--v4` class (no
- *   CSS rule defines it anywhere — the Overview's root is plain `surface`).
+ *   and existing colour roles; the root drops the `surface--v4` class:
+ *   neither stylesheet this page loads defines it, so it has no effect here
+ *   (and dropping it removes an order-dependent leak — a Reports visit after
+ *   a Sales visit used to inherit Sales' v4 panel radius and shadow).
+ *   `.surface--v4` rules live in `sales.css`, for the Sales page; the
+ *   Overview's root is plain `surface`.
  * - A status filter below the band (the band holds no filters, RT-995): All /
  *   Available / Review screens / Proposed, a segmented switch in the
  *   TrendPanel pattern (`fieldset` + `aria-pressed`). It filters only the
@@ -129,7 +133,10 @@ function ReportCard({ item }: Readonly<{ item: ReportItem }>): React.JSX.Element
   if (item.kind === "proposed" || !item.to) {
     // Not available: a card, never a link, a button or a tab stop.
     return (
-      <div className="reports-card reports-card--proposed" data-report={item.id}>
+      <div
+        className="section-panel reports-card reports-card--proposed"
+        data-report={item.id}
+      >
         <CardBody item={item} {...ids} />
       </div>
     );
@@ -137,7 +144,7 @@ function ReportCard({ item }: Readonly<{ item: ReportItem }>): React.JSX.Element
   return (
     <Link
       to={item.to}
-      className="reports-card reports-card--open"
+      className="section-panel reports-card reports-card--open"
       data-report={item.id}
       aria-labelledby={ids.titleId}
       aria-describedby={`${ids.statusId} ${ids.questionId}`}
