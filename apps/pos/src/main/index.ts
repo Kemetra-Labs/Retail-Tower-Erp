@@ -1055,13 +1055,9 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // RT-113 P2 — keep the online cashier admission live (heartbeat at ≤ TTL/2, fresh key) and end
-    // it on sign-out / session end (best-effort). Lost authority (taken over elsewhere, 403, two
-    // device 401s) latches the session (cart.create, and an add to an empty cart, refuse
-    // `authority_conflict`) and ends it at its first safe point: no open sale with lines and no
-    // live tender on ANY cart of the session (`createSafePointProbe`, review of 024f07c items 2
-    // and 5). Re-checked after every sale IPC call, on lock changes and by a backstop poll.
-    // Stopped on quit (RT-198 latch). RT-309: a reconnect reconcile conversion is audited (D8).
+    // RT-113 P2 — heartbeat the online cashier admission, end it on session end; lost authority
+    // latches the session and ends it at its first safe point (no open sale, no live tender;
+    // `cashier-admission-keeper.ts`). Stopped on quit (RT-198). RT-309: reconcile audit (D8).
     const resolveTerminalId = (): string | null => pairingStore.getCurrentTerminalId();
     const isCashierAtSafePoint = createSafePointProbe({
       db,
@@ -1072,7 +1068,11 @@ singleInstanceReady
       sessionManager: operatorSessionManager,
       admission: cashierAdmission,
       isAtSafePoint: isCashierAtSafePoint,
-      onOfflineReconciled: createOfflineReconciledAudit({ audit: auditEmitter, resolveTerminalId }),
+      onOfflineReconciled: createOfflineReconciledAudit({
+        audit: auditEmitter,
+        resolveTerminalId,
+        logger: mainLogger,
+      }),
       logger: mainLogger,
     });
     saleBoundaryProbe.recheck = () => {

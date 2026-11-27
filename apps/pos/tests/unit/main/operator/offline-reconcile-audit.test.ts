@@ -296,6 +296,35 @@ describe('no event without a conversion', () => {
   });
 });
 
+describe('a write that is not made is logged (never silent), with no identifier', () => {
+  function recordOf(sessions: SessionManager): OperatorSessionRecord {
+    return signInOffline(sessions);
+  }
+
+  it.each([
+    ['the emit throws', 'operator.session.offline_reconciled.audit_failed', true, TERMINAL_ID],
+    ['the terminal is unknown', 'operator.session.offline_reconciled.no_terminal', false, null],
+  ] as const)('%s: warns %s', (_l, event, throws, terminal) => {
+    const warns: unknown[] = [];
+    const hook = createOfflineReconciledAudit({
+      audit: {
+        emit: () => {
+          if (throws) throw new Error('disk full');
+        },
+      },
+      resolveTerminalId: () => terminal,
+      logger: { warn: (...a: unknown[]) => warns.push(a) },
+    });
+    const record = recordOf(new SessionManager());
+    expect(() => {
+      hook(record);
+    }).not.toThrow();
+    expect(warns).toEqual([[{ event }, 'offline reconcile audit not written']]);
+    expect(JSON.stringify(warns)).not.toContain(record.id);
+    expect(JSON.stringify(warns)).not.toContain(OPERATOR_ID);
+  });
+});
+
 describe('the keeper wires the hook', () => {
   it('passes onOfflineReconciled to its reconciler', async () => {
     const sessions = new SessionManager();
