@@ -5,7 +5,11 @@
   and the current one stays valid; a repeat replaces the unpresented pending one; Backend-Core
   revokes the old credential in the same transaction that first accepts the new one; at most two
   unrevoked credentials per registration during a rotation; posting never pauses; a failed rotation
-  revokes the pending credential and keeps the current one. `tenant.provision` unchanged. Rotation
+  revokes the pending credential and keeps the current one. The site stages the pending secret in a
+  separate PENDING slot of Connector Settings (dual-slot staging: the provisioner never touches
+  CURRENT, the Connector falls back to CURRENT on a `401` with PENDING and promotes PENDING on its
+  first accepted call). Heartbeat-based completion stays with the other kinds; an early `succeeded`
+  outcome on an open rotation is `409 lease_lost`. `tenant.provision` unchanged. Rotation
   keys on the stored site binding (new optional `ProvisioningRequest.erpnextSiteRef`; adopted
   registrations eligible), is routed to one ERP host (provisional, revision-checked host binding for
   adopted registrations), fenced per claim (optional `StepAckResult.leaseId` and

@@ -273,31 +273,54 @@ info:
           3. The credential call (the `credential.rotate` rule above): a
              pending credential is issued, the current one keeps working.
           4. A FENCED write of the pending secret, its ids and its expiry into
-             the site's Connector Settings, in one site transaction. It
-             replaces the stored credential only if the site still holds the
-             credential id this provisioner read at its site check, and never
-             replaces a stored credential whose `issuedAt` is later than the
-             one being written (`issuedAt` increases with every issue for the
-             registration: the fencing token). The provisioner checks first
-             that its lease has not expired. If either check fails it writes
-             nothing, reports nothing and re-pulls: a newer worker owns the
-             rotation. A stale writer could otherwise overwrite a newer secret
-             with a revoked one.
+             the PENDING SLOT of the site's Connector Settings (DUAL-SLOT
+             STAGING, below), in one site transaction. It NEVER touches the
+             CURRENT slot. It is a compare-and-set on the pending slot: it
+             writes only if the pending slot is empty or holds a credential
+             with an earlier `issuedAt` (`issuedAt` increases with every issue
+             for the registration: the fencing token); a write whose
+             `issuedAt` is older than the stored pending one is refused; a
+             write of the credential already staged (same `credentialId` and
+             `issuedAt`, for example a retry after a lost write response) is a
+             no-op. The provisioner checks first that its lease has not
+             expired. If a check fails it writes nothing, reports nothing and
+             re-pulls: a newer worker owns the rotation.
           5. `credential_bound`.
-          6. The Connector's next authenticated call uses the new secret
+          6. The Connector's next authenticated call uses the PENDING secret
              (ORDERING: the write completes before that call, because the
-             Connector reads its credential from Connector Settings for each
-             call). Backend-Core accepts it, revokes the old credential in the
-             same transaction and records `succeeded`.
+             Connector reads both slots from Connector Settings for each
+             call). Backend-Core accepts it, promotes it to current, revokes
+             the old credential in the same transaction and records
+             `succeeded`; on that first successful call the Connector promotes
+             PENDING to CURRENT locally.
           7. `verified`. The provisioner sends NO `succeeded` outcome for this
              kind (an adopted site cannot supply `ProvisioningResult`).
-        A call the Connector made with the OLD secret that reaches Backend-Core
-        after the new one was first accepted gets the generic `401`; the
-        Connector re-reads its credential from Connector Settings and retries
-        with the new one (it never treats that single refusal as a lasting
-        credential failure while its stored credential has changed). For this
+      - **Dual-slot staging (the Connector).** Connector Settings keep the
+        CURRENT credential and at most one PENDING credential in separate
+        slots. The Connector authenticates with PENDING when one is present.
+        If a call with PENDING gets `401` (the pending credential was revoked
+        by a newer repeat or by a failed rotation, or a superseded worker
+        staged a stale one), the Connector falls back to CURRENT for that call
+        and clears nothing; the next rotation step replaces the pending slot.
+        On the first successful call with PENDING it promotes PENDING to
+        CURRENT locally and empties the pending slot. So a lost write
+        response, a failed rotation or a stale pending write never stops
+        posting: CURRENT is only ever replaced by a pending credential that
+        Backend-Core has just accepted. A call with the OLD current secret
+        that reaches Backend-Core after the pending one was accepted gets the
+        generic `401`; the Connector, which has by then promoted the pending
+        one, retries with it (it never treats such a refusal as a lasting
+        credential failure while its stored credentials changed). For this
         kind the status model's `succeeded` means only that the pending
         credential has been presented; no store map is acknowledged.
+      - **No heartbeat completion.** The heartbeat-based completion of
+        `connectorCompleteProvisioning` (`verifying` until the first
+        heartbeat) applies to `tenant.provision` only: under overlap the
+        CURRENT credential keeps heartbeating, so a heartbeat proves nothing
+        about the pending one. On an open `credential.rotate` request a
+        `succeeded` outcome is refused with `409 lease_lost` and changes
+        nothing; only Backend-Core's acceptance of the pending credential
+        completes the rotation.
       - **Late reports.** After `succeeded`, a step acknowledgement or a
         `succeeded` outcome carrying the request's FINAL lease id (the claim
         that was live when it succeeded) is answered `200`, recorded for the
@@ -693,11 +716,17 @@ paths:
         not_assessed`, and per store the `warehouseRef` and `customerRef`
         Backend-Core records (for stores that existed at request time). A
         `permanently_rejected` or `conflict` outcome carries a `reason`.
-        Backend-Core, not the provisioner, decides when a request is `succeeded`:
-        the provisioner's `verified` step checks the site only, so Backend-Core
+        Backend-Core, not the provisioner, decides when a request is `succeeded`.
+        On a `tenant.provision` request (and `store.provision`), the
+        provisioner's `verified` step checks the site only, so Backend-Core
         accepts the outcome (200) and keeps the request `verifying` until the
         first heartbeat of the managed registration arrives, then records
-        `succeeded`; with no heartbeat within the timeout (30 minutes by
+        `succeeded`. That heartbeat path does NOT apply to `credential.rotate`
+        (the current credential keeps heartbeating under overlap): there a
+        `succeeded` outcome on an open request is refused with `409
+        lease_lost` and changes nothing, and the request succeeds only when
+        Backend-Core first accepts the pending credential (see "Credential
+        rotation" in the file description); with no heartbeat within the timeout (30 minutes by
         default) the request fails with an alert. Backend-Core also decides
         what `succeeded` does to the tenant's access state; the outcome never
         lifts a restriction by itself on this contract (a platform admin does

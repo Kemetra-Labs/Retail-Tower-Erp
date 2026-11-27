@@ -214,4 +214,20 @@ describe("RT-1362 S1 connectorIssueProvisionedCredential keeps its shape", () =>
     expect(info).toMatch(/a REPLAYED `claimed` acknowledgement .* is answered `409 lease_lost`/);
     expect(info).toMatch(/FINAL lease id/);
   });
+
+  it("stages the pending secret in its own slot and never touches CURRENT (dual-slot staging)", () => {
+    const info = (doc as unknown as { info: { description: string } }).info.description.replace(/\s+/g, " ");
+    expect(info).toMatch(/PENDING SLOT of the site's Connector Settings/);
+    expect(info).toMatch(/It NEVER touches the CURRENT slot/);
+    expect(info).toMatch(/a write whose `issuedAt` is older than the stored pending one is refused/);
+    expect(info).toMatch(/same `credentialId` and `issuedAt`.* is a no-op/);
+    expect(info).toMatch(/falls back to CURRENT for that call and clears nothing/);
+    expect(info).toMatch(/promotes PENDING to CURRENT locally/);
+  });
+
+  it("scopes heartbeat completion to the other kinds and refuses an early succeeded outcome on rotate", () => {
+    const outcome = (post("/api/connector/v1/erpnext/provisioning/requests/{requestId}/outcome").description ?? "").replace(/\s+/g, " ");
+    expect(outcome).toMatch(/That heartbeat path does NOT apply to `credential\.rotate`/);
+    expect(outcome).toMatch(/`succeeded` outcome on an open request is refused with `409 lease_lost` and changes nothing/);
+  });
 });
