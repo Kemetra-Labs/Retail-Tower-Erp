@@ -55,7 +55,7 @@ export interface ShiftClosePayload {
  * after a close committed with returns still unresolved on this terminal. Counts only: no return id,
  * no amount. `awaiting_support` is a subset of `unresolved_returns`. POS-local (never uploaded).
  */
-export interface ShiftCloseUnresolvedReturnsPayload {
+interface ShiftCloseUnresolvedReturnsPayload {
   shift_id: string;
   closed_at: string;
   unresolved_returns: number;
