@@ -22,6 +22,13 @@ export class OfferDecimalError extends Error {
   }
 }
 
+/** `digits` without its trailing '0' characters; one linear scan (no regex backtracking, RT-1613). */
+function stripTrailingZeros(digits: string): string {
+  let end = digits.length;
+  while (end > 0 && digits.charCodeAt(end - 1) === 48) end -= 1;
+  return digits.slice(0, end);
+}
+
 /**
  * A non-negative exact-decimal string as an integer count of 10^-scale units.
  * Trailing zeros beyond `scale` are accepted ("40.0000" at scale 2 is 4000n);
@@ -30,7 +37,7 @@ export class OfferDecimalError extends Error {
 export function scaled(value: string, scale: number): bigint {
   const match = /^([0-9]+)(?:\.([0-9]+))?$/.exec(value);
   if (match === null) throw new OfferDecimalError(value, scale);
-  const fraction = (match[2] ?? '').replace(/0+$/, '');
+  const fraction = stripTrailingZeros(match[2] ?? '');
   if (fraction.length > scale) throw new OfferDecimalError(value, scale);
   return BigInt((match[1] ?? '') + fraction.padEnd(scale, '0'));
 }
