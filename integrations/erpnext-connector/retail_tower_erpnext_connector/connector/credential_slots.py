@@ -18,8 +18,9 @@ fencing compare is made in UTC (a site-local naive Datetime can run backwards ac
 The decision functions are pure. The writes import ``frappe`` on use and go through Frappe's own password
 API (``set_encrypted_password`` / ``remove_encrypted_password``) and ``set_single_value``, after a locking
 read of the Connector Settings rows: the locking read sees the latest committed values whatever the
-caller's transaction saw before, and serialises the provisioner's stage with a poller's promotion. A
-secret is never logged, returned or put in an exception.
+caller's transaction saw before, and serialises the provisioner's stage with a poller's promotion; each
+locking caller commits right after, so no lock outlives the write. A secret is never logged, returned or
+put in an exception.
 """
 
 from __future__ import annotations
@@ -124,18 +125,28 @@ def read_pending(settings) -> PendingCredential | None:
 	)
 
 
-# --- frappe-backed writes ----------------------------------------------------------------------------
+# --- frappe-backed reads and writes -------------------------------------------------------------------
 
 
-def _locked_values() -> dict:
-	"""Every stored value of Connector Settings, by a LOCKING read (the latest committed values; held
-	until the caller's transaction ends). Frappe keeps a Single DocType in ``tabSingles``."""
+def _values(*, lock: bool) -> dict:
+	"""Every stored value of Connector Settings (Frappe keeps a Single DocType in ``tabSingles``).
+
+	``lock=True`` is a LOCKING read: it sees the latest committed values whatever this transaction read
+	before, and holds the rows until the transaction ends, so callers that lock commit right after."""
 	import frappe
 
-	rows = frappe.db.sql(
-		"select field, value from `tabSingles` where doctype=%s for update", (SETTINGS,), as_list=True
-	)
+	query = "select field, value from `tabSingles` where doctype=%s"
+	rows = frappe.db.sql(query + (" for update" if lock else ""), (SETTINGS,), as_list=True)
 	return {field: value for field, value in rows}
+
+
+def _commit() -> None:
+	"""Commit, unless the caller runs inside its own transaction (the bench-lane tests set
+	``frappe.flags.rt_provisioner_no_commit`` and roll everything back)."""
+	import frappe
+
+	if not frappe.flags.get("rt_provisioner_no_commit"):
+		frappe.db.commit()
 
 
 def has_pending_slot() -> bool:
@@ -164,11 +175,12 @@ def stage_pending(
 	"""Write a rotated credential into the PENDING slot (never CURRENT), as a compare-and-set.
 
 	Returns ``write``, ``noop`` or ``stale`` (see :func:`stage_decision`). Raises ``LookupError`` when the
-	settings name another registration. The caller commits."""
+	settings name another registration. The caller (its own site process) commits right after. The write
+	bumps ``modified``, so a Connector Settings form opened before it cannot be saved over it."""
 	import frappe
 	from frappe.utils.password import set_encrypted_password
 
-	values = _locked_values()
+	values = _values(lock=True)
 	if (values.get(REGISTRATION_ID) or None) != registration_id:
 		raise LookupError("Connector Settings name another registration")
 	decision = stage_decision(
@@ -189,7 +201,6 @@ def stage_pending(
 			PENDING_ISSUED: issued_at,
 			PENDING_EXPIRES: expires_at,
 		},
-		update_modified=False,
 	)
 	return decision
 
@@ -197,16 +208,20 @@ def stage_pending(
 def promote_pending(pending: PendingCredential) -> bool:
 	"""Backend-Core accepted ``pending``: make it CURRENT and empty the pending slot, then commit.
 
-	A compare-and-set on the pending credential id under the lock: when the slot now holds another
-	credential (a newer rotation staged one, or another job already promoted this one) nothing changes
-	and the result is ``False``. The commit is safe where the transport is called: a poller calls
-	Backend-Core only once its ERP effects are durable (RT-458), as for the feed-state checkpoint (RT-883).
-	"""
+	A compare-and-set on the pending credential id. A plain read first: when the slot already holds
+	another credential (another job promoted this one, or a newer rotation staged one) nothing is locked
+	and the result is ``False``. Otherwise the check is repeated under the lock and the transaction is
+	committed on both outcomes, so the lock never outlives this call. The commit is safe where the
+	transport is called: a poller calls Backend-Core only once its ERP effects are durable (RT-458), as
+	for the feed-state checkpoint (RT-883). The write bumps ``modified``, so a Connector Settings form
+	opened before it cannot be saved over the promoted ids."""
 	import frappe
 	from frappe.utils.password import remove_encrypted_password, set_encrypted_password
 
-	values = _locked_values()
-	if (values.get(PENDING_ID) or None) != pending.credential_id:
+	if (_values(lock=False).get(PENDING_ID) or None) != pending.credential_id:
+		return False
+	if (_values(lock=True).get(PENDING_ID) or None) != pending.credential_id:
+		_commit()  # releases the lock
 		return False
 	set_encrypted_password(SETTINGS, SETTINGS, pending.secret, CURRENT_TOKEN)
 	updates = {
@@ -221,31 +236,27 @@ def promote_pending(pending: PendingCredential) -> bool:
 		updates[CURRENT_ISSUED] = _site_naive(pending.issued_at)
 	if parse_utc(pending.expires_at) is not None:
 		updates[CURRENT_EXPIRES] = _site_naive(pending.expires_at)
-	frappe.db.set_single_value(SETTINGS, updates, update_modified=False)
+	frappe.db.set_single_value(SETTINGS, updates)
 	remove_encrypted_password(SETTINGS, SETTINGS, PENDING_TOKEN)
-	frappe.db.commit()
+	_commit()
 	return True
 
 
 def reload_current_token() -> str | None:
-	"""The CURRENT secret as last committed (a locking read, so another job's promotion is seen even
-	when this job's transaction read the settings before it). ``None`` when unset or unreadable."""
-	import frappe
-	from frappe.utils.password import decrypt
+	"""The CURRENT secret as stored now, or ``None`` when unset or unreadable.
 
-	rows = frappe.db.sql(
-		"select `password` from `__Auth` where doctype=%s and name=%s and fieldname=%s and encrypted=1"
-		" lock in share mode",
-		(SETTINGS, SETTINGS, CURRENT_TOKEN),
-	)
-	if not rows or not rows[0][0]:
-		return None
-	return decrypt(rows[0][0]) or None
+	A plain (non-locking) read, so it never holds a lock for the rest of the caller's job. Under MariaDB's
+	REPEATABLE READ a job whose transaction read the password before another job's promotion still sees
+	the old value: the refusal then stands, the auth circuit records it under the OLD credential key, and
+	the next tick reads the promoted credential (a new key) and goes through at once."""
+	from frappe.utils.password import get_decrypted_password
+
+	return get_decrypted_password(SETTINGS, SETTINGS, CURRENT_TOKEN, raise_exception=False) or None
 
 
 def slot_ids() -> dict:
-	"""The non-secret ids of both slots, as last committed (for the provisioner's checks)."""
-	values = _locked_values()
+	"""The non-secret ids of both slots as this process sees them (after its own heartbeat)."""
+	values = _values(lock=False)
 	return {
 		"current_credential_id": values.get(CURRENT_ID) or None,
 		"pending_credential_id": values.get(PENDING_ID) or None,

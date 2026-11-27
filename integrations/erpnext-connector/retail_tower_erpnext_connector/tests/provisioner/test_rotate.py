@@ -264,13 +264,21 @@ def test_a_newer_pending_credential_during_confirmation_stops_and_re_pulls(env):
 	assert ("verified", "failed_transient") not in env.state.steps
 
 
-def test_a_site_without_the_pending_slot_is_a_compatibility_failure(env):
+def test_a_site_without_the_pending_slot_fails_before_any_credential_is_issued(env):
+	env.site["pending_slot"] = False  # this Connector release is not migrated on the site
+	assert env.run() == REJECTED
+	assert env.state.steps[-1] == ("credential_bound", "compatibility")
+	assert "credential" not in env.feed_paths() and env.state.credentials_issued == 0
+	assert env.site["credential_id"] == "cred-current"
+
+
+def test_a_compatibility_refusal_of_the_write_itself_is_not_retried(env):
 	from retail_tower_erpnext_connector.provisioner.errors import ErrorClass, ProvisioningError
 
 	env.gw.stage_fails = [ProvisioningError(ErrorClass.compatibility, "no pending credential slot")]
 	assert env.run() == REJECTED
 	assert env.state.steps[-1] == ("credential_bound", "compatibility")
-	assert env.site["credential_id"] == "cred-current"
+	assert env.state.credentials_issued == 1 and env.site["credential_id"] == "cred-current"
 
 
 def test_the_runner_releases_a_rotation_that_must_be_re_pulled(env, tmp_path):

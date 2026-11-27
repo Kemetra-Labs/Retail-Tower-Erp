@@ -12,7 +12,7 @@
   ``get_password``) and refuses an unset base URL or token, so a tick skips rather than posts blind.
 * Dual-slot credentials (RT-1362 S3, ``provisioning-feed.yaml`` 1.2.0-draft "Credential rotation"): when
   Connector Settings hold a PENDING credential, a call authenticates with it first; a refusal falls back
-  to CURRENT for that call and clears nothing; the first accepted call promotes PENDING to CURRENT
+  to CURRENT for that call and clears nothing; the first accepted (2xx) call promotes PENDING to CURRENT
   (``on_promote``). A refusal of CURRENT is retried once with the CURRENT secret as last committed
   (``reload_token``: another job promoted). Only the final answer of a call feeds the RT-1429 auth
   circuit, so neither fallback counts as a refused credential.
@@ -133,7 +133,10 @@ class RequestsTransport:
 			r = call(pending.secret)
 			status = r.status_code
 			if status not in AUTH_REFUSAL_STATUSES:
-				if status < 500:
+				# Only a 2xx proves Backend-Core authenticated it: an unmatched route, a body-parser 400/413
+				# or an edge 429 answers before authentication, and promoting on it could replace CURRENT
+				# with a revoked credential. Any other answer keeps PENDING staged for the next call.
+				if 200 <= status < 300:
 					self._promote(pending)
 				return r
 			# Refused: a newer repeat or a failed rotation revoked it, or a superseded worker staged it.

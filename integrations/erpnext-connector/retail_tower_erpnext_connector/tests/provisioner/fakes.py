@@ -586,7 +586,7 @@ class FakeGateway:
 		if s.get("broken"):
 			raise SiteUnreadable("database incomplete")
 		return {
-			"pending_credential_id": (s.get("pending") or {}).get("credential_id"),
+			"pending_slot": s.get("pending_slot", True),  # False: a site not migrated to this Connector
 			"setup_complete": s["setup_complete"],
 			"companies": list(s["companies"]),
 			"default_company": s["default_company"],

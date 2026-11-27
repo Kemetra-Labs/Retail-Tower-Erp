@@ -108,11 +108,11 @@ def inspect() -> dict:
 		out["registration_id"] = (
 			frappe.db.get_single_value(_SETTINGS, "dp2_connector_registration_id") or None
 		)
-		# RT-1362 S3: the PENDING slot's non-secret id (absent before ``bench migrate`` added the field).
-		if frappe.get_meta(_SETTINGS).has_field("dp2_pending_credential_id"):
-			out["pending_credential_id"] = (
-				frappe.db.get_single_value(_SETTINGS, "dp2_pending_credential_id") or None
-			)
+		# RT-1362 S3: whether Connector Settings carry the PENDING slot (``bench migrate`` ran for this
+		# Connector version); a rotation checks it before any credential is issued.
+		from ..connector import credential_slots
+
+		out["pending_slot"] = credential_slots.has_pending_slot()
 		out["indexes_ok"] = schema.index_present(
 			"Posting Log", schema.POSTING_LOG_INDEX, schema.POSTING_LOG_COLUMNS
 		) and schema.index_present("Sales Invoice", schema.SALES_INVOICE_INDEX, schema.SALES_INVOICE_COLUMNS)

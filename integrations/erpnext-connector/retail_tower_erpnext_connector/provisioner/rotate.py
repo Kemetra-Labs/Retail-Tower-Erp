@@ -139,6 +139,12 @@ class CredentialRotator:
 		state = self._gw.site_op(site, "inspect")  # no registration id without the Connector installed
 		if state.get("registration_id") != request.registration_id:
 			raise ProvisioningError(ErrorClass.conflict, "Connector Settings name another registration")
+		if not state.get("pending_slot"):
+			# A Connector release without the pending slot (or not migrated): issuing would only mint a
+			# credential Backend-Core must then revoke. Checked before the credential call.
+			raise ProvisioningError(
+				ErrorClass.compatibility, "Connector Settings have no pending credential slot"
+			)
 		return site
 
 	# --- steps 3 and 4: issue, then the fenced write (repeated after a lost response or a failed write)

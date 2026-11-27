@@ -185,6 +185,21 @@ def test_a_failed_reload_leaves_the_refusal_to_the_circuit(backend):
 	assert rig.opened == [401]  # reported once, by the circuit
 
 
+@pytest.mark.parametrize("status", [400, 404, 409, 413, 429])
+def test_only_a_2xx_promotes_a_pending_credential(backend, status):
+	# An unmatched route, a body-parser refusal or an edge rate limit answers before authentication:
+	# promoting on it could replace CURRENT with a revoked credential.
+	backend.accepted = {OLD, NEW}
+	backend.status = status
+	rig = _Rig(pending=_pending())
+	assert rig.post().status == status
+	assert rig.promoted == [] and rig.opened == []
+	backend.status = 200
+	rig.post()  # still staged: presented again, promoted on the first 2xx
+	assert backend.calls == [("POST", NEW), ("POST", NEW)]
+	assert [p.credential_id for p in rig.promoted] == ["cred-new"]
+
+
 def test_a_server_error_with_pending_proves_nothing_and_keeps_it_staged(backend):
 	backend.accepted = {OLD, NEW}
 	backend.status = 503
@@ -315,27 +330,32 @@ def test_the_slot_field_names_are_the_doctypes():
 
 
 class _Db:
+	"""``tabSingles`` and ``__Auth`` as the transaction sees them. ``snapshot`` stands in for what a
+	plain (non-locking) read returns when this job read the rows before another job's commit; a
+	locking read always returns the latest rows."""
+
 	def __init__(self, singles):
 		self.singles = dict(singles)
+		self.snapshot: dict | None = None
 		self.auth: dict[str, str] = {}
 		self.commits = 0
+		self.locked = False
 
 	def sql(self, query, values=(), as_list=False):
-		if "`tabSingles`" in query:
-			assert "for update" in query  # a locking read: the latest committed values
+		assert "`tabSingles`" in query and values == ("Connector Settings",)
+		if "for update" in query:
+			self.locked = True
 			return [[k, v] for k, v in self.singles.items()]
-		if "`__Auth`" in query:
-			assert "lock in share mode" in query
-			value = self.auth.get(values[2])
-			return [[f"enc:{value}"]] if value else []
-		raise AssertionError(query)
+		return [[k, v] for k, v in (self.snapshot if self.snapshot is not None else self.singles).items()]
 
-	def set_single_value(self, doctype, values, update_modified=True):
-		assert doctype == "Connector Settings" and update_modified is False
+	def set_single_value(self, doctype, values, *args, **kwargs):
+		assert doctype == "Connector Settings"
+		assert kwargs.get("update_modified", True) is True  # a stale form save is then refused
 		self.singles.update(values)
 
 	def commit(self):
 		self.commits += 1
+		self.locked = False
 
 
 @pytest.fixture
@@ -345,6 +365,7 @@ def frappe_db(monkeypatch):
 	db = _Db({"dp2_connector_registration_id": "reg-1", "dp2_credential_id": "cred-old", "dp2_token": "*"})
 	frappe = types.ModuleType("frappe")
 	frappe.db = db
+	frappe.flags = {}
 	frappe.get_meta = lambda doctype: types.SimpleNamespace(has_field=lambda name: True)
 	utils = types.ModuleType("frappe.utils")
 	utils.get_datetime = datetime.fromisoformat
@@ -352,12 +373,18 @@ def frappe_db(monkeypatch):
 	password = types.ModuleType("frappe.utils.password")
 	password.set_encrypted_password = lambda dt, dn, pwd, fieldname: db.auth.__setitem__(fieldname, pwd)
 	password.remove_encrypted_password = lambda dt, dn, fieldname: db.auth.pop(fieldname, None)
-	password.decrypt = lambda text: text.removeprefix("enc:")
+
+	def get_decrypted_password(dt, dn, fieldname, raise_exception=True):
+		assert raise_exception is False
+		return db.auth.get(fieldname)
+
+	password.get_decrypted_password = get_decrypted_password
 	frappe.utils = utils
 	utils.password = password
 	for name, module in (("frappe", frappe), ("frappe.utils", utils), ("frappe.utils.password", password)):
 		monkeypatch.setitem(sys.modules, name, module)
 	db.auth["dp2_token"] = OLD
+	db.frappe = frappe
 	return db
 
 
@@ -371,13 +398,22 @@ def _stage(credential_id="cred-new", issued_at=T1, secret=NEW, registration_id="
 	)
 
 
-def test_staging_writes_the_pending_slot_only(frappe_db):
+def test_staging_writes_the_pending_slot_only_under_the_lock(frappe_db):
 	assert _stage() == WRITE
+	assert frappe_db.locked  # the site process commits right after (site_ops)
 	assert frappe_db.auth == {"dp2_token": OLD, "dp2_pending_token": NEW}
 	assert frappe_db.singles["dp2_pending_credential_id"] == "cred-new"
 	assert frappe_db.singles["dp2_pending_credential_issued_at"] == T1
 	assert frappe_db.singles["dp2_pending_token"] == "*" * len(NEW)  # Frappe's mask, never the secret
 	assert frappe_db.singles["dp2_credential_id"] == "cred-old"
+
+
+def test_staging_compares_with_the_latest_rows_not_a_stale_snapshot(frappe_db):
+	frappe_db.snapshot = dict(frappe_db.singles)  # read before a newer worker committed its write
+	frappe_db.singles.update(
+		dp2_pending_credential_id="cred-3", dp2_pending_credential_issued_at="2026-11-27T10:00:00.000003Z"
+	)
+	assert _stage() == STALE
 
 
 def test_staging_refuses_an_older_credential_and_another_registration(frappe_db):
@@ -390,30 +426,52 @@ def test_staging_refuses_an_older_credential_and_another_registration(frappe_db)
 
 def test_promotion_moves_pending_to_current_and_empties_the_slot(frappe_db):
 	_stage()
+	frappe_db.commit()
 	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is True
 	assert frappe_db.auth == {"dp2_token": NEW}
 	assert frappe_db.singles["dp2_credential_id"] == "cred-new"
 	assert frappe_db.singles["dp2_pending_credential_id"] is None
+	assert frappe_db.commits == 2 and not frappe_db.locked
+
+
+def test_a_promotion_that_lost_the_race_takes_no_lock(frappe_db):
+	_stage(credential_id="cred-newer", secret=NEWER)  # a newer rotation staged after this one was read
+	frappe_db.commit()
+	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is False
+	assert frappe_db.auth == {"dp2_token": OLD, "dp2_pending_token": NEWER}
+	assert frappe_db.commits == 1 and not frappe_db.locked
+
+
+def test_a_promotion_that_loses_the_race_under_the_lock_releases_it(frappe_db):
+	_stage()
+	frappe_db.commit()
+	frappe_db.snapshot = dict(frappe_db.singles)  # this job still sees cred-new as pending
+	frappe_db.singles["dp2_pending_credential_id"] = None  # another job promoted it meanwhile
+	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is False
+	assert not frappe_db.locked and frappe_db.auth["dp2_token"] == OLD
+
+
+def test_promotion_honours_the_no_commit_flag(frappe_db):
+	_stage()
+	frappe_db.commit()
+	frappe_db.frappe.flags["rt_provisioner_no_commit"] = True
+	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is True
 	assert frappe_db.commits == 1
 
 
-def test_promotion_is_a_compare_and_set_on_the_pending_id(frappe_db):
-	_stage(credential_id="cred-newer", secret=NEWER)  # a newer rotation staged after this one was read
-	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is False
-	assert frappe_db.auth == {"dp2_token": OLD, "dp2_pending_token": NEWER}
-	assert frappe_db.commits == 0
-
-
-def test_reload_reads_the_current_secret_as_last_committed(frappe_db):
+def test_reload_reads_the_current_secret_without_a_lock(frappe_db):
 	assert credential_slots.reload_current_token() == OLD
 	frappe_db.auth.pop("dp2_token")
 	assert credential_slots.reload_current_token() is None
+	assert not frappe_db.locked
 
 
 def test_slot_ids_name_both_slots_and_never_a_secret(frappe_db):
 	_stage()
+	frappe_db.commit()
 	assert credential_slots.slot_ids() == {
 		"current_credential_id": "cred-old",
 		"pending_credential_id": "cred-new",
 		"pending_issued_at": T1,
 	}
+	assert not frappe_db.locked
