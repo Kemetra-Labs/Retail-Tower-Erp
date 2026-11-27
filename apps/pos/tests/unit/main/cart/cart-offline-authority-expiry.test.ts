@@ -195,9 +195,9 @@ describe('offline-admitted session (handler level)', () => {
     expect(first.kind).toBe('ok');
   });
 
-  // RT-309 (10763 D6): an online-confirmed session that lost connectivity is
-  // bounded too, by the bound its latest admission stamped (here the same
-  // instants). Before RT-309 it was never bounded.
+  // RT-309 (10763 D6): an online-confirmed session that lost its server contact
+  // is bounded too, by its contact-lost bound (here the same instants). Before
+  // RT-309 it was never bounded.
   it('RT-309: an online-confirmed session past its bound is refused offline_authority_expired', async () => {
     const session = offlineSession();
     session.authority = 'online_confirmed';

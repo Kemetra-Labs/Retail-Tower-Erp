@@ -75,10 +75,10 @@ function cashierSession(): OperatorSessionRecord {
     lock_state: 'active',
     locked_at: null,
     authority: 'online_confirmed',
-    // RT-309 (D6): every online-confirmed session carries the bound its admission
-    // stamped (SessionManager); this one is far from expiry.
-    authority_valid_until_ms: Number.MAX_SAFE_INTEGER,
-    authority_deadline_mono_ms: Number.MAX_SAFE_INTEGER,
+    // RT-309 (D6): every online-confirmed session carries its last confirmed
+    // server contact (SessionManager); this one is connected (no lost bound).
+    authority_confirmed_wall_ms: 0,
+    authority_confirmed_mono_ms: 0,
   };
 }
 

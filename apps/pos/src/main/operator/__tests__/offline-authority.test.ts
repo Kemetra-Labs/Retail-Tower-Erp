@@ -63,10 +63,10 @@ describe('offlineAuthorityExpired', () => {
     ).toBe(false);
   });
 
-  // RT-309 (D6): an online-confirmed session IS bounded by the bound its latest
-  // admission stamped (`online-authority-bound.test.ts`). One that carries no
-  // bound at all is refused (fail closed); the SessionManager always stamps one.
-  it('bounds an online-confirmed session by its stamped bound', () => {
+  // RT-309 (D6): an online-confirmed session whose contact was lost is bounded by
+  // its contact-lost bound (`online-authority-bound.test.ts`). One with neither a
+  // bound nor a confirmed-contact stamp is refused (fail closed).
+  it('bounds an online-confirmed session by its contact-lost bound', () => {
     expect(
       offlineAuthorityExpired(
         {
