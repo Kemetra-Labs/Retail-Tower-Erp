@@ -24,7 +24,12 @@
  * Never throws.
  */
 import { createBackendTransport, statusOutcome, type FetchLike } from '../http/transport.js';
-import { isUuid, readReturnStatusBody, type WireSaleReturn } from './returns-wire.js';
+import {
+  isUuid,
+  readReturnStatusBody,
+  type WireRecordedTender,
+  type WireSaleReturn,
+} from './returns-wire.js';
 
 const SALES_PATH = '/api/pos/v1/sales';
 
@@ -42,6 +47,8 @@ export type StatusReadOutcome =
       readonly kind: 'recorded';
       readonly creditLinked: boolean;
       readonly saleReturn: WireSaleReturn;
+      /** The recorded refund allocations, or null when absent or unreadable (no confirm-by-read). */
+      readonly refundTenders: readonly WireRecordedTender[] | null;
     }
   | { readonly kind: 'not_recorded' }
   | { readonly kind: 'unavailable' }
@@ -82,7 +89,12 @@ function toOutcome(status: number, json: unknown): StatusReadOutcome {
   const body = readReturnStatusBody(json);
   if (body === null) return { kind: 'no_verdict', cause: 'unreadable' };
   if (body.status === 'not_recorded') return { kind: 'not_recorded' };
-  return { kind: 'recorded', creditLinked: body.creditLinked, saleReturn: body.saleReturn };
+  return {
+    kind: 'recorded',
+    creditLinked: body.creditLinked,
+    saleReturn: body.saleReturn,
+    refundTenders: body.refundTenders,
+  };
 }
 
 export function createReturnsStatusClient(

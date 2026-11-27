@@ -16,6 +16,8 @@ import { describe, it, expect } from 'vitest';
 const INDEX_PATH = resolve(__dirname, '../index.ts');
 // RT-1219: the cart and payments registrations moved to `bootstrap/payments-cart.ts`.
 const PAYMENTS_CART_PATH = resolve(__dirname, '../bootstrap/payments-cart.ts');
+// RT-309 (RT-893): the keeper composition moved to `bootstrap/cashier-admission-keeper.ts`.
+const KEEPER_PATH = resolve(__dirname, '../bootstrap/cashier-admission-keeper.ts');
 
 describe('main/index.ts wires the sale-boundary choke point (RT-113 P2)', () => {
   const source = readFileSync(INDEX_PATH, 'utf-8');
@@ -31,17 +33,22 @@ describe('main/index.ts wires the sale-boundary choke point (RT-113 P2)', () => 
   });
 
   it('the choke point re-checks through the cashier admission keeper', () => {
+    // index.ts hands its probe to the keeper's bootstrap module, which binds it.
     expect(source).toMatch(
-      /saleBoundaryProbe\.recheck = \(\) => \{\s*cashierAdmissionKeeper\.recheckSafePoint\(\);\s*\}/,
+      /const cashierAdmissionKeeper = registerCashierAdmissionKeeper\(\{[^}]*\bsaleBoundaryProbe,/,
+    );
+    const keeper = readFileSync(KEEPER_PATH, 'utf-8');
+    expect(keeper).toMatch(
+      /deps\.saleBoundaryProbe\.recheck = \(\) => \{\s*keeper\.recheckSafePoint\(\);\s*\}/,
     );
   });
 
   it('review (024f07c) item 2 — the keeper ends a latched session on the REAL safe-point probe', () => {
-    expect(source).toMatch(
-      /import\s+\{[^}]*\bcreateSafePointProbe\b[^}]*\}\s+from\s+'\.\/operator\/lock-state-reader\.js'/,
+    const keeper = readFileSync(KEEPER_PATH, 'utf-8');
+    expect(keeper).toMatch(
+      /import\s+\{[^}]*\bcreateSafePointProbe\b[^}]*\}\s+from\s+'\.\.\/operator\/lock-state-reader\.js'/,
     );
-    expect(source).toMatch(/isAtSafePoint: isCashierAtSafePoint,/);
-    expect(source).toMatch(/const isCashierAtSafePoint = createSafePointProbe\(\{/);
+    expect(keeper).toMatch(/isAtSafePoint: createSafePointProbe\(\{/);
   });
 
   it('the cart and payments/tender handlers register on the guarded surface', () => {

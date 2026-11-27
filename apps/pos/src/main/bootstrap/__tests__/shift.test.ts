@@ -345,6 +345,26 @@ describe('registerShift IPC wiring (both flag states pass the same sources)', ()
     expect(h.notifyShiftClosed).toHaveBeenCalledTimes(1);
   });
 
+  it('RT-1498 S7: hands the IPC the unresolved-returns count of the paired terminal', () => {
+    const h = makeHarness();
+    h.getCurrentTerminalId.mockReturnValue(null);
+    registerShift(h.deps);
+    const counts = ipcDeps().unresolvedReturns as () => unknown;
+    // Unpaired: nothing of its own to warn about (the database is not read).
+    expect(counts()).toEqual({ unresolved: 0, awaitingSupport: 0 });
+  });
+
+  it('RT-1498 S7: hands the IPC the close-audit writer; with no session it refuses to write', () => {
+    const h = makeHarness();
+    h.getCurrentTerminalId.mockReturnValue(null);
+    h.getCurrent.mockReturnValue(null);
+    registerShift(h.deps);
+    const record = ipcDeps().recordUnresolvedReturns as (c: unknown, n: unknown) => void;
+    expect(() => {
+      record({ shiftId: 's', closedAt: 't' }, { unresolved: 1, awaitingSupport: 0 });
+    }).toThrow();
+  });
+
   it('registers the sync engine starter before the IPC handlers (original order)', () => {
     vi.stubEnv(FLAG, 'true');
     const order: string[] = [];

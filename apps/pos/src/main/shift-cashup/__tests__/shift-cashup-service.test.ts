@@ -58,6 +58,33 @@ import { OPEN, OTHER_TERMINAL, SCOPE, USER } from './__helpers__/shift-sync-fixt
 
 const REF = '0192f5a2-3b4c-7d8e-9f01-0000000000c1';
 const LATER = '2026-10-05T20:00:00.000Z';
+
+/** RT-1498 S7: a sent return whose outcome is unknown (no payout, as RT-15 never pays one). */
+function seedUnresolvedReturn(db: SqlJsDatabase, returnId: string, key: string): void {
+  const saleId = `sale-of-${returnId}`;
+  seedShiftSale(db, { saleId, finalizedAt: '2026-10-01T10:00:00.000Z', lines: [] });
+  const at = '2026-10-05T07:00:00.000Z';
+  db.run(
+    `INSERT INTO return_journal (return_id, tenant_id, branch_id, terminal_id, sale_id,
+       sale_number, server_sale_ref, external_id, operator_id, operator_session_id, currency_code,
+       quoted_total_minor, request_body_json, state, attempt_count, last_attempt_at,
+       created_at, updated_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'op-1', 'sess-1', 'EGP', 1000, '{}', 'unknown', 1, ?, ?, ?)`,
+    [
+      returnId,
+      SCOPE.tenantId,
+      SCOPE.branchId,
+      SCOPE.terminalId,
+      saleId,
+      `SN-${saleId}`,
+      '0192f5a2-3b4c-7d8e-9f01-5a1e00000001',
+      `pos-pulse-return:${key}`,
+      at,
+      at,
+      at,
+    ],
+  );
+}
 const FLOAT = 50_000;
 const NO_FACTS = {
   shift_cashup_opens: 0,
@@ -348,6 +375,23 @@ describe('closeShift — the cash-up', () => {
       expect(storedBody(db, 2)['cashRefundReturnRefs']).toEqual([REF]);
     },
   );
+
+  it('RT-1498 S7: unknown and needs_support returns never touch Expected Cash, and never block the close', () => {
+    openShift();
+    seedUnresolvedReturn(db, 'r-unknown', '0192f5a2-3b4c-7d8e-9f01-0000000000e1');
+    seedUnresolvedReturn(db, 'r-support', '0192f5a2-3b4c-7d8e-9f01-0000000000e2');
+    db.run(
+      `INSERT INTO return_journal_dispositions (disposition_id, return_id, kind, verdict_source,
+         reason, read_verdict_at, approval_id, actor_operator_id, created_at)
+       VALUES ('0192f5a2-3b4c-7d8e-9f01-0000000000d9', 'r-support', 'needs_support',
+         'send_response', 'mismatch', NULL, NULL, NULL, '2026-10-05T07:01:00.000Z')`,
+    );
+    const closed = service.closeShift({ countedCashMinor: FLOAT });
+    expect(closed.cashRefundsTotalMinor).toBe(0);
+    expect(closed.expectedCashMinor).toBe(FLOAT);
+    expect(closed.varianceMinor).toBe(0);
+    expect(storedBody(db, 2)['cashRefundReturnRefs']).toEqual([]);
+  });
 
   it('ignores another terminal’s sales and refunds', () => {
     openShift();

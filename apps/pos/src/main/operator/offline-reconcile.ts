@@ -1,4 +1,5 @@
 import type { Logger } from 'pino';
+import { randomUUID } from 'node:crypto';
 
 import type {
   CashierAdmissionAdmitted,
@@ -48,7 +49,11 @@ import type {
  *  - 5xx, transport failure, no device token: the session stays offline within
  *    its bounds; retry every 60 s;
  *  - 400 / 409 / a malformed 200: a definite answer. It is logged, not retried
- *    (a fresh key would not change it), and the session stays as it was.
+ *    (a fresh key would not change it). RT-309: it cannot establish authority,
+ *    so no NEW sale may start on the session (fail closed) and the decision is
+ *    audited; the session is not latched.
+ *  - RT-309 (D8): an `admitted` is adopted only after its audit record is
+ *    durable, and never when a grant invalidation landed while it was in flight.
  *
  * Which sessions: only a LIVE offline-admitted session. A session that ended
  * before the till reconnected is not reconciled (that would leave a live server
@@ -92,7 +97,7 @@ export const RECONCILE_NUDGE_MIN_MS = 10_000;
 export const RECONCILE_GATE_MAX_SERVER_ERRORS = 5;
 
 export interface OfflineReconcilerDeps {
-  sessionManager: Pick<SessionManager, 'getCurrent' | 'renewAdmission'>;
+  sessionManager: Pick<SessionManager, 'getCurrent' | 'renewAdmission' | 'expireOfflineAuthority'>;
   admission: CashierAdmissionDeps;
   /** The session now holds a live admission: arm its heartbeat. */
   onAdopted: (session_id: string) => void;
@@ -104,8 +109,32 @@ export interface OfflineReconcilerDeps {
    * the generation the session holds may be stale. The keeper verifies early.
    */
   onLiveAdmissionRenewed: (admission_id: string) => void;
+  /**
+   * RT-309 (10763 D8) — the durable, main-owned audit of a reconcile decision.
+   * Absent only in tests that do not exercise it.
+   */
+  audit?: OfflineReconcileAuditHooks | undefined;
   logger?: Pick<Logger, 'info' | 'warn'> | undefined;
 }
+
+/**
+ * RT-309 — the reconcile's audit hooks (`offline-reconcile-audit.ts`).
+ *
+ * `reconciled` is called BEFORE the session is adopted, with an event id that
+ * is stable for the whole reconcile (a retry re-uses it, so a write that landed
+ * but reported a failure is not duplicated: `INSERT OR IGNORE`). It returns
+ * true only when the event is durable; otherwise the session is NOT adopted (it
+ * keeps its offline bound), the admission is released and the reconcile tries
+ * again. `failed` records a reconcile that could not establish authority.
+ * Neither may throw (a throw counts as not durable).
+ */
+export interface OfflineReconcileAuditHooks {
+  reconciled(record: OperatorSessionRecord, event_id: string): boolean;
+  failed(record: OperatorSessionRecord, outcome: OfflineReconcileFailure): void;
+}
+
+/** Definite answers that cannot establish authority (closed set, audited). */
+export type OfflineReconcileFailure = 'rejected' | 'idempotency_conflict';
 
 /** What one reconcile tracks: the offline session it speaks for. */
 interface Entry {
@@ -125,6 +154,8 @@ interface Entry {
   last_attempt_at_ms: number;
   /** No attempt yet, or the last one found Backend-Core unreachable: a reconnect may be near. */
   reconnect_possible: boolean;
+  /** RT-309: the conversion audit's event id, stable across retries (idempotent write). */
+  audit_event_id: string;
 }
 
 /** Answers that mean Backend-Core could not be reached at all (nothing came back). */
@@ -154,12 +185,6 @@ const TRANSIENT_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set([
   'rate_limited',
 ]);
 
-/** Definite answers a retry cannot change. */
-const DEFINITE_KINDS: ReadonlySet<CashierAdmissionResult['kind']> = new Set([
-  'rejected',
-  'idempotency_conflict',
-]);
-
 export class OfflineReconciler {
   private entry: Entry | null = null;
   private stopped = false;
@@ -184,6 +209,7 @@ export class OfflineReconciler {
       server_errors: 0,
       last_attempt_at_ms: Number.NEGATIVE_INFINITY,
       reconnect_possible: true,
+      audit_event_id: randomUUID(),
     };
     this.entry = entry;
     // A macrotask later, not inside the session's create(): sign-in finishes first.
@@ -283,6 +309,15 @@ export class OfflineReconciler {
       this.release(entry, result, who);
       return;
     }
+    if (result.kind === 'admitted' && invalidationChanged(this.deps.admission, mark)) {
+      // RT-309: a grant invalidation (a 403, `active_elsewhere`, a device 401)
+      // landed while this request was in flight. The answer may predate it:
+      // never adopt it (fail closed); release it and ask again.
+      this.log('stale_admitted');
+      this.releaseAdmitted(entry, result);
+      this.scheduleRetry(entry);
+      return;
+    }
     this.log(result.kind);
     entry.reconnect_possible = UNREACHABLE_KINDS.has(result.kind);
     this.apply(entry, result, requested_at_ms, who);
@@ -334,6 +369,15 @@ export class OfflineReconciler {
     requested_at_ms: number,
     who: AdmissionWho,
   ): void {
+    // RT-309 (D8): the conversion record is durable BEFORE the session is
+    // online-confirmed. If it cannot be written the session keeps its offline
+    // bound, the admission is released and the reconcile asks again.
+    if (!this.auditReconciled(entry)) {
+      this.releaseAdmitted(entry, result);
+      this.countGateFailure(entry);
+      this.scheduleRetry(entry);
+      return;
+    }
     const adopted = this.deps.sessionManager.renewAdmission(entry.session_id, {
       admission_id: result.admission_id,
       admission_ttl_seconds: result.admission_ttl_seconds,
@@ -350,6 +394,44 @@ export class OfflineReconciler {
     this.deps.onAdopted(entry.session_id);
   }
 
+  /** RT-309 (D8): write the conversion record; true only when it is durable. */
+  private auditReconciled(entry: Entry): boolean {
+    const audit = this.deps.audit;
+    if (audit === undefined) return true;
+    const current = this.deps.sessionManager.getCurrent();
+    if (current?.id !== entry.session_id) return false;
+    try {
+      return audit.reconciled(current, entry.audit_event_id);
+    } catch {
+      return false;
+    }
+  }
+
+  /**
+   * RT-309 — a definite answer that cannot establish authority (400 / a
+   * malformed 200, 409). Fail closed: no NEW sale may start (the current sale
+   * may still complete or be held, unlock still works, nothing is reversed),
+   * and the decision is audited. The session keeps running until it ends; it
+   * is not latched.
+   */
+  private unconfirmed(entry: Entry, outcome: OfflineReconcileFailure): void {
+    this.finish(entry);
+    this.deps.sessionManager.expireOfflineAuthority(entry.session_id);
+    const current = this.deps.sessionManager.getCurrent();
+    if (current?.id !== entry.session_id) return;
+    try {
+      this.deps.audit?.failed(current, outcome);
+    } catch {
+      // The block above already applies; the audit hook logs its own failure.
+    }
+  }
+
+  /** A failure that counts toward the bounded sales gate. */
+  private countGateFailure(entry: Entry): void {
+    entry.server_errors += 1;
+    if (entry.server_errors >= RECONCILE_GATE_MAX_SERVER_ERRORS) entry.gateOpen = true;
+  }
+
   private conflict(
     entry: Entry,
     result: CashierAdmissionResult,
@@ -363,14 +445,11 @@ export class OfflineReconciler {
 
   /** Unreachable, failing, or a definite rejection: the session stays offline. */
   private notAnswered(entry: Entry, result: CashierAdmissionResult): void {
-    if (DEFINITE_KINDS.has(result.kind)) {
-      this.finish(entry);
+    if (result.kind === 'rejected' || result.kind === 'idempotency_conflict') {
+      this.unconfirmed(entry, result.kind);
       return;
     }
-    if (SERVER_ERROR_KINDS.has(result.kind)) {
-      entry.server_errors += 1;
-      if (entry.server_errors >= RECONCILE_GATE_MAX_SERVER_ERRORS) entry.gateOpen = true;
-    }
+    if (SERVER_ERROR_KINDS.has(result.kind)) this.countGateFailure(entry);
     this.scheduleRetry(entry);
   }
 
@@ -440,6 +519,12 @@ export class OfflineReconciler {
 }
 
 type AdmissionWho = AdmissionSendMark & { user_id: string; operator_id: string };
+
+/** True when a grant was invalidated after the request was SENT (rev545 F-2 marker). */
+function invalidationChanged(deps: CashierAdmissionDeps, sent: AdmissionSendMark): boolean {
+  if (sent.invalidation_seq === undefined) return false;
+  return captureSendMark(deps).invalidation_seq !== sent.invalidation_seq;
+}
 
 /** True when the pairing differs from the one the request was SENT under. */
 function pairingChanged(deps: CashierAdmissionDeps, sent: AdmissionSendMark): boolean {

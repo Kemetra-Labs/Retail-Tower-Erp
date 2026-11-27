@@ -337,21 +337,148 @@ describe('returns.readStatus: the server verdict, never inferred', () => {
   });
 
   describe('recorded', () => {
-    it('that is THIS return writes nothing: the explicit resend confirms it through the dispatcher', async () => {
+    it('that is THIS return confirms it (confirm-by-read): confirmed + payout_ready, once, via the read', async () => {
       setup();
       const returnId = await recordedButUnknownReturn();
+      const sent = h.backend.returnCalls().length;
       const res = await h.service.readStatus({ returnId });
 
-      expect(res).toMatchObject({ kind: 'recorded', outcome: 'resend' });
+      expect(res).toMatchObject({
+        kind: 'recorded',
+        outcome: 'confirmed',
+        ret: { returnId, state: 'confirmed' },
+      });
+      // No disposition, and nothing was sent: the server's own answer is the proof.
       expect(h.dispositions.listFor(returnId)).toEqual([]);
-      expect(h.repo.read(returnId)?.state).toBe('unknown');
+      expect(h.backend.returnCalls()).toHaveLength(sent);
+      const entry = h.repo.read(returnId);
+      expect(entry?.state).toBe('confirmed');
+      expect(entry?.returnTotalMinor).toBe(entry?.quotedTotalMinor);
+      expect(categories(h.audits).slice(-3)).toEqual([
+        'sale.return.confirmed',
+        'sale.return.payout_ready',
+        'sale.return.status_read',
+      ]);
+      expect(h.audits.at(-3)?.payload).toMatchObject({
+        return_id: returnId,
+        replayed: false,
+        via: 'status_read',
+      });
       expect(h.audits.at(-1)?.payload).toMatchObject({
         verdict: 'recorded_match',
         purpose: 'read',
       });
+      // The sale is resolved now: the payout may follow, a later resend changes nothing.
+      expect(h.repo.hasUnresolvedForSale('sale-1')).toBe(false);
+      const again = await h.service.readStatus({ returnId });
+      expect(refusedReason(again)).toBe('already_resolved');
+      expect(categories(h.audits).filter((c) => c === 'sale.return.confirmed')).toHaveLength(1);
+    });
 
+    it.each([
+      [
+        'a different allocationRef',
+        (t: Record<string, unknown>) => ({
+          ...t,
+          allocationRef: '0192f5a2-3b4c-7d8e-9f01-00000000aaaa',
+        }),
+      ],
+      [
+        'an instrument the till never sent',
+        (t: Record<string, unknown>) => ({ ...t, instrument: 'cash' }),
+      ],
+      [
+        'no allocationRef',
+        (t: Record<string, unknown>) => ({ method: t['method'], amount: t['amount'] }),
+      ],
+    ] as [string, (t: Record<string, unknown>) => Record<string, unknown>][])(
+      'same key and total but %s: NOT confirmed, no payout_ready (only the exact replay may settle it)',
+      async (_name, alter) => {
+        setup();
+        const returnId = await recordedButUnknownReturn();
+        h.backend.onStatus = (call, backend) => {
+          const key = new URL(call.url).searchParams.get('externalId') ?? '';
+          const recorded = backend.recorded.get(key) as unknown as {
+            refundTenders: Record<string, unknown>[];
+          };
+          return jsonResponse(200, {
+            status: 'recorded',
+            creditLinked: false,
+            saleReturn: { ...recorded, refundTenders: recorded.refundTenders.map(alter) },
+          });
+        };
+
+        const res = await h.service.readStatus({ returnId });
+
+        expect(res).toMatchObject({ kind: 'recorded', outcome: 'resend' });
+        expect(h.repo.read(returnId)?.state).toBe('unknown');
+        expect(categories(h.audits)).not.toContain('sale.return.confirmed');
+        expect(categories(h.audits)).not.toContain('sale.return.payout_ready');
+        expect(kinds(returnId)).toEqual([]);
+      },
+    );
+
+    it('a recorded answer without readable refundTenders is never confirmed by the read', async () => {
+      setup();
+      const returnId = await recordedButUnknownReturn();
+      h.backend.onStatus = (call, backend) => {
+        const key = new URL(call.url).searchParams.get('externalId') ?? '';
+        const recorded = backend.recorded.get(key) as unknown as Record<string, unknown>;
+        return jsonResponse(200, {
+          status: 'recorded',
+          creditLinked: false,
+          saleReturn: { ...recorded, refundTenders: 'garbled' },
+        });
+      };
+      const res = await h.service.readStatus({ returnId });
+      expect(res).toMatchObject({ kind: 'recorded', outcome: 'resend' });
+      expect(h.repo.read(returnId)?.state).toBe('unknown');
+    });
+
+    it('a send that confirms the return keeps via: send on its confirmed audit', async () => {
+      setup();
       h.backend.onReturn = (call, backend) => backend.recordIdempotently(call);
-      expect((await h.service.resend({ returnId })).kind).toBe('confirmed');
+      const res = await h.service.submit(ONE_A);
+      expect(res.kind).toBe('confirmed');
+      const confirmed = h.audits.find((e) => e.action_category === 'sale.return.confirmed');
+      expect(confirmed?.payload).toMatchObject({ via: 'send' });
+    });
+
+    it('a needs_support return confirms on a matching read (support is not terminal)', async () => {
+      setup();
+      const returnId = await recordedButUnknownReturn();
+      h.backend.onStatus = (call, backend) => {
+        const key = new URL(call.url).searchParams.get('externalId') ?? '';
+        return jsonResponse(200, {
+          status: 'recorded',
+          creditLinked: false,
+          saleReturn: { ...backend.recorded.get(key), returnTotal: '14.0000' },
+        });
+      };
+      await h.service.readStatus({ returnId });
+      expect(h.dispositions.stateOf(returnId)).toBe('needs_support');
+
+      h.backend.onStatus = (call, backend) => backend.answerStatus(call);
+      elapse(h, 1_000);
+      const res = await h.service.readStatus({ returnId });
+
+      expect(res).toMatchObject({ kind: 'recorded', outcome: 'confirmed' });
+      expect(h.repo.read(returnId)?.state).toBe('confirmed');
+    });
+
+    it('a return held by a retry_hold confirms on a later matching read', async () => {
+      setup();
+      const returnId = await recordedButUnknownReturn();
+      statusAnswers(200, { status: 'not_recorded' });
+      await h.service.readStatus({ returnId });
+      expect(kinds(returnId)).toEqual(['retry_hold']);
+
+      h.backend.onStatus = (call, backend) => backend.answerStatus(call);
+      elapse(h, 1_000);
+      const res = await h.service.readStatus({ returnId });
+
+      expect(res).toMatchObject({ kind: 'recorded', outcome: 'confirmed' });
+      expect(h.repo.read(returnId)?.state).toBe('confirmed');
     });
 
     it('that does NOT match hands the return to support: needs_support from the read, no approval', async () => {
@@ -780,7 +907,7 @@ describe('returns.close: only an affirmative fresh not_recorded, after the quiet
   });
 
   describe('the fresh server read at close time', () => {
-    it('refuses when the server now has the return (close_needs_not_recorded), and does not close', async () => {
+    it('when the server now has THIS return: confirms it by the read, refuses the close as resolved', async () => {
       setup();
       const { returnId, approvalId } = await readyToClose();
       // The late POST committed after all: the key is now recorded on the server.
@@ -796,9 +923,15 @@ describe('returns.close: only an affirmative fresh not_recorded, after the quiet
 
       const res = await h.service.close({ returnId, approvalId });
 
-      expect(refusedReason(res)).toBe('close_needs_not_recorded');
+      // RT-1498 confirm-by-read: the server proved it, so it is confirmed (never closed).
+      expect(refusedReason(res)).toBe('already_resolved');
+      expect(res).toMatchObject({ ret: { returnId, state: 'confirmed' } });
+      expect(h.repo.read(returnId)?.state).toBe('confirmed');
       expect(h.dispositions.stateOf(returnId)).toBeNull();
+      expect(kinds(returnId)).not.toContain('not_recorded_closed');
       expect(spent(approvalId)).toBe(false);
+      const confirmed = h.audits.find((e) => e.action_category === 'sale.return.confirmed');
+      expect(confirmed?.payload).toMatchObject({ via: 'status_read' });
     });
 
     it('a recorded answer that does not match also hands the return to support', async () => {

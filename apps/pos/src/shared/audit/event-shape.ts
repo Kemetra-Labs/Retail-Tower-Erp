@@ -22,6 +22,9 @@ export const AUDIT_ACTION_CATEGORIES = [
   'shift.open',
   'shift.close',
   'shift.forced_close',
+  // RT-1498 S7 (RT-196 OD-196-7) — a committed close left returns unresolved on this terminal: their
+  // counts. POS-local and main-only (never uploaded: not a central `pos-audit-events` category).
+  'shift.close.unresolved_returns',
   'operator.session.takeover',
   // RT-117 (RT-116 §7.3) — inactivity lock of the EXISTING session and its
   // same-operator unlock. Neither ends the session.
@@ -41,6 +44,15 @@ export const AUDIT_ACTION_CATEGORIES = [
   // Open-set at the SQL layer (0004). Local only (no Backend-Core catalogue).
   'operator.signin.offline_admitted',
   'operator.signin.offline_refused',
+  // RT-309 (RT-113 10763 D8, §3) — the reconnect reconcile answered `admitted`
+  // and the offline-admitted session became online-confirmed. One event per
+  // conversion. Main-only. Payload empty. Open-set at the SQL layer (0004).
+  // Local only (no Backend-Core catalogue).
+  'operator.session.offline_reconciled',
+  // RT-309 — a definite reconcile answer (400 / malformed 200, 409) could not
+  // establish authority; new sales were blocked. Payload `{outcome}`. Main-only,
+  // local only.
+  'operator.session.offline_reconcile_failed',
   'cashier.pin.reset',
   'cashier.pin.unlock',
   // 019-cashier-pin-provisioning (R-2) — first-PIN create path; sibling to

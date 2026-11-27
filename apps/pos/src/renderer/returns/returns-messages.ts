@@ -323,6 +323,8 @@ export const STATUS_COPY = Object.freeze({
    * background and bar resends stopped (RT-1498 review MEDIUM-1). Only the manager's own resend voids it.
    */
   readHeldNote: 'لن يُعاد إرسال هذا المرتجع تلقائيًا بعد الآن، إلا بإعادة إرسال منك.',
+  /** RT-196 §3.9 `readConfirmed` (verbatim): the read matched this return and confirmed it. */
+  readConfirmed: 'أكّد الخادم أن هذا المرتجع مسجَّل. يمكنك الآن صرف النقد للعميل.',
   readRecordedResend:
     'سجّل الخادم هذا المرتجع. أعد إرساله ليتأكد على هذا الجهاز، ولا تصرف أي نقد قبل ذلك.',
   readRecordedSupport:
@@ -406,6 +408,7 @@ export function statusReadMessage(
     }
     case 'recorded':
       return {
+        confirmed: STATUS_COPY.readConfirmed,
         resend: STATUS_COPY.readRecordedResend,
         support: STATUS_COPY.readRecordedSupport,
         late_commit: STATUS_COPY.readLateCommit,

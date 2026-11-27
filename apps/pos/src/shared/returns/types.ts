@@ -417,7 +417,12 @@ export type ReturnsReadStatusResponse =
   | {
       readonly kind: 'recorded';
       readonly ret: ReturnJournalView | null;
-      readonly outcome: 'resend' | 'support' | 'late_commit';
+      /**
+       * `confirmed`: the server recorded THIS return, so the read confirmed it (RT-1498 confirm-by-read;
+       * a cash payout may follow). `resend`: a match the read could not apply (the row was no longer
+       * open); `support`: a mismatch or credit reversal; `late_commit`: recorded after a close.
+       */
+      readonly outcome: 'confirmed' | 'resend' | 'support' | 'late_commit';
     }
   | {
       readonly kind: 'inconclusive';

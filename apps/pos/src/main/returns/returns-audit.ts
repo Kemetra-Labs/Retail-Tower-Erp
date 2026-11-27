@@ -10,6 +10,7 @@
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type {
   AuditPayloadMap,
+  ConfirmVia,
   SaleReturnClosedNotRecordedPayload,
   SaleReturnLateCommitPayload,
   SaleReturnNeedsSupportPayload,
@@ -60,7 +61,8 @@ export type SlipAuditOutcome =
 export interface ReturnsAudit {
   attempted(entry: JournalEntry): void;
   refused(actor: ReturnActor, payload: SaleReturnRefusedPayload): void;
-  confirmed(entry: JournalEntry, replayed: boolean): void;
+  /** RT-1498: `via` defaults to `send`; a status read that matched passes `status_read`. */
+  confirmed(entry: JournalEntry, replayed: boolean, via?: ConfirmVia): void;
   /** RT-196 S1: one send left the return unknown (cause code, attempt number). */
   attemptUnknown(entry: JournalEntry, cause: ReturnUnknownCause, operation: SendOperation): void;
   /** RT-196 S1: a manager resent this return; attributed to the REQUESTING `actor`. */
@@ -218,11 +220,12 @@ export function createReturnsAudit(deps: ReturnsAuditDeps): ReturnsAudit {
     refused(actor, payload) {
       write(actor, 'sale.return.refused', payload);
     },
-    confirmed(entry, replayed) {
+    confirmed(entry, replayed, via = 'send') {
       writeConfirmedEvent(entry, 'sale.return.confirmed', (facts) => ({
         sale_id: entry.saleId,
         return_total_minor: facts.totalMinor,
         replayed,
+        via,
       }));
     },
     attemptUnknown(entry, cause, operation) {

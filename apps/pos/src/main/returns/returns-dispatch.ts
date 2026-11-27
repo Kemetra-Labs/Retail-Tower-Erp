@@ -41,12 +41,14 @@
  */
 import type { ReturnUnknownCause, ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
+import type { ConfirmVia } from '../../shared/audit/payload-schemas.js';
 import type { ReturnsAudit, SendOperation } from './returns-audit.js';
 import {
   isClosedState,
   type ReturnDispositionsRepository,
 } from './returns-dispositions-repository.js';
 import type { AuthSnapshot, ReturnsAuthorizer } from './returns-auth.js';
+import { AUTH_FAILURE_CAUSES, type AuthFailureStreak } from './returns-causes.js';
 import type { RecordReturnOutcome, ReturnsClient } from './returns-client.js';
 import { amount4ToMinor, parseAmount4 } from './returns-money.js';
 import type { ReturnQuietPeriod } from './returns-quiet-period.js';
@@ -54,6 +56,9 @@ import type { ConfirmInput, JournalEntry, ReturnsRepository } from './returns-re
 import { returnedLinesMatch } from './returns-verify.js';
 import { uuidv7 } from './uuidv7.js';
 import type { WireSaleReturn } from './returns-wire.js';
+
+/** Who raised an automatic `needs_support`: a 2xx the till cannot use, or repeated auth failures. */
+type AutomaticSupportSource = 'send_response' | 'auth_failure';
 
 export type DispatchOutcome =
   | { readonly kind: 'confirmed'; readonly entry: JournalEntry; readonly replayed: boolean }
@@ -119,6 +124,11 @@ export interface ReturnsDispatchDeps {
    * with the stamp the journal stores). Absent: no anchor, so a close can never show its period.
    */
   readonly quiet?: Pick<ReturnQuietPeriod, 'markAttempt'>;
+  /**
+   * RT-1498 (OD-196-6): whether a return's resends failed on authentication long enough to hand it to
+   * support by itself. Absent: the automatic `auth_failure` flag is never raised.
+   */
+  readonly authFailures?: AuthFailureStreak;
   /** RT-1498 S4: the id of an automatic disposition (a UUID); defaults to a fresh UUIDv7. */
   readonly newDispositionId?: () => string;
   readonly audit: ReturnsAudit;
@@ -164,6 +174,29 @@ export function matchingTotalMinor(entry: JournalEntry, saleReturn: WireSaleRetu
   const total4 = parseAmount4(saleReturn.returnTotal);
   const minor = total4 === null ? null : amount4ToMinor(total4, exponentFor(entry.currencyCode));
   return minor === entry.quotedTotalMinor ? minor : null;
+}
+
+/**
+ * INSIDE the caller's transaction: the guarded `markConfirmed`, then its two audits (`confirmed`,
+ * `payout_ready`), written only when the transition changed the row. One writer for every
+ * confirmation: a send's answer (`via: 'send'`) and, RT-1498 confirm-by-read, a status read that
+ * matched this return (`via: 'status_read'`), so a read never confirms differently from a send.
+ */
+export function commitConfirmation(
+  deps: {
+    readonly repo: Pick<ReturnsRepository, 'markConfirmed' | 'read'>;
+    readonly audit: Pick<ReturnsAudit, 'confirmed' | 'payoutReady'>;
+  },
+  input: ConfirmInput,
+  replayed: boolean,
+  via: ConfirmVia,
+): boolean {
+  if (!deps.repo.markConfirmed(input)) return false;
+  const confirmed = deps.repo.read(input.returnId);
+  if (confirmed === null) throw new Error('returns-dispatch: confirmed row vanished');
+  deps.audit.confirmed(confirmed, replayed, via);
+  deps.audit.payoutReady(confirmed);
+  return true;
 }
 
 interface SendRequest {
@@ -215,6 +248,8 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
     const attemptAt = this.deps.now();
     this.deps.repo.recordAttempt({ returnId: entry.returnId, now: attemptAt });
     this.deps.quiet?.markAttempt(entry.returnId, attemptAt);
+    // OD-196-6: the attempt's number, marked on the monotonic clock (the auth-failure span).
+    this.deps.authFailures?.markAttempt(entry.returnId, current.attemptCount + 1);
     // A5: the POST carries the rechecked snapshot's own envelope — no live
     // session or token read happens between the recheck and the wire.
     const outcome = await this.deps.client.recordReturn(
@@ -316,7 +351,26 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
     if (!this.deps.repo.markUnknown(stamp)) return;
     this.deps.audit.attemptUnknown(this.current(entry), cause, op);
     if (cause === 'confirmation_mismatch' || cause === 'unreadable_body') {
-      this.raiseSupport(this.current(entry), stamp.now);
+      this.raiseSupport(this.current(entry), stamp.now, 'send_response');
+    } else if (
+      AUTH_FAILURE_CAUSES.has(cause) &&
+      this.authFailureStreakReached(this.current(entry))
+    ) {
+      // Read AFTER this attempt's cause audit, in the same transaction: it counts this failure.
+      this.raiseSupport(this.current(entry), stamp.now, 'auth_failure');
+    }
+  }
+
+  /**
+   * Whether the auth-failure run reached the flag. A failing read is logged and counts as "not yet":
+   * it must never roll back this attempt's cause audit (the next failure checks again).
+   */
+  private authFailureStreakReached(entry: JournalEntry): boolean {
+    try {
+      return this.deps.authFailures?.reached(entry.returnId, entry.attemptCount) === true;
+    } catch {
+      this.deps.logger.warn({ return_id: entry.returnId }, 'returns:auth_failure_check_failed');
+      return false;
     }
   }
 
@@ -325,15 +379,20 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
    * Resending the same bytes returns the same answer, so the row is handed to support once: an
    * automatic needs_support (no approval, no actor), in the caller's transaction. A return that
    * already has a disposition gets no second one. It only restricts; it frees nothing.
+   *
+   * RT-1498 (RT-196 §3.6, OD-196-6): the same automatic raise, with `auth_failure` as source and
+   * reason, once the return's resends answered a pre-replay 401/403 on 3 consecutive attempts spanning
+   * the quiet period (`AuthFailureStreak`): this till cannot read or resolve it, so support must.
    */
-  private raiseSupport(entry: JournalEntry, now: string): void {
+  private raiseSupport(entry: JournalEntry, now: string, source: AutomaticSupportSource): void {
     if (this.deps.dispositions.stateOf(entry.returnId) !== null) return;
+    const reason = source === 'auth_failure' ? 'auth_failure' : 'mismatch';
     this.deps.dispositions.insert({
       dispositionId: (this.deps.newDispositionId ?? uuidv7)(),
       returnId: entry.returnId,
       kind: 'needs_support',
-      verdictSource: 'send_response',
-      reason: 'mismatch',
+      verdictSource: source,
+      reason,
       readVerdictAt: null,
       approvalId: null,
       actorOperatorId: null,
@@ -348,8 +407,8 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
       {
         return_id: entry.returnId,
         approval_id: null,
-        verdict_source: 'send_response',
-        reason: 'mismatch',
+        verdict_source: source,
+        reason,
       },
     );
   }
@@ -380,12 +439,7 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
 
   /** Inside the transaction: the guarded transition, then its two audits. */
   private commitConfirmation(input: ConfirmInput, replayed: boolean): boolean {
-    if (!this.deps.repo.markConfirmed(input)) return false;
-    const confirmed = this.deps.repo.read(input.returnId);
-    if (confirmed === null) throw new Error('returns-dispatch: confirmed row vanished');
-    this.deps.audit.confirmed(confirmed, replayed);
-    this.deps.audit.payoutReady(confirmed);
-    return true;
+    return commitConfirmation(this.deps, input, replayed, 'send');
   }
 
   private refuse(entry: JournalEntry, reason: ReturnsRefusalReason, op: DispatchOperation) {

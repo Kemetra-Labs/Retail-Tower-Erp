@@ -2,7 +2,11 @@ import { useEffect, useRef, useState, type JSX, type RefObject } from 'react';
 import { useNavigate } from 'react-router-dom';
 
 import { isShiftAmountWithinBound } from '../../../shared/shift-cashup/amount-bound';
-import type { ShiftCashupBridgeAPI, ShiftCloseResponse } from '../../../shared/shift-cashup/types';
+import type {
+  ShiftCashupBridgeAPI,
+  ShiftCloseResponse,
+  UnresolvedReturnCounts,
+} from '../../../shared/shift-cashup/types';
 import { useAbandonedCount } from './abandoned-count';
 import { ManagerApprovalDialog } from './ManagerApprovalDialog';
 import { callShift, useSingleFlight } from './shift-bridge';
@@ -25,6 +29,10 @@ import { Icon } from '../../icons/Icon';
 export interface ShiftClosed {
   readonly varianceMinor?: number;
   readonly currencyCode: string;
+  /** RT-1498 S7: returns still unresolved on this terminal (a warning, never a refusal). */
+  readonly unresolvedReturns?: UnresolvedReturnCounts;
+  /** RT-1498 S7: they could not be counted (shown as a warning, never as "none"). */
+  readonly unresolvedReturnsUnavailable?: true;
 }
 
 interface Props {
@@ -69,6 +77,12 @@ export function CloseShiftPanel(props: Props): JSX.Element {
     props.onClosed({
       currencyCode: props.currencyCode,
       ...(answer.varianceMinor === undefined ? {} : { varianceMinor: answer.varianceMinor }),
+      ...(answer.unresolvedReturns === undefined
+        ? {}
+        : { unresolvedReturns: answer.unresolvedReturns }),
+      ...(answer.unresolvedReturnsUnavailable === true
+        ? { unresolvedReturnsUnavailable: true as const }
+        : {}),
     });
   };
 

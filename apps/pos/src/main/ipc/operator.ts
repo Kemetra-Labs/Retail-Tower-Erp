@@ -130,6 +130,9 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   // RT-308 — emitted only by the offline cashier admission.
   'operator.signin.offline_admitted',
   'operator.signin.offline_refused',
+  // RT-309 — emitted only by the offline reconcile on `admitted`.
+  'operator.session.offline_reconciled',
+  'operator.session.offline_reconcile_failed',
   'pairing.device_revoked',
   'pairing.device_revoked_cleared',
   // RT-438 (MA-1) — manager PIN lifecycle, emitted only by the credential store.
@@ -170,6 +173,8 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'sale.return.attempted',
   'sale.return.refused',
   'sale.return.confirmed',
+  // RT-1498 S7: the unresolved-returns counts of a committed shift close (main writes them).
+  'shift.close.unresolved_returns',
   'sale.return.payout_ready',
   'sale.return.payout_started',
   'sale.return.drawer_opened',

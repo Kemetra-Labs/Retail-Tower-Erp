@@ -48,6 +48,20 @@ export interface ShiftClosePayload {
   declared_count_state: 'numeric' | 'matched';
 }
 
+// ─── shift.close.unresolved_returns ───────────────────────────────────────
+
+/**
+ * RT-1498 S7 (RT-196 §3.8, OD-196-7: counts in the close summary AND the close audit). Written by main
+ * after a close committed with returns still unresolved on this terminal. Counts only: no return id,
+ * no amount. `awaiting_support` is a subset of `unresolved_returns`. POS-local (never uploaded).
+ */
+interface ShiftCloseUnresolvedReturnsPayload {
+  shift_id: string;
+  closed_at: string;
+  unresolved_returns: number;
+  awaiting_support: number;
+}
+
 // ─── shift.forced_close ────────────────────────────────────────────────────
 
 export const FORCED_CLOSE_REASONS = [
@@ -197,6 +211,23 @@ export interface OperatorOfflineGrantInvalidatedPayload {
  * where and which session; the payload adds nothing (no grant field).
  */
 export type OperatorSigninOfflineAdmittedPayload = Record<string, never>;
+
+/**
+ * RT-309 — `operator.session.offline_reconciled`: the reconnect reconcile
+ * converted an offline-admitted cashier session to online-confirmed. The
+ * event's attribution records who, where and which session; the payload adds
+ * nothing (no grant field, admission id, user id or name).
+ */
+type OperatorSessionOfflineReconciledPayload = Record<string, never>;
+
+/**
+ * RT-309 — `operator.session.offline_reconcile_failed`: the reconcile got a
+ * definite answer that cannot establish authority, so new sales were blocked.
+ * The closed outcome only.
+ */
+interface OperatorSessionOfflineReconcileFailedPayload {
+  outcome: 'rejected' | 'idempotency_conflict';
+}
 
 /**
  * Why an offline sign-in was refused after the PIN matched. Closed set: the
@@ -600,7 +631,12 @@ export interface SaleReturnConfirmedPayload {
   return_total_minor: number;
   currency_code: string;
   replayed: boolean;
+  /** RT-1498 (RT-196 §3.7): the send's own answer, or a status read that matched (confirm-by-read). */
+  via: ConfirmVia;
 }
+
+/** RT-1498 (RT-196 §3.7): what proved a return's confirmation. The one declaration of this union. */
+export type ConfirmVia = 'send' | 'status_read';
 
 /** `sale.return.payout_ready` — the confirmed cash refund may be paid out (S4 kicks). */
 export interface SaleReturnPayoutReadyPayload {
@@ -943,6 +979,7 @@ export type AuditPayloadMap = {
   'shift.open': ShiftOpenPayload;
   'shift.close': ShiftClosePayload;
   'shift.forced_close': ShiftForcedClosePayload;
+  'shift.close.unresolved_returns': ShiftCloseUnresolvedReturnsPayload;
   'operator.session.takeover': OperatorSessionTakeoverPayload;
   // RT-117 (RT-116 §7.3)
   'operator.session.locked': OperatorSessionLockedPayload;
@@ -954,6 +991,9 @@ export type AuditPayloadMap = {
   // RT-308 (RT-113 P3)
   'operator.signin.offline_admitted': OperatorSigninOfflineAdmittedPayload;
   'operator.signin.offline_refused': OperatorSigninOfflineRefusedPayload;
+  // RT-309 (RT-113 D8)
+  'operator.session.offline_reconciled': OperatorSessionOfflineReconciledPayload;
+  'operator.session.offline_reconcile_failed': OperatorSessionOfflineReconcileFailedPayload;
   'cashier.pin.reset': CashierPinResetPayload;
   'cashier.pin.unlock': CashierPinUnlockPayload;
   'cashier.pin.provisioned': CashierPinProvisionedPayload;

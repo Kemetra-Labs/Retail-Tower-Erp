@@ -134,6 +134,116 @@ describe('recorded facts', () => {
   });
 });
 
+describe('RT-1498 S7: a close warns about unresolved returns, never blocks on them (OD-196-7)', () => {
+  type Counts = { unresolved: number; awaitingSupport: number };
+  let recorded: { closed: { shiftId: string; closedAt: string }; counts: Counts }[];
+
+  function bridgeCounting(counts: () => Counts, record?: () => void) {
+    recorded = [];
+    return createShiftCashupBridge({
+      service: harness.service,
+      enrollment: { enroll, revoke },
+      logger,
+      unresolvedReturns: counts,
+      recordUnresolvedReturns: (closed, c) => {
+        record?.();
+        recorded.push({ closed, counts: c });
+      },
+    });
+  }
+
+  it('a close with unresolved returns succeeds, carries their counts and records them once', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(() => ({ unresolved: 2, awaitingSupport: 1 }));
+    await expect(counting.close({ countedCashMinor: FLOAT })).resolves.toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+      unresolvedReturns: { unresolved: 2, awaitingSupport: 1 },
+    });
+    expect(recorded).toEqual([
+      { closed: { shiftId, closedAt: CLOSED_AT }, counts: { unresolved: 2, awaitingSupport: 1 } },
+    ]);
+  });
+
+  it('says nothing and records nothing when none is unresolved', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(() => ({ unresolved: 0, awaitingSupport: 0 }));
+    await expect(counting.close({ countedCashMinor: FLOAT })).resolves.toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+    });
+    expect(recorded).toEqual([]);
+  });
+
+  it('a failing count never fails the close, and is said as unavailable (never as none)', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(() => {
+      throw new Error('db busy');
+    });
+    await expect(counting.close({ countedCashMinor: FLOAT })).resolves.toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+      unresolvedReturnsUnavailable: true,
+    });
+    expect(recorded).toEqual([]);
+    expect(logger.warn).toHaveBeenCalledWith(
+      { op: 'close', err: 'Error' },
+      'shift_cashup:unresolved_returns_count_failed',
+    );
+  });
+
+  it('a failing audit write never changes the close answer', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(
+      () => ({ unresolved: 1, awaitingSupport: 0 }),
+      () => {
+        throw new TypeError('audit store closed');
+      },
+    );
+    await expect(counting.close({ countedCashMinor: FLOAT })).resolves.toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+      unresolvedReturns: { unresolved: 1, awaitingSupport: 0 },
+    });
+    expect(logger.warn).toHaveBeenCalledWith(
+      { op: 'close', err: 'TypeError' },
+      'shift_cashup:unresolved_returns_audit_failed',
+    );
+  });
+
+  it('an approved (manager PIN) close carries its variance and the counts, and records them', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(() => ({ unresolved: 1, awaitingSupport: 1 }));
+    const answer = await counting.close({
+      countedCashMinor: FLOAT + 40,
+      approver: { managerRef: MANAGER_REF, managerPin: MANAGER_PIN },
+    });
+    expect(answer).toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+      varianceMinor: 40,
+      unresolvedReturns: { unresolved: 1, awaitingSupport: 1 },
+    });
+    expect(recorded).toEqual([
+      { closed: { shiftId, closedAt: CLOSED_AT }, counts: { unresolved: 1, awaitingSupport: 1 } },
+    ]);
+  });
+
+  it('does not count or record on a refused close', async () => {
+    await openShift();
+    const counts = vi.fn(() => ({ unresolved: 1, awaitingSupport: 0 }));
+    const answer = await bridgeCounting(counts).close({ countedCashMinor: FLOAT + 1 });
+    expect(answer).toEqual(refused('variance_approval_required'));
+    expect(counts).not.toHaveBeenCalled();
+    expect(recorded).toEqual([]);
+  });
+});
+
 describe('a non-zero variance closes with a verified manager PIN (part 2, 10943)', () => {
   const APPROVER = { managerRef: MANAGER_REF, managerPin: MANAGER_PIN };
 

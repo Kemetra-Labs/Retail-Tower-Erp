@@ -59,7 +59,8 @@ describe("RT-1557 platformAdoptConnectorRegistration contract", () => {
   it("is a new additive operation with a unique operationId and a bumped info.version", () => {
     expect(op().operationId).toBe(OPERATION_ID);
     expect(operationIdsExcept(contracts, CONTRACT_ID).has(OPERATION_ID)).toBe(false);
-    expect(doc.info?.version).toBe("1.1.0-draft");
+    // 1.2.0-draft since RT-1362 S1 (credential.rotate rule and rotate now); the adopt operation is unchanged.
+    expect(doc.info?.version).toBe("1.2.0-draft");
   });
 
   it("is a POST with the HUMAN cookieAuth scheme only and no request body", () => {

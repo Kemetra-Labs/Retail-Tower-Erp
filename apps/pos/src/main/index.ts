@@ -27,7 +27,7 @@ import { OnlineCredentialVerifier } from './operator/online-credential-verifier.
 import { ReauthHandler } from './operator/reauth-handler.js';
 import { registerReauthHandler } from './ipc/reauth.js';
 import { registerCashierPinStatusHandler } from './ipc/cashier-pin-status.js';
-import { createLockStateReader, createSafePointProbe } from './operator/lock-state-reader.js';
+import { createLockStateReader } from './operator/lock-state-reader.js';
 import { wireSessionStatePush } from './operator/session-state-push.js';
 import { wireSessionLockAudit } from './operator/session-lock-audit.js';
 import { SESSION_LOCK_IPC_CHANNELS } from '../shared/operator/channels.js';
@@ -90,6 +90,7 @@ import { recordCaptureCutoverAtBoot } from './bootstrap/capture-cutover.js';
 import { startSaleSyncEngine } from './bootstrap/sale-sync.js';
 import { registerSalesBridges } from './bootstrap/sales-bridges.js';
 import { registerShift } from './bootstrap/shift.js';
+import { registerCashierAdmissionKeeper } from './bootstrap/cashier-admission-keeper.js';
 import { registerUpdater, startUpdater } from './bootstrap/updater.js';
 import {
   getCurrentPrinters,
@@ -135,7 +136,6 @@ import {
 } from './operator/session-admission.js';
 import { createCashierAdmissionClient } from './operator/cashier-admission-client.js';
 import type { CashierAdmissionDeps } from './operator/cashier-admission.js';
-import { CashierAdmissionKeeper } from './operator/cashier-admission-keeper.js';
 import { createOfflineGrantStore } from './operator/offline-grant-store.js';
 import {
   createOfflineGrantWiring,
@@ -1054,35 +1054,17 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // RT-113 P2 — keep the online cashier admission live (heartbeat at ≤ TTL/2
-    // with a fresh key) and end it on sign-out / session end (best-effort).
-    // Lost authority (taken over elsewhere, 403, two consecutive device 401s)
-    // latches the session (cart.create, and an add to an empty cart, refuse
-    // `authority_conflict`) and ends
-    // it at its first safe point: no open sale with lines (the RT-117 lock
-    // summary is null) and no live tender on ANY cart of the session
-    // (`createSafePointProbe`, review of 024f07c items 2 and 5).
-    // Re-checked after every sale IPC call (sale-boundary-guard), on lock
-    // changes and by a backstop poll. Stopped on quit with the other workers (RT-198
-    // latch: nothing runs after stop).
-    const isCashierAtSafePoint = createSafePointProbe({
+    // RT-113 P2 / RT-1312 F17 / RT-309 — the cashier admission keeper (bootstrap module).
+    const cashierAdmissionKeeper = registerCashierAdmissionKeeper({
       db,
       sessionManager: operatorSessionManager,
-      resolveTerminalId: () => pairingStore.getCurrentTerminalId(),
-    });
-    const cashierAdmissionKeeper = new CashierAdmissionKeeper({
-      sessionManager: operatorSessionManager,
+      pairingStore,
       admission: cashierAdmission,
-      isAtSafePoint: isCashierAtSafePoint,
-      logger: mainLogger,
-    });
-    saleBoundaryProbe.recheck = () => {
-      cashierAdmissionKeeper.recheckSafePoint();
-    };
-    workerRegistry.register('cashier admission heartbeat', () => {
-      cashierAdmissionKeeper.stop();
-      // RT-215: the device-401 detector's pending confirmation stops with it.
-      deviceAuthDetector.stop();
+      auditEmitter,
+      saleBoundaryProbe,
+      workerRegistry,
+      deviceAuthDetector,
+      mainLogger,
     });
 
     // RT-215 — what a CONFIRMED revocation does: record it on the pairing row
