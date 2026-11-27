@@ -125,8 +125,9 @@ info:
         live lease, a registration that is not managed, another provisioner's
         lease, an unknown request, or a request not in a state that allows
         issue) is the same non-disclosing `404 not_found`, with no side
-        effects. The provisioner reports that refusal as the `dependency`
-        outcome.
+        effects. On a `tenant.provision` request the provisioner reports that
+        refusal as the `dependency` outcome; on a `credential.rotate` request it
+        does not (see "Credential rotation" below).
       - It is AUDITED with the request id and the lease id, in the same
         transaction as the issue, like the other connector lifecycle actions.
       - The SECRET IS RETURNED ONCE, in the response body, with
@@ -178,19 +179,43 @@ info:
     credential's expiry, or by a platform admin through
     `platformRequestConnectorCredentialRotation` ("rotate now"), due
     immediately. At most one `credential.rotate` request is open per
-    registration; a second trigger returns the open one. Only a managed
-    registration gets one. The request carries the registration's
-    `connectorRegistrationId`, `siteName`, `template`, `locale` and
-    `environment` as recorded for its site, no `legalName`, and `stores: []`;
-    nothing on the site is re-provisioned. The provisioner works it with the
-    same calls as any request: `claimed`, the credential call (the
-    `credential.rotate` rule above), `credential_bound` once the new secret is
-    written in-process into the site's Connector Settings, `verified` once the
-    Connector's next authenticated call succeeds, then the outcome. A
-    `succeeded` outcome reports the site as found, with `stores: []`;
-    Backend-Core records `succeeded` when the new credential has been
-    presented. A failure after the credential call is recovered by the repeat
-    rule. The runtime of this section is RT-1362 slice S2: until it ships,
+    registration; a second trigger returns the open one. An open
+    `store.provision` request does not block it.
+      - **Which registrations.** Only a managed registration whose
+        `tenant.provision` request has `succeeded` gets one. The request
+        repeats that provisioning request's `connectorRegistrationId`,
+        `siteName`, `template`, `locale` and `environment` (informational for
+        the provisioner, which still verifies the site), no `legalName`, and
+        `stores: []`; nothing on the site is re-provisioned. A registration
+        that is managed but has no succeeded `tenant.provision` request (for
+        example one made by hand and adopted with
+        `platformAdoptConnectorRegistration`, whose site name does not follow
+        the `siteName` rule) gets none: "rotate now" refuses it with `409
+        not_provisioned` and the scheduler skips it. How such a registration is
+        rotated is an open decision for a later contract change (RT-1362).
+      - **Steps.** `claimed`, the credential call (the `credential.rotate` rule
+        above), `credential_bound` once the new secret is written in-process
+        into the site's Connector Settings, then `verified` and the
+        `succeeded` outcome once the Connector's next authenticated call
+        succeeds. For this kind the status model's `succeeded` means only
+        that the credential issued by the request has been presented: no store
+        map is acknowledged and the outcome `result` reports the site as found,
+        with `stores: []`.
+      - **Done check.** Backend-Core records `succeeded`, ending the lease, in
+        the same transaction that first accepts a request authenticated with
+        the credential this request issued, so a rotation is done as soon as
+        the site uses the new secret, whether or not the provisioner reports
+        it. A rotated request is then never offered again, and a later step,
+        outcome or credential call on it by a provisioner (for example one that
+        crashed and lost its state) gets `409 lease_lost` or the `404` above.
+        On a `credential.rotate` request neither answer is a `dependency`
+        failure: the provisioner stops working the request and re-pulls.
+      - **Failure.** A failure after the credential call is recovered by the
+        repeat rule, without a human. There is nothing to compensate for a
+        rotation: a terminal `permanently_rejected` outcome closes the request
+        with an alert, and the registration keeps its one unrevoked
+        credential.
+    The runtime of this section is RT-1362 slice S2: until it ships,
     Backend-Core creates no `credential.rotate` request, so the rotation branch
     of the credential call cannot be reached, and the "rotate now" operation is
     contract only. `tenant.provision` behaviour is unchanged.
@@ -900,24 +925,33 @@ paths:
         id; ids only, no secret). The tenant is in the path because the
         registration is tenant-scoped; a registration that does not belong to
         `{tenant_id}`, and a tenant that does not exist, are the same
-        non-disclosing `404 not_found`.
-          - A managed registration with no open `credential.rotate` request
-            gets one: `201` with `outcome: requested` and `trigger: forced`.
-          - While a `credential.rotate` request of the registration is open
-            (not `succeeded`, `failed_permanent`, `compensated` or
-            `cancelled`), whoever or whatever created it (this operation,
-            another admin, or the 14-day scheduler), the call creates
-            nothing, writes no second audit row and returns the OPEN request:
-            `200` with `outcome: already_open`. A lost response is recovered
-            by calling again.
-          - A registration that is not managed (`managed_by` is null) is
-            refused: `409 not_managed`. Adopt it first
-            (`platformAdoptConnectorRegistration`); no credential of a
-            non-managed registration is ever rotated by the provisioner.
-          - A disabled registration is refused: `409 registration_disabled`.
-          - A registration whose `tenant.provision` request is still open is
-            refused: `409 provisioning_in_progress` (that request issues the
-            credential).
+        non-disclosing `404 not_found`. The checks run in this order, and the
+        first that applies decides:
+          1. A registration that is not managed (`managed_by` is null) is
+             refused: `409 not_managed`. No credential of a non-managed
+             registration is ever rotated by the provisioner.
+          2. A disabled registration is refused: `409 registration_disabled`.
+          3. A registration whose `tenant.provision` request is still open is
+             refused: `409 provisioning_in_progress` (that request issues the
+             credential).
+          4. A managed registration with no succeeded `tenant.provision`
+             request (for example a hand-made registration adopted with
+             `platformAdoptConnectorRegistration`) is refused: `409
+             not_provisioned` (see "Credential rotation" in the file
+             description; an open decision).
+          5. While a `credential.rotate` request of the registration is open
+             (not `succeeded`, `failed_permanent`, `compensated` or
+             `cancelled`), whoever or whatever created it (this operation,
+             another admin, or the 14-day scheduler), the call creates
+             nothing, writes no second audit row and returns the OPEN request:
+             `200` with `outcome: already_open`.
+          6. Otherwise a request is created: `201` with `outcome: requested`
+             and `trigger: forced`.
+        A lost response is recovered by calling again, which returns the open
+        request. If that rotation already finished before the retry, the retry
+        starts a new rotation (`201`) and a second short posting pause; this is
+        accepted, because a rotation is safe to repeat and the call takes no
+        `Idempotency-Key`.
         Refusals change nothing and write no request. The call never issues,
         rotates or revokes a credential itself, returns no secret and never
         contacts the ERP site: the current credential keeps working until the
@@ -1678,12 +1712,13 @@ components:
           properties:
             code:
               type: string
-              enum: [not_managed, registration_disabled, provisioning_in_progress]
+              enum: [not_managed, registration_disabled, provisioning_in_progress, not_provisioned]
               description: >
                 `not_managed`: the registration is not managed by the
                 provisioner. `registration_disabled`: it is disabled.
                 `provisioning_in_progress`: its `tenant.provision` request is
-                still open.
+                still open. `not_provisioned`: it has no succeeded
+                `tenant.provision` request.
             message:
               type: string
               description: Human-readable summary. No sensitive data.
@@ -1786,8 +1821,10 @@ components:
       description: >
         `not_found`: non-disclosing. Identical for an unknown id, a request or
         credential outside the caller's scope, a request the caller holds no
-        live lease on (credential issue), a registration that is not managed,
-        and another provisioner's lease. No existence leak.
+        live lease on (credential issue), a registration that is not managed
+        (on the feed operations; the platform adopt and rotate-now operations
+        answer that case with their own 409), and another provisioner's lease.
+        No existence leak.
       content:
         application/json:
           schema:
@@ -1868,7 +1905,9 @@ components:
         `not_managed` (409): the registration is not managed by the
         provisioner. `registration_disabled` (409): it is disabled.
         `provisioning_in_progress` (409): its `tenant.provision` request is
-        still open. Deterministic, nothing is changed and no request is
+        still open. `not_provisioned` (409): it is managed but has no
+        succeeded `tenant.provision` request (an adopted hand-made
+        registration). Deterministic, nothing is changed and no request is
         written.
       content:
         application/json:
