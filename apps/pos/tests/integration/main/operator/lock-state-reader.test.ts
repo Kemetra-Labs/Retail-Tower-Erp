@@ -183,6 +183,24 @@ describe('RT-117 createLockStateReader', () => {
       role: 'cashier',
       display_name: 'Cashier One',
       summary: null,
+      lock_cause: 'inactivity',
+    });
+  });
+
+  it('RT-309 D9: a conflict lock reads no summary at all, even over an open sale (L3)', () => {
+    const sm = signedIn();
+    const sid = sm.getCurrent()?.id ?? '';
+    insertCart({ cart_id: 'cart-1', session_id: sid, state: 'editing', subtotal: 5275 });
+    insertLine({ line_id: 'l1', cart_id: 'cart-1', subtotal: 5275 });
+    sm.lockForAuthorityConflict(sid, '2026-10-01T10:10:00.000Z');
+
+    expect(reader(sm)()).toEqual({
+      state: 'locked',
+      locked_at: '2026-10-01T10:10:00.000Z',
+      role: 'cashier',
+      display_name: 'Cashier One',
+      summary: null,
+      lock_cause: 'authority_conflict',
     });
   });
 

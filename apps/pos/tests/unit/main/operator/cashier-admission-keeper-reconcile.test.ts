@@ -15,8 +15,8 @@ import {
 /**
  * RT-1312 F17 (RT-113 P4, D8) — the keeper owns the offline reconcile of the
  * current session: `admitted` makes it online-confirmed AND arms the heartbeat;
- * a conflict or a refusal latches it like a lost heartbeat does (no new sale,
- * ended at its first safe point, nothing reversed).
+ * a refusal latches it like a lost heartbeat does (no new sale, ended at its
+ * first safe point, nothing reversed); RT-309 D9: a conflict locks it instead.
  */
 
 const TTL_S = 600;
@@ -91,19 +91,19 @@ describe('offline reconcile through the keeper', () => {
     ]);
   });
 
-  it('active_elsewhere latches the session at once and ends it superseded at its safe point', async () => {
+  // RT-309 D9 (RT-309 c19114, 10763 D9): a conflict no longer latches and ends
+  // the session; it locks it (`authority_conflict`) for the cashier's decision
+  // (take over here / end here, `authority-conflict.test.ts`).
+  it('active_elsewhere locks the session for the cashier decision and never ends it on its own', async () => {
     const h = setup();
     h.fake.setReconcile({ kind: 'active_elsewhere' });
-    h.safe.value = false;
     const record = signInOffline(h.sessions);
     await vi.advanceTimersByTimeAsync(0);
-    expect(h.sessions.getCurrent()?.authority_latch).toBe('superseded_by_takeover');
-    expect(h.ends).toEqual([]); // an open sale is never discarded
-    h.safe.value = true;
-    await vi.advanceTimersByTimeAsync(SAFE_POINT_RECHECK_MS);
-    expect(h.ends).toEqual(['superseded_by_takeover']);
-    expect(h.sessions.getCurrent()).toBeNull();
-    expect(record.id).toBeTruthy();
+    expect(h.sessions.getCurrent()?.id).toBe(record.id);
+    expect(h.sessions.getCurrent()?.lock_cause).toBe('authority_conflict');
+    expect(h.sessions.getCurrent()?.authority_latch).toBeUndefined();
+    await vi.advanceTimersByTimeAsync(SAFE_POINT_RECHECK_MS * 10);
+    expect(h.ends).toEqual([]); // nothing ends until the cashier decides
   });
 
   it('a 403 latches the session and ends it account_disabled_mid_session', async () => {

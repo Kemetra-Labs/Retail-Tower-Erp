@@ -145,6 +145,12 @@ export class SessionUnlockHandler {
     const session = this.deps.sessionManager.getCurrent();
     if (session === null) return this.refused('not_signed_in', 'no_session');
     if (session.lock_state !== 'locked') return this.refused('state_invalid', 'not_locked');
+    // RT-309 D9: a conflict lock is never cleared by the ordinary unlock (fail
+    // closed): only `operator.resolveConflict` resolves it. Refused before any
+    // credential is checked.
+    if (session.lock_cause === 'authority_conflict') {
+      return this.refused('state_invalid', 'authority_conflict');
+    }
     return { kind: 'locked', session };
   }
 
@@ -157,9 +163,17 @@ export class SessionUnlockHandler {
       : this.verifyOnline(session.operator_id, req);
   }
 
+  /**
+   * RT-309 D9: also false once the lock became a conflict lock while the
+   * credential was checked (a reconnect's `active_elsewhere`): never cleared here.
+   */
   private isStillLocked(session_id: string): boolean {
     const after = this.deps.sessionManager.getCurrent();
-    return after?.id === session_id && after.lock_state === 'locked';
+    return (
+      after?.id === session_id &&
+      after.lock_state === 'locked' &&
+      after.lock_cause !== 'authority_conflict'
+    );
   }
 
   private async verifyCashier(

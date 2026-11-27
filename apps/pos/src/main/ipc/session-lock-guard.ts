@@ -25,6 +25,10 @@ import { PAIRING_IPC_CHANNELS } from '../../shared/pairing-types.js';
  * signed-out sign-in screen shows. Sign-out stays refused (§2.2): ending a
  * locked session takes a credential.
  *
+ * RT-309 D9: the authority-conflict resolution is served too. It acts only on
+ * the current session locked with `lock_cause: 'authority_conflict'`, and only
+ * after a PIN check of that session's cashier (`authority-conflict-resolver.ts`).
+ *
  * RT-475: the tenant branding read is served too. The lock screen shows the
  * tenant logo (RT-832 slot `lock`); the read returns only what the signed-out
  * screens show, from the local cache. Its only write is deleting cache rows
@@ -34,6 +38,8 @@ import { PAIRING_IPC_CHANNELS } from '../../shared/pairing-types.js';
 export const LOCKED_ALLOWED_CHANNELS: ReadonlySet<string> = new Set<string>([
   SESSION_LOCK_IPC_CHANNELS.GET_LOCK_STATE,
   SESSION_LOCK_IPC_CHANNELS.UNLOCK_SESSION,
+  // RT-309 D9 (10763 D9) — the authority-conflict lock's two PIN-gated actions.
+  SESSION_LOCK_IPC_CHANNELS.RESOLVE_CONFLICT,
   OPERATOR_IPC_CHANNELS.GET_CURRENT_SESSION,
   // Notify-only; the session manager ignores activity while locked.
   OPERATOR_IPC_CHANNELS.REPORT_ACTIVITY,

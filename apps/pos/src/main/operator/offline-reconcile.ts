@@ -39,11 +39,13 @@ import type {
  *  - `admitted`: the session becomes `online_confirmed` (which also lifts the
  *    offline bound), the grant is refreshed through the seam and the keeper
  *    arms the heartbeat for the new admission;
- *  - `active_elsewhere` (a conflict) and `refused` (403): the grant is
- *    invalidated and the session is latched at once (no new sale), ending at its
- *    first safe point as `superseded_by_takeover` / `account_disabled_mid_session`,
- *    exactly as a lost heartbeat does. The PIN-gated "take over here / end
- *    here" lock screen (D9) is RT-309's UI work, not this module's;
+ *  - `active_elsewhere` (a conflict): the grant is invalidated and (RT-309 D9)
+ *    the session is LOCKED with `lock_cause: 'authority_conflict'`; it is not
+ *    ended. The cashier decides on the lock screen, after a PIN check: take over
+ *    here or end here (`authority-conflict-resolver.ts`);
+ *  - `refused` (403): the grant is invalidated and the session is latched at
+ *    once (no new sale), ending at its first safe point as
+ *    `account_disabled_mid_session`, exactly as a lost heartbeat does;
  *  - device 401: the grant is invalidated; revocation stays the shared
  *    detector's call (RT-215); the reconcile retries;
  *  - 5xx, transport failure, no device token: the session stays offline within
@@ -103,6 +105,13 @@ export interface OfflineReconcilerDeps {
   onAdopted: (session_id: string) => void;
   /** Authority is lost: latch the session and end it at its first safe point. */
   onConflict: (session_id: string, cause: AuthorityLatchCause) => void;
+  /**
+   * RT-309 D9 (10763 D9) — `active_elsewhere`: lock the session for the
+   * cashier's decision (take over here / end here) instead of latching and
+   * ending it. Absent (tests that do not exercise it): fail closed through
+   * {@link onConflict} with `superseded_by_takeover`.
+   */
+  onAuthorityConflict?: ((session_id: string) => void) | undefined;
   /**
    * A late `admitted` named the admission the CURRENT session already holds (a
    * same-device re-admission returns the same id): the request renewed it, so
@@ -347,7 +356,7 @@ export class OfflineReconciler {
         this.adopt(entry, result, requested_at_ms, who);
         return;
       case 'active_elsewhere':
-        this.conflict(entry, result, who, 'superseded_by_takeover');
+        this.authorityConflict(entry, result, who);
         return;
       case 'refused':
         this.conflict(entry, result, who, 'account_disabled_mid_session');
@@ -441,6 +450,18 @@ export class OfflineReconciler {
     notifyGrantSeam(this.deps.admission, result, who);
     this.finish(entry);
     this.deps.onConflict(entry.session_id, cause);
+  }
+
+  /** RT-309 D9: the grant is invalidated, then the session is conflict-locked (never ended here). */
+  private authorityConflict(entry: Entry, result: CashierAdmissionResult, who: AdmissionWho): void {
+    const lock = this.deps.onAuthorityConflict;
+    if (lock === undefined) {
+      this.conflict(entry, result, who, 'superseded_by_takeover');
+      return;
+    }
+    notifyGrantSeam(this.deps.admission, result, who);
+    this.finish(entry);
+    lock(entry.session_id);
   }
 
   /** Unreachable, failing, or a definite rejection: the session stays offline. */

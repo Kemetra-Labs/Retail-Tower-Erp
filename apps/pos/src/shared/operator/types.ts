@@ -78,6 +78,35 @@ export type UnlockSessionRequest =
 export type UnlockSessionResponse = { kind: 'unlocked' } | OperatorRefusal;
 
 /**
+ * RT-309 D9 (RT-113 10763 D9) — why the session is locked. `inactivity` is the
+ * RT-117 lock; `authority_conflict` is the reconcile's `active_elsewhere`: the
+ * cashier is admitted on another till. Only `operator.resolveConflict` clears it.
+ */
+export type SessionLockCause = 'inactivity' | 'authority_conflict';
+
+/**
+ * RT-309 D9 — the two actions of the authority-conflict lock, each after a PIN
+ * check of the locked session's cashier. The PIN is consumed by main and never
+ * logged (P11).
+ */
+export interface ResolveConflictRequest {
+  action: 'take_over_here' | 'end_here';
+  pin: string;
+}
+
+/**
+ * `resolved`: taken over (the session is unlocked and online-confirmed) or
+ * ended here. `takeover_rate_limited`: Backend-Core's takeover rate limit (429)
+ * answered; distinct from a PIN lockout (`rate_limited`) because the screen
+ * shows its own approved copy. Any other failure is a generic refusal and the
+ * session stays locked (or, after a 403, ends).
+ */
+export type ResolveConflictResponse =
+  | { kind: 'resolved'; action: ResolveConflictRequest['action'] }
+  | { kind: 'takeover_rate_limited' }
+  | OperatorRefusal;
+
+/**
  * RT-358 (RT-247 D-A1) — the signed-in manager proves their credentials again
  * after a `reauth_required` refusal. The fresh JWT stays in main; the renderer
  * only learns that it worked.
@@ -108,6 +137,13 @@ export interface LockStateView {
   role: Role | null;
   display_name: string | null;
   summary: LockStateSummary | null;
+  /**
+   * RT-309 D9 — why it is locked, while `state` is `locked`. With
+   * `authority_conflict` the screen offers take over / end here and `summary`
+   * is always null (L3: nothing of the sale). Optional so existing doubles stay
+   * valid; absent means `inactivity`.
+   */
+  lock_cause?: SessionLockCause;
 }
 
 /** RT-117 — main → renderer push payload on `operator:session-state`. */
@@ -489,6 +525,16 @@ export interface OperatorBridgeAPI {
    * screen. The only operator read served while locked.
    */
   getLockState(): Promise<LockStateView>;
+
+  /**
+   * RT-309 D9 (RT-113 10763 D9) — resolve an authority-conflict lock: after a
+   * PIN check of the locked session's cashier, take over here (an online
+   * admission with `takeover: true`; the same session is unlocked) or end here
+   * (`superseded_by_takeover`). On the locked-session allowlist. Optional like
+   * `getResumeState` so existing renderer test doubles stay valid; the
+   * production preload always provides it.
+   */
+  resolveConflict?(req: ResolveConflictRequest): Promise<ResolveConflictResponse>;
 
   /**
    * RT-352 (RT-116 §7.2) — read once after an admitted sign-in: the draft cart
