@@ -16,17 +16,21 @@ export interface SignInBody {
   password: string;
 }
 
+function parseRetryAfter(response: Response): number | undefined {
+  const header = response.headers.get("retry-after");
+  const seconds = header ? Number.parseInt(header, 10) : undefined;
+  return seconds !== undefined && !Number.isNaN(seconds) ? seconds : undefined;
+}
+
 /** POST /api/v1/auth/signin */
 export async function signIn(body: SignInBody) {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/signin", { body });
   // Parse Retry-After (seconds) on 429 so SF-1 can show a real countdown.
-  const retryAfter = response.headers.get("retry-after");
-  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
   return {
     status: response.status,
     data,
     error,
-    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
+    retryAfterSeconds: parseRetryAfter(response),
   };
 }
 
@@ -55,6 +59,37 @@ export async function changePassword(body: PasswordChangeBody) {
     error,
     retryAfter: response.headers.get("retry-after"),
   };
+}
+
+interface PasswordResetRequestBody {
+  email: string;
+}
+
+/**
+ * POST /api/v1/auth/password-reset/request (RT-1497; public).
+ * Always returns 202 when accepted to avoid leaking account existence.
+ */
+export async function requestPasswordReset(body: PasswordResetRequestBody) {
+  const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/request", {
+    body,
+  });
+  return { status: response.status, data, error, retryAfterSeconds: parseRetryAfter(response) };
+}
+
+interface PasswordResetConfirmBody {
+  token: string;
+  new_password: string;
+}
+
+/**
+ * POST /api/v1/auth/password-reset/confirm (RT-1497; public).
+ * 204 on success (all existing sessions revoked); 400 on invalid/expired token or refused password.
+ */
+export async function confirmPasswordReset(body: PasswordResetConfirmBody) {
+  const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/confirm", {
+    body,
+  });
+  return { status: response.status, data, error, retryAfterSeconds: parseRetryAfter(response) };
 }
 
 /** POST /api/v1/auth/refresh */
