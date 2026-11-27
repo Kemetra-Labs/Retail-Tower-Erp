@@ -139,4 +139,8 @@ export const shell = {
   "platform.noAccess.title": "غير متاح",
   "platform.noAccess.body": "هذه الصفحة غير متاحة لحسابك.",
   "platform.noAccess.home": "العودة إلى الرئيسية",
+
+  // RT-1612 (D10): shared no-access state for system-plumbing routes (/audit, /stock-discrepancies).
+  "shell.systemNoAccess.title": "لا يمكنك فتح هذه الصفحة",
+  "shell.systemNoAccess.body": "يستطيع فتح هذه الصفحة المالك أو مسؤول المؤسسة فقط.",
 } satisfies Messages;

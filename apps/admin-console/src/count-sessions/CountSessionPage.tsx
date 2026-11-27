@@ -10,6 +10,7 @@
  */
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { isUuid } from "@/inventory/inventoryLogic";
 import { BackLink, ReadError } from "@/inventory/parts";
@@ -98,7 +99,11 @@ function SessionView({ target, session }: Readonly<{ target: Target; session: Co
         title={t("counts.session.title")}
         subtitle={<StateBadge state={session.state} />}
       />
-      <CountStatusPanel session={session} index={next()} />
+      <CountStatusPanel
+        session={session}
+        index={next()}
+        showSystem={canSeeSystemDetail(scope.role)}
+      />
       {capture ? (
         <CaptureSection
           storeId={storeId}

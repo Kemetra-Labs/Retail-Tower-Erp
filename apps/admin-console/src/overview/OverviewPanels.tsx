@@ -29,6 +29,7 @@
  */
 import { ManagerSalesMount } from "@/ai-manager-sales/ManagerSalesMount";
 import { PageHeader } from "@/components/PageHeader";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { useIsFetching, useQueryClient } from "@tanstack/react-query";
 import { useEffect, useState } from "react";
@@ -106,22 +107,29 @@ function Panels({
   header: (rail: React.ReactNode) => React.ReactNode;
 }>): React.JSX.Element {
   const t = useT();
+  const showSystem = canSeeSystemDetail(session.role);
   const summary = useGlanceSummary(session, nowMs);
   const devices = useActiveDevices(session);
   const recent = useRecentSales(session, nowMs);
   return (
     <>
-      {header(<SaleRail session={session} summary={summary} devices={devices} />)}
+      {header(
+        showSystem ? <SaleRail session={session} summary={summary} devices={devices} /> : null,
+      )}
       <div className="overview">
         <div className="overview__main">
           <QuickActions role={session.role} className="overview__quick" />
           <SmartInsight session={session} summary={summary} />
           <ReceiptRow state={summary} scope={scope} />
-          <div className="overview__charts">
+          {showSystem ? (
+            <div className="overview__charts">
+              <TrendPanel state={summary} />
+              <PostingPanel state={summary} />
+            </div>
+          ) : (
             <TrendPanel state={summary} />
-            <PostingPanel state={summary} />
-          </div>
-          <RecentSales state={recent} />
+          )}
+          <RecentSales state={recent} showErp={showSystem} />
           {canOpenAudit(session.role) ? (
             <section className="section-panel" aria-labelledby="overview-audit">
               <div className="section-panel__head">

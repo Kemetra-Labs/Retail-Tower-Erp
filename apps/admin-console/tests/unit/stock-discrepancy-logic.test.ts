@@ -24,12 +24,11 @@ import { describe, expect, test } from "vitest";
  * counts for no-snapshot states (AC2), labels never say live/current (AC7), and
  * the refresh Idempotency-Key matches the contract pattern.
  */
-describe("role gates (AC6)", () => {
-  test("read: owner / tenant_admin / store_manager only", () => {
+describe("role gates (AC6 / D10b)", () => {
+  test("read: owner / tenant_admin only (D10b hides from store_manager)", () => {
     expect(canReadStockDiscrepancies("owner")).toBe(true);
     expect(canReadStockDiscrepancies("tenant_admin")).toBe(true);
-    expect(canReadStockDiscrepancies("store_manager")).toBe(true);
-    for (const role of ["cashier", "auditor", "", null, undefined]) {
+    for (const role of ["store_manager", "cashier", "auditor", "", null, undefined]) {
       expect(canReadStockDiscrepancies(role)).toBe(false);
     }
   });

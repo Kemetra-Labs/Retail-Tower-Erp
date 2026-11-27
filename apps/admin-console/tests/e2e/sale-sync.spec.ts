@@ -218,7 +218,9 @@ test("S2: store_manager sees the sale without sync-ops; the list is no access", 
   await expect(p.getByRole("link", { name: t("saleSync.nav.label") })).toHaveCount(0);
 
   await p.goto(`/sales/${SALE}`);
-  await expect(p.getByRole("region", { name: t("sales.section.erp") })).toBeVisible();
+  await expect(p.getByRole("heading", { level: 1 })).toBeVisible();
+  // RT-1612 (D10): store_manager sees the sale without ERPNext posting or sync-ops plumbing.
+  await expect(p.getByRole("region", { name: t("sales.section.erp") })).toHaveCount(0);
   await expect(p.getByRole("region", { name: t("saleSync.section.status") })).toHaveCount(0);
 
   await p.goto("/sales-needing-repair");

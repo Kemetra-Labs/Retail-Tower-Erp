@@ -32,6 +32,8 @@ export const salesDaily = {
     "حالة المزامنة وحالة الترحيل إلى ERPNext وإغلاقات الورديات لكل يوم عمل",
   "salesDaily.table.status.hint":
     "حالتا المزامنة والترحيل هما حالة مبيعات ذلك اليوم الآن (وقت القراءة)، لا المتأخرات في ذلك اليوم.",
+  "salesDaily.table.shifts.caption": "إغلاقات الورديات لكل يوم عمل",
+  "salesDaily.table.shifts.hint": "إغلاقات الورديات المسجلة لكل يوم عمل.",
   "salesDaily.col.day": "يوم العمل",
   "salesDaily.row.notBegun": "(لم يبدأ بعد)",
   "salesDaily.row.total": "إجمالي النطاق",

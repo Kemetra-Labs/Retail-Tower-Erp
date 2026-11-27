@@ -30,6 +30,7 @@ import { DetailPanel } from "@/components/DetailPanel";
  */
 import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { StockLocation, StockMovement } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -169,21 +170,22 @@ function LocationsSection({ locations }: Readonly<{ locations: LocationsState }>
 
 // --- Movement ledger -------------------------------------------------------------
 
-function columns(t: T): { key: string; header: string }[] {
-  return [
+function columns(t: T, showSystem: boolean): { key: string; header: string }[] {
+  const cols = [
     { key: "occurredAt", header: t("inventory.movements.col.occurredAt") },
     { key: "type", header: t("inventory.movements.col.type") },
     { key: "product", header: t("inventory.movements.col.product") },
     { key: "quantity", header: t("inventory.movements.col.quantity") },
     { key: "position", header: t("inventory.movements.col.position") },
     { key: "reason", header: t("inventory.movements.col.reason") },
-    { key: "erp", header: t("inventory.movements.col.erp") },
   ];
+  if (showSystem) cols.push({ key: "erp", header: t("inventory.movements.col.erp") });
+  return cols;
 }
 
 /** Modern concept 2/6 (rule 1): the four columns the ledger shows by default. */
 function baseColumns(t: T): { key: string; header: string }[] {
-  return columns(t).slice(0, 4);
+  return columns(t, false).slice(0, 4);
 }
 
 function ProductCell({
@@ -208,11 +210,13 @@ function MovementRow({
   movement,
   locations,
   showDetails,
+  showSystem,
 }: Readonly<{
   storeId: string;
   movement: StockMovement;
   locations: StockLocation[] | undefined;
   showDetails: boolean;
+  showSystem: boolean;
 }>): React.JSX.Element {
   const t = useT();
   const location = locationLabel(locations, movement.stockLocationId);
@@ -242,11 +246,13 @@ function MovementRow({
               <span className="muted">{t("inventory.value.none")}</span>
             )}
           </td>
-          <td>
-            <span className={`badge ${integrationTone(movement.integrationState)}`.trim()}>
-              {t(integrationStateKey(movement.integrationState))}
-            </span>
-          </td>
+          {showSystem ? (
+            <td>
+              <span className={`badge ${integrationTone(movement.integrationState)}`.trim()}>
+                {t(integrationStateKey(movement.integrationState))}
+              </span>
+            </td>
+          ) : null}
         </>
       ) : null}
     </tr>
@@ -257,14 +263,16 @@ function MovementsBody({
   storeId,
   movements,
   locations,
+  showSystem,
 }: Readonly<{
   storeId: string;
   movements: PagedState<StockMovement>;
   locations: StockLocation[] | undefined;
+  showSystem: boolean;
 }>): React.JSX.Element {
   const t = useT();
   const [showDetails, setShowDetails] = useState(false);
-  const cols = columns(t);
+  const cols = columns(t, showSystem);
   const caption = t("inventory.movements.caption");
   if (movements.isLoading) {
     return (
@@ -334,6 +342,7 @@ function MovementsBody({
                   movement={m}
                   locations={locations}
                   showDetails={showDetails}
+                  showSystem={showSystem}
                 />
               ))}
             </tbody>
@@ -376,6 +385,7 @@ function StoreView({
   storeId,
 }: Readonly<{ scope: InventoryScope; storeId: string }>): React.JSX.Element {
   const t = useT();
+  const showSystem = canSeeSystemDetail(scope.role);
   const name = useStoreName(scope.tenantId, storeId);
   const locations = useStockLocations({ scope, storeId });
   const movements = useStoreMovements({ scope, storeId });
@@ -394,7 +404,7 @@ function StoreView({
       <ScopeMismatchBanner storeId={storeId} />
       <div className="inventory__strip">
         <p className="inventory__note">{t("inventory.note.readOnly")}</p>
-        <p className="inventory__note">{t("inventory.note.erpBook")}</p>
+        {showSystem ? <p className="inventory__note">{t("inventory.note.erpBook")}</p> : null}
         <Link className="inventory__note" to={`/inventory/stores/${storeId}/counts`}>
           {t("inventory.counts.link")}
         </Link>
@@ -404,7 +414,12 @@ function StoreView({
         <Body>
           <p className="content__sub">{t("inventory.movements.sub")}</p>
         </Body>
-        <MovementsBody storeId={storeId} movements={movements} locations={locations.data?.items} />
+        <MovementsBody
+          storeId={storeId}
+          movements={movements}
+          locations={locations.data?.items}
+          showSystem={showSystem}
+        />
       </DetailPanel>
     </div>
   );

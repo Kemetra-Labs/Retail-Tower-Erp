@@ -23,6 +23,7 @@ import {
   METRIC_IDS,
   type MetricId,
   type SalesKpis,
+  isSystemMetric,
   metricDefinition,
 } from "@/metrics/metricRegistry";
 import type { DayRow, ReportModel } from "./dailyLogic";
@@ -88,7 +89,7 @@ function moneyColumns(model: ReportModel): Column[] {
   ]);
 }
 
-const STATUS_COLUMNS: readonly Column[] = [
+const SYSTEM_STATUS_COLUMNS: readonly Column[] = [
   { name: "sync_captured", read: (k) => String(k.syncStatus.captured) },
   { name: "sync_synced", read: (k) => String(k.syncStatus.synced) },
   { name: "sync_failed_retryable", read: (k) => String(k.syncStatus.failedRetryable) },
@@ -97,6 +98,9 @@ const STATUS_COLUMNS: readonly Column[] = [
   { name: "erp_pending", read: (k) => String(k.erpPosting.pending) },
   { name: "erp_failed", read: (k) => String(k.erpPosting.failed) },
   { name: "erp_unknown", read: (k) => String(k.erpPosting.unknown) },
+];
+
+const SHIFT_COLUMNS: readonly Column[] = [
   { name: "shift_closes_count", read: (k) => String(k.shiftCloses.count) },
   { name: "shift_closes_normal", read: (k) => String(k.shiftCloses.normal) },
   { name: "shift_closes_forced", read: (k) => String(k.shiftCloses.forced) },
@@ -125,6 +129,8 @@ export interface CsvOptions {
   locale: Locale;
   /** The active store's name; null when the read covers a whole scope. */
   storeName: string | null;
+  /** D10: include sync-status and ERPNext-posting columns and definitions. Defaults to true. */
+  includeSystemDetail?: boolean;
 }
 
 type Translate = (key: MessageKey, params?: Record<string, string | number>) => string;
@@ -149,15 +155,19 @@ function periodRows(model: ReportModel, t: Translate): string[][] {
   return rows;
 }
 
-function definitionRows(t: Translate): string[][] {
-  return METRIC_IDS.map((id) => {
+function definitionRows(t: Translate, includeSystemDetail: boolean): string[][] {
+  const ids = includeSystemDetail ? METRIC_IDS : METRIC_IDS.filter((id) => !isSystemMetric(id));
+  return ids.map((id) => {
     const def = metricDefinition(id as MetricId);
     const text = [def.definitionKey, def.zoneRuleKey, def.unknown.meaningKey].map((k) => t(k));
     return ["definition", t(def.labelKey), text.join(" ")];
   });
 }
 
-function headerBlock(model: ReportModel, { locale, storeName }: CsvOptions): string[] {
+function headerBlock(
+  model: ReportModel,
+  { locale, storeName, includeSystemDetail = true }: CsvOptions,
+): string[] {
   const t: Translate = (key, params) => translate(locale, key, params);
   const partialStores = model.zonesComplete
     ? []
@@ -168,7 +178,7 @@ function headerBlock(model: ReportModel, { locale, storeName }: CsvOptions): str
     ...storeRows(model, storeName),
     ...partialStores,
     ...periodRows(model, t),
-    ...definitionRows(t),
+    ...definitionRows(t, includeSystemDetail),
   ];
   return rows.map((r) => line(r.map(csvValue)));
 }
@@ -185,7 +195,9 @@ function dataLine(
 
 /** The whole CSV, BOM first. */
 export function buildCsv(model: ReportModel, options: CsvOptions): string {
-  const columns = [...moneyColumns(model), ...STATUS_COLUMNS];
+  const includeSystem = options.includeSystemDetail ?? true;
+  const statusCols = includeSystem ? [...SYSTEM_STATUS_COLUMNS, ...SHIFT_COLUMNS] : SHIFT_COLUMNS;
+  const columns = [...moneyColumns(model), ...statusCols];
   const head = line(["business_date", "day_state", ...columns.map((c) => c.name)]);
   const days = model.rows.map((row) =>
     dataLine(row.date, row.kpis === null ? "unknown" : STATE_NAME[row.state], columns, row.kpis),

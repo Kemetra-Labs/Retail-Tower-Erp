@@ -47,24 +47,26 @@ function insightOf(
   list: DeviceListState,
   saleQueues: DeviceHealthIndex,
   now: number,
+  showSystem: boolean,
 ): { kind: InsightKind; count?: number } | null {
   if (list.isLoading || list.error || list.rows.length === 0) return null;
   const custody = list.rows.filter((d) => d.custodyExceptionShiftId).length;
   if (custody > 0) return { kind: "custody", count: custody };
-  // Stranded sales are not knowable until the health read settles; a "clear"
-  // before that would undercount.
-  if (saleQueues.status === "loading") return null;
   const queueOf = (d: DeviceSummary) =>
     saleQueueStateOf(saleQueues.byId.get(d.deviceId), saleQueues.status);
-  const stranded = list.rows.filter((d) => hasStrandedSales(queueOf(d))).length;
-  if (stranded > 0) return { kind: "stranded", count: stranded };
+  if (showSystem) {
+    // Stranded sales are not knowable until the health read settles; a "clear"
+    // before that would undercount.
+    if (saleQueues.status === "loading") return null;
+    const stranded = list.rows.filter((d) => hasStrandedSales(queueOf(d))).length;
+    if (stranded > 0) return { kind: "stranded", count: stranded };
+  }
   const pastExpiry = list.rows.filter(
     (d) => d.trustState === "active" && isPastExpiry(d.expiresAt, now),
   ).length;
   if (pastExpiry > 0) return { kind: "pastExpiry", count: pastExpiry };
-  // "Clear" needs known queue counts for every loaded row: an unavailable or
-  // unknown queue (no health row, no queue, no heartbeat) proves no absence.
-  if (!list.rows.every((d) => queueOf(d).kind === "counts")) return null;
+  // "Clear" needs known queue counts for every loaded row when queues are shown.
+  if (showSystem && !list.rows.every((d) => queueOf(d).kind === "counts")) return null;
   return { kind: "clear" };
 }
 
@@ -72,14 +74,16 @@ export function DeviceInsight({
   list,
   saleQueues,
   now,
+  showSystem = true,
 }: Readonly<{
   list: DeviceListState;
   saleQueues: DeviceHealthIndex;
   now: number;
+  showSystem?: boolean;
 }>): React.JSX.Element | null {
   const t = useT();
   const titleId = useId();
-  const insight = insightOf(list, saleQueues, now);
+  const insight = insightOf(list, saleQueues, now, showSystem);
   if (!insight) return null;
   return (
     <section className="device-insight" aria-labelledby={titleId}>

@@ -1,7 +1,9 @@
 import { Banner } from "@/components/Banner";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { SystemDetailNoAccess } from "@/components/SystemDetailNoAccess";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { canSeeSystemDetail, roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { PeopleNames } from "@/people/PersonRef";
 /**
@@ -81,6 +83,13 @@ function ContinuationBanner({
 }
 
 export function AuditSearch(): React.JSX.Element {
+  const { context } = useActiveContextValue();
+  if (!context?.active_tenant) return <OperatorScopePromptLike />;
+  if (!canSeeSystemDetail(roleCodeOf(context))) return <SystemDetailNoAccess />;
+  return <AuditSearchBody />;
+}
+
+function AuditSearchBody(): React.JSX.Element {
   const t = useT();
   const { context } = useActiveContextValue();
   const activeTenant = context?.active_tenant ?? null;

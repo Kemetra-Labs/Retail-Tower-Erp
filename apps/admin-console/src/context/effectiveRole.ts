@@ -39,3 +39,15 @@ export function roleCodeOf(context: RoleContext | null | undefined): string | nu
   if (isPlatformAdminRole(context)) return PLATFORM_ADMIN_UI_ROLE;
   return context?.active_role_code ?? null;
 }
+
+/**
+ * RT-1612 (D10, DESIGN.md §13.5a): roles that see system plumbing (till → server → ERPNext
+ * pipeline, ERPNext posting and sync, audit, stock discrepancies, device technical details).
+ * Platform admins inside a tenant are already mapped to `owner` by `roleCodeOf`.
+ */
+const SYSTEM_DETAIL_ROLES = ["owner", "tenant_admin"] as const;
+
+/** Single client visibility gate for system plumbing (D10). Not an authorization decision. */
+export function canSeeSystemDetail(role: string | null | undefined): boolean {
+  return (SYSTEM_DETAIL_ROLES as readonly string[]).includes(role ?? "");
+}

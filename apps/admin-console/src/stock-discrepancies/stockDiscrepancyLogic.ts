@@ -7,6 +7,7 @@
  * RT-399: helpers return catalog message keys (plus params), never copy; the
  * components translate at render so a locale switch re-renders them.
  */
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type Locale, type MessageKey, type Params, formatDuration } from "@/i18n";
 import { UUID_PATTERN, requestIdOf } from "@/lib/backend-envelope";
 import type { SnapshotStatusCode, StockSnapshotStatus } from "@/lib/stock-discrepancy-queries";
@@ -16,9 +17,9 @@ export const READ_ROLES = ["owner", "tenant_admin", "store_manager"] as const;
 /** Roles the API lets trigger a stock run (the refresh action). */
 export const REFRESH_ROLES = ["owner", "tenant_admin"] as const;
 
-/** Navigation gate: mirrors the API's read roles. Not an authorization decision. */
+/** Navigation and surface gate (D10b): driven by `canSeeSystemDetail`. Not an authorization decision. */
 export function canReadStockDiscrepancies(role: string | null | undefined): boolean {
-  return (READ_ROLES as readonly string[]).includes(role ?? "");
+  return canSeeSystemDetail(role);
 }
 
 /** Refresh-button gate: mirrors the API's `triggerReconciliationRun` roles. */

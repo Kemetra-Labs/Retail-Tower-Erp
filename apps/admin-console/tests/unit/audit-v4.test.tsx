@@ -35,7 +35,11 @@ function renderSearch(): void {
 }
 
 const withTenant = {
-  context: { active_tenant: { id: "t1", name: "Northstar Retail" }, active_store: null },
+  context: {
+    active_tenant: { id: "t1", name: "Northstar Retail" },
+    active_store: null,
+    active_role_code: "owner",
+  },
 };
 
 function row(id: string, action: string, metadata?: Record<string, unknown>) {
@@ -174,6 +178,7 @@ describe("AuditSearch v4.0 (RT-1019)", () => {
       context: {
         active_tenant: { id: "t1", name: "Northstar Retail" },
         active_store: { id: "s1", name: "Maadi Branch" },
+        active_role_code: "owner",
       },
     });
     listAuditEvents.mockResolvedValue({

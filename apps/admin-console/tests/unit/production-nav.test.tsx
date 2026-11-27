@@ -54,13 +54,6 @@ function groupOf(nav: HTMLElement, link: string): string {
   return group.querySelector(".nav-section")?.textContent ?? "";
 }
 
-/** The entries of the group under `heading`. */
-function groupLabels(nav: HTMLElement, heading: string): string[] {
-  const section = within(nav).getByText(heading, { selector: ".nav-section" });
-  const group = section.closest(".nav-group") as HTMLElement;
-  return entryLabels(group);
-}
-
 /**
  * RT-270 (UX-09: no dead destinations). A production build lists only live
  * destinations. The dev-only RF-* placeholders are gone (RT-765 removed the last).
@@ -156,12 +149,13 @@ describe("production navigation", () => {
     },
   );
 
-  // RT-969: the Integration heading also holds the audit log, so for these
-  // roles it is left with Audit alone.
+  // RT-1612 (D10): Audit is also gated to system roles, so the entire Integration
+  // section is omitted for store_manager, cashier and auditor.
   test.each(["store_manager", "cashier", "auditor"])("RT-560: %s has no entry", (role) => {
     const nav = renderShell(role);
     expect(entryLabels(nav)).not.toContain("Connection & sync");
-    expect(groupLabels(nav, "Integration")).toEqual(["Audit"]);
+    expect(entryLabels(nav)).not.toContain("Audit");
+    expect(within(nav).queryByText("Integration", { selector: ".nav-section" })).toBeNull();
   });
 
   // RT-726: the NEEDS_REPAIR queue shares the "Integration" heading (one

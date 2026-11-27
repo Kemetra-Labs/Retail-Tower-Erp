@@ -189,26 +189,16 @@ describe("StockDiscrepancyStores (RT-178)", () => {
     ).toBeDefined();
   });
 
-  test("AC6: store_manager sees only the stores the API returns for it", async () => {
+  test("D10b: store_manager sees the shared no-access state and API is not called", async () => {
     activeContext.mockReturnValue(ctx("store_manager", S1));
-    listErpnextNegativeOnHandStores.mockResolvedValue({
-      status: 200,
-      data: { items: [summary(S1, "Cairo Festival City", snapshot(), 1)], nextCursor: null },
-    });
     renderStores();
-    await screen.findByRole("link", { name: "Cairo Festival City" });
-    expect(screen.getAllByRole("link")).toHaveLength(1);
-    expect(screen.queryByText("Maadi")).toBeNull();
-    // The summary list never offers the refresh action (per-store, owner/admin only).
-    expect(screen.queryByRole("button", { name: /request fresh snapshot/i })).toBeNull();
-    // Store rows link to the per-store view.
-    expect(screen.getByRole("link", { name: "Cairo Festival City" }).getAttribute("href")).toBe(
-      `/stock-discrepancies/${S1}`,
-    );
+    expect(await screen.findByRole("heading", { name: /can't open this page/i })).toBeDefined();
+    expect(screen.getByText(/owner or an organization administrator/i)).toBeDefined();
+    expect(listErpnextNegativeOnHandStores).not.toHaveBeenCalled();
   });
 
   test("AC6: a 404 from the API renders as not-found", async () => {
-    activeContext.mockReturnValue(ctx("cashier"));
+    activeContext.mockReturnValue(ctx("owner"));
     listErpnextNegativeOnHandStores.mockResolvedValue({
       status: 404,
       error: { error: { code: "not_found", message: "Not found", request_id: "req-404" } },

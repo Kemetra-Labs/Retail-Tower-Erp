@@ -2,6 +2,7 @@ import { canReadBrands } from "@/brands/brandLogic";
 import { canImportCatalog } from "@/catalog-import/catalogImportLogic";
 import { canReadCatalog } from "@/catalog/catalogLogic";
 import type { IconNameFor } from "@/components/icons/Icon";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { canReadDevices } from "@/devices/deviceLogic";
 import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import type { MessageKey } from "@/i18n";
@@ -237,7 +238,7 @@ const TENANT_NAV: readonly GatedGroup[] = [
         icon: "product",
         canRead: canUseProductReconciliation,
       },
-      { label: "shell.nav.audit", to: "/audit", icon: "audit", canRead: always },
+      { label: "shell.nav.audit", to: "/audit", icon: "audit", canRead: canSeeSystemDetail },
     ],
   },
   {

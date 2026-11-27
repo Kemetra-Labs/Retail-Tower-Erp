@@ -71,18 +71,20 @@ describe("tenant navigation groups (RT-1291)", () => {
     ]);
   });
 
-  test("Alerts and Search join every role's daily group; the rest is unchanged", () => {
+  test("Alerts and Search join every role's daily group; D10 hides system routes from non-system roles", () => {
     // RT-1109 added Vouchers for owner and tenant_admin; RT-1338 added Brands and Offers;
-    // RT-1312 added the sale quarantine queue.
+    // RT-1312 added the sale quarantine queue; RT-1612 (D10) hides /audit and /stock-discrepancies
+    // from non-system roles.
     expect(paths("owner")).toHaveLength(25);
     expect(paths("tenant_admin")).toHaveLength(25);
-    expect(paths("store_manager")).toHaveLength(18);
-    // Cashier keeps Overview plus the two always-gated entries.
+    expect(paths("store_manager")).toHaveLength(16);
+    expect(paths("store_manager")).not.toContain("/audit");
+    expect(paths("store_manager")).not.toContain("/stock-discrepancies");
+    // Cashier keeps Overview, Alerts, Search and the three always-gated management entries.
     expect(paths("cashier")).toEqual([
       "/",
       "/alerts",
       "/search",
-      "/audit",
       "/stores",
       "/operators",
       "/tenants",
@@ -107,8 +109,8 @@ describe("tenant navigation groups (RT-1291)", () => {
 
   test("a group left with no entry is dropped", () => {
     const groupIds = (role: string) => tenantNav(role, SIGNALS).map((g) => g.id);
-    // A role with no daily-operations entry still has Overview, so Daily stays; Stock goes.
-    expect(groupIds("cashier")).toEqual(["daily", "integration", "management"]);
+    // A role with no daily-operations entry still has Overview, so Daily stays; Stock and Integration go.
+    expect(groupIds("cashier")).toEqual(["daily", "management"]);
   });
 });
 
@@ -192,7 +194,7 @@ describe("navigator-only destinations", () => {
 
   test("the gates hold: a cashier sees none of the six, a store manager sees all but the import and redistribution", () => {
     expect(navPaths("cashier")).toEqual(paths("cashier"));
-    expect(navPaths("store_manager")).toHaveLength(22);
+    expect(navPaths("store_manager")).toHaveLength(20);
     for (const to of [
       "/sales-daily",
       "/sales-by-store",

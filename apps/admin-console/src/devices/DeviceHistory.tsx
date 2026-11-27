@@ -91,13 +91,16 @@ function RetireEvent({
 }
 
 /** A linked device in the replacement chain, or the honest "none / out of scope". */
-function ChainLink({ deviceId }: Readonly<{ deviceId: string | null }>): React.JSX.Element {
+function ChainLink({
+  deviceId,
+  showDeviceId,
+}: Readonly<{ deviceId: string | null; showDeviceId: boolean }>): React.JSX.Element {
   const t = useT();
   const state = useLocation().state;
   if (!deviceId) return <span className="device-quiet">{t("devices.history.noLink")}</span>;
   return (
     <Link to={`/devices/${deviceId}`} state={state}>
-      <bdi dir="ltr">{deviceId}</bdi>
+      {showDeviceId ? <bdi dir="ltr">{deviceId}</bdi> : t("devices.history.openLinked")}
     </Link>
   );
 }
@@ -105,7 +108,12 @@ function ChainLink({ deviceId }: Readonly<{ deviceId: string | null }>): React.J
 export function DeviceHistory({
   device,
   timeZone,
-}: Readonly<{ device: DeviceDetail; timeZone?: string }>): React.JSX.Element {
+  showSystem = true,
+}: Readonly<{
+  device: DeviceDetail;
+  timeZone?: string;
+  showSystem?: boolean;
+}>): React.JSX.Element {
   const t = useT();
   return (
     <PeopleNames ids={[device.revokedByUserId, device.retiredByUserId]}>
@@ -130,10 +138,10 @@ export function DeviceHistory({
           <PanelBody>
             <dl className="surface__detail">
               <Field label={t("devices.history.replaces")}>
-                <ChainLink deviceId={device.replacesDeviceId} />
+                <ChainLink deviceId={device.replacesDeviceId} showDeviceId={showSystem} />
               </Field>
               <Field label={t("devices.history.replacedBy")}>
-                <ChainLink deviceId={device.replacedByDeviceId} />
+                <ChainLink deviceId={device.replacedByDeviceId} showDeviceId={showSystem} />
               </Field>
             </dl>
           </PanelBody>

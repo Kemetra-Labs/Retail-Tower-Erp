@@ -524,8 +524,8 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
     expect(within(payments).getByText("Change given")).toBeDefined();
   });
 
-  test("RT-974: a failed void reversal says so; a role that cannot open the ERP page gets no link", async () => {
-    activeContext.mockReturnValue(ctx("store_manager"));
+  test("RT-974 / D10: a failed void reversal shows for tenant_admin; store_manager sees no ERP failure banner", async () => {
+    activeContext.mockReturnValue(ctx("tenant_admin"));
     consoleGetSale.mockResolvedValue({
       status: 200,
       data: detail({
@@ -544,7 +544,12 @@ describe("SaleDetail (RT-587, spec 012 J2)", () => {
       within(banner).getByText("The void reversal of this sale was not posted to ERPNext."),
     ).toBeDefined();
     expect(banner.textContent).toContain("Void reversal posting: ERPNext posting failed");
-    expect(within(banner).queryByRole("link")).toBeNull();
+
+    cleanup();
+    activeContext.mockReturnValue(ctx("store_manager"));
+    renderDetail();
+    await loaded();
+    expect(screen.queryByRole("alert")).toBeNull();
   });
 
   test("RT-974: no banner when nothing failed (pending and unknown are not failures)", async () => {

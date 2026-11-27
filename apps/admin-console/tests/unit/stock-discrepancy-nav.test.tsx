@@ -44,14 +44,17 @@ function renderShell(role: string | null): void {
  * non-disclosing 404, so the entry is not shown to them).
  */
 describe("ERPNext stock discrepancies navigation", () => {
-  test.each(["owner", "tenant_admin", "store_manager"])("%s sees the nav entry", (role) => {
+  test.each(["owner", "tenant_admin"])("%s sees the nav entry", (role) => {
     renderShell(role);
     const link = screen.getByRole("link", { name: /stock discrepancies/i });
     expect(link.getAttribute("href")).toBe("/stock-discrepancies");
   });
 
-  test.each(["cashier", "auditor", null])("%s does not see the nav entry", (role) => {
-    renderShell(role);
-    expect(screen.queryByRole("link", { name: /stock discrepancies/i })).toBeNull();
-  });
+  test.each(["store_manager", "cashier", "auditor", null])(
+    "%s does not see the nav entry",
+    (role) => {
+      renderShell(role);
+      expect(screen.queryByRole("link", { name: /stock discrepancies/i })).toBeNull();
+    },
+  );
 });

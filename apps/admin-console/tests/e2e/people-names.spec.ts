@@ -33,10 +33,18 @@ const json = (body: unknown, status = 200) => ({
   body: JSON.stringify(body),
 });
 
-async function mockBase(page: Page, peopleStatus = 200): Promise<string[]> {
+async function mockBase(page: Page, peopleStatus = 200, role = "store_manager"): Promise<string[]> {
   const asked: string[] = [];
   await page.route("**/api/v1/**", (r) => r.fulfill(json({})));
-  await page.route("**/api/v1/context/me", (r) => r.fulfill(json(ctx)));
+  await page.route("**/api/v1/context/me", (r) =>
+    r.fulfill(
+      json({
+        ...ctx,
+        active_role_code: role,
+        memberships: [{ tenant_id: "t1", tenant_name: "Northstar Retail", role_code: role }],
+      }),
+    ),
+  );
   await page.route("**/api/v1/stores", (r) => r.fulfill(json([store])));
   await page.route(`**/api/v1/stores/${STORE}`, (r) => r.fulfill(json(store)));
   await page.route("**/api/v1/console/people**", (r) => {
@@ -105,7 +113,7 @@ async function darkAxe(page: Page, label: string): Promise<void> {
 }
 
 test("audit: the actor name sits beside the short id", async ({ page, t }) => {
-  const asked = await mockBase(page);
+  const asked = await mockBase(page, 200, "owner");
   await page.route("**/api/v1/audit/events**", (r) => r.fulfill(json(events)));
   await page.goto("/audit");
   await page.getByRole("button", { name: t("filter.apply"), exact: true }).click();

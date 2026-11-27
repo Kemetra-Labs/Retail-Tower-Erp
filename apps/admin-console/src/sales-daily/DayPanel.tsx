@@ -12,7 +12,7 @@
  */
 import { SectionIndex } from "@/components/SectionIndex";
 import { useT } from "@/i18n";
-import { type SalesKpis, metricDefinition } from "@/metrics/metricRegistry";
+import { type SalesKpis, isSystemMetric, metricDefinition } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId, useState } from "react";
 import { Link } from "react-router";
@@ -39,7 +39,10 @@ function pickedRow(model: ReportModel, chosen: string | null): DayRow | undefine
   );
 }
 
-function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
+function DayFigures({
+  row,
+  showSystem,
+}: Readonly<{ row: DayRow; showSystem: boolean }>): React.JSX.Element {
   const t = useT();
   // The panel shows what the table shows: a day the read lacks is Unknown (with the
   // not-begun note when it has not begun); a day the read carries shows its served
@@ -59,13 +62,19 @@ function DayFigures({ row }: Readonly<{ row: DayRow }>): React.JSX.Element {
       {row.state === "not-begun" ? (
         <p className="daily-report__hint">{t("salesDaily.day.notBegunNote")}</p>
       ) : null}
-      <FigureList kpis={row.kpis} />
+      <FigureList kpis={row.kpis} showSystem={showSystem} />
     </>
   );
 }
 
-function FigureList({ kpis }: Readonly<{ kpis: SalesKpis }>): React.JSX.Element {
+function FigureList({
+  kpis,
+  showSystem,
+}: Readonly<{ kpis: SalesKpis; showSystem: boolean }>): React.JSX.Element {
   const t = useT();
+  const statusMetrics = showSystem
+    ? STATUS_METRICS
+    : STATUS_METRICS.filter((m) => !isSystemMetric(m));
   return (
     <dl className="daily-day__figures">
       {MONEY_METRICS.map((metric) => (
@@ -76,7 +85,7 @@ function FigureList({ kpis }: Readonly<{ kpis: SalesKpis }>): React.JSX.Element 
           </dd>
         </div>
       ))}
-      {STATUS_METRICS.map((metric) => (
+      {statusMetrics.map((metric) => (
         <div key={metric}>
           <dt>{t(metricDefinition(metric).labelKey)}</dt>
           <dd>
@@ -92,11 +101,13 @@ export function DayPanel({
   model,
   storeId,
   position,
+  showSystem = true,
 }: Readonly<{
   model: ReportModel;
   /** The store of a one-store read; its Sales link needs one (a scope has none). */
   storeId: string | null;
   position: number;
+  showSystem?: boolean;
 }>): React.JSX.Element | null {
   const t = useT();
   const headingId = useId();
@@ -133,7 +144,7 @@ export function DayPanel({
               <span className="daily-table__mark"> {t(STATE_MARK[row.state])}</span>
             )}
           </p>
-          <DayFigures row={row} />
+          <DayFigures row={row} showSystem={showSystem} />
         </div>
         <ul className="daily-day__links">
           {storeId ? (

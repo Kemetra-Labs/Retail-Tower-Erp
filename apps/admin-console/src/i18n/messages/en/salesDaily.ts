@@ -32,6 +32,8 @@ export const salesDaily: MessagesOf<typeof ar> = {
     "Sync state, ERPNext posting state and shift closes per business day",
   "salesDaily.table.status.hint":
     "Sync and ERP states are the state now (as of the read) of each day's received sales, not a backlog on that day.",
+  "salesDaily.table.shifts.caption": "Shift closes per business day",
+  "salesDaily.table.shifts.hint": "Shift closes recorded for each business day.",
   "salesDaily.col.day": "Business day",
   "salesDaily.row.notBegun": "(not yet begun)",
   "salesDaily.row.total": "Range total",

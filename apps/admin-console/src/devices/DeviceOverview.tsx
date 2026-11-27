@@ -7,6 +7,7 @@
  * unsent sales as of its last heartbeat; its read failing never fails this tab.
  */
 import { DetailGrid, DetailPanel, LedgerField, PanelBody } from "@/components/DetailPanel";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
 import { LastSeen } from "./DeviceParts";
@@ -45,15 +46,19 @@ function Expiry({ device, timeZone, now }: Readonly<DeviceViewProps>): React.JSX
 export function DeviceOverview(props: Readonly<DeviceViewProps>): React.JSX.Element {
   const t = useT();
   const { device, storeName, timeZone } = props;
-  const saleQueue = useDeviceSaleQueue(useDeviceScope(), device.deviceId);
+  const scope = useDeviceScope();
+  const showSystem = canSeeSystemDetail(scope.role);
+  const saleQueue = useDeviceSaleQueue(scope, device.deviceId, showSystem);
   return (
     <DetailGrid>
       <DetailPanel>
         <PanelBody>
           <dl className="surface__detail">
-            <Field label={t("devices.field.deviceId")} mono>
-              <bdi dir="ltr">{device.deviceId}</bdi>
-            </Field>
+            {showSystem ? (
+              <Field label={t("devices.field.deviceId")} mono>
+                <bdi dir="ltr">{device.deviceId}</bdi>
+              </Field>
+            ) : null}
             <Field label={t("devices.field.label")}>
               {device.label ? (
                 <bdi dir="auto">{device.label}</bdi>
@@ -82,7 +87,7 @@ export function DeviceOverview(props: Readonly<DeviceViewProps>): React.JSX.Elem
           <p className="content__sub">{t("devices.lastSeen.notHealth")}</p>
         </PanelBody>
       </DetailPanel>
-      <SaleQueuePanel state={saleQueue} timeZone={timeZone} />
+      {showSystem ? <SaleQueuePanel state={saleQueue} timeZone={timeZone} /> : null}
     </DetailGrid>
   );
 }

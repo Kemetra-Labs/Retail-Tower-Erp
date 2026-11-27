@@ -6,6 +6,8 @@ import { GatedButton } from "@/components/GatedButton";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
+import { SystemDetailNoAccess } from "@/components/SystemDetailNoAccess";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { newIdempotencyKey } from "@/lib/idempotency-key";
 import type { NegativeOnHandItem, StockSnapshotStatus } from "@/lib/stock-discrepancy-queries";
@@ -337,17 +339,27 @@ function StoreView({
 
 export function StockDiscrepancyStore(): React.JSX.Element {
   const { storeId } = useParams();
+  const { scope, role } = useDiscrepancyScope();
+  if (!scope.tenantId) return <TenantScopePrompt />;
+  if (!canSeeSystemDetail(role)) return <SystemDetailNoAccess />;
   return (
     <>
       {/* A deep link to another store's view never switches scope (RT-268). */}
       <ScopeMismatchBanner storeId={storeId} />
-      <StoreBody storeId={storeId} />
+      <StoreBody storeId={storeId} scope={scope} role={role} />
     </>
   );
 }
 
-function StoreBody({ storeId }: Readonly<{ storeId: string | undefined }>): React.JSX.Element {
-  const { scope, role } = useDiscrepancyScope();
+function StoreBody({
+  storeId,
+  scope,
+  role,
+}: Readonly<{
+  storeId: string | undefined;
+  scope: ReturnType<typeof useDiscrepancyScope>["scope"];
+  role: string | null;
+}>): React.JSX.Element {
   const data = useStoreNegativeOnHand(scope, storeId);
 
   if (!scope.tenantId) return <TenantScopePrompt />;

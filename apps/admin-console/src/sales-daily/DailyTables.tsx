@@ -20,6 +20,7 @@ import {
   METRIC_IDS,
   type MetricId,
   type SalesKpis,
+  isSystemMetric,
   metricDefinition,
 } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
@@ -46,20 +47,24 @@ interface TableSpec {
   cell: (kpis: SalesKpis | null, metric: MetricId) => React.ReactNode;
 }
 
-const TABLES: readonly TableSpec[] = [
-  {
-    captionKey: "salesDaily.table.money.caption",
-    hintKey: "salesDaily.table.money.hint",
-    metrics: MONEY_METRICS,
-    cell: (kpis, metric) => <MoneyCell kpis={kpis} metric={metric as MoneyMetric} />,
-  },
-  {
-    captionKey: "salesDaily.table.status.caption",
-    hintKey: "salesDaily.table.status.hint",
-    metrics: STATUS_METRICS,
-    cell: (kpis, metric) => <StatusCell kpis={kpis} metric={metric} />,
-  },
-];
+function tablesFor(showSystem: boolean): readonly TableSpec[] {
+  return [
+    {
+      captionKey: "salesDaily.table.money.caption",
+      hintKey: "salesDaily.table.money.hint",
+      metrics: MONEY_METRICS,
+      cell: (kpis, metric) => <MoneyCell kpis={kpis} metric={metric as MoneyMetric} />,
+    },
+    {
+      captionKey: showSystem
+        ? "salesDaily.table.status.caption"
+        : "salesDaily.table.shifts.caption",
+      hintKey: showSystem ? "salesDaily.table.status.hint" : "salesDaily.table.shifts.hint",
+      metrics: showSystem ? STATUS_METRICS : STATUS_METRICS.filter((m) => !isSystemMetric(m)),
+      cell: (kpis, metric) => <StatusCell kpis={kpis} metric={metric} />,
+    },
+  ];
+}
 
 function DailyTable({
   spec,
@@ -216,13 +221,14 @@ function ReportContext({
 }
 
 /** What each column counts, from the console metric registry (RT-819). */
-function Definitions(): React.JSX.Element {
+function Definitions({ showSystem }: Readonly<{ showSystem: boolean }>): React.JSX.Element {
   const t = useT();
+  const ids = showSystem ? METRIC_IDS : METRIC_IDS.filter((id) => !isSystemMetric(id));
   return (
     <details className="daily-report__about">
       <summary>{t("salesDaily.about")}</summary>
       <dl>
-        {METRIC_IDS.map((id) => {
+        {ids.map((id) => {
           const def = metricDefinition(id);
           return (
             <div key={id}>
@@ -243,14 +249,17 @@ export function DailyReport({
   storeName,
   storeId,
   readStores,
+  showSystem = true,
 }: Readonly<{
   model: ReportModel;
   storeName: string;
   /** The store of a one-store read, for the day panel's Sales link; null for a scope. */
   storeId: string | null;
   readStores: number;
+  showSystem?: boolean;
 }>): React.JSX.Element {
   const contextId = useId();
+  const tables = tablesFor(showSystem);
   return (
     <div className="daily-report">
       <div className="daily-report__main">
@@ -262,13 +271,17 @@ export function DailyReport({
               readStores={readStores}
               id={contextId}
             />
-            <ExportButton model={model} storeName={model.scope === "store" ? storeName : null} />
+            <ExportButton
+              model={model}
+              storeName={model.scope === "store" ? storeName : null}
+              showSystem={showSystem}
+            />
             <DailyChart model={model} badge={<SectionIndex position={1} />} />
           </div>
         </section>
-        <DayPanel model={model} storeId={storeId} position={2} />
+        <DayPanel model={model} storeId={storeId} position={2} showSystem={showSystem} />
       </div>
-      {TABLES.map((spec, index) => (
+      {tables.map((spec, index) => (
         <DailyTable
           key={spec.captionKey}
           spec={spec}
@@ -278,7 +291,7 @@ export function DailyReport({
           position={index + 3}
         />
       ))}
-      <Definitions />
+      <Definitions showSystem={showSystem} />
     </div>
   );
 }

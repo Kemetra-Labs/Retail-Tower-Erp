@@ -24,6 +24,7 @@ import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { DetailPanel } from "@/components/DetailPanel";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, type T, formatNumber, useT } from "@/i18n";
 import type { ShipmentTransfer, ShipmentTransferFilter } from "@/lib/inventory-queries";
 import { useState } from "react";
@@ -58,24 +59,27 @@ import "./transfers.css";
 
 type StoreNames = ReadonlyMap<string, string>;
 
-function columns(t: T): { key: string; header: string }[] {
-  return [
+function columns(t: T, showSystem: boolean): { key: string; header: string }[] {
+  const cols = [
     { key: "created", header: t("transfers.list.col.created") },
     { key: "route", header: t("transfers.list.col.route") },
     { key: "state", header: t("transfers.list.col.state") },
     { key: "lines", header: t("transfers.list.col.lines") },
     { key: "receipts", header: t("transfers.list.col.receipts") },
-    { key: "dispatchErp", header: t("transfers.list.col.dispatchErp") },
   ];
+  if (showSystem) cols.push({ key: "dispatchErp", header: t("transfers.list.col.dispatchErp") });
+  return cols;
 }
 
 function TransferRow({
   transfer,
   names,
+  showSystem,
   onOpen,
 }: Readonly<{
   transfer: ShipmentTransfer;
   names: StoreNames;
+  showSystem: boolean;
   onOpen: (id: string) => void;
 }>): React.JSX.Element {
   const t = useT();
@@ -106,9 +110,11 @@ function TransferRow({
       <td className="num">
         <bdi dir="ltr">{formatNumber(transfer.receiptCount)}</bdi>
       </td>
-      <td>
-        <LegBadge state={transfer.dispatchIntegrationState} />
-      </td>
+      {showSystem ? (
+        <td>
+          <LegBadge state={transfer.dispatchIntegrationState} />
+        </td>
+      ) : null}
     </tr>
   );
 }
@@ -207,17 +213,19 @@ function ListBody({
   list,
   filtered,
   names,
+  showSystem,
   onOpen,
   onReset,
 }: Readonly<{
   list: PagedState<ShipmentTransfer>;
   filtered: boolean;
   names: StoreNames;
+  showSystem: boolean;
   onOpen: (id: string) => void;
   onReset: () => void;
 }>): React.JSX.Element {
   const t = useT();
-  const cols = columns(t);
+  const cols = columns(t, showSystem);
   const caption = t("transfers.list.caption");
   if (list.isLoading) {
     return (
@@ -289,7 +297,13 @@ function ListBody({
         </thead>
         <tbody>
           {list.rows.map((transfer) => (
-            <TransferRow key={transfer.id} transfer={transfer} names={names} onOpen={onOpen} />
+            <TransferRow
+              key={transfer.id}
+              transfer={transfer}
+              names={names}
+              showSystem={showSystem}
+              onOpen={onOpen}
+            />
           ))}
         </tbody>
       </CaptionedTable>
@@ -357,6 +371,7 @@ function TransfersView({ scope }: Readonly<{ scope: InventoryScope }>): React.JS
           list={list}
           filtered={hasFilter(filter)}
           names={names}
+          showSystem={canSeeSystemDetail(scope.role)}
           onOpen={setOpenId}
           onReset={() => setFilter({})}
         />

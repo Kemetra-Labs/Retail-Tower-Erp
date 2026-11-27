@@ -398,6 +398,7 @@ export const devices = {
   "devices.codes.col.kind": "النوع",
   "devices.codes.col.store": "المتجر",
   "devices.codes.col.replaces": "يحلّ محل",
+  "devices.history.openLinked": "عرض الجهاز المرتبط",
   "devices.codes.col.expires": "تنتهي صلاحيته",
   "devices.codes.col.actions": "إجراء",
   "devices.codes.kind.pair": "ربط جديد",

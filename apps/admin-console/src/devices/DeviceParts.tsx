@@ -20,11 +20,16 @@ export function LtrTime({
   );
 }
 
-/** The terminal label, or a quiet "No label"; the id is machine data (UX-11). */
+/** The terminal label, or a quiet "No label"; the id is machine data (UX-11, D10a). */
 export function DeviceName({
   label,
   deviceId,
-}: Readonly<{ label: string | null; deviceId: string }>): React.JSX.Element {
+  showDeviceId = true,
+}: Readonly<{
+  label: string | null;
+  deviceId: string;
+  showDeviceId?: boolean;
+}>): React.JSX.Element {
   const t = useT();
   return (
     <span className="device-name">
@@ -33,9 +38,11 @@ export function DeviceName({
       ) : (
         <span className="device-quiet">{t("devices.list.unlabelled")}</span>
       )}
-      <bdi dir="ltr" className="device-name__id">
-        {deviceId}
-      </bdi>
+      {showDeviceId ? (
+        <bdi dir="ltr" className="device-name__id">
+          {deviceId}
+        </bdi>
+      ) : null}
     </span>
   );
 }

@@ -10,7 +10,12 @@ import { csvFilename, downloadCsv } from "./downloadCsv";
 export function ExportButton({
   model,
   storeName,
-}: Readonly<{ model: ReportModel; storeName: string | null }>): React.JSX.Element {
+  showSystem = true,
+}: Readonly<{
+  model: ReportModel;
+  storeName: string | null;
+  showSystem?: boolean;
+}>): React.JSX.Element {
   const t = useT();
   const locale = useLocale();
   const from = model.rows[0]?.date ?? "";
@@ -20,7 +25,12 @@ export function ExportButton({
       <button
         type="button"
         className="btn-secondary"
-        onClick={() => downloadCsv(csvFilename(from, to), buildCsv(model, { locale, storeName }))}
+        onClick={() =>
+          downloadCsv(
+            csvFilename(from, to),
+            buildCsv(model, { locale, storeName, includeSystemDetail: showSystem }),
+          )
+        }
       >
         {t("salesDaily.export.button")}
       </button>

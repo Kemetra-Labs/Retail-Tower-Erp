@@ -1,4 +1,9 @@
-import { isPlatformAdminRole, roleCodeOf, storeAccessOf } from "@/context/effectiveRole";
+import {
+  canSeeSystemDetail,
+  isPlatformAdminRole,
+  roleCodeOf,
+  storeAccessOf,
+} from "@/context/effectiveRole";
 import { describe, expect, test } from "vitest";
 
 /**
@@ -65,4 +70,21 @@ describe("storeAccessOf", () => {
     expect(storeAccessOf({ user: plain, active_tenant: tenant }, specific)).toBe("specific");
     expect(storeAccessOf({ user: plain, active_tenant: tenant }, undefined)).toBeUndefined();
   });
+});
+
+describe("canSeeSystemDetail (RT-1612 D10)", () => {
+  test.each(["owner", "tenant_admin"])("allows %s", (role) => {
+    expect(canSeeSystemDetail(role)).toBe(true);
+  });
+
+  test("allows platform admin inside a tenant via roleCodeOf", () => {
+    expect(canSeeSystemDetail(roleCodeOf({ user: admin, active_tenant: tenant }))).toBe(true);
+  });
+
+  test.each(["store_manager", "store_staff", "cashier", "auditor", "", null, undefined])(
+    "hides system detail from %s",
+    (role) => {
+      expect(canSeeSystemDetail(role)).toBe(false);
+    },
+  );
 });

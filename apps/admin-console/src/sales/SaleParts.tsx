@@ -102,16 +102,19 @@ export function SaleNumber({ value }: Readonly<{ value: string | null }>): React
 }
 
 /** Status chips: text carries the meaning; colour only reinforces it. */
-export function StatusChips({ sale }: Readonly<{ sale: SaleItem }>): React.JSX.Element {
+export function StatusChips({
+  sale,
+  showSystem = true,
+}: Readonly<{ sale: SaleItem; showSystem?: boolean }>): React.JSX.Element | null {
   const t = useT();
+  const hasReturn = sale.returnState !== "none";
+  if (!showSystem && !sale.voided && !hasReturn) return null;
   return (
     <span className="sale-chips">
-      <span className={syncChipClass(sale)}>{t(syncStatusKey(sale))}</span>
+      {showSystem ? <span className={syncChipClass(sale)}>{t(syncStatusKey(sale))}</span> : null}
       {sale.voided ? <span className="badge badge--warning">{t("sales.chip.voided")}</span> : null}
-      {sale.returnState === "none" ? null : (
-        <span className={returnChipClass(sale)}>{t(returnStateKey(sale))}</span>
-      )}
-      <ErpChip state={sale.erpPostingState} />
+      {hasReturn ? <span className={returnChipClass(sale)}>{t(returnStateKey(sale))}</span> : null}
+      {showSystem ? <ErpChip state={sale.erpPostingState} /> : null}
     </span>
   );
 }

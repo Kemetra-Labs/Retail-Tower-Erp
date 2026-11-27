@@ -95,11 +95,15 @@ export interface DeviceHealthIndex {
 
 const EMPTY = new Map<string, DeviceHealthView>();
 
-export function useDeviceHealthIndex(scope: ScopeKey, filters: DeviceFilters): DeviceHealthIndex {
+export function useDeviceHealthIndex(
+  scope: ScopeKey,
+  filters: DeviceFilters,
+  enabled = true,
+): DeviceHealthIndex {
   const query = healthListQuery(filters);
   const result = useQuery({
     queryKey: ["devices", "health", "list", scope.tenantId, scope.activeStoreId, query],
-    enabled: Boolean(scope.tenantId),
+    enabled: enabled && Boolean(scope.tenantId),
     queryFn: () => readAllPages(query).then(healthIndex),
     retry: false,
   });
@@ -112,11 +116,15 @@ export function useDeviceHealthIndex(scope: ScopeKey, filters: DeviceFilters): D
 }
 
 /** One device's sale-queue state, for the detail Overview. */
-export function useDeviceSaleQueue(scope: ScopeKey, deviceId: string | undefined): SaleQueueState {
-  const enabled = Boolean(scope.tenantId) && isUuid(deviceId);
+export function useDeviceSaleQueue(
+  scope: ScopeKey,
+  deviceId: string | undefined,
+  enabled = true,
+): SaleQueueState {
+  const active = enabled && Boolean(scope.tenantId) && isUuid(deviceId);
   const result = useQuery({
     queryKey: ["devices", "health", "detail", scope.tenantId, scope.activeStoreId, deviceId],
-    enabled,
+    enabled: active,
     queryFn: () => consoleGetDeviceHealth(String(deviceId)).then(dataOrThrow),
     retry: false,
   });

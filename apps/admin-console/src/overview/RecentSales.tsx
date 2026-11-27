@@ -14,7 +14,10 @@ import { Link } from "react-router";
 import { PanelError, PanelSkeleton } from "./PanelParts";
 import type { RecentSalesPage, RecentSalesState } from "./useGlancePanels";
 
-function Rows({ page }: Readonly<{ page: RecentSalesPage }>): React.JSX.Element {
+function Rows({
+  page,
+  showErp,
+}: Readonly<{ page: RecentSalesPage; showErp: boolean }>): React.JSX.Element {
   const t = useT();
   const captionId = useId();
   return (
@@ -32,7 +35,7 @@ function Rows({ page }: Readonly<{ page: RecentSalesPage }>): React.JSX.Element 
             <th scope="col" className="glance-table__num">
               {t("sales.list.col.total")}
             </th>
-            <th scope="col">ERPNext</th>
+            {showErp ? <th scope="col">ERPNext</th> : null}
           </tr>
         </thead>
         <tbody>
@@ -52,9 +55,11 @@ function Rows({ page }: Readonly<{ page: RecentSalesPage }>): React.JSX.Element 
               <td className="glance-table__num">
                 <Money value={sale.posTotal} currency={sale.currencyCode} />
               </td>
-              <td>
-                <ErpChip state={sale.erpPostingState} />
-              </td>
+              {showErp ? (
+                <td>
+                  <ErpChip state={sale.erpPostingState} />
+                </td>
+              ) : null}
             </tr>
           ))}
         </tbody>
@@ -63,7 +68,10 @@ function Rows({ page }: Readonly<{ page: RecentSalesPage }>): React.JSX.Element 
   );
 }
 
-function Body({ state }: Readonly<{ state: RecentSalesState }>): React.JSX.Element | null {
+function Body({
+  state,
+  showErp,
+}: Readonly<{ state: RecentSalesState; showErp: boolean }>): React.JSX.Element | null {
   const t = useT();
   switch (state.status) {
     case "needs-store":
@@ -84,7 +92,7 @@ function Body({ state }: Readonly<{ state: RecentSalesState }>): React.JSX.Eleme
       return state.data.sales.length === 0 ? (
         <p className="glance-quiet section-panel__body">{t("overview.recent.none")}</p>
       ) : (
-        <Rows page={state.data} />
+        <Rows page={state.data} showErp={showErp} />
       );
     default:
       return null;
@@ -93,7 +101,8 @@ function Body({ state }: Readonly<{ state: RecentSalesState }>): React.JSX.Eleme
 
 export function RecentSales({
   state,
-}: Readonly<{ state: RecentSalesState }>): React.JSX.Element | null {
+  showErp = true,
+}: Readonly<{ state: RecentSalesState; showErp?: boolean }>): React.JSX.Element | null {
   const t = useT();
   if (state.status === "hidden") return null;
   return (
@@ -108,7 +117,7 @@ export function RecentSales({
           {t("overview.recent.all")}
         </Link>
       </div>
-      <Body state={state} />
+      <Body state={state} showErp={showErp} />
     </div>
   );
 }

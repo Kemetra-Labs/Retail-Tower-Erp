@@ -35,7 +35,11 @@ function renderSearch(): void {
 }
 
 const withTenant = {
-  context: { active_tenant: { id: "t1", name: "Northstar Retail" }, active_store: null },
+  context: {
+    active_tenant: { id: "t1", name: "Northstar Retail" },
+    active_store: null,
+    active_role_code: "owner",
+  },
 };
 
 function apply(): void {
@@ -250,7 +254,11 @@ describe("AuditSearch state matrix", () => {
 
     // Switch tenant: the provider now reports a different active tenant.
     activeContext.mockReturnValue({
-      context: { active_tenant: { id: "t2", name: "Helios Markets" }, active_store: null },
+      context: {
+        active_tenant: { id: "t2", name: "Helios Markets" },
+        active_store: null,
+        active_role_code: "owner",
+      },
     });
     rerender(
       <Tree>

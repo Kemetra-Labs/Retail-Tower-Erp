@@ -370,6 +370,7 @@ export const devices: MessagesOf<typeof ar> = {
   "devices.codes.col.kind": "Kind",
   "devices.codes.col.store": "Store",
   "devices.codes.col.replaces": "Replaces",
+  "devices.history.openLinked": "View linked device",
   "devices.codes.col.expires": "Expires",
   "devices.codes.col.actions": "Action",
   "devices.codes.kind.pair": "New pairing",
