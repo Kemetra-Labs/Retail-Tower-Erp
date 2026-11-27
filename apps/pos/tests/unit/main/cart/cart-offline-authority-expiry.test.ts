@@ -195,13 +195,32 @@ describe('offline-admitted session (handler level)', () => {
     expect(first.kind).toBe('ok');
   });
 
-  it('an online-confirmed session is never bound by the offline expiry', async () => {
+  // RT-309 (10763 D6): an online-confirmed session that lost connectivity is
+  // bounded too, by the bound its latest admission stamped (here the same
+  // instants). Before RT-309 it was never bounded.
+  it('RT-309: an online-confirmed session past its bound is refused offline_authority_expired', async () => {
     const session = offlineSession();
     session.authority = 'online_confirmed';
     const w = build(session);
+    await expect(w.handlers.create({ idempotency_key: 'create-exp-0010' })).resolves.toMatchObject({
+      kind: 'ok',
+    });
+    expire(w, 'mono');
+    await expect(w.handlers.create({ idempotency_key: 'create-exp-0012' })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'offline_authority_expired',
+    });
+  });
+
+  it('an online-confirmed session that carries no bound at all is not bounded', async () => {
+    const session = offlineSession();
+    session.authority = 'online_confirmed';
+    delete session.authority_valid_until_ms;
+    delete session.authority_deadline_mono_ms;
+    const w = build(session);
     expire(w, 'wall');
     expire(w, 'mono');
-    await expect(w.handlers.create({ idempotency_key: 'create-exp-0010' })).resolves.toMatchObject({
+    await expect(w.handlers.create({ idempotency_key: 'create-exp-0013' })).resolves.toMatchObject({
       kind: 'ok',
     });
   });

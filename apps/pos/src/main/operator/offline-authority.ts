@@ -1,8 +1,10 @@
+import { OFFLINE_GRANT_MAX_TTL_MS } from './offline-grant-store.js';
 import type { OperatorSessionRecord } from './session-manager.js';
 
 /**
  * RT-308 (RT-113 P3, 10763 D6) — the bound on a session admitted OFFLINE from a
- * sealed grant.
+ * sealed grant. RT-309 (D6): an online-confirmed cashier session is bounded the
+ * same way, by the bound its latest admission stamped ({@link onlineAuthorityBound}).
  *
  * Such a session carries its grant's expiry twice: as a wall-clock instant and
  * as the same instant on the monotonic clock (`performance.now()`), taken at
@@ -44,16 +46,85 @@ function isFiniteNumber(v: unknown): v is number {
   return typeof v === 'number' && Number.isFinite(v);
 }
 
+/** The admission fields an online bound is computed from. */
+export interface OnlineAdmissionBoundInput {
+  offline_grace_seconds: number;
+  admission_ttl_seconds: number;
+  /** When the request that got this `admitted` was SENT (monotonic ms); now when absent. */
+  admission_requested_at_ms?: number | undefined;
+}
+
+/** A bound on both clocks (the session's `authority_valid_until_ms` / `authority_deadline_mono_ms`). */
+export interface AuthorityBound {
+  valid_until_ms: number;
+  deadline_mono_ms: number;
+}
+
+function isNonNegativeFinite(v: unknown): v is number {
+  return isFiniteNumber(v) && v >= 0;
+}
+
 /**
- * True when an offline-admitted session's authority has expired. A session
- * whose authority is not `offline_grant` is never expired here. An
- * offline-admitted session that lacks either bound counts as expired.
+ * RT-309 (10763 D6; RT-308 scope note c13973 item 1) — the bound of an
+ * online-confirmed cashier session, stamped at each `admitted` (sign-in,
+ * takeover, heartbeat, reconcile) with `now` = the time the answer was
+ * received.
+ *
+ * D6: "each session carries `authority_valid_until`, equal to its grant's
+ * expiry". The grant written from this same `admitted` expires at
+ * `received + min(offline_grace, 72 h)` (`offline-grant-store.ts`), so that is
+ * the bound. Derivation (stated in the PR for the owner): the bound is never
+ * earlier than the server admission's own deadline (`sent + TTL`). The server
+ * still holds this cashier's live admission until then, and without the floor
+ * grace 0 (OD8, "offline disabled") or a grace shorter than the heartbeat
+ * interval would block a healthy, connected till between two heartbeats.
+ *
+ * Any unreadable input fails closed: the bound is `now` (expired at once).
+ */
+export function onlineAuthorityBound(
+  admission: OnlineAdmissionBoundInput,
+  now: AuthorityClock,
+): AuthorityBound {
+  const expired = { valid_until_ms: now.wall_ms, deadline_mono_ms: now.mono_ms };
+  const grace = admission.offline_grace_seconds;
+  const ttl = admission.admission_ttl_seconds;
+  const sentAt = admission.admission_requested_at_ms ?? now.mono_ms;
+  if (!isNonNegativeFinite(grace) || !isNonNegativeFinite(ttl) || !isFiniteNumber(sentAt)) {
+    return expired;
+  }
+  if (!isFiniteNumber(now.wall_ms) || !isFiniteNumber(now.mono_ms)) return expired;
+  const graceLeftMs = Math.min(grace * 1000, OFFLINE_GRANT_MAX_TTL_MS);
+  const admissionLeftMs = sentAt + ttl * 1000 - now.mono_ms;
+  const leftMs = Math.max(0, graceLeftMs, admissionLeftMs);
+  return { valid_until_ms: now.wall_ms + leftMs, deadline_mono_ms: now.mono_ms + leftMs };
+}
+
+/** True when the session carries no bound at all (neither clock). */
+function unbounded(session: OfflineAuthorityFields): boolean {
+  return (
+    session.authority_valid_until_ms === undefined &&
+    session.authority_deadline_mono_ms === undefined
+  );
+}
+
+/**
+ * True when the session's authority has expired. An `offline_grant` session
+ * that lacks either bound counts as expired. RT-309 (D6): an
+ * `online_confirmed` session is bounded by the bound its latest admission
+ * stamped ({@link onlineAuthorityBound}); one that carries no bound at all
+ * (none is ever created so by the SessionManager) is not bounded, and one with
+ * a partial or unreadable bound counts as expired. A session with no authority
+ * (manager / admin) is never expired here.
  */
 export function offlineAuthorityExpired(
   session: OfflineAuthorityFields,
   now: AuthorityClock,
 ): boolean {
-  if (session.authority !== 'offline_grant') return false;
+  if (session.authority === 'online_confirmed') {
+    if (unbounded(session)) return false;
+  } else if (session.authority !== 'offline_grant') {
+    return false;
+  }
   const wall = session.authority_valid_until_ms;
   const mono = session.authority_deadline_mono_ms;
   if (!isFiniteNumber(wall) || !isFiniteNumber(mono)) return true;

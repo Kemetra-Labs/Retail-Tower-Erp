@@ -54,20 +54,33 @@ describe('offlineAuthorityExpired', () => {
     expect(offlineAuthorityExpired(offline(), { wall_ms: Number.NaN, mono_ms: 0 })).toBe(true);
   });
 
-  it.each([
-    ['online_confirmed', { authority: 'online_confirmed' }],
-    ['absent', {}],
-  ] as [string, Partial<OfflineAuthorityFields>][])(
-    'never bounds a session whose authority is %s',
-    (_label, authority) => {
-      expect(
-        offlineAuthorityExpired(
-          { ...authority, authority_valid_until_ms: 0, authority_deadline_mono_ms: 0 },
-          { wall_ms: WALL, mono_ms: MONO },
-        ),
-      ).toBe(false);
-    },
-  );
+  it('never bounds a session with no authority (a manager / admin session)', () => {
+    expect(
+      offlineAuthorityExpired(
+        { authority_valid_until_ms: 0, authority_deadline_mono_ms: 0 },
+        { wall_ms: WALL, mono_ms: MONO },
+      ),
+    ).toBe(false);
+  });
+
+  // RT-309 (D6): an online-confirmed session IS bounded by the bound its latest
+  // admission stamped (`online-authority-bound.test.ts`). One that carries no
+  // bound at all predates the stamp and is not bounded here.
+  it('bounds an online-confirmed session by its stamped bound', () => {
+    expect(
+      offlineAuthorityExpired(
+        {
+          authority: 'online_confirmed',
+          authority_valid_until_ms: 0,
+          authority_deadline_mono_ms: 0,
+        },
+        { wall_ms: WALL, mono_ms: MONO },
+      ),
+    ).toBe(true);
+    expect(
+      offlineAuthorityExpired({ authority: 'online_confirmed' }, { wall_ms: WALL, mono_ms: MONO }),
+    ).toBe(false);
+  });
 });
 
 describe('newSaleBlock', () => {
