@@ -1,0 +1,13 @@
+-- 0137_auth_tokens_current_connector_credential_idx — Jira RT-1362 S2 (follows 0136), `[GATED: migration]`
+-- (RT-1362 comments 19102 and 19107). At most ONE CURRENT unrevoked connector credential per registration: the
+-- 0021 one-unrevoked-credential rule, narrowed to credentials with no pending marker
+-- (`pending_rotation_request_id IS NULL`, 0136). Together with 0138 (at most one PENDING) it replaces
+-- `uq_auth_tokens_active_connector_credential`, which 0139 drops once both exist. Expiry is deliberately not in the
+-- predicate (now() is STABLE, not IMMUTABLE; the 0021 note).
+-- A dedicated single-statement CONCURRENTLY migration (precedents 0036, 0048, 0117, 0126): auth_tokens is read on
+-- every bearer lookup, and the build takes only SHARE UPDATE EXCLUSIVE, so token issue and lookup continue. The rows
+-- it covers already satisfy it: the 0021 index allows at most one unrevoked connector credential per registration.
+-- Deliberately NO `IF NOT EXISTS` (see 0117): an interrupted build can leave an INVALID index of this name, and a
+-- retry that skipped it would be recorded as applied while the index enforces nothing. With the plain form a retry
+-- fails until the operator runs `DROP INDEX CONCURRENTLY` on it: fail closed.
+CREATE UNIQUE INDEX CONCURRENTLY uq_auth_tokens_current_connector_credential ON auth_tokens (connector_registration_id) WHERE scope = 'connector' AND revoked_at IS NULL AND pending_rotation_request_id IS NULL;

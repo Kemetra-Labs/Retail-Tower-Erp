@@ -60,11 +60,14 @@ export const authTokens = pgTable("auth_tokens", {
    * (data-model.md Entity 2; research R1). FK → connector_registration(id)
    * ON DELETE RESTRICT.
    *
-   * At-most-one-active invariant: a partial UNIQUE
-   * `(connector_registration_id) WHERE scope='connector' AND revoked_at IS NULL`
-   * (declared in 0021) enforces at most one unrevoked connector credential per
-   * registration (FR-010). The predicate is IMMUTABLE — expiry is deliberately
-   * NOT in it (now() is STABLE, not IMMUTABLE; expiry is enforced at the guard).
+   * At-most-one-active invariant (RT-1362 S2, migrations 0137-0139, overlap
+   * rotation): per registration, at most ONE CURRENT unrevoked connector
+   * credential (`uq_auth_tokens_current_connector_credential`, no pending
+   * marker) plus at most ONE PENDING one
+   * (`uq_auth_tokens_pending_connector_credential`); they replace the 0021
+   * one-unrevoked-credential index (FR-010). The predicates are IMMUTABLE —
+   * expiry is deliberately NOT in them (now() is STABLE, not IMMUTABLE; expiry
+   * is enforced at the guard).
    *
    * The connector-token consistency CHECK (scope='connector' iff this is NOT
    * NULL) is a DEFERRED follow-up (R3) — a legacy unlinked connector token
@@ -74,6 +77,16 @@ export const authTokens = pgTable("auth_tokens", {
     () => connectorRegistration.id,
     { onDelete: "restrict" },
   ),
+  /**
+   * RT-1362 S2 (0136): the PENDING marker of an overlap `credential.rotate`.
+   * NULL is the registration's CURRENT credential; a value is the open rotation
+   * request that issued this credential as its pending replacement. Composite FK
+   * `(pending_rotation_request_id, tenant_id)` → `erp_provisioning_request (id,
+   * tenant_id)` ON DELETE RESTRICT and the CHECK `auth_tokens_pending_rotation_shape`
+   * (connector scope, linked to a registration) live in the migration (the FK
+   * is not declared here: `erp-provisioning.ts` imports this table).
+   */
+  pendingRotationRequestId: uuid("pending_rotation_request_id"),
   issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),

@@ -41,6 +41,10 @@ export const ERP_SYSTEM_ACTOR_USER_ID = "00000000-0000-7000-8000-000000001357";
 export const ERP_PROVISIONING_REQUEST_KINDS = ["tenant.provision", "store.provision", "credential.rotate"] as const;
 export type ErpProvisioningRequestKind = (typeof ERP_PROVISIONING_REQUEST_KINDS)[number];
 
+/** RT-1362 S2 (0136): what created a `credential.rotate` request (contract `ConnectorRotationRequest.trigger`). */
+export const ERP_CREDENTIAL_ROTATION_TRIGGERS = ["forced", "scheduled"] as const;
+export type ErpCredentialRotationTrigger = (typeof ERP_CREDENTIAL_ROTATION_TRIGGERS)[number];
+
 export const ERP_PROVISIONING_STATUSES = [
   "requested",
   "claimed",
@@ -112,8 +116,22 @@ export const erpProvisioningRequest = pgTable(
     terminalAt: timestamp("terminal_at", { withTimezone: true }),
     // RT-1389 (0112): the host that provisioned a `succeeded` request (the OD-10 count input).
     provisionedHostLabel: text("provisioned_host_label"),
+    // RT-1362 S2 (0136): a `credential.rotate` request's routed ERP host label (changeable while open, by an
+    // audited correction of a provisional adopted binding) and what created it. Both set exactly on that kind.
+    routedHostLabel: text("routed_host_label"),
+    rotationTrigger: text("rotation_trigger").$type<ErpCredentialRotationTrigger>(),
   },
   (t) => [
+    // RT-1362 S2 (0136): at most one OPEN `credential.rotate` request per registration.
+    uniqueIndex("uq_erp_provisioning_request_open_credential_rotate")
+      .on(t.connectorRegistrationId)
+      .where(
+        sql`${t.kind} = 'credential.rotate' AND ${t.status} NOT IN ('succeeded', 'failed_permanent', 'compensated', 'cancelled')`,
+      ),
+    check(
+      "erp_provisioning_request_rotation_shape",
+      sql`(${t.kind} = 'credential.rotate') = (${t.routedHostLabel} IS NOT NULL) AND (${t.kind} = 'credential.rotate') = (${t.rotationTrigger} IS NOT NULL) AND (${t.kind} <> 'credential.rotate' OR ${t.connectorRegistrationId} IS NOT NULL) AND (${t.routedHostLabel} IS NULL OR (${t.routedHostLabel} ~ '^[a-z0-9][a-z0-9-]*$' AND length(${t.routedHostLabel}) <= 64)) AND (${t.rotationTrigger} IS NULL OR ${t.rotationTrigger} IN ('forced', 'scheduled'))`,
+    ),
     uniqueIndex("uq_erp_provisioning_request_active_tenant_provision")
       .on(t.tenantId)
       .where(

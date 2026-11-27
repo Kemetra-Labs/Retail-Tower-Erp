@@ -26,7 +26,7 @@
  * retained for audit (FR-014). Policies live in the 0021 migration.
  */
 import { sql } from "drizzle-orm";
-import { check, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
+import { check, integer, pgTable, text, timestamp, unique, uuid } from "drizzle-orm/pg-core";
 import { tenants } from "./tenants";
 import { users } from "./users";
 
@@ -57,6 +57,16 @@ export const connectorRegistration = pgTable(
      * rows stay NULL; no backfill.
      */
     managedBy: text("managed_by"),
+    /**
+     * RT-1362 S2 (0136): the provisioner host of an ADOPTED registration
+     * (RT-1557), which has no succeeded `tenant.provision` to name its host.
+     * All three NULL (no binding) or all three set: `provisional` until the
+     * first credential call of a rotation routed to it confirms it, then
+     * `confirmed`; the revision starts at 1 and increments on each correction.
+     */
+    provisionerHostLabel: text("provisioner_host_label"),
+    provisionerHostBinding: text("provisioner_host_binding").$type<"provisional" | "confirmed">(),
+    provisionerHostBindingRevision: integer("provisioner_host_binding_revision"),
   },
   (t) => [
     check(
@@ -70,6 +80,10 @@ export const connectorRegistration = pgTable(
     check(
       "connector_registration_managed_by_valid",
       sql`${t.managedBy} IS NULL OR ${t.managedBy} = 'provisioner'`,
+    ),
+    check(
+      "connector_registration_provisioner_host_binding_valid",
+      sql`(${t.provisionerHostLabel} IS NULL) = (${t.provisionerHostBinding} IS NULL) AND (${t.provisionerHostLabel} IS NULL) = (${t.provisionerHostBindingRevision} IS NULL) AND (${t.provisionerHostLabel} IS NULL OR (${t.provisionerHostLabel} ~ '^[a-z0-9][a-z0-9-]*$' AND length(${t.provisionerHostLabel}) <= 64)) AND (${t.provisionerHostBinding} IS NULL OR ${t.provisionerHostBinding} IN ('provisional', 'confirmed')) AND (${t.provisionerHostBindingRevision} IS NULL OR ${t.provisionerHostBindingRevision} >= 1)`,
     ),
     unique("uq_connector_registration_tenant_env_site").on(
       t.tenantId,
