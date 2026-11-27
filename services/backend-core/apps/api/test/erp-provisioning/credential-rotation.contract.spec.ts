@@ -87,7 +87,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
     });
     const body = schema("RequestConnectorCredentialRotation");
     expect(body.additionalProperties).toBe(false);
-    expect(Object.keys(body.properties ?? {})).toEqual(["hostLabel"]);
+    expect(Object.keys(body.properties ?? {})).toEqual(["hostLabel", "expectedHostBindingRevision"]);
     expect(body.required ?? []).toEqual([]);
     expect((post(ROUTE).parameters ?? []).map((p) => p.$ref)).toEqual([
       "#/components/parameters/TenantId",
@@ -112,6 +112,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
       "site_not_bound",
       "host_mismatch",
       "host_not_bound",
+      "host_binding_stale",
     ]);
   });
 
@@ -130,7 +131,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
 
   it("does not widen the shared Error enum (the pinned Connector contract must stay green)", () => {
     const shared = (schema("Error").properties?.["error"] as unknown as { properties: { code: { enum: string[] } } }).properties.code.enum;
-    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "site_not_bound", "host_mismatch", "host_not_bound", "already_open"]) {
+    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "site_not_bound", "host_mismatch", "host_not_bound", "host_binding_stale", "already_open"]) {
       expect(shared).not.toContain(code);
     }
   });
@@ -139,7 +140,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
     const body = schema("ConnectorRotationRequest");
     expect(body.additionalProperties).toBe(false);
     expect([...(body.required ?? [])].sort()).toEqual(
-      ["hostBinding", "hostLabel", "instanceId", "kind", "outcome", "provisioningRequestId", "requestedAt", "tenantId", "trigger"],
+      ["hostBinding", "hostBindingRevision", "hostLabel", "instanceId", "kind", "outcome", "provisioningRequestId", "requestedAt", "tenantId", "trigger"],
     );
     expect(body.properties?.["hostBinding"]?.enum).toEqual(["provisional", "confirmed"]);
     expect(body.properties?.["outcome"]?.enum).toEqual(["requested", "already_open"]);
@@ -195,12 +196,22 @@ describe("RT-1362 S1 connectorIssueProvisionedCredential keeps its shape", () =>
     );
   });
 
-  it("documents the credential.rotate repeat rule next to the unchanged tenant.provision rule", () => {
+  it("documents the OVERLAP credential.rotate rule (RT-1362 c19107) next to the unchanged tenant.provision rule", () => {
     const text = (post(ISSUE_ROUTE).description ?? "").replace(/\s+/g, " ");
     expect(text).toMatch(/tenant\.provision` request, a REPEAT call for a credential that has never been presented/);
-    expect(text).toMatch(/`credential\.rotate` request/);
-    expect(text).toMatch(/never been presented \(the lost-response and failed-write recovery\)/);
-    expect(text).toMatch(/exactly one unrevoked credential/);
+    expect(text).toMatch(/`credential\.rotate` request \(1\.2\.0-draft, RT-1362, OVERLAP/);
+    expect(text).toMatch(/issues one PENDING credential and leaves the current one valid/);
+    expect(text).toMatch(/revokes the OLD credential server-side in the same transaction that first accepts a request authenticated with the pending one/);
+    expect(text).toMatch(/at most two unrevoked credentials/);
+    expect(text).not.toMatch(/exactly one unrevoked credential/);
     expect(schema("RequestKind").enum).toEqual(["tenant.provision", "store.provision", "credential.rotate"]);
+  });
+
+  it("states in the file description that posting never pauses and a failed rotation keeps the current credential", () => {
+    const info = (doc as unknown as { info: { description: string } }).info.description.replace(/\s+/g, " ");
+    expect(info).toMatch(/posting never pauses/);
+    expect(info).toMatch(/revokes its pending credential \(if any\) in the same transaction, the current credential stays the only unrevoked one/);
+    expect(info).toMatch(/a REPLAYED `claimed` acknowledgement .* is answered `409 lease_lost`/);
+    expect(info).toMatch(/FINAL lease id/);
   });
 });
