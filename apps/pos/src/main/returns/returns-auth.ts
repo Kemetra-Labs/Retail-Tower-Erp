@@ -33,6 +33,9 @@ export interface ReturnsSession {
   readonly terminal_id: string;
   /** RT-15 S4: printed on the return slip as "Paid by" (as on a sale receipt). */
   readonly display_name?: string;
+  /** Optional provider-neutral `users.id` when carried on the session directly. */
+  readonly user_id?: string | null;
+  readonly manager_user_id?: string | null;
 }
 
 /** An actor that passed the gate: who, in which session, with which role, where. */
@@ -40,6 +43,8 @@ export interface AuthorizedActor extends ReturnActor {
   readonly role: Role;
   /** RT-15 S4: the operator's display name, for the slip; absent when unknown. */
   readonly displayName?: string;
+  /** RT-1498 (0073): normalized lower-case `users.id` captured at admission when known. */
+  readonly actorUserId?: string;
 }
 
 /**
@@ -86,6 +91,11 @@ export interface ReturnsAuthorizerDeps {
    * snapshot is taken and at a recheck — never on a send path.
    */
   readonly getEnvelope: () => string | null;
+  /**
+   * RT-1498 (`0073_return_journal_origin`): normalized `users.id` of the live
+   * session when not carried on `ReturnsSession` directly (e.g. `operatorUserIdOf`).
+   */
+  readonly getActorUserId?: () => string | null;
 }
 
 /**
@@ -123,7 +133,17 @@ export function isReturnsRole(role: Role): boolean {
   return RETURN_ROLES.has(role);
 }
 
-function actorOf(session: ReturnsSession): AuthorizedActor {
+function normalizeUserId(value: string | null | undefined): string | undefined {
+  if (typeof value !== 'string') return undefined;
+  const trimmed = value.trim().toLowerCase();
+  return trimmed.length === 0 ? undefined : trimmed;
+}
+
+function actorOf(session: ReturnsSession, overrideUserId?: string | null): AuthorizedActor {
+  const actorUserId =
+    normalizeUserId(overrideUserId) ??
+    normalizeUserId(session.user_id) ??
+    normalizeUserId(session.manager_user_id);
   return {
     scope: Object.freeze({
       tenantId: session.tenant_id,
@@ -134,6 +154,7 @@ function actorOf(session: ReturnsSession): AuthorizedActor {
     operatorSessionId: session.operator_session_id,
     role: session.role,
     ...(session.display_name === undefined ? {} : { displayName: session.display_name }),
+    ...(actorUserId === undefined ? {} : { actorUserId }),
   };
 }
 
@@ -150,6 +171,7 @@ function scopeKey(scope: ReturnScope): string {
 function isSameActor(a: AuthorizedActor, b: AuthorizedActor): boolean {
   if (a.operatorId !== b.operatorId) return false;
   if (a.operatorSessionId !== b.operatorSessionId) return false;
+  if ((a.actorUserId ?? null) !== (b.actorUserId ?? null)) return false;
   return scopeKey(a.scope) === scopeKey(b.scope);
 }
 
@@ -163,7 +185,7 @@ export function createReturnsAuthorizer(deps: ReturnsAuthorizerDeps): ReturnsAut
     if (!deps.isEnabled()) return { kind: 'refused', reason: 'feature_disabled', actor: null };
     const session = deps.getSession();
     if (session === null) return { kind: 'refused', reason: 'no_session', actor: null };
-    const actor = actorOf(session);
+    const actor = actorOf(session, deps.getActorUserId?.());
     if (!isReturnsRole(session.role)) return { kind: 'refused', reason: 'role_denied', actor };
     if (deps.isSessionLocked()) return { kind: 'refused', reason: 'session_changed', actor };
     const envelope = presentEnvelope(deps.getEnvelope());

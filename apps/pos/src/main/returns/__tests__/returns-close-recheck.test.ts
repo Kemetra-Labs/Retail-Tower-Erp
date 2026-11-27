@@ -63,6 +63,7 @@ async function closing(between: () => void, quiet: () => QuietPeriodCheck) {
     },
     now: () => h.state.now,
     newDispositionId: () => '0192f5a2-3b4c-7d8e-9f01-0000000000d7',
+    origins: { originUserIdOf: () => null },
   });
   return { service, returnId: res.ret.returnId };
 }

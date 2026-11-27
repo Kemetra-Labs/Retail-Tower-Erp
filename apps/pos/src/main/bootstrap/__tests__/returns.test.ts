@@ -232,6 +232,11 @@ describe('registerReturns escalation wiring (RT-1498 S4/S5)', () => {
     expect(escalation.userId()).toBe('abcd-ef');
     h.getCurrent.mockReturnValue({ role: 'manager' });
     expect(escalation.userId()).toBeNull();
+
+    const getActorUserId = composed().getActorUserId as (() => string | null) | undefined;
+    expect(getActorUserId?.()).toBeNull();
+    h.getCurrent.mockReturnValue({ role: 'manager', manager_user_id: 'ORIGIN-USER' });
+    expect(getActorUserId?.()).toBe('origin-user');
   });
 });
 

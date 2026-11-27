@@ -21,6 +21,7 @@ import {
   type ComposeReturnsDeps,
 } from '../returns/compose-returns.js';
 import { createReturnDispositionsRepository } from '../returns/returns-dispositions-repository.js';
+import { createReturnOriginRepository } from '../returns/returns-origin-repository.js';
 import { createReturnsRepository } from '../returns/returns-repository.js';
 import {
   RETURN_RESOLVE_ACTION_KIND,
@@ -100,12 +101,14 @@ export function returnResolveApprovalResolvers(
   pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>,
   statusAvailability: StatusReadAvailability = processStatusAvailability,
 ): Record<typeof RETURN_RESOLVE_ACTION_KIND, ApprovalSubjectResolver> {
+  const origins = createReturnOriginRepository(db);
   return {
     [RETURN_RESOLVE_ACTION_KIND]: createReturnResolveApprovalResolver({
       repo: createReturnsRepository(db),
       dispositions: createReturnDispositionsRepository(db),
       terminalId: () => pairingStore.getCurrentTerminalId(),
       closeAvailable: () => statusAvailability.isAvailable(),
+      originUserIdOf: (returnId) => origins.originUserIdOf(returnId),
     }),
   };
 }
@@ -144,6 +147,10 @@ export function registerReturns(deps: ReturnsDeps): void {
   // identical request; it is scheduled with the flag on and resolves pairing +
   // operator live on every tick.
   const shiftRecords = createShiftCashupRepo(db);
+  const actorUserId = (): string | null => {
+    const session = operatorSessionManager.getCurrent();
+    return session === null ? null : operatorUserIdOf(session);
+  };
   const returnsDomain = composeReturns({
     db,
     http: {
@@ -156,6 +163,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     isEnabled: () => resolveFeatureFlags().returns,
     getSession: () =>
       resolveSessionScope(operatorSessionManager.getCurrent(), pairingStore.getCurrentTerminalId()),
+    getActorUserId: actorUserId,
     isSessionLocked: () => operatorSessionManager.getCurrent()?.lock_state === 'locked',
     auditSink: auditEmitter,
     logger: mainLogger,
@@ -181,10 +189,7 @@ export function registerReturns(deps: ReturnsDeps): void {
     // RT-1498 S4/S5: the approval `returns:escalate` and `returns:close` spend, and the requester's `users.id`.
     escalation: {
       approvals: managerApprovals,
-      userId: () => {
-        const session = operatorSessionManager.getCurrent();
-        return session === null ? null : operatorUserIdOf(session);
-      },
+      userId: actorUserId,
     },
   });
   // RT-1553: the void lookup's late-commit check of a sale (see `processLateReturnCheck`).

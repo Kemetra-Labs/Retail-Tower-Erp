@@ -97,12 +97,19 @@ function session(
   };
 }
 
-function resolver(over: { closeAvailable?: boolean; terminal?: string | null } = {}) {
+function resolver(
+  over: {
+    closeAvailable?: boolean;
+    terminal?: string | null;
+    originUserIdOf?: (returnId: string) => string | null;
+  } = {},
+) {
   return createReturnResolveApprovalResolver({
     repo: createReturnsRepository(handleFor(db)),
     dispositions: createReturnDispositionsRepository(handleFor(db)),
     terminalId: () => (over.terminal === undefined ? SCOPE.terminalId : over.terminal),
     closeAvailable: () => over.closeAvailable === true,
+    originUserIdOf: over.originUserIdOf ?? (() => null),
   });
 }
 
@@ -258,5 +265,22 @@ describe('the resolver of the approval subject', () => {
     expect(
       resolver({ closeAvailable: true })({ subjectRef: ref('close'), session: session('manager') }),
     ).toBeNull();
+  });
+
+  it('RT-1498: attaches originUserId when non-empty and omits it for legacy null rows', () => {
+    const entry = journal();
+    expect(
+      resolver({ originUserIdOf: () => 'user-origin' })({
+        subjectRef: ref('escalate'),
+        session: session('manager'),
+      }),
+    ).toEqual({ ...resolveSubjectOf(entry, 'escalate'), originUserId: 'user-origin' });
+
+    expect(
+      resolver({ originUserIdOf: () => '  ' })({
+        subjectRef: ref('escalate'),
+        session: session('manager'),
+      }),
+    ).toEqual(resolveSubjectOf(entry, 'escalate'));
   });
 });

@@ -197,6 +197,7 @@ describe('0071 — a closed return that later commits raises support (RT-1553)',
       'trg_return_journal_dispositions_header',
       'trg_return_journal_dispositions_no_delete',
       'trg_return_journal_dispositions_no_update',
+      'trg_return_journal_dispositions_origin_four_eyes',
     ]);
   });
 

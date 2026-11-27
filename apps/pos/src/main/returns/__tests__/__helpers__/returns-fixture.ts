@@ -83,6 +83,8 @@ export const CARD_SUMMARY = JSON.stringify([
 
 export const SCOPE = { tenantId: 'tenant-1', branchId: 'branch-1', terminalId: 'term-1' };
 
+const DEFAULT_ACTOR_USER_ID = '0190f5a2-3b4c-7d8e-9f01-000000000009';
+
 /** The authorization snapshot a signed-in manager on this till is admitted as. */
 export const MANAGER_ACTOR: AuthSnapshot = {
   scope: SCOPE,
@@ -90,6 +92,7 @@ export const MANAGER_ACTOR: AuthSnapshot = {
   operatorSessionId: 'sess-manager',
   role: 'manager',
   displayName: 'Display manager',
+  actorUserId: DEFAULT_ACTOR_USER_ID,
   envelope: ENVELOPE,
 };
 
@@ -102,6 +105,7 @@ export function sessionFor(role: Role): ReturnsSession {
     branch_id: SCOPE.branchId,
     terminal_id: SCOPE.terminalId,
     display_name: `Display ${role}`,
+    ...(role === 'cashier' ? {} : { user_id: DEFAULT_ACTOR_USER_ID }),
   };
 }
 
@@ -501,6 +505,11 @@ export interface HarnessOptions {
     readonly handle: DatabaseHandle;
     readonly state: HarnessState;
   }) => ComposeReturnsDeps['escalation'];
+  /** RT-1498 (`0073`): optional live operator `users.id` reader wired into `composeReturns`. */
+  readonly actorUserId?: (context: {
+    readonly handle: DatabaseHandle;
+    readonly state: HarnessState;
+  }) => string | null;
 }
 
 export interface HarnessState {
@@ -634,6 +643,10 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   const escalation = options.escalation?.({ handle, state });
   const escalationOf = (): Pick<ComposeReturnsDeps, 'escalation'> =>
     escalation === undefined ? {} : { escalation };
+  const actorUserIdOf = (): Pick<ComposeReturnsDeps, 'getActorUserId'> =>
+    options.actorUserId === undefined
+      ? {}
+      : { getActorUserId: () => options.actorUserId?.({ handle, state }) ?? null };
   let killLatest: () => void = () => undefined;
   const lives = new Lives();
   const compose = (): ComposedReturns => {
@@ -651,8 +664,13 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
         assertSessionReadable(life);
         return state.role === null || !state.paired
           ? null
-          : { ...sessionFor(state.role), terminal_id: state.terminalId };
+          : {
+              ...sessionFor(state.role),
+              ...(options.actorUserId === undefined ? {} : { user_id: null }),
+              terminal_id: state.terminalId,
+            };
       },
+      ...actorUserIdOf(),
       isSessionLocked: () => state.locked,
       auditSink: whileAlive(auditSink, life),
       logger: {

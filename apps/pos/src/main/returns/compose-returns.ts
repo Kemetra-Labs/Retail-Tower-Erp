@@ -44,6 +44,7 @@ import {
 import { createReturnExecutionsDispatcher } from './returns-execution-dispatch.js';
 import { createExecutionEnqueuer } from './returns-execution-enqueue.js';
 import { createReturnExecutionsRepository } from './returns-execution-repository.js';
+import { createReturnOriginRepository } from './returns-origin-repository.js';
 import {
   createReturnsRepository,
   type JournalEntry,
@@ -87,6 +88,11 @@ export interface ComposeReturnsDeps {
   readonly isEnabled: () => boolean;
   /** The live operator session on the live paired terminal (null if either is absent). */
   readonly getSession: () => ReturnsSession | null;
+  /**
+   * RT-1498 (`0073_return_journal_origin`): provider-neutral `users.id` of the live operator (null
+   * when absent). Captured on the authorization snapshot so journal inserts record the originator.
+   */
+  readonly getActorUserId?: () => string | null;
   /** True while the operator session is inactivity-locked (RT-117). */
   readonly isSessionLocked: () => boolean;
   readonly auditSink: ReturnsAuditSink;
@@ -200,6 +206,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
   const transaction = <T>(fn: () => T): T => deps.db.transaction(fn)();
   const client = createReturnsClient(deps.http);
   const repo = createReturnsRepository(deps.db);
+  const origins = createReturnOriginRepository(deps.db);
   const dispositions = createReturnDispositionsRepository(deps.db);
   const payouts = createReturnPayoutsRepository(deps.db);
   const views = viewsWithPayouts(payouts, createReturnCauseReader(deps.db), dispositions, now);
@@ -210,6 +217,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
   const authorizer = createReturnsAuthorizer({
     isEnabled: deps.isEnabled,
     getSession: deps.getSession,
+    ...(deps.getActorUserId === undefined ? {} : { getActorUserId: deps.getActorUserId }),
     isSessionLocked: deps.isSessionLocked,
     getEnvelope: deps.getOperatorEnvelope,
   });
@@ -247,6 +255,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     now,
     newDispositionId: uuidv7,
     ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
+    origins,
   });
   const lateCommits = createLateCommitDetector({
     repo,
@@ -256,7 +265,6 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     isStopped,
     logger: deps.logger,
   });
-  // RT-1543: the refund-execution outbox, sent by the same snapshot rules as the returns.
   const executions = createReturnExecutionsRepository(deps.db);
   const executionDispatcher = createReturnExecutionsDispatcher({
     client,
@@ -274,31 +282,35 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     executions: { repo: executions, dispatcher: executionDispatcher, isStopped },
     lateCommits,
   });
-  const core = createReturnsService({
+  const shared = {
     authorizer,
+    repo,
+    dispositions,
+    audit,
+    transaction,
+    now,
+    isStopped,
+    origins,
+    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
+  };
+  const core = createReturnsService({
+    ...shared,
     captureCurrencyCode: deps.captureCurrencyCode ?? DEFAULT_CURRENCY_CODE,
     sales,
     saleRefs: createSaleSyncStateRepo(deps.db),
     voids: { blocksReturn: (saleId) => saleVoids.liveForSale(saleId) !== null },
     client,
-    repo,
     dispatcher,
     resolver,
-    audit,
-    now,
     newReturnId: randomUUID,
     newExternalId: () => newReturnExternalId(),
     newAllocationRef: () => (deps.isShiftCashupEnabled() ? uuidv7() : undefined),
     views,
-    dispositions,
     lateCommits,
-    transaction,
     newDispositionId: uuidv7,
-    ...(deps.escalation === undefined ? {} : { escalation: deps.escalation }),
     recordLineDetails: (returnId, details) => {
       payouts.recordLineDetails(returnId, details);
     },
-    isStopped,
   });
   const payout = createReturnsPayoutService({
     authorizer,
@@ -327,7 +339,23 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
       });
     },
   });
-  const service: ReturnsBridgeAPI = {
+  const service = buildReturnsBridge(core, payout, closer);
+  const stop = (): void => {
+    stopped = true;
+  };
+  const checkSaleLive = liveSaleCheck(lateCommits, authorizer, isStopped, deps.logger);
+  return { service, resolver, checkSaleLive, stop };
+}
+
+function buildReturnsBridge(
+  core: Pick<
+    ReturnsBridgeAPI,
+    'lookup' | 'quote' | 'submit' | 'resolve' | 'list' | 'resend' | 'escalate'
+  >,
+  payout: Pick<ReturnsBridgeAPI, 'payout' | 'reprintSlip'>,
+  closer: Pick<ReturnsBridgeAPI, 'readStatus' | 'close'>,
+): ReturnsBridgeAPI {
+  return {
     lookup: (req) => core.lookup(req),
     quote: (req) => core.quote(req),
     submit: (req) => core.submit(req),
@@ -335,19 +363,11 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     list: () => core.list(),
     payout: (req) => payout.payout(req),
     reprintSlip: (req) => payout.reprintSlip(req),
-    // RT-1498: the `returns:resend` bridge member (RT-196 S1; §A4 record C-1).
     resend: (req) => core.resend(req),
-    // RT-1498 S4/S5: hand one unresolved return to support (a single-use manager approval).
     escalate: (req) => core.escalate(req),
-    // RT-1498 close slice: the server's verdict on one unresolved return, and the close.
     readStatus: (req) => closer.readStatus(req),
     close: (req) => closer.close(req),
   };
-  const stop = (): void => {
-    stopped = true;
-  };
-  const checkSaleLive = liveSaleCheck(lateCommits, authorizer, isStopped, deps.logger);
-  return { service, resolver, checkSaleLive, stop };
 }
 
 /**
