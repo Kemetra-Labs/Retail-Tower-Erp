@@ -8,7 +8,8 @@
   /api/v1/platform/tenants/{tenant_id}/connector-instances/{id}/rotate-now`
   (`platformRequestConnectorCredentialRotation`): a platform admin creates a `credential.rotate`
   request due immediately for one managed registration; `201 requested` or `200 already_open`;
-  `409 not_managed`, `registration_disabled`, `provisioning_in_progress` or `not_provisioned` (an
+  `409 rotation_unavailable` (rotation off until a provisioner that handles the kind is deployed),
+  `not_managed`, `registration_disabled`, `provisioning_in_progress` or `not_provisioned` (an
   adopted hand-made registration: open decision); audited. A rotation is done when the site first
   presents the new credential. Runtime in RT-1362 S2. No migration, no runtime change, no consumer
   repin.

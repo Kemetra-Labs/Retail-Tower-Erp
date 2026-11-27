@@ -98,6 +98,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
       "#/components/schemas/RotationRefusedError",
     );
     expect(errorCodes("RotationRefusedError")).toEqual([
+      "rotation_unavailable",
       "not_managed",
       "registration_disabled",
       "provisioning_in_progress",
@@ -107,7 +108,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
 
   it("does not widen the shared Error enum (the pinned Connector contract must stay green)", () => {
     const shared = (schema("Error").properties?.["error"] as unknown as { properties: { code: { enum: string[] } } }).properties.code.enum;
-    for (const code of ["not_managed", "registration_disabled", "provisioning_in_progress", "not_provisioned", "already_open"]) {
+    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "not_provisioned", "already_open"]) {
       expect(shared).not.toContain(code);
     }
   });

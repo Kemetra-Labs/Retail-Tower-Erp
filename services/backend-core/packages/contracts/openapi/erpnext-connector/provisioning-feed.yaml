@@ -161,13 +161,21 @@ info:
           - Once a credential issued by this request has been presented, the
             rotation is done and a repeat is the same non-disclosing `404`.
         After every call exactly one credential of the registration is
-        unrevoked (the one-unrevoked-credential rule is unchanged), and at most
-        one credential issued by the request is ever presented. There is NO
-        overlap window: posting by the site pauses from this call until the
-        provisioner has written the new secret into Connector Settings, and
-        resumes from the posting feed's cursor, so nothing is lost (RT-1432:
-        a two-credential overlap was not chosen; the RT-369 overlap pattern is
-        a reference only if the pause proves too long).
+        unrevoked (the one-unrevoked-credential rule is unchanged), so at any
+        time the request has at most one live replacement, and at most one
+        credential issued by the request is ever presented. The call stays
+        LEASE-BOUND: only the provisioner holding the request's live lease can
+        make it, first call or repeat. A repeat cannot return the SAME secret,
+        because the secret is never stored recoverably; it returns the same
+        outcome instead (one live replacement, delivered to the lease holder).
+        There is NO overlap window: posting by the site pauses from the first
+        call until the provisioner has written the new secret into Connector
+        Settings, and resumes from the posting feed's cursor, so nothing is
+        lost; a lost response or a failed write lengthens the pause until the
+        repeat, and needs no human (RT-1432 and RT-1362: the old credential is
+        revoked when the provisioner works the request, a two-credential
+        overlap was not chosen, and the RT-369 overlap pattern is a reference
+        only if the pause proves too long).
       - The expiry of a managed tenant credential is set by Backend-Core, not by
         the caller. This call takes no body.
 
@@ -193,29 +201,47 @@ info:
         the `siteName` rule) gets none: "rotate now" refuses it with `409
         not_provisioned` and the scheduler skips it. How such a registration is
         rotated is an open decision for a later contract change (RT-1362).
-      - **Steps.** `claimed`, the credential call (the `credential.rotate` rule
-        above), `credential_bound` once the new secret is written in-process
-        into the site's Connector Settings, then `verified` and the
-        `succeeded` outcome once the Connector's next authenticated call
-        succeeds. For this kind the status model's `succeeded` means only
-        that the credential issued by the request has been presented: no store
-        map is acknowledged and the outcome `result` reports the site as found,
-        with `stores: []`.
-      - **Done check.** Backend-Core records `succeeded`, ending the lease, in
-        the same transaction that first accepts a request authenticated with
-        the credential this request issued, so a rotation is done as soon as
-        the site uses the new secret, whether or not the provisioner reports
-        it. A rotated request is then never offered again, and a later step,
-        outcome or credential call on it by a provisioner (for example one that
-        crashed and lost its state) gets `409 lease_lost` or the `404` above.
-        On a `credential.rotate` request neither answer is a `dependency`
-        failure: the provisioner stops working the request and re-pulls.
+      - **Activation (compatibility gate).** A provisioner released before
+        RT-1362 S3 skips every kind except `tenant.provision`, so a
+        `credential.rotate` request would stay open. Backend-Core therefore
+        creates `credential.rotate` requests (scheduler and "rotate now") only
+        on a deployment where rotation is switched on, and it is switched on
+        only after a provisioner that handles the kind is deployed on the ERP
+        host. While it is off, the scheduler creates nothing and "rotate now"
+        refuses with `409 rotation_unavailable`; no request is left open.
+      - **One completion sequence.** The provisioner sends `claimed`, makes the
+        credential call (the `credential.rotate` rule above), writes the new
+        secret in-process into the site's Connector Settings, sends
+        `credential_bound`, confirms that the Connector's next authenticated
+        call succeeds, sends `verified`, then the `succeeded` outcome. For this
+        kind the status model's `succeeded` means only that the credential
+        issued by the request has been presented: no store map is
+        acknowledged, and the outcome `result` reports the site as found, with
+        `stores: []`.
+      - **Done check and late reports.** Backend-Core records `succeeded` in the
+        same transaction that first accepts a request authenticated with the
+        credential this request issued, so a rotation is done as soon as the
+        site uses the new secret, whether or not the provisioner reports it,
+        and the request is never offered again. That usually happens before
+        the provisioner's last reports arrive, so on a `credential.rotate`
+        request that is already `succeeded`:
+          - a step acknowledgement (`credential_bound` or `verified`) or a
+            `succeeded` outcome from the provisioner principal that held the
+            request's last lease is answered `200` (an outcome under the usual
+            `Idempotency-Key` rule), is recorded for the audit trail, and
+            changes nothing;
+          - any other step, outcome or caller gets `409 lease_lost`, and the
+            credential call gets the `404` above.
+        On a `credential.rotate` request neither refusal is a `dependency`
+        failure: the provisioner stops working the request and re-pulls; a
+        request it no longer finds is done.
       - **Failure.** A failure after the credential call is recovered by the
         repeat rule, without a human. There is nothing to compensate for a
         rotation: a terminal `permanently_rejected` outcome closes the request
         with an alert, and the registration keeps its one unrevoked
         credential.
-    The runtime of this section is RT-1362 slice S2: until it ships,
+    The runtime of this section is RT-1362 slice S2 (Backend-Core) and S3 (the
+    provisioner handler): until both ship and rotation is switched on,
     Backend-Core creates no `credential.rotate` request, so the rotation branch
     of the credential call cannot be reached, and the "rotate now" operation is
     contract only. `tenant.provision` behaviour is unchanged.
@@ -424,7 +450,10 @@ paths:
         for the others. A caller who does not
         hold a live lease on the request gets `409 lease_lost`, except for the
         `claimed` step on a request that is `requested` or whose lease has
-        expired, which takes a new lease. `detail` is scrubbed by the caller and is stored for the audit
+        expired, which takes a new lease, and except for a late report on a
+        `credential.rotate` request that is already `succeeded` (see
+        "Credential rotation" in the file description: `200`, changes
+        nothing). `detail` is scrubbed by the caller and is stored for the audit
         trail only.
       parameters:
         - $ref: "#/components/parameters/RequestId"
@@ -590,7 +619,10 @@ paths:
         RT-1361, is on `main`).
 
         Requires the caller's live lease on `{requestId}`; otherwise `409
-        lease_lost`. The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
+        lease_lost`, except for a late `succeeded` outcome on a
+        `credential.rotate` request that is already `succeeded` (see
+        "Credential rotation" in the file description: `200`, changes
+        nothing). The `Idempotency-Key` header is REQUIRED (`{requestId}:outcome:{attempt}`
         form is recommended; the shared 16 to 128 printable ASCII rule applies):
         the same key and body replay the stored result with
         `Idempotent-Replayed: true`; a different outcome under the same key is
@@ -909,7 +941,9 @@ paths:
         RT-1362 S1: contract only. No route is registered until the RT-1362 S2
         runtime (request creation with per-registration idempotency, the
         14-day scheduler, this endpoint with its audit and refusals, and the
-        rotation branch of `connectorIssueProvisionedCredential`).
+        rotation branch of `connectorIssueProvisionedCredential`). Rotation is
+        switched on per deployment only after the RT-1362 S3 provisioner
+        handler is deployed.
       tags: [erpnext-credential-rotation]
       security:
         - cookieAuth: []
@@ -927,6 +961,10 @@ paths:
         `{tenant_id}`, and a tenant that does not exist, are the same
         non-disclosing `404 not_found`. The checks run in this order, and the
         first that applies decides:
+          0. While rotation is not switched on for this deployment (no
+             provisioner that handles `credential.rotate` is deployed; see
+             "Credential rotation" in the file description), every call is
+             refused: `409 rotation_unavailable`.
           1. A registration that is not managed (`managed_by` is null) is
              refused: `409 not_managed`. No credential of a non-managed
              registration is ever rotated by the provisioner.
@@ -1712,8 +1750,10 @@ components:
           properties:
             code:
               type: string
-              enum: [not_managed, registration_disabled, provisioning_in_progress, not_provisioned]
+              enum: [rotation_unavailable, not_managed, registration_disabled, provisioning_in_progress, not_provisioned]
               description: >
+                `rotation_unavailable`: rotation is not switched on for this
+                deployment (no provisioner that handles `credential.rotate`).
                 `not_managed`: the registration is not managed by the
                 provisioner. `registration_disabled`: it is disabled.
                 `provisioning_in_progress`: its `tenant.provision` request is
@@ -1902,7 +1942,9 @@ components:
             $ref: "#/components/schemas/AdoptRefusedError"
     RotationRefused:
       description: >
-        `not_managed` (409): the registration is not managed by the
+        `rotation_unavailable` (409): rotation is not switched on for this
+        deployment (no provisioner that handles `credential.rotate` is
+        deployed). `not_managed` (409): the registration is not managed by the
         provisioner. `registration_disabled` (409): it is disabled.
         `provisioning_in_progress` (409): its `tenant.provision` request is
         still open. `not_provisioned` (409): it is managed but has no
