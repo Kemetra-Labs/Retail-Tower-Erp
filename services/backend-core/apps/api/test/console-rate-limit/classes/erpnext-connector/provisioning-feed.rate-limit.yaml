@@ -10,3 +10,6 @@ platformRotateProvisionerCredential: incidentControl
 
 # RT-1557: the platform admin's adoption of one existing connector registration as provisioner-managed, an incident-control action.
 platformAdoptConnectorRegistration: incidentControl
+
+# RT-1362 S1: the platform admin's "rotate now" (a credential.rotate request due immediately), an incident-control action.
+platformRequestConnectorCredentialRotation: incidentControl

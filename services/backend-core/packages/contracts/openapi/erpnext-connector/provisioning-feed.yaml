@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Backend-Core — ERP Provisioning Feed and Provisioner Credential API
-  version: "1.1.0-draft"
+  version: "1.2.0-draft"
   description: >
     Jira RT-1356 (Epic RT-1332; RT-1352 breakdown item PB-A). The contract
     between Backend-Core and the Connector's tenant provisioner: the feed the
@@ -135,15 +135,65 @@ info:
         store. The provisioner writes it in-process into the site's Connector
         Settings: never on a command line, in the environment, in logs or in a
         file.
-      - A REPEAT for a credential that has never been presented (the registration
-        is still `never_seen`) is a ROTATION: Backend-Core revokes the earlier
-        credential and issues a new one in one transaction. That is safe because
-        nothing could have used the lost one. This is the lost-response
-        recovery: the provisioner first checks the site (a stored credential id
-        means the step is done) and otherwise repeats the call. A repeat for a
-        credential that HAS been presented is refused as the same `404`.
+      - On a `tenant.provision` request, a REPEAT for a credential that has
+        never been presented (the registration is still `never_seen`) is a
+        ROTATION: Backend-Core revokes the earlier credential and issues a new
+        one in one transaction. That is safe because nothing could have used
+        the lost one. This is the lost-response recovery: the provisioner first
+        checks the site (a stored credential id means the step is done) and
+        otherwise repeats the call. A repeat for a credential that HAS been
+        presented is refused as the same `404`.
+      - On a `credential.rotate` request (version 1.2.0-draft, RT-1362), the
+        registration's current credential is normally in use, so the
+        `never_seen` test above does not apply. The rule is per credential:
+          - The FIRST call under the live lease revokes the registration's
+            current credential, although it has been presented, and issues
+            one new credential, in one audited transaction (the existing
+            atomic rotate). The old credential stops working at this call,
+            never earlier: creating the request, pulling it and claiming it
+            revoke nothing.
+          - A REPEAT on the same request replaces the credential that THIS
+            request issued, if that credential has never been presented
+            (Backend-Core has accepted no request authenticated with it): it is
+            revoked and a new one is issued in one transaction. This is the
+            lost-response and failed-write recovery, with no human step.
+          - Once a credential issued by this request has been presented, the
+            rotation is done and a repeat is the same non-disclosing `404`.
+        After every call exactly one credential of the registration is
+        unrevoked (the one-unrevoked-credential rule is unchanged), and at most
+        one credential issued by the request is ever presented. There is NO
+        overlap window: posting by the site pauses from this call until the
+        provisioner has written the new secret into Connector Settings, and
+        resumes from the posting feed's cursor, so nothing is lost (RT-1432:
+        a two-credential overlap was not chosen; the RT-369 overlap pattern is
+        a reference only if the pause proves too long).
       - The expiry of a managed tenant credential is set by Backend-Core, not by
         the caller. This call takes no body.
+
+
+    **Credential rotation (`credential.rotate`), version 1.2.0-draft.** Jira
+    RT-1362 slice S1 (owner approval on RT-1362 comment 19102; RT-1432
+    decisions D1, D2 amended, D4). A `credential.rotate` request is created by
+    Backend-Core only: by its scheduler, 14 days before the managed
+    credential's expiry, or by a platform admin through
+    `platformRequestConnectorCredentialRotation` ("rotate now"), due
+    immediately. At most one `credential.rotate` request is open per
+    registration; a second trigger returns the open one. Only a managed
+    registration gets one. The request carries the registration's
+    `connectorRegistrationId`, `siteName`, `template`, `locale` and
+    `environment` as recorded for its site, no `legalName`, and `stores: []`;
+    nothing on the site is re-provisioned. The provisioner works it with the
+    same calls as any request: `claimed`, the credential call (the
+    `credential.rotate` rule above), `credential_bound` once the new secret is
+    written in-process into the site's Connector Settings, `verified` once the
+    Connector's next authenticated call succeeds, then the outcome. A
+    `succeeded` outcome reports the site as found, with `stores: []`;
+    Backend-Core records `succeeded` when the new credential has been
+    presented. A failure after the credential call is recovered by the repeat
+    rule. The runtime of this section is RT-1362 slice S2: until it ships,
+    Backend-Core creates no `credential.rotate` request, so the rotation branch
+    of the credential call cannot be reached, and the "rotate now" operation is
+    contract only. `tenant.provision` behaviour is unchanged.
 
 
     **Provisioner credential routes (platform admin, session only).** Three
@@ -181,7 +231,17 @@ info:
     operation changes.
 
 
-    **Auth and scope.** The four platform routes accept the HUMAN `cookieAuth`
+    **Rotate now (platform admin, session only).** Version 1.2.0-draft (Jira
+    RT-1362 S1) adds `platformRequestConnectorCredentialRotation`: it creates
+    the `credential.rotate` request of ONE managed registration, due
+    immediately, so the emergency path is the normal path and nobody handles
+    a secret (RT-1432 D2, amended). It never issues, rotates or revokes a
+    credential itself, returns no secret and never contacts the site: the
+    provisioner does the rotation through the credential call. It is
+    `x-runtime-status: contract-only` until RT-1362 S2.
+
+
+    **Auth and scope.** The platform routes accept the HUMAN `cookieAuth`
     session only (`SessionOnlyAdminGuard`): a bearer-only request is `401`; a
     cookie write without a trusted `Origin` is `403 origin_rejected` (RT-430); a
     caller who is not a platform admin (`users.is_platform_admin`) is `403
@@ -227,6 +287,10 @@ tags:
     description: >
       Platform-admin adoption of one existing connector registration as
       provisioner-managed.
+  - name: erpnext-credential-rotation
+    description: >
+      Platform-admin "rotate now": a `credential.rotate` request for one managed
+      connector registration, due immediately.
 
 paths:
   /api/connector/v1/erpnext/provisioning/requests:
@@ -413,22 +477,39 @@ paths:
         LEASE-BOUND to the calling provisioner's live lease on `{requestId}`,
         MANAGED-ONLY, AUDITED with the request id and lease id in the same
         transaction, and the SECRET IS RETURNED ONCE with `Cache-Control:
-        no-store`; it is never logged or stored recoverably. A REPEAT call for a
-        credential that has never been presented (the registration is still
-        `never_seen`) is a ROTATION: the earlier credential is revoked and a new
-        one issued in one transaction; a repeat after the credential has been
-        presented is refused. Any call that is not for a managed registration
-        under the caller's live lease is the same non-disclosing `404`, with no
-        side effects. The call takes no request body and no `Idempotency-Key`:
-        its repeat rule is the rotation above, because an idempotent replay
-        would have to store the secret.
+        no-store`; it is never logged or stored recoverably.
+
+        On a `tenant.provision` request, a REPEAT call for a credential that has
+        never been presented (the registration is still `never_seen`) is a
+        ROTATION: the earlier credential is revoked and a new one issued in one
+        transaction; a repeat after the credential has been presented is
+        refused.
+
+        On a `credential.rotate` request (1.2.0-draft, RT-1362), the first call
+        revokes the registration's current credential although it has been
+        presented and issues one new credential, in one transaction; a repeat
+        replaces the credential THIS request issued while that credential has
+        never been presented (the lost-response and failed-write recovery); a
+        repeat after it has been presented is refused as the same `404`. Every
+        call leaves exactly one unrevoked credential for the registration, and
+        the old credential is revoked at the first call, never earlier. The
+        response is always `rotated: true`. The rotation branch is served from
+        RT-1362 slice S2; until then no `credential.rotate` request exists, so
+        it cannot be reached.
+
+        Any call that is not for a managed registration under the caller's live
+        lease is the same non-disclosing `404`, with no side effects. The call
+        takes no request body and no `Idempotency-Key`: its repeat rule is the
+        per-kind rule above, because an idempotent replay would have to store
+        the secret.
       parameters:
         - $ref: "#/components/parameters/RequestId"
       responses:
         "201":
           description: >
-            The credential was issued (or rotated, on a repeat for a
-            never-presented credential). The secret is in this response only.
+            The credential was issued, or rotated (a repeat for a
+            never-presented credential, or any call on a `credential.rotate`
+            request). The secret is in this response only.
           headers:
             Cache-Control:
               description: Always `no-store`; the body holds a secret.
@@ -789,6 +870,123 @@ paths:
           $ref: "#/components/responses/NotFound"
         "409":
           $ref: "#/components/responses/AdoptRefused"
+        "429":
+          $ref: "#/components/responses/TooManyRequests"
+        "500":
+          $ref: "#/components/responses/SystemFailure"
+
+  /api/v1/platform/tenants/{tenant_id}/connector-instances/{id}/rotate-now:
+    post:
+      summary: Request an immediate credential rotation of a managed connector registration (platform admin).
+      operationId: platformRequestConnectorCredentialRotation
+      x-runtime-status: contract-only
+      x-runtime-note: >
+        RT-1362 S1: contract only. No route is registered until the RT-1362 S2
+        runtime (request creation with per-registration idempotency, the
+        14-day scheduler, this endpoint with its audit and refusals, and the
+        rotation branch of `connectorIssueProvisionedCredential`).
+      tags: [erpnext-credential-rotation]
+      security:
+        - cookieAuth: []
+      description: >
+        Creates the `credential.rotate` request of the connector registration
+        `{id}` of tenant `{tenant_id}`, due immediately (RT-1432 D2, amended).
+        The provisioner then delivers the new secret to the site in-process,
+        exactly as for a scheduled rotation (see "Credential rotation" in the
+        file description). In one transaction that locks the registration
+        row, the call decides, writes the request and records one audit row
+        `connector.credential.rotation_requested` (acting platform admin,
+        tenant, registration id, the `provisioningRequestId` and the request
+        id; ids only, no secret). The tenant is in the path because the
+        registration is tenant-scoped; a registration that does not belong to
+        `{tenant_id}`, and a tenant that does not exist, are the same
+        non-disclosing `404 not_found`.
+          - A managed registration with no open `credential.rotate` request
+            gets one: `201` with `outcome: requested` and `trigger: forced`.
+          - While a `credential.rotate` request of the registration is open
+            (not `succeeded`, `failed_permanent`, `compensated` or
+            `cancelled`), whoever or whatever created it (this operation,
+            another admin, or the 14-day scheduler), the call creates
+            nothing, writes no second audit row and returns the OPEN request:
+            `200` with `outcome: already_open`. A lost response is recovered
+            by calling again.
+          - A registration that is not managed (`managed_by` is null) is
+            refused: `409 not_managed`. Adopt it first
+            (`platformAdoptConnectorRegistration`); no credential of a
+            non-managed registration is ever rotated by the provisioner.
+          - A disabled registration is refused: `409 registration_disabled`.
+          - A registration whose `tenant.provision` request is still open is
+            refused: `409 provisioning_in_progress` (that request issues the
+            credential).
+        Refusals change nothing and write no request. The call never issues,
+        rotates or revokes a credential itself, returns no secret and never
+        contacts the ERP site: the current credential keeps working until the
+        provisioner's credential call on the new request. An expired
+        credential can be rotated this way. A platform admin only
+        (`users.is_platform_admin`), session only; a tenant owner or admin is
+        `403 forbidden`. No request body.
+      parameters:
+        - $ref: "#/components/parameters/TenantId"
+        - $ref: "#/components/parameters/ConnectorInstanceId"
+      responses:
+        "201":
+          description: A `credential.rotate` request was created, due immediately.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorRotationRequest"
+              examples:
+                requested:
+                  value:
+                    outcome: requested
+                    provisioningRequestId: "0c3e5a7b-9d1f-4e2a-8b6c-1d3f5a7b9c0e"
+                    kind: credential.rotate
+                    trigger: forced
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    requestedAt: "2026-11-27T10:00:00Z"
+        "200":
+          description: >
+            A `credential.rotate` request of this registration is already open;
+            it is returned and nothing changed.
+          headers:
+            Cache-Control:
+              description: Always `no-store`.
+              required: true
+              schema:
+                type: string
+                enum: [no-store]
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ConnectorRotationRequest"
+              examples:
+                alreadyOpen:
+                  value:
+                    outcome: already_open
+                    provisioningRequestId: "0c3e5a7b-9d1f-4e2a-8b6c-1d3f5a7b9c0e"
+                    kind: credential.rotate
+                    trigger: scheduled
+                    tenantId: "0a000000-0000-7000-8000-0000000000a1"
+                    instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
+                    requestedAt: "2026-11-20T02:00:00Z"
+        "400":
+          $ref: "#/components/responses/ValidationFailure"
+        "401":
+          $ref: "#/components/responses/PlatformUnauthorized"
+        "403":
+          $ref: "#/components/responses/PlatformForbidden"
+        "404":
+          $ref: "#/components/responses/NotFound"
+        "409":
+          $ref: "#/components/responses/RotationRefused"
         "429":
           $ref: "#/components/responses/TooManyRequests"
         "500":
@@ -1199,8 +1397,11 @@ components:
         rotated:
           type: boolean
           description: >
-            `true` when this call replaced an earlier credential that was never
-            presented (the repeat rule).
+            `true` when this call replaced an earlier credential: on a
+            `tenant.provision` request, one that was never presented (the
+            repeat rule); on a `credential.rotate` request, always (the first
+            call replaces the registration's current credential, a repeat
+            replaces the never-presented one this request issued).
 
     ProvisioningResultStore:
       type: object
@@ -1422,6 +1623,74 @@ components:
               type: string
               format: uuid
 
+    ConnectorRotationRequest:
+      type: object
+      additionalProperties: false
+      required: [outcome, provisioningRequestId, kind, trigger, tenantId, instanceId, requestedAt]
+      description: >
+        The open `credential.rotate` request of the registration after
+        `platformRequestConnectorCredentialRotation`. An explicit projection,
+        never a database row: no credential, no secret.
+      properties:
+        outcome:
+          type: string
+          enum: [requested, already_open]
+          description: >
+            `requested`: this call created the request. `already_open`: a
+            rotation request was already open; it is returned and nothing
+            changed.
+        provisioningRequestId:
+          type: string
+          format: uuid
+          description: The request the provisioner pulls and works.
+        kind:
+          type: string
+          enum: [credential.rotate]
+        trigger:
+          type: string
+          enum: [forced, scheduled]
+          description: >
+            What created the open request: `forced` (this operation) or
+            `scheduled` (the 14-day scheduler).
+        tenantId:
+          type: string
+          format: uuid
+        instanceId:
+          type: string
+          format: uuid
+        requestedAt:
+          type: string
+          format: date-time
+          description: When the open request was created.
+
+    RotationRefusedError:
+      type: object
+      additionalProperties: false
+      required: [error]
+      description: >
+        The 409 envelope of `platformRequestConnectorCredentialRotation`. Same
+        shape as `Error`, with its own closed code set so the shared `Error`
+        enum does not change.
+      properties:
+        error:
+          type: object
+          required: [code, message]
+          properties:
+            code:
+              type: string
+              enum: [not_managed, registration_disabled, provisioning_in_progress]
+              description: >
+                `not_managed`: the registration is not managed by the
+                provisioner. `registration_disabled`: it is disabled.
+                `provisioning_in_progress`: its `tenant.provision` request is
+                still open.
+            message:
+              type: string
+              description: Human-readable summary. No sensitive data.
+            request_id:
+              type: string
+              format: uuid
+
     Error:
       type: object
       required: [error]
@@ -1594,6 +1863,17 @@ components:
         application/json:
           schema:
             $ref: "#/components/schemas/AdoptRefusedError"
+    RotationRefused:
+      description: >
+        `not_managed` (409): the registration is not managed by the
+        provisioner. `registration_disabled` (409): it is disabled.
+        `provisioning_in_progress` (409): its `tenant.provision` request is
+        still open. Deterministic, nothing is changed and no request is
+        written.
+      content:
+        application/json:
+          schema:
+            $ref: "#/components/schemas/RotationRefusedError"
     TooManyRequests:
       description: >
         429 `rate_limited` (RT-574): the caller's per-user budget for this class
