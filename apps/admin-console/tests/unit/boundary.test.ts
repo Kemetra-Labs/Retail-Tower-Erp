@@ -39,13 +39,9 @@ describe("RF-1 boundary gates", () => {
     expect(code).not.toMatch(/[Bb]earer\s+/);
   });
 
-  test("VG-4: none of the four out-of-scope auth operations is called", () => {
-    for (const op of [
-      "requestPasswordReset",
-      "confirmPasswordReset",
-      "requestEmailVerification",
-      "confirmEmailVerification",
-    ]) {
+  test("VG-4: none of the remaining out-of-scope auth operations is called", () => {
+    // RT-1497 brought requestPasswordReset + confirmPasswordReset in scope.
+    for (const op of ["requestEmailVerification", "confirmEmailVerification"]) {
       expect(code).not.toContain(op);
     }
   });

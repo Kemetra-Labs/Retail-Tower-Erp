@@ -18,6 +18,7 @@ import { signIn } from "@/lib/client";
  * email and password inputs take machine input, so they stay LTR (UX-11).
  */
 import { type FormEvent, useState } from "react";
+import { Link, useInRouterContext } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
 import { PasswordInput } from "./PasswordInput";
 import { type SignInResolution, resolveSignIn } from "./signin-flow";
@@ -45,6 +46,7 @@ function SubmitLabel({ phase }: Readonly<{ phase: Phase }>): React.JSX.Element {
 
 export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element {
   const t = useT();
+  const inRouter = useInRouterContext();
   const [phase, setPhase] = useState<Phase>({ status: "idle" });
 
   const submitting = phase.status === "submitting";
@@ -142,6 +144,14 @@ export function SignIn({ onResolved }: Readonly<SignInProps>): React.JSX.Element
           <SubmitLabel phase={phase} />
         </BusyButton>
       </form>
+
+      <p className="auth-note">
+        {inRouter ? (
+          <Link to="/forgot-password">{t("auth.signIn.forgotPassword")}</Link>
+        ) : (
+          <a href="/forgot-password">{t("auth.signIn.forgotPassword")}</a>
+        )}
+      </p>
     </AuthLayout>
   );
 }

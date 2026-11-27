@@ -16,6 +16,40 @@ export const auth: MessagesOf<typeof ar> = {
   },
   "auth.signIn.footer": "Protected platform · all activity is audited",
   "auth.signIn.welcome": "Welcome back",
+  "auth.signIn.forgotPassword": "Forgot password?",
+
+  "auth.forgotPassword.title": "Reset your password",
+  "auth.forgotPassword.subtitle":
+    "Enter your email and we will send a reset link if an account is registered for it.",
+  "auth.forgotPassword.submit": "Send reset link",
+  "auth.forgotPassword.submitting": "Sending",
+  "auth.forgotPassword.sent.title": "Check your email.",
+  "auth.forgotPassword.sent.body":
+    "If that email is associated with an account, a password reset link will arrive shortly. Check your spam folder if you do not see it.",
+  "auth.forgotPassword.tryAnother": "Use a different email",
+  "auth.forgotPassword.backToSignIn": "Back to sign in",
+  "auth.forgotPassword.errors.emailRequired": "Enter your email address.",
+  "auth.forgotPassword.errors.invalidEmail": "Enter a valid email address.",
+  "auth.forgotPassword.errors.unavailable":
+    "The service is temporarily unavailable. Try again shortly.",
+  "auth.forgotPassword.errors.failed": "Could not send the request right now. Try again shortly.",
+
+  "auth.resetPassword.title": "Set a new password",
+  "auth.resetPassword.titleInvalid": "Invalid link",
+  "auth.resetPassword.subtitle": "Choose a new password for your account.",
+  "auth.resetPassword.submit": "Save new password",
+  "auth.resetPassword.submitting": "Saving",
+  "auth.resetPassword.done.title": "Password updated.",
+  "auth.resetPassword.done.body":
+    "You were signed out of your previous sessions. You can now sign in with your new password.",
+  "auth.resetPassword.requestNewLink": "Request a new link",
+  "auth.resetPassword.errors.missingLink":
+    "This reset link is invalid or incomplete. Request a new link.",
+  "auth.resetPassword.errors.invalidOrRefused":
+    "Could not reset the password. The link may be invalid or expired, or the password may not meet your identity provider's rules.",
+  "auth.resetPassword.errors.unavailable":
+    "The service is temporarily unavailable. Try again shortly.",
+  "auth.resetPassword.errors.failed": "Could not update the password right now. Try again shortly.",
 
   "auth.password.show": "Show password",
   "auth.brand.tagline": "Every branch, under your eye",

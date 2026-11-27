@@ -36,6 +36,40 @@ export const auth = {
   "auth.signIn.footer": "منصة محمية · يخضع كل نشاط للتدقيق",
   // Above the title on the sign-in screen only: a new invitee is not "back".
   "auth.signIn.welcome": "مرحبًا بعودتك",
+  "auth.signIn.forgotPassword": "نسيت كلمة المرور؟",
+
+  // RT-1497: public password-reset request (/forgot-password) and confirm (/reset-password).
+  "auth.forgotPassword.title": "استعادة كلمة المرور",
+  "auth.forgotPassword.subtitle":
+    "أدخل بريدك الإلكتروني وسنرسل لك رابطًا لإعادة تعيين كلمة المرور إذا كان الحساب مسجلًا.",
+  "auth.forgotPassword.submit": "إرسال رابط الاستعادة",
+  "auth.forgotPassword.submitting": "جارٍ الإرسال",
+  "auth.forgotPassword.sent.title": "تحقّق من بريدك الإلكتروني.",
+  // Opaque result: identical for registered and unregistered addresses (no enumeration).
+  "auth.forgotPassword.sent.body":
+    "إذا كان هذا البريد الإلكتروني مرتبطًا بحساب لديك، فسيصلك رابط لإعادة تعيين كلمة المرور خلال دقائق. إن لم تجده فتحقّق من مجلد الرسائل غير المرغوب فيها.",
+  "auth.forgotPassword.tryAnother": "إرسال إلى بريد إلكتروني آخر",
+  "auth.forgotPassword.backToSignIn": "العودة إلى تسجيل الدخول",
+  "auth.forgotPassword.errors.emailRequired": "أدخل البريد الإلكتروني.",
+  "auth.forgotPassword.errors.invalidEmail": "أدخل بريدًا إلكترونيًا صالحًا.",
+  "auth.forgotPassword.errors.unavailable": "الخدمة غير متاحة مؤقتًا الآن. حاول مرة أخرى بعد قليل.",
+  "auth.forgotPassword.errors.failed": "تعذّر إرسال الطلب الآن. حاول مرة أخرى بعد قليل.",
+
+  "auth.resetPassword.title": "تعيين كلمة مرور جديدة",
+  "auth.resetPassword.titleInvalid": "رابط غير صالح",
+  "auth.resetPassword.subtitle": "اختر كلمة مرور جديدة لحسابك.",
+  "auth.resetPassword.submit": "حفظ كلمة المرور الجديدة",
+  "auth.resetPassword.submitting": "جارٍ الحفظ",
+  "auth.resetPassword.done.title": "تم تحديث كلمة المرور.",
+  "auth.resetPassword.done.body":
+    "سُجّل خروجك من جلساتك السابقة. يمكنك الآن تسجيل الدخول بكلمة المرور الجديدة.",
+  "auth.resetPassword.requestNewLink": "طلب رابط جديد",
+  "auth.resetPassword.errors.missingLink":
+    "رابط إعادة التعيين غير صالح أو غير مكتمل. اطلب رابطًا جديدًا.",
+  "auth.resetPassword.errors.invalidOrRefused":
+    "تعذّر تعيين كلمة المرور. قد يكون الرابط غير صالح أو منتهي الصلاحية، أو أن كلمة المرور لا تستوفي شروط مزود الهوية.",
+  "auth.resetPassword.errors.unavailable": "الخدمة غير متاحة مؤقتًا الآن. حاول مرة أخرى بعد قليل.",
+  "auth.resetPassword.errors.failed": "تعذّر تحديث كلمة المرور الآن. حاول مرة أخرى بعد قليل.",
 
   // RT-971: the shared parts of the public screens (canvas «تسجيل الدخول»).
   "auth.password.show": "إظهار كلمة المرور",

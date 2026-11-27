@@ -36,6 +36,7 @@ import { forceActionRoutes } from "@/shell/forceActionRoutes";
 import { inventoryRoutes } from "@/shell/inventoryRoutes";
 import { NavigationBlocker } from "@/shell/navigation-blocker";
 import { offerRoutes } from "@/shell/offerRoutes";
+import { passwordResetRoutes } from "@/shell/passwordResetRoutes";
 import { payerRoutes } from "@/shell/payerRoutes";
 import { platformRoutes } from "@/shell/platformRoutes";
 import { postingHealthRoutes } from "@/shell/postingHealthRoutes";
@@ -89,6 +90,8 @@ const router = createBrowserRouter(
     // the safe fallback instead of the router's default error screen.
     <Route element={<RootLayout />} errorElement={<RouteErrorFallback />}>
       <Route path="/signin" element={<SignInRoute />} />
+      {/* Public password recovery (RT-1497, security: []) — siblings of /signin. */}
+      {passwordResetRoutes}
       {/* Public accept-invitation (SF5-4, security: []) — sibling of /signin. */}
       <Route path="/accept-invitation" element={<AcceptInvitation />} />
       {/* RT-780: the platform console has its own tenant-less gate. */}

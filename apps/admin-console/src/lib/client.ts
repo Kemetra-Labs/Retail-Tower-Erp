@@ -57,6 +57,51 @@ export async function changePassword(body: PasswordChangeBody) {
   };
 }
 
+interface PasswordResetRequestBody {
+  email: string;
+}
+
+/**
+ * POST /api/v1/auth/password-reset/request (RT-1497; public).
+ * Always returns 202 when accepted to avoid leaking account existence.
+ */
+export async function requestPasswordReset(body: PasswordResetRequestBody) {
+  const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/request", {
+    body,
+  });
+  const retryAfter = response.headers.get("retry-after");
+  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
+  return {
+    status: response.status,
+    data,
+    error,
+    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
+  };
+}
+
+interface PasswordResetConfirmBody {
+  token: string;
+  new_password: string;
+}
+
+/**
+ * POST /api/v1/auth/password-reset/confirm (RT-1497; public).
+ * 204 on success (all existing sessions revoked); 400 on invalid/expired token or refused password.
+ */
+export async function confirmPasswordReset(body: PasswordResetConfirmBody) {
+  const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/confirm", {
+    body,
+  });
+  const retryAfter = response.headers.get("retry-after");
+  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
+  return {
+    status: response.status,
+    data,
+    error,
+    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
+  };
+}
+
 /** POST /api/v1/auth/refresh */
 export async function refreshSession() {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/refresh", {});
