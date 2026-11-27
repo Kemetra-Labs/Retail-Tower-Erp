@@ -1,5 +1,5 @@
 /**
- * 0136_erp_credential_rotation (RT-1362 S2): the pending marker on auth_tokens (column, composite FK, shape CHECK),
+ * 0136_erp_credential_rotation (RT-1362 S2): the pending marker on auth_tokens (column, composite FK to the request's (id, tenant, registration) unique key, shape CHECK),
  * the routing and trigger columns of a `credential.rotate` request with their CHECK, the one-open-rotation partial
  * unique index, and the adopted registration's provisioner host binding (three columns and their CHECK).
  */
@@ -21,10 +21,11 @@ export const MIGRATION: MigrationEntry = {
         "auth_tokens_pending_rotation_shape",
         "erp_provisioning_request_rotation_shape",
         "connector_registration_provisioner_host_binding_valid",
+        "uq_erp_provisioning_request_id_tenant_registration",
       ]),
       await countValidIndexes(db, ["uq_erp_provisioning_request_open_credential_rotate"]),
     ],
-    applied: ["1", "2", "3", "4", "1"],
+    applied: ["1", "2", "3", "5", "1"],
     rolledBack: ["0", "0", "0", "0", "0"],
   },
 };

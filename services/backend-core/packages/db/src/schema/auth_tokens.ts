@@ -81,8 +81,8 @@ export const authTokens = pgTable("auth_tokens", {
    * RT-1362 S2 (0136): the PENDING marker of an overlap `credential.rotate`.
    * NULL is the registration's CURRENT credential; a value is the open rotation
    * request that issued this credential as its pending replacement. Composite FK
-   * `(pending_rotation_request_id, tenant_id)` → `erp_provisioning_request (id,
-   * tenant_id)` ON DELETE RESTRICT and the CHECK `auth_tokens_pending_rotation_shape`
+   * `(pending_rotation_request_id, tenant_id, connector_registration_id)` →
+   * `erp_provisioning_request (id, tenant_id, connector_registration_id)` ON DELETE RESTRICT and the CHECK `auth_tokens_pending_rotation_shape`
    * (connector scope, linked to a registration) live in the migration (the FK
    * is not declared here: `erp-provisioning.ts` imports this table).
    */

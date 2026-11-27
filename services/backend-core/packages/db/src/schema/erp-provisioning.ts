@@ -146,6 +146,9 @@ export const erpProvisioningRequest = pgTable(
       .where(sql`${t.connectorRegistrationId} IS NOT NULL`),
     // Composite-FK target so a step-log row cannot name another tenant.
     unique("uq_erp_provisioning_request_id_tenant").on(t.id, t.tenantId),
+    // RT-1362 S2 (0136): the target of `auth_tokens_pending_rotation_request_fk`, so a pending credential names
+    // only a rotation of its own tenant and registration.
+    unique("uq_erp_provisioning_request_id_tenant_registration").on(t.id, t.tenantId, t.connectorRegistrationId),
     check(
       "erp_provisioning_request_kind_valid",
       sql`${t.kind} IN ('tenant.provision', 'store.provision', 'credential.rotate')`,

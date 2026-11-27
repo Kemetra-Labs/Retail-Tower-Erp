@@ -3,9 +3,10 @@
  * `0137_auth_tokens_current_connector_credential_idx`, `0138_auth_tokens_pending_connector_credential_idx` and
  * `0139_drop_auth_tokens_active_connector_credential_idx` (owner go-ahead for the gated migration: RT-1362 comments
  * 19102 and 19107). Real PostgreSQL (Testcontainers):
- *   - 0136 runs as a NOSUPERUSER, NOBYPASSRLS owner (like production);
- *   - NAMED: a pending credential names only a request of its OWN tenant (23503), and only a connector credential
- *     linked to a registration may be pending (23514);
+ *   - 0136 runs as a NOSUPERUSER, NOBYPASSRLS owner (like production) with `app.current_tenant` pre-set to '' (its FK
+ *     validation reads auth_tokens under FORCE RLS), and a second run of its up is a no-op (re-runnable);
+ *   - NAMED: a pending credential names only a rotation of its OWN tenant AND registration (23503), and only a
+ *     connector credential linked to a registration may be pending (23514);
  *   - NAMED: a `credential.rotate` row carries its routed host label, its trigger and its registration, and no other
  *     kind carries the first two (23514); the adopted host binding is all-or-none and well-formed (23514);
  *   - NAMED: at most one OPEN `credential.rotate` per registration (23505); a terminal one does not count;
@@ -22,7 +23,7 @@ import { resolve } from "node:path";
 
 import { ERP_CREDENTIAL_ROTATION_TRIGGERS } from "../../src/schema/erp-provisioning";
 import { expectSingleConcurrentStatement, indexState, migrationPath } from "../_helpers/concurrent-index-migration";
-import { applyMigrationsBefore, asMigrationOwner, errorCode, runSqlFile, type MigrationOwner } from "../_helpers/migration-spec";
+import { applyMigrationsBefore, asMigrationOwner, errorCode, type MigrationOwner } from "../_helpers/migration-spec";
 import { startPgEnv, stopPgEnv, type PgTestEnv } from "../_helpers/postgres-container";
 
 const DRIZZLE_DIR = resolve(__dirname, "..", "..", "drizzle");
@@ -98,7 +99,37 @@ async function insertToken(
   return r.rows[0]!.id;
 }
 
-const code = (sql: string, params: unknown[] = []): Promise<string | null> => errorCode(() => guard().admin.query(sql, params));
+/** The Postgres error `fn` raised, as `{ code, constraint }`, or null. */
+async function pgError(fn: () => Promise<unknown>): Promise<{ code: string | undefined; constraint: string | undefined } | null> {
+  try {
+    await fn();
+    return null;
+  } catch (err) {
+    const e = err as { code?: string; constraint?: string };
+    return { code: e.code, constraint: e.constraint };
+  }
+}
+
+/**
+ * Run a migration file as the NOSUPERUSER owner with `app.current_tenant` pre-set to '' at SESSION level (the
+ * empty-GUC cast case: the 0000 auth_tokens policy casts it to uuid with no guard). Returns the error code or null.
+ */
+async function runAsOwner(path: string): Promise<string | null> {
+  const e = guard();
+  return asMigrationOwner(e, OWNER, async () => {
+    const c = await e.admin.connect();
+    try {
+      await c.query("SELECT set_config('app.current_tenant', '', false)");
+      await c.query(`SET ROLE ${OWNER.role}`);
+      return await errorCode(() => c.query(readFileSync(path, "utf8")));
+    } finally {
+      await c.query("ROLLBACK").catch(() => undefined);
+      await c.query("RESET ROLE").catch(() => undefined);
+      await c.query("RESET app.current_tenant").catch(() => undefined);
+      c.release();
+    }
+  });
+}
 
 async function cleanRotationRows(): Promise<void> {
   const a = guard().admin;
@@ -147,11 +178,18 @@ describe("0137-0139: file shape", () => {
 });
 
 describe("0136: up as the NOSUPERUSER owner", () => {
-  it("applies with no superuser and no BYPASSRLS", async () => {
+  it("applies with no superuser and no BYPASSRLS, with the tenant GUC pre-set to '' (FK validation under FORCE RLS)", async () => {
     if (skip()) return;
     const e = guard();
-    const result = await asMigrationOwner(e, OWNER, () => runSqlFile(e, migrationPath(M0136, "up"), OWNER.role));
-    expect(result).toBeNull();
+    // A current connector credential exists, so the FK validation reads real auth_tokens rows (written without the
+    // new column, which does not exist yet).
+    await e.admin.query(
+      `INSERT INTO auth_tokens (id, token_hash, tenant_id, user_id, scope, expires_at, connector_registration_id)
+       VALUES (gen_random_uuid(), sha256(gen_random_uuid()::text::bytea), $1, $2, 'connector', now() + interval '90 days', $3)`,
+      [TENANT_A, USER, REG_A],
+    );
+    expect(await runAsOwner(migrationPath(M0136, "up"))).toBeNull();
+    await cleanRotationRows();
     const cols = await e.admin.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM information_schema.columns
         WHERE (table_name, column_name) IN (('auth_tokens', 'pending_rotation_request_id'),
@@ -175,26 +213,33 @@ describe("0136: the pending marker on auth_tokens", () => {
     if (!skip()) await cleanRotationRows();
   });
 
-  it("NAMED: a pending credential names only a request of its own tenant (23503)", async () => {
+  it("NAMED: a pending credential names only a rotation of its own tenant and registration (23503)", async () => {
     if (skip()) return;
+    const FK = { code: "23503", constraint: "auth_tokens_pending_rotation_request_fk" };
     const ra = await insertRequest(TENANT_A, REG_A);
     const rb = await insertRequest(TENANT_B, REG_B);
     await insertToken(TENANT_A, REG_A, { pending: ra });
-    expect(await errorCode(() => insertToken(TENANT_A, REG_A2, { pending: rb }))).toBe("23503");
+    expect(await pgError(() => insertToken(TENANT_A, REG_A2, { pending: rb }))).toEqual(FK);
+    // Same tenant, another registration's rotation.
+    expect(await pgError(() => insertToken(TENANT_A, REG_A2, { pending: ra }))).toEqual(FK);
   });
 
   it("NAMED: only a connector credential linked to a registration may be pending (23514)", async () => {
     if (skip()) return;
     const ra = await insertRequest(TENANT_A, REG_A);
-    expect(await errorCode(() => insertToken(TENANT_A, null, { pending: ra, scope: "dashboard_api" }))).toBe("23514");
-    expect(await errorCode(() => insertToken(TENANT_A, null, { pending: ra }))).toBe("23514");
+    const SHAPE = { code: "23514", constraint: "auth_tokens_pending_rotation_shape" };
+    expect(await pgError(() => insertToken(TENANT_A, null, { pending: ra, scope: "dashboard_api" }))).toEqual(SHAPE);
+    expect(await pgError(() => insertToken(TENANT_A, null, { pending: ra }))).toEqual(SHAPE);
   });
 
   it("a request with a pending credential cannot be deleted (ON DELETE RESTRICT, 23503)", async () => {
     if (skip()) return;
     const ra = await insertRequest(TENANT_A, REG_A);
     await insertToken(TENANT_A, REG_A, { pending: ra });
-    expect(await code(`DELETE FROM ${REQ} WHERE id = $1`, [ra])).toBe("23503");
+    expect(await pgError(() => guard().admin.query(`DELETE FROM ${REQ} WHERE id = $1`, [ra]))).toEqual({
+      code: "23503",
+      constraint: "auth_tokens_pending_rotation_request_fk",
+    });
   });
 });
 
@@ -212,14 +257,15 @@ describe("0136: the shape of a credential.rotate request", () => {
 
   it("NAMED: credential.rotate needs a routed host, a trigger and a registration; no other kind carries them (23514)", async () => {
     if (skip()) return;
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { host: null }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { trigger: null }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, null))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { trigger: "manual" }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { host: "Lab_03" }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { host: "a".repeat(65) }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { kind: "tenant.provision" }))).toBe("23514");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { kind: "tenant.provision", host: null }))).toBe("23514");
+    const SHAPE = { code: "23514", constraint: "erp_provisioning_request_rotation_shape" };
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { host: null }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { trigger: null }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, null))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { trigger: "manual" }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { host: "Lab_03" }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { host: "a".repeat(65) }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { kind: "tenant.provision" }))).toEqual(SHAPE);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { kind: "tenant.provision", host: null }))).toEqual(SHAPE);
     await insertRequest(TENANT_A, REG_A, { kind: "tenant.provision", host: null, trigger: null });
   });
 
@@ -236,8 +282,9 @@ describe("0136: the shape of a credential.rotate request", () => {
     await insertRequest(TENANT_A, REG_A, { status: "failed_permanent" });
     await insertRequest(TENANT_A, REG_A, { status: "succeeded" });
     await insertRequest(TENANT_A, REG_A);
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { trigger: "scheduled" }))).toBe("23505");
-    expect(await errorCode(() => insertRequest(TENANT_A, REG_A, { status: "failed_retryable" }))).toBe("23505");
+    const OPEN = { code: "23505", constraint: IDX_OPEN_ROTATE };
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { trigger: "scheduled" }))).toEqual(OPEN);
+    expect(await pgError(() => insertRequest(TENANT_A, REG_A, { status: "failed_retryable" }))).toEqual(OPEN);
     await insertRequest(TENANT_A, REG_A2);
     await insertRequest(TENANT_A, REG_A, { kind: "store.provision", host: null, trigger: null });
     const state = await indexState(guard().admin, IDX_OPEN_ROTATE);
@@ -247,13 +294,20 @@ describe("0136: the shape of a credential.rotate request", () => {
 });
 
 describe("0136: the adopted registration's provisioner host binding", () => {
-  const set = (label: string | null, binding: string | null, revision: number | null): Promise<string | null> =>
-    code(
-      `UPDATE connector_registration
-          SET provisioner_host_label = $2, provisioner_host_binding = $3, provisioner_host_binding_revision = $4
-        WHERE id = $1`,
-      [REG_A, label, binding, revision],
+  const BINDING = "connector_registration_provisioner_host_binding_valid";
+  /** null, the code when the binding CHECK refused it, or `code:constraint` when anything else did. */
+  const set = async (label: string | null, binding: string | null, revision: number | null): Promise<string | null> => {
+    const err = await pgError(() =>
+      guard().admin.query(
+        `UPDATE connector_registration
+            SET provisioner_host_label = $2, provisioner_host_binding = $3, provisioner_host_binding_revision = $4
+          WHERE id = $1`,
+        [REG_A, label, binding, revision],
+      ),
     );
+    if (err === null) return null;
+    return err.constraint === BINDING ? (err.code ?? "unknown") : `${err.code}:${err.constraint}`;
+  };
 
   afterEach(async () => {
     if (!skip()) await set(null, null, null);
@@ -316,7 +370,7 @@ describe("0137-0139: one current plus one pending credential per registration", 
     const ra = await insertRequest(TENANT_A, REG_A);
     await insertToken(TENANT_A, REG_A);
     const first = await insertToken(TENANT_A, REG_A, { pending: ra });
-    expect(await errorCode(() => insertToken(TENANT_A, REG_A, { pending: ra }))).toBe("23505");
+    expect(await pgError(() => insertToken(TENANT_A, REG_A, { pending: ra }))).toEqual({ code: "23505", constraint: IDX_PENDING });
     await guard().admin.query(`UPDATE auth_tokens SET revoked_at = now() WHERE id = $1`, [first]);
     await insertToken(TENANT_A, REG_A, { pending: ra });
     await cleanRotationRows();
@@ -333,8 +387,8 @@ describe("0137-0139: one current plus one pending credential per registration", 
       // Clearing the marker first would make two CURRENT credentials: refused, never deferred.
       await client.query("SAVEPOINT wrong_order");
       expect(
-        await errorCode(() => client.query(`UPDATE auth_tokens SET pending_rotation_request_id = NULL WHERE id = $1`, [pending])),
-      ).toBe("23505");
+        await pgError(() => client.query(`UPDATE auth_tokens SET pending_rotation_request_id = NULL WHERE id = $1`, [pending])),
+      ).toEqual({ code: "23505", constraint: IDX_CURRENT });
       await client.query("ROLLBACK TO SAVEPOINT wrong_order");
       await client.query(`UPDATE auth_tokens SET revoked_at = now() WHERE id = $1`, [current]);
       await client.query(`UPDATE auth_tokens SET pending_rotation_request_id = NULL WHERE id = $1`, [pending]);
@@ -373,20 +427,7 @@ describe("0139-0136: down and up again", () => {
   it("0136 down refuses (P0001) as the NOSUPERUSER owner under FORCE RLS while a credential.rotate request exists", async () => {
     if (skip()) return;
     const e = guard();
-    const result = await asMigrationOwner(e, OWNER, async () => {
-      const c = await e.admin.connect();
-      try {
-        // The tenant GUC pre-set to '' (session level): the down must still see the request.
-        await c.query("SELECT set_config('app.current_tenant', '', false)");
-        await c.query(`SET ROLE ${OWNER.role}`);
-        return await errorCode(() => c.query(read(M0136, "down")));
-      } finally {
-        await c.query("ROLLBACK").catch(() => undefined);
-        await c.query("RESET ROLE").catch(() => undefined);
-        await c.query("RESET app.current_tenant").catch(() => undefined);
-        c.release();
-      }
-    });
+    const result = await runAsOwner(migrationPath(M0136, "down"));
     expect(result).toBe("P0001");
     const cols = await e.admin.query(`SELECT 1 FROM information_schema.columns WHERE table_name = '${REQ}' AND column_name = 'routed_host_label'`);
     expect(cols.rowCount).toBe(1);
@@ -396,7 +437,7 @@ describe("0139-0136: down and up again", () => {
     if (skip()) return;
     const e = guard();
     await cleanRotationRows();
-    expect(await asMigrationOwner(e, OWNER, () => runSqlFile(e, migrationPath(M0136, "down"), OWNER.role))).toBeNull();
+    expect(await runAsOwner(migrationPath(M0136, "down"))).toBeNull();
     const left = await e.admin.query<{ n: number }>(
       `SELECT count(*)::int AS n FROM information_schema.columns
         WHERE column_name IN ('pending_rotation_request_id', 'routed_host_label', 'rotation_trigger',
@@ -404,6 +445,8 @@ describe("0139-0136: down and up again", () => {
     );
     expect(left.rows[0]!.n).toBe(0);
     expect(await indexState(e.admin, IDX_OPEN_ROTATE)).toBeNull();
+    // 0136 is re-runnable: a second up over an applied one changes nothing and does not fail.
+    await e.admin.query(read(M0136, "up"));
     await e.admin.query(read(M0136, "up"));
     await e.admin.query(read(M0137, "up"));
     await e.admin.query(read(M0138, "up"));

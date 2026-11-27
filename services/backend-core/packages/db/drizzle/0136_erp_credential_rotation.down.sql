@@ -13,7 +13,7 @@
 -- a SELECT policy on erp_provisioning_request) because the table is FORCE RLS and the migration owner is
 -- NOSUPERUSER: without it the owner would read 0 rows and the refusal would never fire.
 --
--- Then it drops the request index, the CHECKs, the FK and the six columns.
+-- Then it drops the request index, the pending FK and its unique target, the CHECKs and the six columns.
 
 BEGIN;
 
@@ -36,6 +36,10 @@ SELECT set_config('app.is_platform_admin', 'false', true);
 
 DROP INDEX IF EXISTS uq_erp_provisioning_request_open_credential_rotate;
 
+-- The FK first: it depends on the request's (id, tenant_id, connector_registration_id) unique key.
+ALTER TABLE auth_tokens DROP CONSTRAINT IF EXISTS auth_tokens_pending_rotation_request_fk;
+ALTER TABLE erp_provisioning_request DROP CONSTRAINT IF EXISTS uq_erp_provisioning_request_id_tenant_registration;
+
 ALTER TABLE erp_provisioning_request DROP CONSTRAINT IF EXISTS erp_provisioning_request_rotation_shape;
 ALTER TABLE erp_provisioning_request DROP COLUMN IF EXISTS rotation_trigger;
 ALTER TABLE erp_provisioning_request DROP COLUMN IF EXISTS routed_host_label;
@@ -46,7 +50,6 @@ ALTER TABLE connector_registration DROP COLUMN IF EXISTS provisioner_host_bindin
 ALTER TABLE connector_registration DROP COLUMN IF EXISTS provisioner_host_label;
 
 ALTER TABLE auth_tokens DROP CONSTRAINT IF EXISTS auth_tokens_pending_rotation_shape;
-ALTER TABLE auth_tokens DROP CONSTRAINT IF EXISTS auth_tokens_pending_rotation_request_fk;
 ALTER TABLE auth_tokens DROP COLUMN IF EXISTS pending_rotation_request_id;
 
 COMMIT;
