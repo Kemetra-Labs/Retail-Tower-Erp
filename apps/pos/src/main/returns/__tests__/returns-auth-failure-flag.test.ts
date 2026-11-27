@@ -261,6 +261,58 @@ describe('the auth-failure run: adjacent attempt numbers, monotonic span (create
     const rows = [auth(4), auth(3), { cause: 'something_new', attempt_no: 2 }, auth(1)];
     expect(streak(rows, { 1: 0, 2: 8, 3: 16, 4: 24 }).reached('r', 4)).toBe(false);
   });
+
+  it('reads the real monotonic clock when none is injected: marks made back to back span no period', () => {
+    const s = createAuthFailureStreak(dbAnswering([auth(3), auth(2), auth(1)]), QUIET);
+    for (const n of [1, 2, 3]) s.markAttempt('r', n);
+    expect(s.reached('r', 3)).toBe(false);
+  });
+
+  it.each([
+    ['a non-finite clock reading', 1, Number.NaN],
+    ['a fractional attempt number', 1.5, 0],
+  ])('%s is not recorded, so it can never complete a run', (_what, attemptNo, reading) => {
+    const rows = [auth(3), auth(2), auth(attemptNo)];
+    let now = 0;
+    const s = createAuthFailureStreak(dbAnswering(rows), QUIET, () => now);
+    now = 0;
+    s.markAttempt('r', 2);
+    now = 16 * MIN;
+    s.markAttempt('r', 3);
+    now = reading;
+    s.markAttempt('r', attemptNo);
+    expect(s.reached('r', 3)).toBe(false);
+  });
+
+  it('keeps only the newest attempt marks of a return: an old run is forgotten, a newer one still counts', () => {
+    const rows = [auth(25), auth(24), auth(23), auth(5), auth(4), auth(3)];
+    let now = 0;
+    const s = createAuthFailureStreak(dbAnswering(rows), QUIET, () => now);
+    for (let attempt = 1; attempt <= 25; attempt += 1) {
+      now = attempt * 8 * MIN;
+      s.markAttempt('r', attempt);
+    }
+    expect(s.reached('r', 25)).toBe(true);
+    expect(s.reached('r', 5)).toBe(false);
+  });
+
+  it('forgets the least recently marked return once too many are tracked, never the newest', () => {
+    const rows = [auth(3), auth(2), auth(1)];
+    let now = 0;
+    const s = createAuthFailureStreak(dbAnswering(rows), QUIET, () => now);
+    for (const [attempt, minute] of [
+      [1, 0],
+      [2, 8],
+      [3, 16],
+    ] as const) {
+      now = minute * MIN;
+      s.markAttempt('first', attempt);
+    }
+    expect(s.reached('first', 3)).toBe(true);
+    for (let i = 0; i < 1000; i += 1) s.markAttempt(`other-${String(i)}`, 1);
+    expect(s.reached('first', 3)).toBe(false);
+    expect(s.reached('other-999', 1)).toBe(false);
+  });
 });
 
 describe('the flag needs elapsed time this process can show', () => {
