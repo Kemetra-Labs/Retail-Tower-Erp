@@ -41,6 +41,8 @@ class Env:
 		self.feed = FakeFeed(self.clock)
 		self.gw = FakeGateway()
 		self.gw.backend = self.feed.present  # the Connector's heartbeat reaches this Backend-Core
+		self.gw.probe = lambda credential_id: 200 if self.feed.present(credential_id) else 401
+		self.gw.clock = self.clock
 		self.config = ProvisionerConfig(
 			base_url="https://bc.example", bench_path="/bench", credential_file="/secrets/prov"
 		)
@@ -279,6 +281,72 @@ def test_a_compatibility_refusal_of_the_write_itself_is_not_retried(env):
 	assert env.run() == REJECTED
 	assert env.state.steps[-1] == ("credential_bound", "compatibility")
 	assert env.state.credentials_issued == 1 and env.site["credential_id"] == "cred-current"
+
+
+def _accepted_but_not_promoted(env) -> None:
+	"""Rotation A finished server-side (Backend-Core accepted A, revoked the old one, succeeded) but
+	the 2xx was lost before the local promotion: A is Backend-Core's current, yet still sits in the
+	PENDING slot, and the CURRENT slot holds the revoked one."""
+	env.site["pending"] = {"credential_id": "cred-A", "issued_at": "2026-11-14T09:00:00Z"}
+	env.state.current_id = "cred-A"
+	env.state.revoked = ["cred-current"]
+
+
+def test_a_later_rotation_promotes_an_accepted_occupant_before_replacing_it(env):
+	_accepted_but_not_promoted(env)
+	env.gw.backend = lambda credential_id: False  # rotation B is then never accepted
+	assert env.run() == TRANSIENT
+	assert env.site["credential_id"] == "cred-A"  # the working credential is CURRENT now
+	assert env.site["pending"]["credential_id"] == "cred-rot-1"
+	# B fails terminally and Backend-Core revokes it: the site still holds Backend-Core's current one.
+	env.state.revoked.append("cred-rot-1")
+	assert env.feed.present(env.site["credential_id"]) is True
+
+
+def test_an_occupant_that_cannot_be_settled_defers_the_write(env):
+	_accepted_but_not_promoted(env)
+	env.gw.probe = lambda credential_id: None  # no answer: unknown whether A is current
+	with pytest.raises(LeaseLost):
+		env.run()
+	assert env.site["pending"]["credential_id"] == "cred-A"  # nothing replaced
+	assert env.site["credential_id"] == "cred-current"
+	assert env.state.steps == [("claimed", "done")]
+
+
+def test_a_revoked_occupant_is_replaced(env):
+	env.site["pending"] = {"credential_id": "cred-old-pending", "issued_at": "2026-11-14T09:00:00Z"}
+	assert env.run() == VERIFIED  # the probe answers 401: revoked, so it is overwritten
+	assert env.site["credential_id"] == "cred-rot-1"
+
+
+def test_the_write_carries_the_lease_end_and_is_bounded_by_it(env):
+	env.run()
+	(stage,) = [c[3] for c in env.gw.calls if c[0] == "site_op" and c[2] == "stage_pending_credential"]
+	lease_end = env.feed.requests[REQUEST_ID].lease_expires
+	assert stage["deadline"] <= lease_end.isoformat().replace("+00:00", "Z")
+	((_, timeout),) = [t for t in env.gw.timeouts if t[0] == "stage_pending_credential"]
+	assert 0 < timeout <= 900
+
+
+def test_a_write_delayed_past_the_lease_end_writes_nothing(env):
+	stage = env.gw._stage
+
+	def stalled(s, args, secret):
+		env.clock.advance(901)  # the bench call stalled past the lease; a newer worker may own it now
+		return stage(s, args, secret)
+
+	env.gw._stage = stalled
+	with pytest.raises(LeaseTooShort):
+		env.run()
+	assert env.site["pending"] is None and env.site["credential_id"] == "cred-current"
+	assert env.state.steps == [("claimed", "done")]
+
+
+def test_a_write_killed_at_the_lease_end_stops_and_re_pulls(env):
+	env.gw.stage_fails = [TimeoutError("bench command timed out after 899s")]
+	with pytest.raises(LeaseTooShort):
+		env.run()
+	assert env.state.credentials_issued == 1 and env.state.steps == [("claimed", "done")]
 
 
 def test_the_runner_releases_a_rotation_that_must_be_re_pulled(env, tmp_path):

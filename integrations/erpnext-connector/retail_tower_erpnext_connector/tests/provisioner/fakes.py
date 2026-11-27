@@ -410,6 +410,9 @@ class FakeGateway:
 		# the confirm step makes). Tests point it at ``FakeFeed.present``.
 		self.backend = lambda credential_id: False
 		self.stage_fails: list[Exception] = []  # raised by the next pending-slot writes
+		self.timeouts: list[tuple[str, int | None]] = []
+		self.clock = None  # set by a test to check the write deadline against the fake clock
+		self.probe = lambda credential_id: 401  # what Backend-Core answers the occupant's own heartbeat
 
 	def seed_adopted(
 		self, site: str = ADOPTED_SITE, registration_id: str = REGISTRATION, credential_id="cred-current"
@@ -504,8 +507,16 @@ class FakeGateway:
 			s["indexes_ok"] = True
 			s["has_settings"] = True
 
-	def site_op(self, site: str, op: str, args: dict | None = None, secret: str | None = None) -> dict:
+	def site_op(
+		self,
+		site: str,
+		op: str,
+		args: dict | None = None,
+		secret: str | None = None,
+		timeout: int | None = None,
+	) -> dict:
 		args = args or {}
+		self.timeouts.append((op, timeout))
 		self.calls.append(("site_op", site, op, dict(args)))
 		self.stdin_payloads.append({"op": op, "args": dict(args), "secret": secret})
 		if op in self.fail_op:
@@ -559,14 +570,29 @@ class FakeGateway:
 			raise RuntimeError("stage without secret")
 		if s.get("registration_id") != args["registration_id"]:
 			raise ProvisioningError(ErrorClass.conflict, "Connector Settings name another registration")
-		pending = s.get("pending") or {}
-		staged = credential_slots.stage_decision(
-			current_id=s.get("credential_id"),
-			pending_id=pending.get("credential_id"),
-			pending_issued_at=pending.get("issued_at"),
-			new_id=args["credential_id"],
-			new_issued_at=args["issued_at"],
-		)
+
+		def decide() -> str:
+			pending = s.get("pending") or {}
+			return credential_slots.stage_decision(
+				current_id=s.get("credential_id"),
+				pending_id=pending.get("credential_id"),
+				pending_issued_at=pending.get("issued_at"),
+				new_id=args["credential_id"],
+				new_issued_at=args["issued_at"],
+			)
+
+		# Settle an occupant the write would replace (site_ops._settle_occupant): its own heartbeat.
+		occupant = (s.get("pending") or {}).get("credential_id")
+		if decide() == credential_slots.WRITE and occupant and occupant != args["credential_id"]:
+			status = self.probe(occupant)
+			if status is not None and 200 <= status < 300:
+				s["credential_id"], s["pending"] = occupant, None  # accepted: promoted first
+			elif status not in (401, 403):
+				return {"ok": True, "staged": credential_slots.DEFERRED}
+		deadline = credential_slots.parse_utc(args.get("deadline"))
+		if deadline is not None and self.clock is not None and self.clock() >= deadline:
+			return {"ok": True, "staged": credential_slots.EXPIRED}
+		staged = decide()
 		if staged == credential_slots.WRITE:
 			s["pending"] = {"credential_id": args["credential_id"], "issued_at": args["issued_at"]}
 		return {"ok": True, "staged": staged}

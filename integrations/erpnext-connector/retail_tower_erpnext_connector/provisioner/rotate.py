@@ -60,7 +60,7 @@ _VERIFY_STEP = "verified"
 _SITE_REF = re.compile(r"^[A-Za-z0-9](?:[A-Za-z0-9._-]{0,253}[A-Za-z0-9])?$")
 _TRIES = 3
 _BACKOFF_S = (1, 2, 4)
-_STAGED = frozenset({"write", "noop", "stale"})
+_STAGED = frozenset({"write", "noop", "stale", "expired", "deferred"})
 _PASSTHROUGH = (LeaseLost, LeaseTooShort, AuthRejected, FeedUnavailable, ProtocolError)
 
 
@@ -167,6 +167,10 @@ class CredentialRotator:
 				continue
 			if staged == "stale":
 				raise LeaseLost("a later credential is already staged: a newer worker owns the rotation")
+			if staged == "expired":
+				raise LeaseTooShort("the lease ended before the pending-slot write: nothing written")
+			if staged == "deferred":
+				raise LeaseLost("the staged credential could not be settled: nothing written, re-pull")
 			return cred
 		raise AssertionError("unreachable")
 
@@ -184,19 +188,29 @@ class CredentialRotator:
 		return cred
 
 	def _stage(self, site: str, request: ProvisioningRequest, session: AckSession, cred) -> str:
-		if session.remaining_seconds() < self._c.short_timeout_seconds:
+		"""The fenced write. The site process gets the lease's absolute end as ``deadline`` and checks it
+		under the Connector Settings lock right before it changes anything (its lock wait is bounded by
+		it), and the bench call is killed when the lease ends: a stalled write never lands after it."""
+		left = session.remaining_seconds()
+		if left < self._c.short_timeout_seconds or session.lease_expires_at is None:
 			raise LeaseTooShort("lease too short for the pending-slot write")  # write nothing, re-pull
-		result = self._gw.site_op(
-			site,
-			"stage_pending_credential",
-			{
-				"registration_id": request.registration_id,
-				"credential_id": cred.credential_id,
-				"issued_at": cred.issued_at,
-				"expires_at": cred.expires_at,
-			},
-			secret=cred.secret,
-		)
+		deadline = session.lease_expires_at.astimezone(UTC).isoformat().replace("+00:00", "Z")
+		try:
+			result = self._gw.site_op(
+				site,
+				"stage_pending_credential",
+				{
+					"registration_id": request.registration_id,
+					"credential_id": cred.credential_id,
+					"issued_at": cred.issued_at,
+					"expires_at": cred.expires_at,
+					"deadline": deadline,
+				},
+				secret=cred.secret,
+				timeout=int(left),
+			)
+		except TimeoutError as exc:  # killed at the lease end: whatever it did not finish is not written
+			raise LeaseTooShort("the pending-slot write ran into the lease end") from exc
 		staged = result.get("staged")
 		if staged not in _STAGED:
 			raise RuntimeError("the pending-slot write returned no result")

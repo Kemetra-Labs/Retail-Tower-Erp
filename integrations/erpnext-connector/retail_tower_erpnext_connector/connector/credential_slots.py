@@ -25,8 +25,9 @@ put in an exception.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import UTC, datetime
 
 SETTINGS = "Connector Settings"
 CURRENT_TOKEN = "dp2_token"
@@ -43,6 +44,8 @@ PENDING_FIELDS = (PENDING_TOKEN, PENDING_ID, PENDING_ISSUED, PENDING_EXPIRES)
 WRITE = "write"
 NOOP = "noop"
 STALE = "stale"
+EXPIRED = "expired"  # the writer's lease deadline passed before the write: nothing written
+DEFERRED = "deferred"  # the slot's occupant could not be shown revoked or promoted: nothing written
 
 
 @dataclass(frozen=True)
@@ -169,39 +172,105 @@ def _dummy(secret: str) -> str:
 	return "*" * len(secret)
 
 
-def stage_pending(
-	*, registration_id: str, credential_id: str, issued_at: str, expires_at: str, secret: str
-) -> str:
-	"""Write a rotated credential into the PENDING slot (never CURRENT), as a compare-and-set.
-
-	Returns ``write``, ``noop`` or ``stale`` (see :func:`stage_decision`). Raises ``LookupError`` when the
-	settings name another registration. The caller (its own site process) commits right after. The write
-	bumps ``modified``, so a Connector Settings form opened before it cannot be saved over it."""
-	import frappe
-	from frappe.utils.password import set_encrypted_password
-
-	values = _values(lock=True)
-	if (values.get(REGISTRATION_ID) or None) != registration_id:
-		raise LookupError("Connector Settings name another registration")
-	decision = stage_decision(
+def _decide(values: dict, credential_id: str, issued_at: str) -> str:
+	return stage_decision(
 		current_id=values.get(CURRENT_ID) or None,
 		pending_id=values.get(PENDING_ID) or None,
 		pending_issued_at=values.get(PENDING_ISSUED) or None,
 		new_id=credential_id,
 		new_issued_at=issued_at,
 	)
+
+
+def occupant_to_settle(credential_id: str, issued_at: str) -> PendingCredential | None:
+	"""The credential a write of ``credential_id`` would REPLACE in the PENDING slot, or ``None``.
+
+	A replaced occupant may already be Backend-Core's current credential (it accepted it, the 2xx was
+	lost before the local promotion, the rotation succeeded): the caller must settle it first, by one
+	call authenticated with it alone, before the slot may be overwritten. A plain read; the write
+	itself decides again under the lock."""
+	import frappe
+
+	if _decide(_values(lock=False), credential_id, issued_at) != WRITE:
+		return None
+	occupant = read_pending(frappe.get_doc(SETTINGS))
+	return occupant if occupant is not None and occupant.credential_id != credential_id else None
+
+
+def _bound_lock_wait(seconds_left: float) -> None:
+	"""Never wait for the Connector Settings lock past the writer's lease (MariaDB counts whole seconds)."""
+	import frappe
+
+	frappe.db.sql("set session innodb_lock_wait_timeout = %s", (max(1, int(seconds_left)),))
+
+
+def _atomically(write: Callable[[], None]) -> None:
+	"""Run the slot writes as one unit inside the caller's transaction: on any failure everything this
+	unit wrote is rolled back (``set_single_value`` is a DELETE then an INSERT), so a later commit by the
+	caller can never persist half a slot."""
+	import frappe
+
+	frappe.db.savepoint(_SAVEPOINT)
+	try:
+		write()
+	except BaseException:
+		frappe.db.rollback(save_point=_SAVEPOINT)
+		raise
+
+
+_SAVEPOINT = "rt_credential_slots"
+
+
+def stage_pending(
+	*,
+	registration_id: str,
+	credential_id: str,
+	issued_at: str,
+	expires_at: str,
+	secret: str,
+	deadline: str | None = None,
+	now: Callable[[], datetime] = lambda: datetime.now(UTC),
+) -> str:
+	"""Write a rotated credential into the PENDING slot (never CURRENT), as a compare-and-set.
+
+	Returns ``write``, ``noop``, ``stale`` (see :func:`stage_decision`) or ``expired``: ``deadline`` (the
+	writer's lease, ISO-8601 UTC) passed before the write, checked under the lock immediately before
+	any change, and the lock wait is bounded by it. Raises ``LookupError`` when the settings name another
+	registration. The caller (its own site process) commits right after. The write bumps ``modified``,
+	so a Connector Settings form opened before it cannot be saved over it."""
+	import frappe
+	from frappe.utils.password import set_encrypted_password
+
+	until = parse_utc(deadline) if deadline is not None else None
+	if deadline is not None and until is None:
+		raise ValueError("deadline is not an ISO-8601 time with a zone")
+	if until is not None:
+		left = (until - now()).total_seconds()
+		if left <= 0:
+			return EXPIRED
+		_bound_lock_wait(left)
+	values = _values(lock=True)
+	if (values.get(REGISTRATION_ID) or None) != registration_id:
+		raise LookupError("Connector Settings name another registration")
+	decision = _decide(values, credential_id, issued_at)
 	if decision != WRITE:
 		return decision
-	set_encrypted_password(SETTINGS, SETTINGS, secret, PENDING_TOKEN)
-	frappe.db.set_single_value(
-		SETTINGS,
-		{
-			PENDING_TOKEN: _dummy(secret),
-			PENDING_ID: credential_id,
-			PENDING_ISSUED: issued_at,
-			PENDING_EXPIRES: expires_at,
-		},
-	)
+	if until is not None and now() >= until:
+		return EXPIRED  # a newer worker may hold the lease now: never write after it ended
+
+	def write() -> None:
+		set_encrypted_password(SETTINGS, SETTINGS, secret, PENDING_TOKEN)
+		frappe.db.set_single_value(
+			SETTINGS,
+			{
+				PENDING_TOKEN: _dummy(secret),
+				PENDING_ID: credential_id,
+				PENDING_ISSUED: issued_at,
+				PENDING_EXPIRES: expires_at,
+			},
+		)
+
+	_atomically(write)
 	return decision
 
 
@@ -214,7 +283,11 @@ def promote_pending(pending: PendingCredential) -> bool:
 	committed on both outcomes, so the lock never outlives this call. The commit is safe where the
 	transport is called: a poller calls Backend-Core only once its ERP effects are durable (RT-458), as
 	for the feed-state checkpoint (RT-883). The write bumps ``modified``, so a Connector Settings form
-	opened before it cannot be saved over the promoted ids."""
+	opened before it cannot be saved over the promoted ids.
+
+	The writes are one unit: a failure part-way rolls all of them back to the savepoint (both slots stay
+	as they were, so the next accepted call promotes again), the lock is released, and the error is
+	raised to the transport, which reports it and still returns Backend-Core's answer."""
 	import frappe
 	from frappe.utils.password import remove_encrypted_password, set_encrypted_password
 
@@ -223,7 +296,6 @@ def promote_pending(pending: PendingCredential) -> bool:
 	if (_values(lock=True).get(PENDING_ID) or None) != pending.credential_id:
 		_commit()  # releases the lock
 		return False
-	set_encrypted_password(SETTINGS, SETTINGS, pending.secret, CURRENT_TOKEN)
 	updates = {
 		CURRENT_TOKEN: _dummy(pending.secret),
 		CURRENT_ID: pending.credential_id,
@@ -236,8 +308,17 @@ def promote_pending(pending: PendingCredential) -> bool:
 		updates[CURRENT_ISSUED] = _site_naive(pending.issued_at)
 	if parse_utc(pending.expires_at) is not None:
 		updates[CURRENT_EXPIRES] = _site_naive(pending.expires_at)
-	frappe.db.set_single_value(SETTINGS, updates)
-	remove_encrypted_password(SETTINGS, SETTINGS, PENDING_TOKEN)
+
+	def write() -> None:
+		set_encrypted_password(SETTINGS, SETTINGS, pending.secret, CURRENT_TOKEN)
+		frappe.db.set_single_value(SETTINGS, updates)
+		remove_encrypted_password(SETTINGS, SETTINGS, PENDING_TOKEN)
+
+	try:
+		_atomically(write)
+	except BaseException:
+		_commit()  # nothing of this unit is left to commit; releases the lock
+		raise
 	_commit()
 	return True
 

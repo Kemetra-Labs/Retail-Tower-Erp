@@ -214,12 +214,7 @@ def build_http_transport(
 	token = settings.get_password("dp2_token")  # decrypted; never get_single_value (masks it)
 	if not base_url or not token:
 		raise ValueError("Connector Settings: dp2_base_url and dp2_token are required")
-	scheme = urlsplit(base_url).scheme.lower()
-	if scheme != "https" and not (scheme == "http" and env.get(ALLOW_INSECURE_ENV) == "1"):
-		raise ValueError(
-			"Connector Settings: dp2_base_url must be https:// "
-			f"(set {ALLOW_INSECURE_ENV}=1 to allow http:// in development)"
-		)
+	_require_https(base_url, env)
 	return RequestsTransport(
 		base_url,
 		token,
@@ -231,6 +226,30 @@ def build_http_transport(
 		reload_token=reload_token,
 		on_slot_error=on_slot_error,
 	)
+
+
+def build_probe_transport(
+	settings, secret: str, *, environ: Mapping[str, str] | None = None
+) -> RequestsTransport:
+	"""RT-1362 S3: a transport that authenticates with ``secret`` ALONE: no auth circuit, no slot logic.
+
+	The provisioner uses it to learn whether a credential still in the PENDING slot is Backend-Core's
+	current one before it replaces that slot. The same URL rules as :func:`build_http_transport`."""
+	env = os.environ if environ is None else environ
+	base_url = (settings.dp2_base_url or "").strip()
+	if not base_url or not secret:
+		raise ValueError("Connector Settings: dp2_base_url and a credential are required")
+	_require_https(base_url, env)
+	return RequestsTransport(base_url, secret)
+
+
+def _require_https(base_url: str, env: Mapping[str, str]) -> None:
+	scheme = urlsplit(base_url).scheme.lower()
+	if scheme != "https" and not (scheme == "http" and env.get(ALLOW_INSECURE_ENV) == "1"):
+		raise ValueError(
+			"Connector Settings: dp2_base_url must be https:// "
+			f"(set {ALLOW_INSECURE_ENV}=1 to allow http:// in development)"
+		)
 
 
 def _bearer(token: str) -> dict:

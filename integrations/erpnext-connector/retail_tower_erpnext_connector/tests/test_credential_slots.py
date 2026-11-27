@@ -340,8 +340,14 @@ class _Db:
 		self.auth: dict[str, str] = {}
 		self.commits = 0
 		self.locked = False
+		self.lock_wait: int | None = None
+		self.fail_insert = False  # Frappe's set_single_value is a DELETE then an INSERT: fail between
+		self.savepoints: dict[str, tuple[dict, dict]] = {}
 
 	def sql(self, query, values=(), as_list=False):
+		if query.startswith("set session innodb_lock_wait_timeout"):
+			self.lock_wait = values[0]
+			return ()
 		assert "`tabSingles`" in query and values == ("Connector Settings",)
 		if "for update" in query:
 			self.locked = True
@@ -351,7 +357,19 @@ class _Db:
 	def set_single_value(self, doctype, values, *args, **kwargs):
 		assert doctype == "Connector Settings"
 		assert kwargs.get("update_modified", True) is True  # a stale form save is then refused
+		for key in values:
+			self.singles.pop(key, None)  # the DELETE
+		if self.fail_insert:
+			raise RuntimeError("Lock wait timeout exceeded")  # before the INSERT
 		self.singles.update(values)
+
+	def savepoint(self, name):
+		self.savepoints[name] = (dict(self.singles), dict(self.auth))
+
+	def rollback(self, save_point=None):
+		assert save_point in self.savepoints  # never the caller's whole transaction
+		singles, auth = self.savepoints[save_point]
+		self.singles, self.auth = dict(singles), dict(auth)
 
 	def commit(self):
 		self.commits += 1
@@ -366,6 +384,14 @@ def frappe_db(monkeypatch):
 	frappe = types.ModuleType("frappe")
 	frappe.db = db
 	frappe.flags = {}
+
+	def get_doc(doctype):
+		assert doctype == "Connector Settings"
+		doc = types.SimpleNamespace(**db.singles)
+		doc.get_password = lambda fieldname, raise_exception=True: db.auth.get(fieldname)
+		return doc
+
+	frappe.get_doc = get_doc
 	frappe.get_meta = lambda doctype: types.SimpleNamespace(has_field=lambda name: True)
 	utils = types.ModuleType("frappe.utils")
 	utils.get_datetime = datetime.fromisoformat
@@ -475,3 +501,103 @@ def test_slot_ids_name_both_slots_and_never_a_secret(frappe_db):
 		"pending_issued_at": T1,
 	}
 	assert not frappe_db.locked
+
+
+def test_a_promotion_that_fails_part_way_leaves_both_slots_intact(frappe_db):
+	_stage()
+	frappe_db.commit()
+	before = (dict(frappe_db.singles), dict(frappe_db.auth))
+	frappe_db.fail_insert = True  # the DELETE ran, the INSERT failed
+	with pytest.raises(RuntimeError):
+		credential_slots.promote_pending(_pending(credential_id="cred-new"))
+	assert not frappe_db.locked
+	frappe_db.commit()  # the confirmation site op commits later: nothing half-written survives it
+	assert (frappe_db.singles, frappe_db.auth) == before
+
+
+def test_a_failed_promotion_through_the_transport_still_returns_the_answer_and_keeps_the_slots(
+	frappe_db, backend
+):
+	_stage()
+	frappe_db.commit()
+	before = (dict(frappe_db.singles), dict(frappe_db.auth))
+	frappe_db.fail_insert = True
+	backend.accepted = {OLD, NEW}
+	errors = []
+	transport = RequestsTransport(
+		"https://dp2.example",
+		OLD,
+		pending=_pending(credential_id="cred-new"),
+		on_promote=credential_slots.promote_pending,
+		on_slot_error=lambda what, exc: errors.append(what),
+	)
+	assert transport.post("/api/x", json={}, headers={}).status == 200
+	assert errors == ["promote"]
+	assert (frappe_db.singles, frappe_db.auth) == before  # the next accepted call promotes again
+
+
+def test_a_stage_that_fails_part_way_writes_nothing(frappe_db):
+	frappe_db.fail_insert = True
+	with pytest.raises(RuntimeError):
+		_stage()
+	assert "dp2_pending_token" not in frappe_db.auth and "dp2_pending_credential_id" not in frappe_db.singles
+
+
+def _clock(*times):
+	from datetime import datetime
+
+	values = iter(datetime.fromisoformat(t) for t in times)
+	return lambda: next(values)
+
+
+def test_a_stage_after_the_lease_end_writes_nothing_and_takes_no_lock(frappe_db):
+	staged = credential_slots.stage_pending(
+		registration_id="reg-1",
+		credential_id="cred-new",
+		issued_at=T1,
+		expires_at="2027-02-25T10:00:00Z",
+		secret=NEW,
+		deadline="2026-11-27T10:15:00Z",
+		now=_clock("2026-11-27T10:15:01+00:00"),
+	)
+	assert staged == credential_slots.EXPIRED
+	assert not frappe_db.locked and "dp2_pending_token" not in frappe_db.auth
+
+
+def test_the_lease_end_is_checked_again_under_the_lock_and_bounds_the_lock_wait(frappe_db):
+	staged = credential_slots.stage_pending(
+		registration_id="reg-1",
+		credential_id="cred-new",
+		issued_at=T1,
+		expires_at="2027-02-25T10:00:00Z",
+		secret=NEW,
+		deadline="2026-11-27T10:15:00Z",
+		# 40 s left when it starts; the lock was granted only after the lease ended
+		now=_clock("2026-11-27T10:14:20+00:00", "2026-11-27T10:15:00+00:00"),
+	)
+	assert staged == credential_slots.EXPIRED
+	assert frappe_db.lock_wait == 40
+	assert "dp2_pending_token" not in frappe_db.auth
+
+
+def test_a_stage_within_the_lease_writes(frappe_db):
+	staged = credential_slots.stage_pending(
+		registration_id="reg-1",
+		credential_id="cred-new",
+		issued_at=T1,
+		expires_at="2027-02-25T10:00:00Z",
+		secret=NEW,
+		deadline="2026-11-27T10:15:00Z",
+		now=_clock("2026-11-27T10:14:00+00:00", "2026-11-27T10:14:01+00:00"),
+	)
+	assert staged == WRITE and frappe_db.auth["dp2_pending_token"] == NEW
+
+
+def test_only_an_occupant_the_write_would_replace_is_settled(frappe_db):
+	assert credential_slots.occupant_to_settle("cred-new", T1) is None  # empty slot
+	_stage(credential_id="cred-A", issued_at=T0, secret=NEWER)
+	frappe_db.commit()
+	occupant = credential_slots.occupant_to_settle("cred-new", T1)
+	assert occupant.credential_id == "cred-A" and occupant.secret == NEWER
+	assert credential_slots.occupant_to_settle("cred-A", T0) is None  # the same credential: a no-op
+	assert credential_slots.occupant_to_settle("cred-0", "2026-11-27T09:00:00Z") is None  # older: stale
