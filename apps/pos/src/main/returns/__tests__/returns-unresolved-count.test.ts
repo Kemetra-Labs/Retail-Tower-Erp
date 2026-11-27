@@ -10,6 +10,7 @@ import {
   unresolvedReturnsAtClose,
 } from '../returns-unresolved-count.js';
 import {
+  DISPOSITION_B,
   automaticMismatch,
   closing,
   seedResolveApproval,
@@ -78,6 +79,23 @@ describe('createUnresolvedReturnCounter', () => {
     seedResolveApproval(h.db, { returnId, disposition: 'close', amountMinor: 1500 });
     h.dispositions.insert(closing({ returnId }));
     expect(count()).toEqual({ unresolved: 0, awaitingSupport: 0 });
+  });
+
+  it('counts again a closed return that a late commit re-blocked (RT-1553), as awaiting support', async () => {
+    harness();
+    const returnId = await unknownReturn();
+    seedResolveApproval(h.db, { returnId, disposition: 'close', amountMinor: 1500 });
+    h.dispositions.insert(closing({ returnId }));
+    h.dispositions.insert({
+      ...closing({ returnId }),
+      dispositionId: DISPOSITION_B,
+      kind: 'needs_support',
+      verdictSource: 'provenance_read',
+      reason: 'mismatch',
+      approvalId: null,
+      createdAt: '2026-10-04T10:06:00.000Z',
+    });
+    expect(count()).toEqual({ unresolved: 1, awaitingSupport: 1 });
   });
 
   it('does not count a confirmed return', async () => {

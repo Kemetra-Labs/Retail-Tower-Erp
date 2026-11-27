@@ -181,6 +181,22 @@ describe('RT-1498 S7: a close warns about unresolved returns, never blocks on th
     );
   });
 
+  it('an approved (manager PIN) close carries both its variance and the counts', async () => {
+    const shiftId = await openShift();
+    const counting = bridgeCounting(() => ({ unresolved: 1, awaitingSupport: 1 }));
+    const answer = await counting.close({
+      countedCashMinor: FLOAT + 40,
+      approver: { managerRef: MANAGER_REF, managerPin: MANAGER_PIN },
+    });
+    expect(answer).toStrictEqual({
+      kind: 'closed',
+      shiftId,
+      closedAt: CLOSED_AT,
+      varianceMinor: 40,
+      unresolvedReturns: { unresolved: 1, awaitingSupport: 1 },
+    });
+  });
+
   it('does not count on a refused close', async () => {
     await openShift();
     const counts = vi.fn(() => ({ unresolved: 1, awaitingSupport: 0 }));
