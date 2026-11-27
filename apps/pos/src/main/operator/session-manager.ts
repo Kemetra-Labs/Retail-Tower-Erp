@@ -367,6 +367,27 @@ export class SessionManager {
   }
 
   /**
+   * RT-309 — the offline reconcile could not establish authority for the
+   * CURRENT offline-admitted session (only when `session_id` still names it):
+   * end its offline bound now, so no NEW sale may start
+   * (`offline_authority_expired`). The current sale may still complete or be
+   * held and unlock still works; nothing ends. Never extends a bound.
+   */
+  expireOfflineAuthority(session_id: string, now: AuthorityClock = authorityClockOf()): boolean {
+    const current = this.current;
+    if (current?.id !== session_id || current.authority !== 'offline_grant') return false;
+    current.authority_valid_until_ms = Math.min(
+      current.authority_valid_until_ms ?? now.wall_ms,
+      now.wall_ms,
+    );
+    current.authority_deadline_mono_ms = Math.min(
+      current.authority_deadline_mono_ms ?? now.mono_ms,
+      now.mono_ms,
+    );
+    return true;
+  }
+
+  /**
    * RT-113 P2 — latch the CURRENT session (only when `session_id` still names
    * it): no new sale may start until it ends. Idempotent; the first cause wins.
    */
