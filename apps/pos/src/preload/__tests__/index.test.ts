@@ -181,6 +181,8 @@ describe('preload bridge', () => {
         'unlockSession',
         'getLockState',
         'onSessionStateChanged',
+        // RT-309 D9 — the authority-conflict lock's take over / end here
+        'resolveConflict',
         // RT-352 — held-cart resume
         'getResumeState',
         // RT-358 — in-place manager re-auth

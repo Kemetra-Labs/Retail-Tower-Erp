@@ -149,6 +149,12 @@ export function createSessionAdmission(deps: SessionAdmissionDeps): SessionAdmis
   };
 
   function evaluate(candidate: AdmissionCandidate): AdmissionVerdict {
+    // RT-309 D9: an authority-conflict lock is resolved only by its own PIN-gated
+    // actions (`operator.resolveConflict`); no sign-in or takeover may end it.
+    if (sessionManager.getCurrent()?.lock_cause === 'authority_conflict') {
+      info({ event: 'operator.admission.refused', stage: 'authority_conflict' }, 'refused');
+      return refused('state_invalid');
+    }
     if (sessionManager.getCurrent()?.lock_state === 'active') {
       info({ event: 'operator.admission.refused', stage: 'session_active' }, 'refused');
       return refused('state_invalid');

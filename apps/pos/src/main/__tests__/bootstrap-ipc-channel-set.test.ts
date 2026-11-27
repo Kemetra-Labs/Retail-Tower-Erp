@@ -226,6 +226,8 @@ const EXPECTED_STARTUP_CHANNELS: readonly string[] = [
   'operator:list-cashier-pin-status',
   'operator:reauthenticate',
   'operator:get-resume-state',
+  // RT-309 D9 — registered by the cashier admission keeper bootstrap.
+  'operator:resolve-conflict',
   'operator:sign-in',
   'operator:sign-out',
   'operator:get-current-session',

@@ -1,7 +1,8 @@
+import type { IpcMain } from 'electron';
 import type { Logger } from 'pino';
 
 import type { WorkerRegistry } from '../app/bootstrap-workers.js';
-import type { AuditEvent } from '../../shared/audit/event-shape.js';
+import type { AuditEvent, OperatorRefusal } from '../../shared/audit/event-shape.js';
 import type { DatabaseHandle } from '../db/client.js';
 import { CashierAdmissionKeeper } from '../operator/cashier-admission-keeper.js';
 import type { CashierAdmissionDeps } from '../operator/cashier-admission.js';
@@ -9,9 +10,14 @@ import { createSafePointProbe } from '../operator/lock-state-reader.js';
 import { createOfflineReconcileAudit } from '../operator/offline-reconcile-audit.js';
 import type { SessionManager } from '../operator/session-manager.js';
 import type { PairingStore } from '../pairing/store.js';
+import { registerAuthorityConflictResolution } from './authority-conflict.js';
 
 /** What `registerCashierAdmissionKeeper` closes over from the composition root. */
 export interface CashierAdmissionKeeperBootstrapDeps {
+  /** RT-309 D9 — the lock-guarded `ipcMain` for `operator:resolve-conflict`. */
+  ipcMain: IpcMain;
+  /** RT-309 D9 — the 004 cashier PIN check, shared with sign-in and unlock. */
+  verifyCashierPin: (operator_id: string, pin: string) => Promise<OperatorRefusal | null>;
   db: DatabaseHandle;
   sessionManager: SessionManager;
   pairingStore: Pick<PairingStore, 'getCurrentTerminalId'>;
@@ -61,6 +67,18 @@ export function registerCashierAdmissionKeeper(
   deps.saleBoundaryProbe.recheck = () => {
     keeper.recheckSafePoint();
   };
+  // RT-309 D9 (10763 D9): a reconcile conflict locks the session; the cashier
+  // resolves it here (take over here / end here) after a PIN check.
+  registerAuthorityConflictResolution({
+    ipcMain: deps.ipcMain,
+    sessionManager: deps.sessionManager,
+    verifyCashierPin: deps.verifyCashierPin,
+    admission: deps.admission,
+    keeper,
+    auditEmitter: deps.auditEmitter,
+    pairingStore: deps.pairingStore,
+    mainLogger: deps.mainLogger,
+  });
   deps.workerRegistry.register('cashier admission heartbeat', () => {
     keeper.stop();
     deps.deviceAuthDetector.stop();

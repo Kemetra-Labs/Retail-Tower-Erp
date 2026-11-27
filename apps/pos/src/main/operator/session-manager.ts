@@ -1,7 +1,7 @@
 import { randomUUID } from 'node:crypto';
 
 import type { Role } from '../../shared/operator/role.js';
-import type { OperatorSessionBridgeView } from '../../shared/bridge-api.js';
+import type { OperatorSessionBridgeView, SessionLockCause } from '../../shared/bridge-api.js';
 import type { SessionEndCause } from '../../shared/operator/session-end-cause.js';
 
 import {
@@ -91,6 +91,13 @@ export interface OperatorSessionRecord {
   lock_state: 'active' | 'locked';
   /** ISO timestamp the session locked; null while active. */
   locked_at: string | null;
+  /**
+   * RT-309 D9 — why the session is locked; absent while active. An
+   * `authority_conflict` lock is never downgraded by an inactivity lock and is
+   * cleared only by the conflict resolution (`authority-conflict-resolver.ts`).
+   * Main-only.
+   */
+  lock_cause?: SessionLockCause;
   /**
    * RT-113 P2 (10763 §3) — set only on an admitted cashier session. Main-only:
    * never in the bridge view (Constitution VII).
@@ -470,11 +477,34 @@ export class SessionManager {
    * RT-117 (RT-116 §2.2) — lock the CURRENT session in place. Same session id;
    * onEnded is NOT fired, so the session-end sweep cannot run on a lock.
    */
-  lock(at: string): void {
-    if (this.current === null || this.current.lock_state === 'locked') return;
-    this.current.lock_state = 'locked';
-    this.current.locked_at = at;
-    this.notifyLockState(this.current);
+  lock(at: string, cause: SessionLockCause = 'inactivity'): void {
+    const current = this.current;
+    if (current === null) return;
+    if (current.lock_state === 'locked') {
+      // RT-309 D9: a conflict upgrades an inactivity lock (same lock, new cause);
+      // nothing ever downgrades a conflict lock.
+      if (cause !== 'authority_conflict' || current.lock_cause === 'authority_conflict') return;
+      current.lock_cause = cause;
+      this.notifyLockState(current);
+      return;
+    }
+    current.lock_state = 'locked';
+    current.locked_at = at;
+    current.lock_cause = cause;
+    this.notifyLockState(current);
+  }
+
+  /**
+   * RT-309 D9 (RT-113 10763 D9) — the offline reconcile answered
+   * `active_elsewhere`: lock the CURRENT session (only when `session_id` still
+   * names it) with `lock_cause: 'authority_conflict'`. Same session, nothing
+   * ended; the lock guard refuses every sale channel, and the ordinary unlock
+   * refuses this cause. Returns whether it applied.
+   */
+  lockForAuthorityConflict(session_id: string, at: string): boolean {
+    if (this.current?.id !== session_id) return false;
+    this.lock(at, 'authority_conflict');
+    return true;
   }
 
   /**
@@ -482,10 +512,18 @@ export class SessionManager {
    * onStarted is NOT fired (the session never ended). Callers verify the
    * credential first; this method only flips the state.
    */
-  unlock(at: string): void {
+  unlock(at: string, opts: { resolvesAuthorityConflict?: boolean } = {}): void {
     if (this.current?.lock_state !== 'locked') return;
+    // RT-309 D9: a conflict lock is cleared only by the conflict resolver (fail closed).
+    if (
+      this.current.lock_cause === 'authority_conflict' &&
+      opts.resolvesAuthorityConflict !== true
+    ) {
+      return;
+    }
     this.current.lock_state = 'active';
     this.current.locked_at = null;
+    delete this.current.lock_cause;
     this.current.last_activity_at = at;
     this.notifyLockState(this.current);
   }

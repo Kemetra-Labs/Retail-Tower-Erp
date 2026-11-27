@@ -339,6 +339,12 @@ export async function admitCashierOnline(
      * captured now, just before the send.
      */
     send_mark?: AdmissionSendMark;
+    /**
+     * RT-309 D9 — false: an `admitted` is NOT published to the grant seam here;
+     * the caller publishes it (`notifyGrantSeam`) only once it has validated and
+     * adopted the admission. Refusals still invalidate at once. Default true.
+     */
+    publishAdmitted?: boolean;
   },
 ): Promise<OnlineAdmissionResult> {
   // Review of 024f07c, item 3: a late `end` of this user's previous admission
@@ -354,11 +360,13 @@ export async function admitCashierOnline(
     takeover: req.takeover,
     idempotency_key: req.idempotency_key,
   });
-  reportAdmissionOutcome(deps, result, {
-    user_id: req.user_id,
-    operator_id: req.operator_id,
-    ...sent,
-  });
+  if (result.kind !== 'admitted' || req.publishAdmitted !== false) {
+    reportAdmissionOutcome(deps, result, {
+      user_id: req.user_id,
+      operator_id: req.operator_id,
+      ...sent,
+    });
+  }
   return result.kind === 'admitted' ? { ...result, requested_at_ms } : result;
 }
 

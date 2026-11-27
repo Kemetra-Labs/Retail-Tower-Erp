@@ -5,7 +5,8 @@ import type { SessionManager } from './session-manager.js';
 /**
  * RT-117 (RT-116 §7.3) — audit `operator.session.locked` and
  * `operator.session.unlocked` for every lock-state change of the current
- * session. Best-effort: an audit failure never blocks the lock (the lock is
+ * session. RT-309 D9: the payload carries the lock's cause, so a conflict lock
+ * (`authority_conflict`), or an inactivity lock upgraded to one, is recorded. Best-effort: an audit failure never blocks the lock (the lock is
  * the safety property; the audit records it).
  */
 
@@ -26,7 +27,7 @@ export function wireSessionLockAudit(deps: SessionLockAuditDeps): void {
     const locking = record.lock_state === 'locked';
     const created_at = locking ? (record.locked_at ?? '') : record.last_activity_at;
     const payload = locking
-      ? { lock_cause: 'inactivity' as const }
+      ? { lock_cause: record.lock_cause ?? 'inactivity' }
       : {
           locked_duration_ms:
             lockedAt === null ? 0 : Math.max(0, Date.parse(created_at) - Date.parse(lockedAt)),

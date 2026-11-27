@@ -312,6 +312,12 @@ export class CashierAdmissionKeeper {
       onConflict: (session_id, cause) => {
         if (deps.sessionManager.getCurrent()?.id === session_id) this.latchCurrentSession(cause);
       },
+      // RT-309 D9 (10763 D9): a conflict locks the session for the cashier's
+      // decision; nothing here ends it (the resolver does, on «إنهاء هنا»).
+      onAuthorityConflict: (session_id) => {
+        if (this.stopped) return;
+        deps.sessionManager.lockForAuthorityConflict(session_id, new Date().toISOString());
+      },
       onLiveAdmissionRenewed: (admission_id) => {
         if (this.armed?.admission_id === admission_id) this.reverifySoon(this.armed);
       },
@@ -328,6 +334,16 @@ export class CashierAdmissionKeeper {
     deps.sessionManager.onLockStateChanged(() => {
       this.recheckSafePoint();
     });
+  }
+
+  /**
+   * RT-309 D9 — the conflict resolver took the session over here: it now holds
+   * a live online admission. Arm its heartbeat, as an adopted reconcile does.
+   * Only when `session_id` is still the current session.
+   */
+  onConflictTakenOver(session_id: string): void {
+    const current = this.deps.sessionManager.getCurrent();
+    if (current?.id === session_id) this.onSessionStarted(current);
   }
 
   /** Shutdown latch: idempotent; clears every timer; nothing runs afterwards. */

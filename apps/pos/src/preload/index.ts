@@ -45,6 +45,8 @@ import type {
   ReauthenticateRequest,
   ReauthenticateResponse,
   LockStateView,
+  ResolveConflictRequest,
+  ResolveConflictResponse,
   ResumeStateView,
 } from '../shared/bridge-api';
 import { subscribeSessionState } from './session-state.js';
@@ -124,6 +126,12 @@ const operator: OperatorBridgeAPI = {
     ) as Promise<UnlockSessionResponse>,
   getLockState: () =>
     ipcRenderer.invoke(SESSION_LOCK_IPC_CHANNELS.GET_LOCK_STATE) as Promise<LockStateView>,
+  // RT-309 D9 — the authority-conflict lock: take over here / end here (PIN-gated in main).
+  resolveConflict: (req: ResolveConflictRequest) =>
+    ipcRenderer.invoke(
+      SESSION_LOCK_IPC_CHANNELS.RESOLVE_CONFLICT,
+      req,
+    ) as Promise<ResolveConflictResponse>,
   // RT-358 — in-place manager re-auth after `reauth_required`.
   reauthenticate: (req: ReauthenticateRequest) =>
     ipcRenderer.invoke(REAUTH_IPC_CHANNELS.REAUTHENTICATE, req) as Promise<ReauthenticateResponse>,
