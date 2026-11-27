@@ -518,6 +518,7 @@ describe("DeviceList modern columns and insight", () => {
   });
 
   test("the insight is clear when nothing on the loaded rows needs attention", async () => {
+    consoleListDeviceHealth.mockResolvedValue(healthPage([health({ saleQueue: saleQueue() })]));
     renderList();
     await tableReady();
     expect(
@@ -525,6 +526,19 @@ describe("DeviceList modern columns and insight", () => {
         "No custody exception, stranded sale or passed expiry among the loaded devices.",
       ),
     ).toBeDefined();
+  });
+
+  test("the insight claims no clear while the sale queues are unavailable", async () => {
+    renderList();
+    await tableReady();
+    // The 404 health read has settled: the Unsent sales cell reads Unavailable.
+    expect(await screen.findByText("Unavailable")).toBeDefined();
+    expect(screen.queryByText("What needs attention")).toBeNull();
+    expect(
+      screen.queryByText(
+        "No custody exception, stranded sale or passed expiry among the loaded devices.",
+      ),
+    ).toBeNull();
   });
 
   test("the insight counts a device past its credential expiry", async () => {

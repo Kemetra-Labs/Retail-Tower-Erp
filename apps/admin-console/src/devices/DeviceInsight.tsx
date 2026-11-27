@@ -17,6 +17,8 @@
  * (RT-1013: a device page serves no whole-set value). While the health read is
  * still loading and no custody exception is already known, the note renders
  * nothing: stranded sales are not yet knowable, so "clear" would be a lie.
+ * For the same reason "clear" also needs known queue counts for every loaded
+ * row; an unavailable or unknown queue leaves the note out.
  * While the list itself is loading, has no rows, or failed, it also renders
  * nothing: the results panel already carries the loading and error states.
  * No "healthy" is ever claimed: the quiet line says only that nothing on the
@@ -60,6 +62,9 @@ function insightOf(
     (d) => d.trustState === "active" && isPastExpiry(d.expiresAt, now),
   ).length;
   if (pastExpiry > 0) return { kind: "pastExpiry", count: pastExpiry };
+  // "Clear" needs known queue counts for every loaded row: an unavailable or
+  // unknown queue (no health row, no queue, no heartbeat) proves no absence.
+  if (!list.rows.every((d) => queueOf(d).kind === "counts")) return null;
   return { kind: "clear" };
 }
 

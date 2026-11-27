@@ -36,6 +36,10 @@
 .settings-card {
   padding: var(--space-4) var(--space-5);
 }
+/* A gated section renders null (the AI plan is off by default): no empty card. */
+.settings-card:empty {
+  display: none;
+}
 .settings-card > :is(.cash-policy, .ai-plan, .tracked-selling) {
   margin-block-start: 0;
   padding-block-start: 0;
