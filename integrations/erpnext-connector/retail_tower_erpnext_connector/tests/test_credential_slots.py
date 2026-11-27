@@ -1,0 +1,419 @@
+# Copyright (c) 2026, Retail Tower OS and contributors
+# For license information, please see license.txt
+
+"""RT-1362 S3 — dual-slot credentials in the shared transport (``provisioning-feed.yaml`` 1.2.0-draft).
+
+The transport presents PENDING first, falls back to CURRENT on a refusal and clears nothing, promotes
+PENDING on its first accepted call, and retries a refused CURRENT with the one another job promoted.
+Neither fallback reaches the RT-1429 auth circuit: only a genuine refusal of every credential opens it.
+``requests`` is a stand-in that answers per bearer token, so every assertion is on the calls it saw.
+"""
+
+import sys
+import types
+
+import pytest
+
+from retail_tower_erpnext_connector.connector import auth_circuit_store, credential_slots
+from retail_tower_erpnext_connector.connector.auth_circuit import (
+	AuthCircuit,
+	AuthRefused,
+	MemoryCircuitStore,
+)
+from retail_tower_erpnext_connector.connector.credential_slots import (
+	NOOP,
+	STALE,
+	WRITE,
+	PendingCredential,
+	read_pending,
+	stage_decision,
+)
+from retail_tower_erpnext_connector.connector.http_transport import RequestsTransport, build_http_transport
+
+# Built at run time and low-entropy: a secret-shaped literal in any commit keeps gitleaks red.
+OLD = "old-" + "a" * 24
+NEW = "new-" + "b" * 24
+NEWER = "newer-" + "c" * 24
+
+
+class _Response:
+	def __init__(self, status):
+		self.status_code = status
+		self.headers = {}
+
+	def json(self):
+		return {"items": [], "cursor": "1"}
+
+	def raise_for_status(self):
+		if self.status_code >= 400:
+			raise RuntimeError(f"{self.status_code} Client Error")
+
+
+class _FakeRequests(types.ModuleType):
+	"""Backend-Core as the bearer sees it: ``accepted`` tokens get ``status``, the rest 401."""
+
+	def __init__(self):
+		super().__init__("requests")
+		self.accepted = {OLD}
+		self.status = 200
+		self.calls: list[tuple[str, str]] = []
+
+	def _answer(self, method, headers):
+		token = headers["Authorization"].removeprefix("Bearer ")
+		self.calls.append((method, token))
+		return _Response(self.status if token in self.accepted else 401)
+
+	def get(self, url, **kwargs):
+		return self._answer("GET", kwargs["headers"])
+
+	def post(self, url, **kwargs):
+		return self._answer("POST", kwargs["headers"])
+
+
+@pytest.fixture
+def backend(monkeypatch):
+	fake = _FakeRequests()
+	monkeypatch.setitem(sys.modules, "requests", fake)
+	return fake
+
+
+def _pending(secret=NEW, credential_id="cred-new"):
+	return PendingCredential(credential_id, secret, "2026-11-27T10:00:00Z", "2027-02-25T10:00:00Z")
+
+
+class _Rig:
+	def __init__(self, *, pending=None, reload=None, promote_raises=False):
+		self.circuit = AuthCircuit(MemoryCircuitStore(), clock=lambda: 1_000.0)
+		self.opened: list[int] = []
+		self.promoted: list[PendingCredential] = []
+		self.slot_errors: list[str] = []
+
+		def promote(p):
+			if promote_raises:
+				raise RuntimeError("lock wait timeout")
+			self.promoted.append(p)
+			return True
+
+		self.transport = RequestsTransport(
+			"https://dp2.example",
+			OLD,
+			circuit=self.circuit,
+			on_open=self.opened.append,
+			pending=pending,
+			on_promote=promote,
+			reload_token=reload,
+			on_slot_error=lambda what, exc: self.slot_errors.append(what),
+		)
+
+	def post(self):
+		return self.transport.post("/api/x", json={}, headers={})
+
+
+# --- the transport -------------------------------------------------------------------------------
+
+
+def test_an_accepted_pending_credential_is_promoted_once_and_used_from_then_on(backend):
+	backend.accepted = {OLD, NEW}
+	rig = _Rig(pending=_pending())
+	assert rig.post().status == 200
+	assert rig.post().status == 200
+	assert backend.calls == [("POST", NEW), ("POST", NEW)]
+	assert [p.credential_id for p in rig.promoted] == ["cred-new"]
+	assert rig.circuit.blocked() is False
+
+
+def test_a_refused_pending_credential_falls_back_to_current_and_never_trips_the_circuit(backend):
+	rig = _Rig(pending=_pending())  # Backend-Core revoked it (a newer repeat, a failed rotation)
+	assert rig.post().status == 200
+	assert backend.calls == [("POST", NEW), ("POST", OLD)]
+	assert rig.promoted == [] and rig.opened == []
+	assert rig.circuit.blocked() is False and rig.circuit.next_probe_at() is None
+	rig.post()  # not presented again by this transport
+	assert backend.calls[-1] == ("POST", OLD) and len(backend.calls) == 3
+
+
+def test_a_get_with_a_refused_pending_credential_does_not_raise_when_current_works(backend):
+	rig = _Rig(pending=_pending())
+	assert rig.transport.get("/api/x", params={}, headers={}) == {"items": [], "cursor": "1"}
+	assert rig.circuit.blocked() is False
+
+
+def test_only_a_refusal_of_every_credential_opens_the_circuit(backend):
+	backend.accepted = set()
+	rig = _Rig(pending=_pending())
+	with pytest.raises(AuthRefused):
+		rig.transport.get("/api/x", params={}, headers={})
+	assert backend.calls == [("GET", NEW), ("GET", OLD)]
+	assert rig.opened == [401]
+
+
+def test_a_refused_current_is_retried_with_the_credential_another_job_promoted(backend):
+	backend.accepted = {NEW}  # Backend-Core revoked OLD when it accepted NEW from another job
+	rig = _Rig(reload=lambda: NEW)
+	assert rig.post().status == 200
+	assert backend.calls == [("POST", OLD), ("POST", NEW)]
+	assert rig.opened == [] and rig.circuit.blocked() is False
+	rig.post()
+	assert backend.calls[-1] == ("POST", NEW)
+
+
+def test_a_refused_current_with_nothing_newer_stored_is_a_genuine_refusal(backend):
+	backend.accepted = set()
+	rig = _Rig(reload=lambda: OLD)
+	rig.post()
+	assert backend.calls == [("POST", OLD)]
+	assert rig.opened == [401]
+
+
+def test_a_failed_promotion_write_never_fails_the_call(backend):
+	backend.accepted = {OLD, NEW}
+	rig = _Rig(pending=_pending(), promote_raises=True)
+	assert rig.post().status == 200
+	assert rig.slot_errors == ["promote"]
+	assert backend.calls == [("POST", NEW)]
+
+
+def test_a_failed_reload_leaves_the_refusal_to_the_circuit(backend):
+	backend.accepted = set()
+
+	def broken():
+		raise RuntimeError("db down")
+
+	rig = _Rig(reload=broken)
+	rig.post()
+	assert backend.calls == [("POST", OLD)]
+	assert rig.opened == [401]  # reported once, by the circuit
+
+
+def test_a_server_error_with_pending_proves_nothing_and_keeps_it_staged(backend):
+	backend.accepted = {OLD, NEW}
+	backend.status = 503
+	rig = _Rig(pending=_pending())
+	assert rig.post().status == 503
+	backend.status = 200
+	rig.post()
+	assert backend.calls == [("POST", NEW), ("POST", NEW)]
+	assert len(rig.promoted) == 1
+
+
+# --- reading the slots ---------------------------------------------------------------------------
+
+
+class _Settings:
+	def __init__(self, pending_id=None, pending_secret=None, credential_id="cred-old"):
+		self.dp2_base_url = "https://dp2.example"
+		self.dp2_credential_id = credential_id
+		self.dp2_pending_credential_id = pending_id
+		self.dp2_pending_credential_issued_at = "2026-11-27T10:00:00Z" if pending_id else None
+		self.dp2_pending_credential_expires_at = "2027-02-25T10:00:00Z" if pending_id else None
+		self._secrets = {"dp2_token": OLD, "dp2_pending_token": pending_secret}
+		self.asked: list[str] = []
+
+	def get_password(self, fieldname, raise_exception=True):
+		self.asked.append(fieldname)
+		value = self._secrets.get(fieldname)
+		if value is None and raise_exception:
+			raise RuntimeError("Password not found")
+		return value
+
+
+def test_build_reads_the_pending_slot_only_when_one_is_staged(backend):
+	empty = _Settings()
+	build_http_transport(empty, environ={})
+	assert empty.asked == ["dp2_token"]
+	staged = _Settings(pending_id="cred-new", pending_secret=NEW)
+	backend.accepted = {OLD, NEW}
+	build_http_transport(staged, environ={}).post("/api/x", json={}, headers={})
+	assert backend.calls == [("POST", NEW)]
+
+
+def test_a_pending_id_without_a_secret_is_no_pending_credential():
+	assert read_pending(_Settings(pending_id="cred-new", pending_secret=None)) is None
+	assert read_pending(_Settings(pending_id="  ")) is None
+	assert read_pending(object()) is None
+
+
+def test_the_pending_credential_never_shows_its_secret():
+	pending = read_pending(_Settings(pending_id="cred-new", pending_secret=NEW))
+	assert pending.credential_id == "cred-new" and pending.issued_at == "2026-11-27T10:00:00Z"
+	assert NEW not in repr(pending) and NEW not in str(pending)
+
+
+def test_a_staged_pending_credential_is_a_new_circuit_key():
+	plain = auth_circuit_store.credential_key(_Settings())
+	staged = auth_circuit_store.credential_key(_Settings(pending_id="cred-new", pending_secret=NEW))
+	assert staged == plain + "|cred-new"
+	assert NEW not in staged and OLD not in staged
+
+
+# --- the compare-and-set rule of the pending slot ------------------------------------------------
+
+T0 = "2026-11-27T10:00:00.000001Z"
+T1 = "2026-11-27T10:00:00.000002Z"
+
+
+def _decide(**over):
+	args = {"current_id": "cred-old", "pending_id": None, "pending_issued_at": None}
+	args.update(over)
+	return stage_decision(new_id="cred-2", new_issued_at=T1, **args)
+
+
+def test_an_empty_slot_or_an_earlier_one_is_written():
+	assert _decide() == WRITE
+	assert _decide(pending_id="cred-1", pending_issued_at=T0) == WRITE
+
+
+def test_an_older_write_than_the_staged_one_is_refused():
+	assert _decide(pending_id="cred-3", pending_issued_at="2026-11-27T10:00:00.000003Z") == STALE
+
+
+def test_an_equal_issued_at_from_another_credential_is_refused():
+	assert _decide(pending_id="cred-9", pending_issued_at=T1) == STALE
+
+
+def test_the_same_credential_again_is_a_no_op():
+	assert _decide(pending_id="cred-2", pending_issued_at=T1) == NOOP
+	assert _decide(pending_id="cred-2", pending_issued_at="2026-11-27T12:00:00+02:00") == STALE
+
+
+def test_a_credential_already_promoted_is_a_no_op():
+	assert _decide(current_id="cred-2") == NOOP
+
+
+def test_the_compare_is_made_in_utc_not_in_the_written_offset():
+	# 12:00:00+02:00 is 10:00:00Z: earlier than T1 although it reads later.
+	assert _decide(pending_id="cred-1", pending_issued_at="2026-11-27T12:00:00+02:00") == WRITE
+
+
+def test_an_unreadable_stored_time_is_overwritten_and_an_unreadable_new_one_refused():
+	assert _decide(pending_id="cred-1", pending_issued_at="garbage") == WRITE
+	with pytest.raises(ValueError):
+		stage_decision(
+			current_id=None, pending_id=None, pending_issued_at=None, new_id="c", new_issued_at="2026-11-27"
+		)
+
+
+def test_the_slot_field_names_are_the_doctypes():
+	import json
+	from pathlib import Path
+
+	doctype = json.loads(
+		(
+			Path(credential_slots.__file__).parent
+			/ "doctype"
+			/ "connector_settings"
+			/ "connector_settings.json"
+		).read_text(encoding="utf-8")
+	)
+	fields = {f["fieldname"]: f for f in doctype["fields"]}
+	for name in credential_slots.PENDING_FIELDS:
+		assert name in fields and not fields[name].get("reqd") and not fields[name].get("unique")
+	assert fields[credential_slots.PENDING_TOKEN]["fieldtype"] == "Password"
+
+
+# --- the frappe-backed writes, against a stand-in of the Single's rows and the password store --------
+
+
+class _Db:
+	def __init__(self, singles):
+		self.singles = dict(singles)
+		self.auth: dict[str, str] = {}
+		self.commits = 0
+
+	def sql(self, query, values=(), as_list=False):
+		if "`tabSingles`" in query:
+			assert "for update" in query  # a locking read: the latest committed values
+			return [[k, v] for k, v in self.singles.items()]
+		if "`__Auth`" in query:
+			assert "lock in share mode" in query
+			value = self.auth.get(values[2])
+			return [[f"enc:{value}"]] if value else []
+		raise AssertionError(query)
+
+	def set_single_value(self, doctype, values, update_modified=True):
+		assert doctype == "Connector Settings" and update_modified is False
+		self.singles.update(values)
+
+	def commit(self):
+		self.commits += 1
+
+
+@pytest.fixture
+def frappe_db(monkeypatch):
+	from datetime import datetime
+
+	db = _Db({"dp2_connector_registration_id": "reg-1", "dp2_credential_id": "cred-old", "dp2_token": "*"})
+	frappe = types.ModuleType("frappe")
+	frappe.db = db
+	frappe.get_meta = lambda doctype: types.SimpleNamespace(has_field=lambda name: True)
+	utils = types.ModuleType("frappe.utils")
+	utils.get_datetime = datetime.fromisoformat
+	utils.convert_utc_to_system_timezone = lambda value: value
+	password = types.ModuleType("frappe.utils.password")
+	password.set_encrypted_password = lambda dt, dn, pwd, fieldname: db.auth.__setitem__(fieldname, pwd)
+	password.remove_encrypted_password = lambda dt, dn, fieldname: db.auth.pop(fieldname, None)
+	password.decrypt = lambda text: text.removeprefix("enc:")
+	frappe.utils = utils
+	utils.password = password
+	for name, module in (("frappe", frappe), ("frappe.utils", utils), ("frappe.utils.password", password)):
+		monkeypatch.setitem(sys.modules, name, module)
+	db.auth["dp2_token"] = OLD
+	return db
+
+
+def _stage(credential_id="cred-new", issued_at=T1, secret=NEW, registration_id="reg-1"):
+	return credential_slots.stage_pending(
+		registration_id=registration_id,
+		credential_id=credential_id,
+		issued_at=issued_at,
+		expires_at="2027-02-25T10:00:00Z",
+		secret=secret,
+	)
+
+
+def test_staging_writes_the_pending_slot_only(frappe_db):
+	assert _stage() == WRITE
+	assert frappe_db.auth == {"dp2_token": OLD, "dp2_pending_token": NEW}
+	assert frappe_db.singles["dp2_pending_credential_id"] == "cred-new"
+	assert frappe_db.singles["dp2_pending_credential_issued_at"] == T1
+	assert frappe_db.singles["dp2_pending_token"] == "*" * len(NEW)  # Frappe's mask, never the secret
+	assert frappe_db.singles["dp2_credential_id"] == "cred-old"
+
+
+def test_staging_refuses_an_older_credential_and_another_registration(frappe_db):
+	_stage(credential_id="cred-3", issued_at="2026-11-27T10:00:00.000003Z", secret=NEWER)
+	assert _stage() == STALE
+	assert frappe_db.auth["dp2_pending_token"] == NEWER
+	with pytest.raises(LookupError):
+		_stage(registration_id="reg-2")
+
+
+def test_promotion_moves_pending_to_current_and_empties_the_slot(frappe_db):
+	_stage()
+	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is True
+	assert frappe_db.auth == {"dp2_token": NEW}
+	assert frappe_db.singles["dp2_credential_id"] == "cred-new"
+	assert frappe_db.singles["dp2_pending_credential_id"] is None
+	assert frappe_db.commits == 1
+
+
+def test_promotion_is_a_compare_and_set_on_the_pending_id(frappe_db):
+	_stage(credential_id="cred-newer", secret=NEWER)  # a newer rotation staged after this one was read
+	assert credential_slots.promote_pending(_pending(credential_id="cred-new")) is False
+	assert frappe_db.auth == {"dp2_token": OLD, "dp2_pending_token": NEWER}
+	assert frappe_db.commits == 0
+
+
+def test_reload_reads_the_current_secret_as_last_committed(frappe_db):
+	assert credential_slots.reload_current_token() == OLD
+	frappe_db.auth.pop("dp2_token")
+	assert credential_slots.reload_current_token() is None
+
+
+def test_slot_ids_name_both_slots_and_never_a_secret(frappe_db):
+	_stage()
+	assert credential_slots.slot_ids() == {
+		"current_credential_id": "cred-old",
+		"pending_credential_id": "cred-new",
+		"pending_issued_at": T1,
+	}

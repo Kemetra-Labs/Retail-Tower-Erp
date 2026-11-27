@@ -47,6 +47,8 @@ def run(spec: dict) -> dict:
 		"enable_scheduler": lambda a, s: enable_scheduler(),
 		"bootstrap_stores": lambda a, s: bootstrap_stores(a),
 		"bind_credential": lambda a, s: bind_credential(a, s),
+		"stage_pending_credential": lambda a, s: stage_pending_credential(a, s),
+		"confirm_credential": lambda a, s: confirm_credential(a),
 	}
 	handler = handlers.get(spec.get("op"))
 	if handler is None:
@@ -106,6 +108,11 @@ def inspect() -> dict:
 		out["registration_id"] = (
 			frappe.db.get_single_value(_SETTINGS, "dp2_connector_registration_id") or None
 		)
+		# RT-1362 S3: the PENDING slot's non-secret id (absent before ``bench migrate`` added the field).
+		if frappe.get_meta(_SETTINGS).has_field("dp2_pending_credential_id"):
+			out["pending_credential_id"] = (
+				frappe.db.get_single_value(_SETTINGS, "dp2_pending_credential_id") or None
+			)
 		out["indexes_ok"] = schema.index_present(
 			"Posting Log", schema.POSTING_LOG_INDEX, schema.POSTING_LOG_COLUMNS
 		) and schema.index_present("Sales Invoice", schema.SALES_INVOICE_INDEX, schema.SALES_INVOICE_COLUMNS)
@@ -376,6 +383,53 @@ def bind_credential(args: dict, secret: str | None) -> dict:
 	settings.save()
 	_commit()
 	return {"ok": True}
+
+
+def stage_pending_credential(args: dict, secret: str | None) -> dict:
+	"""RT-1362 S3 (``credential.rotate``, step 4): write the rotated credential into the PENDING slot of
+	Connector Settings, never the CURRENT one, as a compare-and-set on ``issuedAt``.
+
+	Returns ``{"ok": True, "staged": "write" | "noop" | "stale"}``; ``stale`` writes nothing (a newer
+	worker owns the rotation). A site whose Connector Settings have no pending slot yet (``bench migrate``
+	has not run for this Connector version) is a ``compatibility`` failure: nothing is written. The
+	slot is read and written through :mod:`..connector.credential_slots` (a locking read of the settings,
+	Frappe's password API), so a poller promoting at the same moment is serialised with this write."""
+	from ..connector import credential_slots
+
+	if not secret:
+		raise OpError("permanently_rejected", "no credential supplied")
+	if not credential_slots.has_pending_slot():
+		raise OpError("compatibility", "Connector Settings have no pending credential slot")
+	try:
+		staged = credential_slots.stage_pending(
+			registration_id=args["registration_id"],
+			credential_id=args["credential_id"],
+			issued_at=args["issued_at"],
+			expires_at=args["expires_at"],
+			secret=secret,
+		)
+	except LookupError as exc:
+		raise OpError("conflict", "Connector Settings name another registration") from exc
+	except ValueError as exc:
+		raise OpError("permanently_rejected", "issuedAt is not a time with a zone") from exc
+	_commit()
+	return {"ok": True, "staged": staged}
+
+
+def confirm_credential(args: dict) -> dict:
+	"""RT-1362 S3 (step 6): make the Connector's next authenticated call now, then report both slots.
+
+	The call is one heartbeat through the shared transport, which presents the PENDING credential and
+	promotes it to CURRENT once Backend-Core accepts it; the heartbeat never raises. The caller compares
+	the returned ids with the credential it staged. ``args`` is unused (kept for the spec shape)."""
+	from ..connector import credential_slots
+	from ..connector.health.sender import run_heartbeat
+
+	del args
+	run_heartbeat()
+	ids = credential_slots.slot_ids()
+	_commit()  # ends the locking read
+	return {"ok": True, **ids}
 
 
 # --- bench-level (no site) ------------------------------------------------------------------------

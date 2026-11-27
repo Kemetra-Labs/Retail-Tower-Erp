@@ -237,3 +237,64 @@ def test_bootstrap_never_replaces_an_operators_cash_mapping(monkeypatch):
 	assert [(r.tender_method, r.mode_of_payment) for r in settings.tender_mode_map] == [
 		("cash", "Cash on Hand")
 	]
+
+
+# --- RT-1362 S3: the pending-slot write and the confirmation call ----------------------------------
+
+_STAGE_ARGS = {
+	"registration_id": "reg-1",
+	"credential_id": "cred-new",
+	"issued_at": "2026-11-27T10:00:00Z",
+	"expires_at": "2027-02-25T10:00:00Z",
+}
+
+
+@pytest.fixture
+def slots(monkeypatch, stub):
+	from retail_tower_erpnext_connector.connector import credential_slots
+
+	calls = []
+	monkeypatch.setattr(credential_slots, "has_pending_slot", lambda: True)
+	monkeypatch.setattr(credential_slots, "stage_pending", lambda **kw: calls.append(kw) or "write")
+	return types.SimpleNamespace(module=credential_slots, calls=calls, stub=stub)
+
+
+def test_the_pending_write_passes_the_secret_from_stdin_only_and_commits(slots):
+	out = site_ops.run({"op": "stage_pending_credential", "args": dict(_STAGE_ARGS), "secret": "s3"})
+	assert out == {"ok": True, "staged": "write"}
+	assert slots.calls == [{**_STAGE_ARGS, "secret": "s3"}]
+	assert slots.stub.commits == 1
+
+
+def test_a_site_without_the_pending_slot_is_a_compatibility_error(slots, monkeypatch):
+	monkeypatch.setattr(slots.module, "has_pending_slot", lambda: False)
+	with pytest.raises(site_ops.OpError) as err:
+		site_ops.run({"op": "stage_pending_credential", "args": dict(_STAGE_ARGS), "secret": "s3"})
+	assert err.value.error_class == "compatibility" and slots.calls == []
+
+
+def test_another_registration_is_a_conflict_and_no_secret_is_a_rejection(slots, monkeypatch):
+	def other(**kw):
+		raise LookupError("x")
+
+	monkeypatch.setattr(slots.module, "stage_pending", other)
+	with pytest.raises(site_ops.OpError) as err:
+		site_ops.run({"op": "stage_pending_credential", "args": dict(_STAGE_ARGS), "secret": "s3"})
+	assert err.value.error_class == "conflict"
+	with pytest.raises(site_ops.OpError) as err:
+		site_ops.run({"op": "stage_pending_credential", "args": dict(_STAGE_ARGS)})
+	assert err.value.error_class == "permanently_rejected"
+
+
+def test_the_confirmation_makes_one_heartbeat_then_reports_both_slots(slots, monkeypatch):
+	beats = []
+	sender = types.ModuleType("retail_tower_erpnext_connector.connector.health.sender")
+	sender.run_heartbeat = lambda: beats.append(1)
+	monkeypatch.setitem(sys.modules, "retail_tower_erpnext_connector.connector.health.sender", sender)
+	ids = {"current_credential_id": "cred-new", "pending_credential_id": None, "pending_issued_at": None}
+	monkeypatch.setattr(slots.module, "slot_ids", lambda: dict(ids))
+	assert site_ops.run({"op": "confirm_credential", "args": {"credential_id": "cred-new"}}) == {
+		"ok": True,
+		**ids,
+	}
+	assert beats == [1]
