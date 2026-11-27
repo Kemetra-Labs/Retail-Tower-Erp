@@ -441,26 +441,34 @@ describe("CatalogProductList (RT-765, CAT-C1a)", () => {
       expect(within(category).getAllByRole("option")).toHaveLength(1);
     });
 
-    test("a category chip applies at once, keeping the other filters", async () => {
+    test("a category chip writes the draft: nothing applies until Apply, and an unsaved search survives the click", async () => {
       renderList();
       await cardsReady();
       const chips = await screen.findByRole("group", { name: "Filter by category" });
       expect(
         within(chips).getByRole("button", { name: "All categories" }).getAttribute("aria-pressed"),
       ).toBe("true");
+      fireEvent.change(screen.getByLabelText("Name or code"), { target: { value: "milk" } });
       fireEvent.click(within(chips).getByRole("button", { name: "Beverages" }));
-      await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
-      expect(consoleListCatalogProducts.mock.calls[1][0]).toEqual({
-        status: "active",
-        category_id: CATEGORY_1,
-        limit: 50,
-      });
-      expect(location()).toBe(`/catalog/products?category=${CATEGORY_1}`);
+      // Nothing applied yet: no second request, the URL is unchanged, and the
+      // typed search is still in the draft (M3: the old chip discarded it).
+      expect(consoleListCatalogProducts).toHaveBeenCalledTimes(1);
+      expect(location()).toBe("/catalog/products");
+      expect((screen.getByLabelText("Name or code") as HTMLInputElement).value).toBe("milk");
       await waitFor(() =>
         expect(
           within(chips).getByRole("button", { name: "Beverages" }).getAttribute("aria-pressed"),
         ).toBe("true"),
       );
+      fireEvent.click(screen.getByRole("button", { name: "Apply" }));
+      await waitFor(() => expect(consoleListCatalogProducts).toHaveBeenCalledTimes(2));
+      expect(consoleListCatalogProducts.mock.calls[1][0]).toEqual({
+        q: "milk",
+        status: "active",
+        category_id: CATEGORY_1,
+        limit: 50,
+      });
+      expect(location()).toBe(`/catalog/products?q=milk&category=${CATEGORY_1}`);
     });
 
     test("the chip row is absent when the category list fails", async () => {

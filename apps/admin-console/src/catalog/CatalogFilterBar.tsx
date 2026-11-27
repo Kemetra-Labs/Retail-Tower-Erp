@@ -147,24 +147,25 @@ function useChips(
 /**
  * Modern concept 2/6 (Catalog): the category chips — "All categories" plus one
  * chip per category, as a segmented group (§12.6: `aria-pressed`, the pressed
- * segment in the action-fill pair). A chip applies at once, like removing an
- * applied-filter chip: it writes the category to the URL and keeps the other
- * filters. The chips use the category read the filter bar already makes, so
- * they read nothing new. With no categories (still loading, failed, or the
- * tenant has none) the row renders nothing: the category select behind
- * «فلاتر إضافية» still covers a retired or selected category.
+ * segment in the action-fill pair). A chip writes into the draft, like the
+ * category select behind «فلاتر إضافية»: Apply commits it to the URL, and an
+ * unsaved draft (a typed search, a changed status) survives the click. The
+ * chips use the category read the filter bar already makes, so they read
+ * nothing new. With no categories (still loading, failed, or the tenant has
+ * none) the row renders nothing: the category select behind «فلاتر إضافية»
+ * still covers a retired or selected category.
  *
  * The chips are catalog-scoped classes, not the shared `.segmented`: that
  * class lives only in `overview.css`, which this page does not load.
  */
-export function CatalogCategoryChips({
-  applied,
+function CatalogCategoryChips({
+  categoryId,
   categories,
-  onApply,
+  onSelect,
 }: Readonly<{
-  applied: CatalogFilters;
+  categoryId: string;
   categories: readonly CatalogCategory[];
-  onApply: (filters: CatalogFilters) => void;
+  onSelect: (categoryId: string) => void;
 }>): React.JSX.Element | null {
   const t = useT();
   if (categories.length === 0) return null;
@@ -173,8 +174,8 @@ export function CatalogCategoryChips({
       <button
         type="button"
         className="catalog-chip"
-        aria-pressed={applied.categoryId === ""}
-        onClick={() => onApply({ ...applied, categoryId: "" })}
+        aria-pressed={categoryId === ""}
+        onClick={() => onSelect("")}
       >
         {t("catalog.filter.categoryAll")}
       </button>
@@ -187,8 +188,8 @@ export function CatalogCategoryChips({
             key={category.categoryId}
             type="button"
             className="catalog-chip"
-            aria-pressed={applied.categoryId === id}
-            onClick={() => onApply({ ...applied, categoryId: id })}
+            aria-pressed={categoryId === id}
+            onClick={() => onSelect(id)}
           >
             {category.name}
           </button>
@@ -252,106 +253,113 @@ export function CatalogFilterBar({
   const extraActive = (applied.categoryId !== "" ? 1 : 0) + (applied.brandId !== "" ? 1 : 0);
   const extraOpen = Boolean(errors.category ?? errors.brand);
   return (
-    <FilterBar
-      label={t("catalog.filter.label")}
-      onSubmit={submit}
-      onClear={clear}
-      chips={chips}
-      extraActive={extraActive}
-      extraOpen={extraOpen}
-      extra={
-        <>
-          <FilterField
-            id="cf-category"
-            label={t("catalog.filter.category")}
-            error={message(errors.category)}
-          >
-            <select
+    <>
+      <FilterBar
+        label={t("catalog.filter.label")}
+        onSubmit={submit}
+        onClear={clear}
+        chips={chips}
+        extraActive={extraActive}
+        extraOpen={extraOpen}
+        extra={
+          <>
+            <FilterField
               id="cf-category"
-              className="input"
-              aria-invalid={errors.category ? true : undefined}
-              aria-describedby={categoriesFailed ? "cf-category-note" : undefined}
-              value={draft.categoryId}
-              onChange={(e) => set("categoryId")(e.target.value)}
+              label={t("catalog.filter.category")}
+              error={message(errors.category)}
             >
-              <CategoryOptions
-                categories={categories}
-                appliedId={draft.categoryId}
-                loading={categoriesLoading}
-                failed={categoriesFailed}
-              />
-            </select>
-          </FilterField>
-          <FilterField
-            id="cf-brand"
-            label={t("catalog.filter.brand")}
-            error={message(errors.brand)}
-          >
-            <select
+              <select
+                id="cf-category"
+                className="input"
+                aria-invalid={errors.category ? true : undefined}
+                aria-describedby={categoriesFailed ? "cf-category-note" : undefined}
+                value={draft.categoryId}
+                onChange={(e) => set("categoryId")(e.target.value)}
+              >
+                <CategoryOptions
+                  categories={categories}
+                  appliedId={draft.categoryId}
+                  loading={categoriesLoading}
+                  failed={categoriesFailed}
+                />
+              </select>
+            </FilterField>
+            <FilterField
               id="cf-brand"
-              className="input"
-              aria-invalid={errors.brand ? true : undefined}
-              aria-describedby={brandsFailed ? "cf-brand-note" : undefined}
-              value={draft.brandId}
-              onChange={(e) => set("brandId")(e.target.value)}
+              label={t("catalog.filter.brand")}
+              error={message(errors.brand)}
             >
-              <BrandOptions
-                brands={brands}
-                appliedId={draft.brandId}
-                loading={brandsLoading}
-                failed={brandsFailed}
-              />
-            </select>
-          </FilterField>
-        </>
-      }
-      note={
-        <>
-          <p id="cf-q-note" className="filter-bar__note-line">
-            {t("catalog.filter.qNote")}
-          </p>
-          {categoriesFailed ? (
-            <p id="cf-category-note" className="filter-bar__note-line">
-              {t("catalog.filter.categoriesFailed")}
+              <select
+                id="cf-brand"
+                className="input"
+                aria-invalid={errors.brand ? true : undefined}
+                aria-describedby={brandsFailed ? "cf-brand-note" : undefined}
+                value={draft.brandId}
+                onChange={(e) => set("brandId")(e.target.value)}
+              >
+                <BrandOptions
+                  brands={brands}
+                  appliedId={draft.brandId}
+                  loading={brandsLoading}
+                  failed={brandsFailed}
+                />
+              </select>
+            </FilterField>
+          </>
+        }
+        note={
+          <>
+            <p id="cf-q-note" className="filter-bar__note-line">
+              {t("catalog.filter.qNote")}
             </p>
-          ) : null}
-          {brandsFailed ? (
-            <p id="cf-brand-note" className="filter-bar__note-line">
-              {t("catalog.filter.brandsFailed")}
-            </p>
-          ) : null}
-        </>
-      }
-    >
-      <FilterField id="cf-q" label={t("catalog.filter.q")} error={message(errors.q)}>
-        <input
-          id="cf-q"
-          className="input"
-          dir="auto"
-          autoComplete="off"
-          autoCorrect="off"
-          spellCheck={false}
-          maxLength={MAX_QUERY_LENGTH}
-          aria-describedby="cf-q-note"
-          aria-invalid={errors.q ? true : undefined}
-          value={draft.q}
-          onChange={(e) => set("q")(e.target.value)}
-        />
-      </FilterField>
-      <FilterField id="cf-status" label={t("catalog.filter.status")}>
-        <select
-          id="cf-status"
-          className="input"
-          value={draft.status}
-          onChange={(e) => set("status")(e.target.value as CatalogFilters["status"])}
-        >
-          {STATUS_FILTERS.map((s) => (
-            <option key={s} value={s}>
-              {t(statusFilterKey(s))}
-            </option>
-          ))}
-        </select>
-      </FilterField>
-    </FilterBar>
+            {categoriesFailed ? (
+              <p id="cf-category-note" className="filter-bar__note-line">
+                {t("catalog.filter.categoriesFailed")}
+              </p>
+            ) : null}
+            {brandsFailed ? (
+              <p id="cf-brand-note" className="filter-bar__note-line">
+                {t("catalog.filter.brandsFailed")}
+              </p>
+            ) : null}
+          </>
+        }
+      >
+        <FilterField id="cf-q" label={t("catalog.filter.q")} error={message(errors.q)}>
+          <input
+            id="cf-q"
+            className="input"
+            dir="auto"
+            autoComplete="off"
+            autoCorrect="off"
+            spellCheck={false}
+            maxLength={MAX_QUERY_LENGTH}
+            aria-describedby="cf-q-note"
+            aria-invalid={errors.q ? true : undefined}
+            value={draft.q}
+            onChange={(e) => set("q")(e.target.value)}
+          />
+        </FilterField>
+        <FilterField id="cf-status" label={t("catalog.filter.status")}>
+          <select
+            id="cf-status"
+            className="input"
+            value={draft.status}
+            onChange={(e) => set("status")(e.target.value as CatalogFilters["status"])}
+          >
+            {STATUS_FILTERS.map((s) => (
+              <option key={s} value={s}>
+                {t(statusFilterKey(s))}
+              </option>
+            ))}
+          </select>
+        </FilterField>
+      </FilterBar>
+      <CatalogCategoryChips
+        categoryId={draft.categoryId}
+        categories={categories}
+        onSelect={set("categoryId")}
+      />
+    </>
   );
 }
