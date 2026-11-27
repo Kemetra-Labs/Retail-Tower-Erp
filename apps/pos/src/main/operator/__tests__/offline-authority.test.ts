@@ -65,7 +65,7 @@ describe('offlineAuthorityExpired', () => {
 
   // RT-309 (D6): an online-confirmed session IS bounded by the bound its latest
   // admission stamped (`online-authority-bound.test.ts`). One that carries no
-  // bound at all predates the stamp and is not bounded here.
+  // bound at all is refused (fail closed); the SessionManager always stamps one.
   it('bounds an online-confirmed session by its stamped bound', () => {
     expect(
       offlineAuthorityExpired(
@@ -79,7 +79,7 @@ describe('offlineAuthorityExpired', () => {
     ).toBe(true);
     expect(
       offlineAuthorityExpired({ authority: 'online_confirmed' }, { wall_ms: WALL, mono_ms: MONO }),
-    ).toBe(false);
+    ).toBe(true);
   });
 });
 
@@ -93,7 +93,18 @@ describe('newSaleBlock', () => {
     );
     expect(newSaleBlock(offline(), late)).toBe('offline_authority_expired');
     expect(newSaleBlock(offline(), early)).toBeNull();
-    expect(newSaleBlock({ authority: 'online_confirmed' }, late)).toBeNull();
+    // RT-309 (D6): an online-confirmed session inside its stamped bound may start a sale.
+    expect(
+      newSaleBlock(
+        {
+          authority: 'online_confirmed',
+          authority_valid_until_ms: WALL + 10,
+          authority_deadline_mono_ms: MONO + 10,
+        },
+        late,
+      ),
+    ).toBeNull();
+    expect(newSaleBlock({}, late)).toBeNull();
   });
 });
 

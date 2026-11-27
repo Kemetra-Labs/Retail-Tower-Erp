@@ -2,12 +2,19 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   authorityClockOf,
+  HEARTBEAT_RETRY_MARGIN_MS,
   newSaleBlock,
   offlineAuthorityExpired,
   onlineAuthorityBound,
 } from '../../../../src/main/operator/offline-authority.js';
 import { OFFLINE_GRANT_MAX_TTL_MS } from '../../../../src/main/operator/offline-grant-store.js';
 import { SessionManager } from '../../../../src/main/operator/session-manager.js';
+import { CashierAdmissionKeeper } from '../../../../src/main/operator/cashier-admission-keeper.js';
+import { RECONCILE_RETRY_MS } from '../../../../src/main/operator/offline-reconcile.js';
+import {
+  ADMITTED,
+  fakeCashierAdmission,
+} from '../../../../src/main/operator/__tests__/__helpers__/fake-cashier-admission.js';
 
 /**
  * RT-309 (RT-113 10763 D6; RT-308 scope note c13973 item 1) — an
@@ -92,26 +99,68 @@ describe('onlineAuthorityBound (pure)', () => {
     expect(b.valid_until_ms - now.wall_ms).toBe(OFFLINE_GRANT_MAX_TTL_MS);
   });
 
-  it('grace 0 (offline disabled, OD8): bounded by the server admission deadline (sent + TTL)', () => {
+  // The floor: the next heartbeat (TTL/2) plus one failed-tick retry (60 s), capped at sent + TTL.
+  it('grace 0 (offline disabled, OD8): floored at the next heartbeat + 60 s, not the full TTL', () => {
     const b = onlineAuthorityBound(
       { offline_grace_seconds: 0, admission_ttl_seconds: 600, admission_requested_at_ms: 9_000 },
       now,
     );
-    expect(b.deadline_mono_ms).toBe(9_000 + 600_000);
-    expect(b.valid_until_ms).toBe(now.wall_ms + (9_000 + 600_000 - now.mono_ms));
+    expect(b.deadline_mono_ms).toBe(9_000 + 300_000 + HEARTBEAT_RETRY_MARGIN_MS);
+    expect(b.valid_until_ms).toBe(now.wall_ms + (b.deadline_mono_ms - now.mono_ms));
   });
 
-  it('a short grace never ends a session whose server admission is still live', () => {
+  it('grace 0 with a 12 h TTL: about 6 h, never the 12 h server window', () => {
+    const b = onlineAuthorityBound(
+      { offline_grace_seconds: 0, admission_ttl_seconds: 43_200, admission_requested_at_ms: 9_000 },
+      now,
+    );
+    expect(b.deadline_mono_ms).toBe(9_000 + 21_600_000 + HEARTBEAT_RETRY_MARGIN_MS);
+  });
+
+  it('the floor never passes the server admission deadline (tiny TTL)', () => {
+    const b = onlineAuthorityBound(
+      { offline_grace_seconds: 0, admission_ttl_seconds: 10, admission_requested_at_ms: 9_000 },
+      now,
+    );
+    expect(b.deadline_mono_ms).toBe(9_000 + 10_000);
+  });
+
+  it('a short grace never ends a session before its next heartbeat could renew it', () => {
     const b = onlineAuthorityBound(
       { offline_grace_seconds: 60, admission_ttl_seconds: 600, admission_requested_at_ms: 9_000 },
       now,
     );
-    expect(b.deadline_mono_ms).toBe(9_000 + 600_000);
+    expect(b.deadline_mono_ms).toBe(9_000 + 300_000 + HEARTBEAT_RETRY_MARGIN_MS);
   });
 
-  it('without a send stamp the admission deadline runs from now', () => {
+  it('without a send stamp the floor runs from now', () => {
     const b = onlineAuthorityBound({ offline_grace_seconds: 0, admission_ttl_seconds: 600 }, now);
-    expect(b.deadline_mono_ms).toBe(now.mono_ms + 600_000);
+    expect(b.deadline_mono_ms).toBe(now.mono_ms + 300_000 + HEARTBEAT_RETRY_MARGIN_MS);
+  });
+
+  it('never exceeds the 72 h ceiling, even with a 7-day server TTL', () => {
+    const b = onlineAuthorityBound(
+      {
+        offline_grace_seconds: 0,
+        admission_ttl_seconds: 604_800,
+        admission_requested_at_ms: 9_000,
+      },
+      now,
+    );
+    expect(b.deadline_mono_ms - now.mono_ms).toBe(OFFLINE_GRANT_MAX_TTL_MS);
+    expect(b.valid_until_ms - now.wall_ms).toBe(OFFLINE_GRANT_MAX_TTL_MS);
+  });
+
+  it('a send stamp in the future is read as now (it cannot extend the bound)', () => {
+    const b = onlineAuthorityBound(
+      {
+        offline_grace_seconds: 0,
+        admission_ttl_seconds: 600,
+        admission_requested_at_ms: now.mono_ms + 10 * 3_600_000,
+      },
+      now,
+    );
+    expect(b.deadline_mono_ms).toBe(now.mono_ms + 300_000 + HEARTBEAT_RETRY_MARGIN_MS);
   });
 
   it.each([
@@ -261,5 +310,95 @@ describe('SessionManager stamps the bound on every admitted', () => {
     const view = m.getCurrentBridgeView() as unknown as Record<string, unknown>;
     expect(view).not.toHaveProperty('authority_valid_until_ms');
     expect(view).not.toHaveProperty('authority_deadline_mono_ms');
+  });
+});
+
+describe('the SessionManager clock is injectable', () => {
+  it('stamps with the injected clock (one clock domain with the send stamp)', () => {
+    const m = new SessionManager({
+      authorityClock: () => ({ wall_ms: 5_000_000, mono_ms: 1_000 }),
+    });
+    const record = m.create({
+      operator_id: 'user_clerk_1',
+      display_name: 'Cashier',
+      role: 'cashier',
+      tenant_id: 't1',
+      branch_id: 'b1',
+      backend_session_id: '',
+      cashier_admission: {
+        ...ADMISSION,
+        offline_grace_seconds: 0,
+        admission_ttl_seconds: 600,
+        admission_requested_at_ms: 900,
+      },
+    });
+    expect(record.authority_deadline_mono_ms).toBe(900 + 300_000 + HEARTBEAT_RETRY_MARGIN_MS);
+    expect(record.authority_valid_until_ms).toBe(5_000_000 + (900 + 360_000 - 1_000));
+  });
+});
+
+describe('end to end through the keeper and the reconcile', () => {
+  const SHORT = { ...ADMITTED, offline_grace_seconds: 0, admission_ttl_seconds: 600 };
+
+  it('heartbeats restamp the bound: a connected till with grace 0 never blocks; a lost one does; a reconnect lifts it', async () => {
+    const sessions = new SessionManager();
+    const fake = fakeCashierAdmission(SHORT);
+    const keeper = new CashierAdmissionKeeper({
+      sessionManager: sessions,
+      admission: fake.deps,
+      isAtSafePoint: () => true,
+    });
+    const record = createCashier(sessions, {
+      offline_grace_seconds: 0,
+      admission_ttl_seconds: 600,
+    });
+    for (let i = 0; i < 6; i += 1) {
+      await vi.advanceTimersByTimeAsync(300_000);
+      expect(newSaleBlock(record, authorityClockOf())).toBeNull();
+    }
+    expect(fake.admitCalls.length).toBeGreaterThanOrEqual(6);
+    fake.setAdmit({ kind: 'no_connection' });
+    await vi.advanceTimersByTimeAsync(400_000);
+    expect(newSaleBlock(record, authorityClockOf())).toBe('offline_authority_expired');
+    expect(sessions.getCurrent()?.id).toBe(record.id);
+    fake.setAdmit(SHORT);
+    await vi.advanceTimersByTimeAsync(300_000);
+    expect(newSaleBlock(record, authorityClockOf())).toBeNull();
+    keeper.stop();
+  });
+
+  it('the reconcile adopting an expired offline-admitted session restamps it online: new sales resume', async () => {
+    const sessions = new SessionManager();
+    const fake = fakeCashierAdmission();
+    fake.setReconcile({ kind: 'no_connection' });
+    const keeper = new CashierAdmissionKeeper({
+      sessionManager: sessions,
+      admission: fake.deps,
+      isAtSafePoint: () => true,
+    });
+    const record = sessions.create({
+      operator_id: 'user_clerk_1',
+      display_name: 'Cashier',
+      role: 'cashier',
+      tenant_id: 't1',
+      branch_id: 'b1',
+      backend_session_id: '',
+      offline_admission: {
+        user_id: ADMISSION.user_id,
+        valid_until_ms: Date.now() + 1_000,
+        deadline_mono_ms: performance.now() + 1_000,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(5_000);
+    expect(newSaleBlock(record, authorityClockOf())).toBe('offline_authority_expired');
+    fake.setReconcile({ ...ADMITTED });
+    await vi.advanceTimersByTimeAsync(RECONCILE_RETRY_MS);
+    expect(record.authority).toBe('online_confirmed');
+    // Restamped from the answer: about received + 24 h grace, no longer the 1 s grant bound.
+    expect(record.authority_valid_until_ms).toBeGreaterThan(
+      Date.now() + ADMITTED.offline_grace_seconds * 1000 - RECONCILE_RETRY_MS,
+    );
+    expect(newSaleBlock(record, authorityClockOf())).toBeNull();
+    keeper.stop();
   });
 });

@@ -60,6 +60,14 @@ export interface AuthorityBound {
   deadline_mono_ms: number;
 }
 
+/**
+ * RT-309 — the margin past the next heartbeat (TTL/2) that the online floor
+ * allows: one failed-tick retry (`FAILED_TICK_RETRY_MS` in
+ * `cashier-admission-keeper.ts`, not imported here to keep this module free of
+ * the keeper's dependencies).
+ */
+export const HEARTBEAT_RETRY_MARGIN_MS = 60_000;
+
 function isNonNegativeFinite(v: unknown): v is number {
   return isFiniteNumber(v) && v >= 0;
 }
@@ -73,13 +81,20 @@ function isNonNegativeFinite(v: unknown): v is number {
  * D6: "each session carries `authority_valid_until`, equal to its grant's
  * expiry". The grant written from this same `admitted` expires at
  * `received + min(offline_grace, 72 h)` (`offline-grant-store.ts`), so that is
- * the bound. Derivation (stated in the PR for the owner): the bound is never
- * earlier than the server admission's own deadline (`sent + TTL`). The server
- * still holds this cashier's live admission until then, and without the floor
- * grace 0 (OD8, "offline disabled") or a grace shorter than the heartbeat
- * interval would block a healthy, connected till between two heartbeats.
+ * the bound.
  *
- * Any unreadable input fails closed: the bound is `now` (expired at once).
+ * Derivation (an owner decision is requested in the PR): with that bound alone,
+ * grace 0 (OD8, "offline disabled") or a grace shorter than the heartbeat
+ * interval would block a healthy, CONNECTED till between two heartbeats. So
+ * the bound is floored at the NEXT heartbeat plus one failed-tick retry:
+ * `sent + TTL/2 + 60 s` (the keeper heartbeats at most every TTL/2 and retries a
+ * failed tick within 60 s), never past the server admission's own deadline
+ * (`sent + TTL`). A till that stays connected is restamped before the floor
+ * ends; a till that lost connectivity is bounded at most that long beyond its
+ * grace. Whatever the inputs, the bound never exceeds the 72 h grant ceiling.
+ *
+ * Any unreadable input fails closed: the bound is `now` (expired at once). A
+ * send stamp in the future is read as `now`.
  */
 export function onlineAuthorityBound(
   admission: OnlineAdmissionBoundInput,
@@ -88,41 +103,32 @@ export function onlineAuthorityBound(
   const expired = { valid_until_ms: now.wall_ms, deadline_mono_ms: now.mono_ms };
   const grace = admission.offline_grace_seconds;
   const ttl = admission.admission_ttl_seconds;
-  const sentAt = admission.admission_requested_at_ms ?? now.mono_ms;
-  if (!isNonNegativeFinite(grace) || !isNonNegativeFinite(ttl) || !isFiniteNumber(sentAt)) {
+  const stamp = admission.admission_requested_at_ms ?? now.mono_ms;
+  if (!isNonNegativeFinite(grace) || !isNonNegativeFinite(ttl) || !isFiniteNumber(stamp)) {
     return expired;
   }
   if (!isFiniteNumber(now.wall_ms) || !isFiniteNumber(now.mono_ms)) return expired;
+  const sentAt = Math.min(stamp, now.mono_ms);
+  const ttlMs = ttl * 1000;
   const graceLeftMs = Math.min(grace * 1000, OFFLINE_GRANT_MAX_TTL_MS);
-  const admissionLeftMs = sentAt + ttl * 1000 - now.mono_ms;
-  const leftMs = Math.max(0, graceLeftMs, admissionLeftMs);
+  const floorLeftMs = sentAt + Math.min(ttlMs, ttlMs / 2 + HEARTBEAT_RETRY_MARGIN_MS) - now.mono_ms;
+  const leftMs = Math.min(OFFLINE_GRANT_MAX_TTL_MS, Math.max(0, graceLeftMs, floorLeftMs));
   return { valid_until_ms: now.wall_ms + leftMs, deadline_mono_ms: now.mono_ms + leftMs };
 }
 
-/** True when the session carries no bound at all (neither clock). */
-function unbounded(session: OfflineAuthorityFields): boolean {
-  return (
-    session.authority_valid_until_ms === undefined &&
-    session.authority_deadline_mono_ms === undefined
-  );
-}
-
 /**
- * True when the session's authority has expired. An `offline_grant` session
- * that lacks either bound counts as expired. RT-309 (D6): an
- * `online_confirmed` session is bounded by the bound its latest admission
- * stamped ({@link onlineAuthorityBound}); one that carries no bound at all
- * (none is ever created so by the SessionManager) is not bounded, and one with
- * a partial or unreadable bound counts as expired. A session with no authority
- * (manager / admin) is never expired here.
+ * True when the session's authority has expired. RT-309 (D6): an
+ * `online_confirmed` session is bounded like an `offline_grant` one, by the
+ * bound its latest admission stamped ({@link onlineAuthorityBound}). Either
+ * kind that lacks a bound, or carries an unreadable one, counts as expired
+ * (fail closed). A session with no authority (manager / admin) is never
+ * expired here.
  */
 export function offlineAuthorityExpired(
   session: OfflineAuthorityFields,
   now: AuthorityClock,
 ): boolean {
-  if (session.authority === 'online_confirmed') {
-    if (unbounded(session)) return false;
-  } else if (session.authority !== 'offline_grant') {
+  if (session.authority !== 'offline_grant' && session.authority !== 'online_confirmed') {
     return false;
   }
   const wall = session.authority_valid_until_ms;

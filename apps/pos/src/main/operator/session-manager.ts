@@ -4,7 +4,11 @@ import type { Role } from '../../shared/operator/role.js';
 import type { OperatorSessionBridgeView } from '../../shared/bridge-api.js';
 import type { SessionEndCause } from '../../shared/operator/session-end-cause.js';
 
-import { authorityClockOf, onlineAuthorityBound } from './offline-authority.js';
+import {
+  authorityClockOf,
+  onlineAuthorityBound,
+  type AuthorityClock,
+} from './offline-authority.js';
 
 /**
  * 004-operator-session T028 — main-process session manager (in-memory).
@@ -189,8 +193,12 @@ function managerFieldsOf(
  * RT-309 (D6) — stamp an online-confirmed session's bound from the admission
  * it now holds, as received now.
  */
-function stampOnlineBound(record: OperatorSessionRecord, a: CashierAdmissionFields): void {
-  const bound = onlineAuthorityBound(a, authorityClockOf());
+function stampOnlineBound(
+  record: OperatorSessionRecord,
+  a: CashierAdmissionFields,
+  now: AuthorityClock,
+): void {
+  const bound = onlineAuthorityBound(a, now);
   record.authority_valid_until_ms = bound.valid_until_ms;
   record.authority_deadline_mono_ms = bound.deadline_mono_ms;
 }
@@ -203,7 +211,22 @@ function applyOfflineAdmission(record: OperatorSessionRecord, o: OfflineAdmissio
   record.authority_deadline_mono_ms = o.deadline_mono_ms;
 }
 
+export interface SessionManagerOptions {
+  /**
+   * RT-309 (D6) — wall and monotonic "now" for the online bound. Production
+   * keeps the default (the wall clock and `performance.now()`, the same clocks
+   * the admission send stamp and the sale check use); tests may inject.
+   */
+  authorityClock?: () => AuthorityClock;
+}
+
 export class SessionManager {
+  private readonly authorityClock: () => AuthorityClock;
+
+  constructor(options: SessionManagerOptions = {}) {
+    this.authorityClock = options.authorityClock ?? (() => authorityClockOf());
+  }
+
   private current: OperatorSessionRecord | null = null;
   private lastEndCause: SessionEndCause | null = null;
   private readonly endCallbacks: SessionEndCallback[] = [];
@@ -261,7 +284,7 @@ export class SessionManager {
       if (a.admission_requested_at_ms !== undefined) {
         record.admission_requested_at_ms = a.admission_requested_at_ms;
       }
-      stampOnlineBound(record, a);
+      stampOnlineBound(record, a, this.authorityClock());
     } else if (input.offline_admission !== undefined && input.role === 'cashier') {
       applyOfflineAdmission(record, input.offline_admission);
     }
@@ -294,7 +317,7 @@ export class SessionManager {
     }
     // RT-309 (D6): every renewal restamps the bound (an offline-admitted session
     // adopted by the reconcile trades its grant bound for this one).
-    stampOnlineBound(this.current, admission);
+    stampOnlineBound(this.current, admission, this.authorityClock());
     return true;
   }
 

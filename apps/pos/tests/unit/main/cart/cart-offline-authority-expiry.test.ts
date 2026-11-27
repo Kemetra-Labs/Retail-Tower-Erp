@@ -212,16 +212,15 @@ describe('offline-admitted session (handler level)', () => {
     });
   });
 
-  it('an online-confirmed session that carries no bound at all is not bounded', async () => {
+  it('an online-confirmed session that carries no bound at all is refused (fail closed)', async () => {
     const session = offlineSession();
     session.authority = 'online_confirmed';
     delete session.authority_valid_until_ms;
     delete session.authority_deadline_mono_ms;
     const w = build(session);
-    expire(w, 'wall');
-    expire(w, 'mono');
-    await expect(w.handlers.create({ idempotency_key: 'create-exp-0013' })).resolves.toMatchObject({
-      kind: 'ok',
+    await expect(w.handlers.create({ idempotency_key: 'create-exp-0013' })).resolves.toEqual({
+      kind: 'refused',
+      reason: 'offline_authority_expired',
     });
   });
 
