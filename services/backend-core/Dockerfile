@@ -17,6 +17,27 @@ ENV PATH=/pnpm:$PATH
 # pnpm deploy needs workspace packages injected so internal deps (@data-pulse-2/*)
 # are bundled into the pruned output rather than left as unresolved workspace links.
 ENV npm_config_inject_workspace_packages=true
+# RT-1615: CVE-2025-6020 (and CVE-2024-22365), Debian DLA-4941-1. The pinned base digest ships
+# libpam 1.5.2-6+deb12u2; install exactly the four PAM packages it contains at the fixed
+# 1.5.2-6+deb12u3, and nothing else. Reproducible source: one fixed snapshot.debian.org timestamp
+# of bookworm-security (the archive run that first published +deb12u3), read as the ONLY apt source
+# (SourceList override + SourceParts=-, so live deb.debian.org is never consulted). Integrity:
+# InRelease signature checked against the base image's debian-archive-keyring (signed-by; never
+# trusted=yes), then Packages and .deb SHA256 by apt. check-valid-until=no only skips the
+# snapshot's expiry date (Valid-Until 2026-12-03), not the signature. Plain http because the base
+# has no ca-certificates and adding it would change more than PAM. No --allow-downgrades: if a
+# future base digest already carries a newer PAM, this step fails the build and must be removed.
+# Remove this RUN when the upstream node:24-bookworm-slim digest itself carries +deb12u3.
+RUN echo 'deb [check-valid-until=no signed-by=/usr/share/keyrings/debian-archive-keyring.gpg] http://snapshot.debian.org/archive/debian-security/20261126T194341Z bookworm-security main' > /tmp/rt1615-pam.list \
+    && APT_OPTS='-o Dir::Etc::SourceList=/tmp/rt1615-pam.list -o Dir::Etc::SourceParts=- -o Acquire::Retries=5' \
+    && apt-get $APT_OPTS update \
+    && DEBIAN_FRONTEND=noninteractive apt-get $APT_OPTS install -y --no-install-recommends \
+        libpam0g=1.5.2-6+deb12u3 \
+        libpam-modules=1.5.2-6+deb12u3 \
+        libpam-modules-bin=1.5.2-6+deb12u3 \
+        libpam-runtime=1.5.2-6+deb12u3 \
+    && rm -f /tmp/rt1615-pam.list \
+    && rm -rf /var/lib/apt/lists/* /var/cache/apt/archives/*.deb /var/cache/apt/*.bin
 RUN corepack enable
 WORKDIR /repo
 
