@@ -83,7 +83,7 @@ export const CARD_SUMMARY = JSON.stringify([
 
 export const SCOPE = { tenantId: 'tenant-1', branchId: 'branch-1', terminalId: 'term-1' };
 
-export const DEFAULT_ACTOR_USER_ID = '0190f5a2-3b4c-7d8e-9f01-000000000009';
+const DEFAULT_ACTOR_USER_ID = '0190f5a2-3b4c-7d8e-9f01-000000000009';
 
 /** The authorization snapshot a signed-in manager on this till is admitted as. */
 export const MANAGER_ACTOR: AuthSnapshot = {
