@@ -7,6 +7,7 @@ import { useT } from "@/i18n";
 import { TenantTrackedSellingSection } from "@/tracked-selling/TenantTrackedSellingSection";
 import { Link } from "react-router";
 import "../shell/surface.css";
+import "./settings.css";
 
 /**
  * RF-7 (spec 016): the Settings destination at `/settings`, for the active
@@ -19,6 +20,16 @@ import "../shell/surface.css";
  * for anyone else), exactly as on the tenant detail page; this page adds no
  * gate and no fetch of its own. Without an active tenant there is nothing to
  * configure, so the page points at the tenant list instead.
+ *
+ * Modern concept (Settings & Devices): the hub is a row of unified DESIGN v4
+ * cards (rule 5) with the wider surface spacing (rule 1). The two destinations
+ * the page already had — the branding page and the account page — sit in one
+ * quick-links bar at the top, mirroring the Overview's quick-actions bar; the
+ * three inline sections sit each in its own card below, unchanged inside
+ * (they are shared with the tenant detail page, so their bodies are not
+ * restyled here). The page performs no action of its own and makes no read of
+ * its own, so it carries no smart insight (rule 4 needs a read the page
+ * already makes; the sections read independently) and no new toggle.
  */
 export function SettingsPage(): React.JSX.Element {
   const t = useT();
@@ -26,7 +37,7 @@ export function SettingsPage(): React.JSX.Element {
   const tenantId = context?.active_tenant?.id;
 
   return (
-    <div className="surface">
+    <div className="surface settings-surface">
       <PageHeader title={t("settings.title")} subtitle={t("settings.sub")} />
 
       {!tenantId ? (
@@ -38,18 +49,41 @@ export function SettingsPage(): React.JSX.Element {
         </>
       ) : (
         <>
-          <TenantBrandingLink tenantId={tenantId} />
-          <TenantPolicySection tenantId={tenantId} />
-          <TenantAiPlanSection tenantId={tenantId} />
-          <TenantTrackedSellingSection tenantId={tenantId} />
+          <nav className="section-panel settings-quick" aria-labelledby="settings-quick-title">
+            <div className="section-panel__head">
+              <h2 id="settings-quick-title" className="section-panel__title">
+                {t("settings.quick.title")}
+              </h2>
+            </div>
+            <div className="settings-quick__links">
+              <TenantBrandingLink tenantId={tenantId} />
+              <p>
+                <Link to="/account" className="btn-secondary">
+                  {t("auth.account.title")}
+                </Link>
+              </p>
+            </div>
+          </nav>
+
+          <div className="section-panel settings-card">
+            <TenantPolicySection tenantId={tenantId} />
+          </div>
+          <div className="section-panel settings-card">
+            <TenantAiPlanSection tenantId={tenantId} />
+          </div>
+          <div className="section-panel settings-card">
+            <TenantTrackedSellingSection tenantId={tenantId} />
+          </div>
         </>
       )}
 
-      <p>
-        <Link to="/account" className="btn-secondary">
-          {t("auth.account.title")}
-        </Link>
-      </p>
+      {!tenantId ? (
+        <p>
+          <Link to="/account" className="btn-secondary">
+            {t("auth.account.title")}
+          </Link>
+        </p>
+      ) : null}
     </div>
   );
 }

@@ -11,4 +11,5 @@ export const settings: MessagesOf<typeof ar> = {
   "settings.sub":
     "Settings for the active tenant: branding, the shift variance policy, the AI plan, and batch selling.",
   "settings.noTenant": "Choose a tenant first to see its settings.",
+  "settings.quick.title": "Quick links",
 };

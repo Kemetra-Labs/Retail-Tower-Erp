@@ -18,6 +18,7 @@ import {
   stores,
   summary,
 } from "./device-fixtures";
+import { health, healthPage, saleQueue } from "./device-health-fixtures";
 
 const consoleListDevices = vi.fn();
 const consoleGetDevice = vi.fn();
@@ -26,10 +27,13 @@ vi.mock("@/lib/device-queries", () => ({
   consoleGetDevice: (...a: unknown[]) => consoleGetDevice(...a),
 }));
 // RT-1312: the sale-queue read has its own suite (device-sale-queue.test.tsx); here it is
-// refused (404), which reads as unavailable and adds no banner.
+// refused (404) by default, which reads as unavailable and adds no banner. A test
+// that needs stranded sales overrides it with a health page.
+const consoleListDeviceHealth = vi.fn();
+const consoleGetDeviceHealth = vi.fn();
 vi.mock("@/lib/device-health-queries", () => ({
-  consoleListDeviceHealth: () => Promise.resolve({ status: 404 }),
-  consoleGetDeviceHealth: () => Promise.resolve({ status: 404 }),
+  consoleListDeviceHealth: (...a: unknown[]) => consoleListDeviceHealth(...a),
+  consoleGetDeviceHealth: (...a: unknown[]) => consoleGetDeviceHealth(...a),
 }));
 const listStores = vi.fn();
 vi.mock("@/lib/rf2-queries", async (importOriginal) => {
@@ -88,11 +92,15 @@ describe("DeviceList (RT-371)", () => {
   beforeEach(() => {
     consoleListDevices.mockReset();
     consoleGetDevice.mockReset();
+    consoleListDeviceHealth.mockReset();
+    consoleGetDeviceHealth.mockReset();
     listStores.mockReset();
     activeContext.mockReset();
     activeContext.mockReturnValue(ctx());
     listStores.mockResolvedValue({ status: 200, data: stores });
     consoleListDevices.mockResolvedValue(page([summary()]));
+    consoleListDeviceHealth.mockResolvedValue({ status: 404 });
+    consoleGetDeviceHealth.mockResolvedValue({ status: 404 });
   });
 
   test("no active tenant: scope prompt and no request is issued", async () => {
@@ -177,6 +185,8 @@ describe("DeviceList (RT-371)", () => {
       ]),
     );
     renderList();
+    // Modern concept, rule 1: last seen sits behind the columns toggle.
+    fireEvent.click(screen.getByRole("button", { name: "Show expiry and last seen" }));
     const rows = bodyRows(await tableReady());
     expect(within(rows[0]).getByText("Not recorded").className).toBe("device-quiet");
     // A source the console does not know keeps the time and says so, in the danger role.
@@ -189,6 +199,8 @@ describe("DeviceList (RT-371)", () => {
       page([summary({ lastSeenAt: SEEN_AT, lastSeenSource: "activity" })]),
     );
     renderList();
+    // Modern concept, rule 1: last seen sits behind the columns toggle.
+    fireEvent.click(screen.getByRole("button", { name: "Show expiry and last seen" }));
     const rows = bodyRows(await tableReady());
     expect(within(rows[0]).getByText("Last authenticated request from the device")).toBeDefined();
   });
@@ -409,10 +421,14 @@ describe("DeviceList (RT-371)", () => {
 describe("DeviceList v4.0 shape (RT-1013)", () => {
   beforeEach(() => {
     consoleListDevices.mockReset();
+    consoleListDeviceHealth.mockReset();
+    consoleGetDeviceHealth.mockReset();
     listStores.mockReset();
     activeContext.mockReset();
     activeContext.mockReturnValue(ctx());
     listStores.mockResolvedValue({ status: 200, data: stores });
+    consoleListDeviceHealth.mockResolvedValue({ status: 404 });
+    consoleGetDeviceHealth.mockResolvedValue({ status: 404 });
   });
 
   test("guard: the band carries scope only, no facts, because a device page serves no whole-set value", async () => {
@@ -437,5 +453,114 @@ describe("DeviceList v4.0 shape (RT-1013)", () => {
     renderList();
     const alert = await screen.findByRole("alert");
     expect(alert.closest(".device-results")).not.toBeNull();
+  });
+});
+
+describe("DeviceList modern columns and insight", () => {
+  beforeEach(() => {
+    consoleListDevices.mockReset();
+    consoleGetDevice.mockReset();
+    consoleListDeviceHealth.mockReset();
+    consoleGetDeviceHealth.mockReset();
+    listStores.mockReset();
+    activeContext.mockReset();
+    activeContext.mockReturnValue(ctx());
+    listStores.mockResolvedValue({ status: 200, data: stores });
+    consoleListDevices.mockResolvedValue(page([summary()]));
+    consoleListDeviceHealth.mockResolvedValue({ status: 404 });
+    consoleGetDeviceHealth.mockResolvedValue({ status: 404 });
+  });
+
+  function headers(table: HTMLElement): string[] {
+    return within(table)
+      .getAllByRole("columnheader")
+      .map((h) => h.textContent ?? "");
+  }
+
+  test("five columns by default; expiry and last seen sit behind a toggle", async () => {
+    renderList();
+    expect(headers(await tableReady())).toEqual([
+      "Device",
+      "Store",
+      "Trust state",
+      "Needs attention",
+      "Unsent sales",
+    ]);
+    expect(screen.getByRole("button", { name: "Show expiry and last seen" })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Show expiry and last seen" }));
+    expect(headers(await tableReady())).toEqual([
+      "Device",
+      "Store",
+      "Trust state",
+      "Needs attention",
+      "Unsent sales",
+      "Credential expires",
+      "Last seen",
+    ]);
+    expect(screen.getByRole("button", { name: "Hide expiry and last seen" })).toBeDefined();
+
+    fireEvent.click(screen.getByRole("button", { name: "Hide expiry and last seen" }));
+    expect(headers(await tableReady())).toEqual([
+      "Device",
+      "Store",
+      "Trust state",
+      "Needs attention",
+      "Unsent sales",
+    ]);
+  });
+
+  test("the insight names the loaded custody exception", async () => {
+    consoleListDevices.mockResolvedValue(page([custodySummary()]));
+    renderList();
+    await tableReady();
+    expect(await screen.findByText("1 loaded device has an open custody exception.")).toBeDefined();
+  });
+
+  test("the insight is clear when nothing on the loaded rows needs attention", async () => {
+    consoleListDeviceHealth.mockResolvedValue(healthPage([health({ saleQueue: saleQueue() })]));
+    renderList();
+    await tableReady();
+    expect(
+      await screen.findByText(
+        "No custody exception, stranded sale or passed expiry among the loaded devices.",
+      ),
+    ).toBeDefined();
+  });
+
+  test("the insight claims no clear while the sale queues are unavailable", async () => {
+    renderList();
+    await tableReady();
+    // The 404 health read has settled: the Unsent sales cell reads Unavailable.
+    expect(await screen.findByText("Unavailable")).toBeDefined();
+    expect(screen.queryByText("What needs attention")).toBeNull();
+    expect(
+      screen.queryByText(
+        "No custody exception, stranded sale or passed expiry among the loaded devices.",
+      ),
+    ).toBeNull();
+  });
+
+  test("the insight counts a device past its credential expiry", async () => {
+    consoleListDevices.mockResolvedValue(page([summary({ expiresAt: EXPIRES_PAST })]));
+    renderList();
+    await tableReady();
+    expect(await screen.findByText("1 loaded device is past its credential expiry.")).toBeDefined();
+  });
+
+  test("the insight counts stranded sales from the health read", async () => {
+    consoleListDeviceHealth.mockResolvedValue(
+      healthPage([health({ saleQueue: saleQueue({ deadLetter: 1 }) })]),
+    );
+    renderList();
+    await tableReady();
+    expect(await screen.findByText("1 loaded device holds stranded sales.")).toBeDefined();
+  });
+
+  test("pairing codes is the page's one main action", async () => {
+    renderList();
+    await tableReady();
+    expect(screen.getByRole("link", { name: "Pairing codes" }).className).toContain("btn-primary");
+    expect(screen.getByRole("link", { name: "Download POS" }).className).toContain("btn-secondary");
   });
 });
