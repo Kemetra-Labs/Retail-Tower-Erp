@@ -60,12 +60,14 @@ export const authTokens = pgTable("auth_tokens", {
    * (data-model.md Entity 2; research R1). FK → connector_registration(id)
    * ON DELETE RESTRICT.
    *
-   * At-most-one-active invariant (RT-1362 S2, migrations 0137-0139, overlap
-   * rotation): per registration, at most ONE CURRENT unrevoked connector
-   * credential (`uq_auth_tokens_current_connector_credential`, no pending
-   * marker) plus at most ONE PENDING one
-   * (`uq_auth_tokens_pending_connector_credential`); they replace the 0021
-   * one-unrevoked-credential index (FR-010). The predicates are IMMUTABLE —
+   * At-most-one-active invariant: the 0021 partial UNIQUE
+   * `uq_auth_tokens_active_connector_credential` (at most one unrevoked
+   * connector credential per registration, FR-010) still holds. RT-1362 S2
+   * (0140, 0141) adds the overlap rule beside it: at most ONE CURRENT
+   * (`uq_auth_tokens_current_connector_credential`, no pending marker) plus
+   * at most ONE PENDING (`uq_auth_tokens_pending_connector_credential`);
+   * a later PR drops the 0021 index once the readers handle two unrevoked
+   * credentials. The predicates are IMMUTABLE —
    * expiry is deliberately NOT in them (now() is STABLE, not IMMUTABLE; expiry
    * is enforced at the guard).
    *
@@ -78,15 +80,18 @@ export const authTokens = pgTable("auth_tokens", {
     { onDelete: "restrict" },
   ),
   /**
-   * RT-1362 S2 (0136): the PENDING marker of an overlap `credential.rotate`.
+   * RT-1362 S2 (0139): the PENDING marker of an overlap `credential.rotate`.
    * NULL is the registration's CURRENT credential; a value is the open rotation
-   * request that issued this credential as its pending replacement. Composite FK
-   * `(pending_rotation_request_id, tenant_id, connector_registration_id)` →
-   * `erp_provisioning_request (id, tenant_id, connector_registration_id)` ON DELETE RESTRICT and the CHECK `auth_tokens_pending_rotation_shape`
-   * (connector scope, linked to a registration) live in the migration (the FK
-   * is not declared here: `erp-provisioning.ts` imports this table).
+   * request that issued this credential as its pending replacement, with
+   * `pendingRotationKind` = 'credential.rotate' set together (CHECK). Composite FK
+   * `(pending_rotation_request_id, tenant_id, connector_registration_id,
+   * pending_rotation_kind)` → `erp_provisioning_request (id, tenant_id,
+   * connector_registration_id, kind)` ON DELETE RESTRICT and the CHECK
+   * `auth_tokens_pending_rotation_shape` live in the migration (the FK is not
+   * declared here: `erp-provisioning.ts` imports this table).
    */
   pendingRotationRequestId: uuid("pending_rotation_request_id"),
+  pendingRotationKind: text("pending_rotation_kind").$type<"credential.rotate">(),
   issuedAt: timestamp("issued_at", { withTimezone: true }).notNull().defaultNow(),
   expiresAt: timestamp("expires_at", { withTimezone: true }).notNull(),
   revokedAt: timestamp("revoked_at", { withTimezone: true }),

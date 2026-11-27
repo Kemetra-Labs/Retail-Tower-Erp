@@ -122,7 +122,7 @@ export const erpProvisioningRequest = pgTable(
     rotationTrigger: text("rotation_trigger").$type<ErpCredentialRotationTrigger>(),
   },
   (t) => [
-    // RT-1362 S2 (0136): at most one OPEN `credential.rotate` request per registration.
+    // RT-1362 S2 (0137, CONCURRENTLY): at most one OPEN `credential.rotate` request per registration.
     uniqueIndex("uq_erp_provisioning_request_open_credential_rotate")
       .on(t.connectorRegistrationId)
       .where(
@@ -146,9 +146,9 @@ export const erpProvisioningRequest = pgTable(
       .where(sql`${t.connectorRegistrationId} IS NOT NULL`),
     // Composite-FK target so a step-log row cannot name another tenant.
     unique("uq_erp_provisioning_request_id_tenant").on(t.id, t.tenantId),
-    // RT-1362 S2 (0136): the target of `auth_tokens_pending_rotation_request_fk`, so a pending credential names
-    // only a rotation of its own tenant and registration.
-    unique("uq_erp_provisioning_request_id_tenant_registration").on(t.id, t.tenantId, t.connectorRegistrationId),
+    // RT-1362 S2 (0138, CONCURRENTLY): the target of `auth_tokens_pending_rotation_request_fk` (0139), so a pending
+    // credential names only a `credential.rotate` request of its own tenant and registration.
+    uniqueIndex("uq_erp_provisioning_request_rotation_key").on(t.id, t.tenantId, t.connectorRegistrationId, t.kind),
     check(
       "erp_provisioning_request_kind_valid",
       sql`${t.kind} IN ('tenant.provision', 'store.provision', 'credential.rotate')`,

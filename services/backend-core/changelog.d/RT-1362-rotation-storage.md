@@ -1,9 +1,11 @@
 ### Added
-- RT-1362 S2 (PR-A) `[GATED: migration]`, owner authorization on RT-1362 comments 19102 and 19107: the storage of
-  overlap credential rotation. Migration 0136 adds the pending marker `auth_tokens.pending_rotation_request_id`
-  (composite FK to a rotation request of the same tenant and registration), the routed host label and trigger of a
-  `credential.rotate` request, at most one open `credential.rotate` request per registration (partial unique index),
-  and the provisioner host binding of an adopted registration (label, `provisional` or `confirmed`, revision).
-  Migrations 0137 to 0139 replace the one-unrevoked-credential index with at most one current plus at most one
-  pending connector credential per registration, built and dropped CONCURRENTLY. No behaviour changes: nothing
-  creates a `credential.rotate` request or a pending credential yet.
+- RT-1362 S2 `[GATED: migration]`, owner authorization on RT-1362 comments 19102 and 19107: the storage of
+  overlap credential rotation, in six short migrations. 0136 adds the routed host label and trigger of a
+  `credential.rotate` request and the provisioner host binding of an adopted registration (label, `provisional` or
+  `confirmed`, revision); 0137 (CONCURRENTLY) allows at most one open `credential.rotate` request per registration;
+  0138 (CONCURRENTLY) adds the request key the pending FK targets; 0139 adds the pending marker on `auth_tokens`
+  (request id and kind), whose FK names only a `credential.rotate` request of the same tenant and registration;
+  0140 and 0141 (CONCURRENTLY) add at most one current and at most one pending connector credential per
+  registration. The 0021 one-unrevoked-credential index stays, so no pending credential can be written yet: a later
+  change drops it once the readers handle two unrevoked credentials. Deploy the API of this change together with its
+  migrations (a second manual credential issue may report the new index name). No behaviour changes.

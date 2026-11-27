@@ -65,10 +65,10 @@ type IssueResult =
   | { kind: "conflict" };
 
 /**
- * At most one CURRENT unrevoked connector credential per registration: migration 0137 (RT-1362 S2), which narrows
- * the 0021 index `uq_auth_tokens_active_connector_credential` to credentials with no pending-rotation marker; 0139
- * drops the 0021 index. Both names are accepted, because both indexes exist between 0137 and 0139 (and after a
- * rollback of 0139) and either can report the violation.
+ * At most one unrevoked connector credential per registration (0021, `uq_auth_tokens_active_connector_credential`),
+ * and at most one CURRENT one (0140, RT-1362 S2: the same rule narrowed to credentials with no pending-rotation
+ * marker). Both indexes exist now and either can report the violation of a second issue, so both names map to the
+ * 409; once a later PR drops the 0021 index, only the 0140 name remains.
  */
 const CURRENT_CONNECTOR_CREDENTIAL_UNIQUE: ReadonlySet<string> = new Set([
   "uq_auth_tokens_current_connector_credential",
