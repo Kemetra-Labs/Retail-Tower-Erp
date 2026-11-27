@@ -139,8 +139,9 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
     const body = schema("ConnectorRotationRequest");
     expect(body.additionalProperties).toBe(false);
     expect([...(body.required ?? [])].sort()).toEqual(
-      ["instanceId", "kind", "outcome", "provisioningRequestId", "requestedAt", "tenantId", "trigger"],
+      ["hostBinding", "hostLabel", "instanceId", "kind", "outcome", "provisioningRequestId", "requestedAt", "tenantId", "trigger"],
     );
+    expect(body.properties?.["hostBinding"]?.enum).toEqual(["provisional", "confirmed"]);
     expect(body.properties?.["outcome"]?.enum).toEqual(["requested", "already_open"]);
     expect(body.properties?.["kind"]?.enum).toEqual(["credential.rotate"]);
     expect(body.properties?.["trigger"]?.enum).toEqual(["forced", "scheduled"]);
@@ -164,8 +165,26 @@ describe("RT-1362 S1 connectorIssueProvisionedCredential keeps its shape", () =>
     expect(issue.operationId).toBe("connectorIssueProvisionedCredential");
     expect(issue["x-runtime-status"]).toBeUndefined();
     expect(issue.requestBody).toBeUndefined();
-    expect((issue.parameters ?? []).map((p) => p.$ref)).toEqual(["#/components/parameters/RequestId"]);
+    expect((issue.parameters ?? []).map((p) => p.$ref)).toEqual([
+      "#/components/parameters/RequestId",
+      "#/components/parameters/ProvisioningLeaseId",
+    ]);
     expect(Object.keys(issue.responses ?? {}).sort()).toEqual(["201", "401", "403", "404", "500"]);
+  });
+
+  it("fences claims with an OPTIONAL lease id (header and ack field), so tenant.provision and the pinned Connector are unaffected", () => {
+    const params = (doc as unknown as { components: { parameters: Record<string, { name?: string; in?: string; required?: boolean; schema?: { format?: string } }> } })
+      .components.parameters;
+    expect(params["ProvisioningLeaseId"]).toMatchObject({ name: "Provisioning-Lease-Id", in: "header", required: false, schema: { format: "uuid" } });
+    for (const route of [
+      "/api/connector/v1/erpnext/provisioning/requests/{requestId}/steps",
+      "/api/connector/v1/erpnext/provisioning/requests/{requestId}/outcome",
+    ]) {
+      expect((post(route).parameters ?? []).map((p) => p.$ref)).toContain("#/components/parameters/ProvisioningLeaseId");
+    }
+    const ack = schema("StepAckResult");
+    expect(ack.required).toEqual(["requestId", "step", "leaseExpiresAt"]);
+    expect(ack.properties?.["leaseId"]?.format).toBe("uuid");
   });
 
   it("returns the same IssuedProvisionedCredential fields (no new field for the rotate branch)", () => {

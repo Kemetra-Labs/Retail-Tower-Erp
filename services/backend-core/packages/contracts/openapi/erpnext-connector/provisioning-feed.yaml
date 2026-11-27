@@ -223,17 +223,43 @@ info:
         label recorded on the registration as its provisioner host. The
         adopt operation records none, so "rotate now" takes it in its body
         (`hostLabel`) the first time and Backend-Core records it on the
-        registration (a stored binding, RT-1362 S2, `[GATED: migration]`); a
-        later call may omit it, and a different label than the recorded one is
-        refused (`409 host_mismatch`). A registration whose host cannot be
-        resolved gets no request: "rotate now" refuses it with `409
-        host_not_bound` and the scheduler skips it. Pull offers a
-        `credential.rotate` request ONLY to the provisioner principal whose
-        credential's host label is the request's routed label, and the
-        `claimed` acknowledgement and the credential call from any other host
-        are the non-disclosing `404`. So a provisioner never works a rotation
-        for a site that is not on its host, and "site absent" on the routed
-        host is a real fault, not a routing accident.
+        registration (a stored binding, RT-1362 S2, `[GATED: migration]`). A
+        recorded adopted binding is PROVISIONAL until it is CONFIRMED by the
+        first credential call of a rotation routed to it (the provisioner makes
+        that call only after its site check on that host passed). While it is
+        provisional, a "rotate now" whose body names a different `hostLabel` is
+        an audited correction (`connector.registration.provisioner_host_corrected`,
+        acting platform admin, old and new label, registration id, request
+        id): in one transaction it replaces the binding, re-routes the open
+        `credential.rotate` request to the new label and clears its lease (a
+        worker on the old host then gets `404` or `409 lease_lost`, and has
+        revoked nothing, because no credential call happened). Once the binding
+        is confirmed, a different label is refused (`409 host_mismatch`). A
+        provisioned registration's host is confirmed from the start. A later
+        call may omit `hostLabel`. A registration whose host cannot be resolved
+        gets no request: "rotate now" refuses it with `409 host_not_bound` and
+        the scheduler skips it. Pull offers a `credential.rotate` request ONLY
+        to the provisioner principal whose credential's host label is the
+        request's routed label, and the `claimed` acknowledgement and the
+        credential call from any other host are the non-disclosing `404`. So a
+        provisioner never works a rotation for a site that is not on its
+        host, and "site absent" on the routed host is a real fault, not a
+        routing accident.
+      - **Claim fencing (lease id).** The lease holder is the host label, so
+        two workers on the SAME host (a stalled one whose lease expired, and
+        the one that re-claimed the request) carry the same bearer. Every `200`
+        step acknowledgement therefore returns the claim's `leaseId`, new on
+        each claim (`claimed`) and unchanged on renewals. On a
+        `credential.rotate` request the provisioner MUST send it back in the
+        `Provisioning-Lease-Id` header on every later step acknowledgement,
+        the credential call and the outcome; Backend-Core compares it with the
+        request's current lease under the request lock BEFORE any revoke,
+        issue or state change. A missing or stale lease id is `409 lease_lost`
+        on a step or the outcome and the non-disclosing `404` on the credential
+        call, with no side effect, so a delayed call from an expired worker
+        can neither revoke the successor's replacement nor receive a secret.
+        The header is optional in the schema and is not enforced on the other
+        kinds, so `tenant.provision` and the pinned Connector are unchanged.
       - **Activation (compatibility gate).** A provisioner released before
         RT-1362 S3 skips every kind except `tenant.provision`, so a
         `credential.rotate` request would stay open. Backend-Core therefore
@@ -531,6 +557,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       requestBody:
         required: true
         content:
@@ -631,6 +658,7 @@ paths:
         the secret.
       parameters:
         - $ref: "#/components/parameters/RequestId"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       responses:
         "201":
           description: >
@@ -704,6 +732,7 @@ paths:
       parameters:
         - $ref: "#/components/parameters/RequestId"
         - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/ProvisioningLeaseId"
       requestBody:
         required: true
         content:
@@ -1051,15 +1080,25 @@ paths:
              `409 site_not_bound`. An ADOPTED registration is eligible, like a
              provisioned one (owner decision, RT-1362 comment 19104; see
              "Credential rotation" in the file description).
-          5. Host routing ("Which host" in the file description). A body
-             `hostLabel` that differs from the registration's resolved host
-             (its provisioning host, or the provisioner host recorded on it)
-             is refused: `409 host_mismatch`. A registration with no resolved
-             host and no body `hostLabel` (an adopted registration rotated
-             for the first time) is refused: `409 host_not_bound`. Otherwise
-             a body `hostLabel` on an adopted registration with no recorded
-             host is recorded on it, in the same transaction, as its
-             provisioner host.
+          5. Host routing ("Which host" in the file description).
+             - No resolved host and no body `hostLabel` (an adopted
+               registration rotated for the first time): `409
+               host_not_bound`.
+             - A body `hostLabel` on an adopted registration with no recorded
+               host is recorded on it, in the same transaction, as its
+               PROVISIONAL provisioner host.
+             - A body `hostLabel` that differs from a PROVISIONAL adopted
+               binding CORRECTS it (audited
+               `connector.registration.provisioner_host_corrected`): the
+               binding is replaced, and an open `credential.rotate` request is
+               re-routed to the new label with its lease cleared, in the same
+               transaction. The call then continues with step 6 (usually `200
+               already_open`, returning the re-routed request).
+             - A body `hostLabel` that differs from a CONFIRMED host (a
+               provisioned registration's host, or an adopted binding that a
+               credential call has confirmed): `409 host_mismatch`.
+             The response always names the routed `hostLabel` and whether its
+             binding is `provisional` or `confirmed`.
           6. While a `credential.rotate` request of the registration is open
              (not `succeeded`, `failed_permanent`, `compensated` or
              `cancelled`), whoever or whatever created it (this operation,
@@ -1119,6 +1158,8 @@ paths:
                     tenantId: "0a000000-0000-7000-8000-0000000000a1"
                     instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
                     requestedAt: "2026-11-27T10:00:00Z"
+                    hostLabel: lab-03
+                    hostBinding: provisional
         "200":
           description: >
             A `credential.rotate` request of this registration is already open;
@@ -1144,6 +1185,8 @@ paths:
                     tenantId: "0a000000-0000-7000-8000-0000000000a1"
                     instanceId: "01a145d4-b23d-7009-98f6-c31c61fa62ff"
                     requestedAt: "2026-11-20T02:00:00Z"
+                    hostLabel: bench-01
+                    hostBinding: confirmed
         "400":
           $ref: "#/components/responses/ValidationFailure"
         "401":
@@ -1237,6 +1280,20 @@ components:
         type: string
         format: uuid
       description: The connector registration (instance) id.
+    ProvisioningLeaseId:
+      name: Provisioning-Lease-Id
+      in: header
+      required: false
+      schema:
+        type: string
+        format: uuid
+      description: >
+        Version 1.2.0-draft (RT-1362 S1). The `leaseId` returned by the step
+        acknowledgement that took or renewed the caller's lease. REQUIRED by
+        Backend-Core on every call after `claimed` on a `credential.rotate`
+        request (a missing or stale value is `409 lease_lost`, or `404` on the
+        credential call); optional and ignored on the other kinds. See "Claim
+        fencing" in the file description.
     IdempotencyKey:
       name: Idempotency-Key
       in: header
@@ -1544,6 +1601,15 @@ components:
           type: string
           format: date-time
           description: The renewed lease expiry. Progress acknowledgements renew it.
+        leaseId:
+          type: string
+          format: uuid
+          description: >
+            Version 1.2.0-draft (RT-1362 S1). The id of the caller's current
+            claim: new on each `claimed`, unchanged on renewals. Optional in
+            the schema; on a `credential.rotate` request Backend-Core always
+            returns it and requires it back in `Provisioning-Lease-Id` (see
+            "Claim fencing").
 
     IssuedProvisionedCredential:
       type: object
@@ -1829,7 +1895,7 @@ components:
     ConnectorRotationRequest:
       type: object
       additionalProperties: false
-      required: [outcome, provisioningRequestId, kind, trigger, tenantId, instanceId, requestedAt]
+      required: [outcome, provisioningRequestId, kind, trigger, tenantId, instanceId, requestedAt, hostLabel, hostBinding]
       description: >
         The open `credential.rotate` request of the registration after
         `platformRequestConnectorCredentialRotation`. An explicit projection,
@@ -1865,6 +1931,24 @@ components:
           type: string
           format: date-time
           description: When the open request was created.
+        hostLabel:
+          type: string
+          minLength: 1
+          maxLength: 64
+          description: The ERP host label the request is routed to.
+        hostBinding:
+          type: string
+          enum: [provisional, confirmed]
+          description: >
+            `confirmed`: the provisioning host of a provisioned registration, or
+            an adopted binding a credential call has confirmed (a different
+            label is `409 host_mismatch`). `provisional`: an adopted binding no
+            credential call has confirmed yet (a different label corrects it).
+        hostCorrected:
+          type: boolean
+          description: >
+            Present and `true` when this call corrected a provisional host
+            binding (audited `connector.registration.provisioner_host_corrected`).
 
     RotationRefusedError:
       type: object
@@ -1891,7 +1975,8 @@ components:
                 still open. `site_not_bound`: it is bound to no site (its
                 `tenant.provision` request did not succeed and it was not
                 adopted). `host_mismatch`: the body `hostLabel` differs from
-                the registration's resolved provisioner host. `host_not_bound`:
+                the registration's CONFIRMED provisioner host (a provisional
+                adopted binding is corrected instead). `host_not_bound`:
                 no provisioner host is resolved and the body names none.
             message:
               type: string
@@ -2084,7 +2169,7 @@ components:
         still open. `site_not_bound` (409): it is managed but bound to no site
         (its `tenant.provision` request ended `failed_permanent`,
         `compensated` or `cancelled`, and it was not adopted). `host_mismatch`
-        (409): the body `hostLabel` differs from the resolved provisioner host.
+        (409): the body `hostLabel` differs from the confirmed provisioner host.
         `host_not_bound` (409): no provisioner host is resolved and the body
         names none. Deterministic, nothing is changed and no request is
         written.

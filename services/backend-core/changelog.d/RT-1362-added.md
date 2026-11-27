@@ -15,7 +15,10 @@
   provisioner verifies the site before anything is revoked. Each rotation is routed to one ERP host
   (provisioning host, or a host recorded on an adopted registration from rotate-now's optional
   `hostLabel` body; `409 host_mismatch` / `host_not_bound`) and offered only to that host's
-  provisioner; the site write is a fenced compare-and-set keyed on `issuedAt`; once a credential
+  provisioner (an adopted binding is provisional and correctable, audited, until a credential call
+  confirms it); claims are fenced by a lease id (`StepAckResult.leaseId`, optional
+  `Provisioning-Lease-Id` header, enforced on `credential.rotate` only); the site write is a fenced
+  compare-and-set keyed on `issuedAt`; once a credential
   call has revoked the old credential the request never ends in failure until the replacement is
   presented. A rotation is done when the site first presents the new credential. Runtime in RT-1362 S2 and S3. No migration, no runtime change, no
   consumer repin.
