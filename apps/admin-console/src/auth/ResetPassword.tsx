@@ -8,40 +8,26 @@
  * (no trimming or Unicode normalization, RT-153).
  */
 import { Banner } from "@/components/Banner";
-import { BusyButton } from "@/components/BusyButton";
-import { type MessageKey, useT } from "@/i18n";
+import { useT } from "@/i18n";
 import { confirmPasswordReset } from "@/lib/client";
 import { type FormEvent, useState } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
 import { PasswordInput } from "./PasswordInput";
+import { ResetErrorBanners, ResetSubmitButton } from "./ResetFeedback";
 import {
+  type ResetPhase,
   extractResetToken,
+  phaseFromResolution,
   resolvePasswordResetConfirm,
   validateResetPasswordForm,
 } from "./password-reset-flow";
-
-type Phase =
-  | { status: "idle" }
-  | { status: "submitting" }
-  | { status: "done" }
-  | { status: "error"; messageKey: MessageKey; requestId?: string }
-  | { status: "rate-limited"; retryAfterSeconds: number; requestId?: string };
-
-function SubmitLabel({ phase }: Readonly<{ phase: Phase }>): React.JSX.Element {
-  const t = useT();
-  if (phase.status === "submitting") return <>{t("auth.resetPassword.submitting")}</>;
-  if (phase.status === "rate-limited") {
-    return <>{t("auth.signIn.retryIn", { count: phase.retryAfterSeconds })}</>;
-  }
-  return <>{t("auth.resetPassword.submit")}</>;
-}
 
 export function ResetPassword(): React.JSX.Element {
   const [params] = useSearchParams();
   const token = extractResetToken(params);
   const t = useT();
-  const [phase, setPhase] = useState<Phase>({ status: "idle" });
+  const [phase, setPhase] = useState<ResetPhase>({ status: "idle" });
 
   if (token.length === 0) {
     return (
@@ -74,9 +60,7 @@ export function ResetPassword(): React.JSX.Element {
     );
   }
 
-  const submitting = phase.status === "submitting";
-  const rateLimited = phase.status === "rate-limited";
-  const disabled = submitting || rateLimited;
+  const disabled = phase.status === "submitting" || phase.status === "rate-limited";
   const invalid = phase.status === "error";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -93,46 +77,21 @@ export function ResetPassword(): React.JSX.Element {
 
     setPhase({ status: "submitting" });
     const res = await confirmPasswordReset({ token, new_password: newPassword });
-    const resolution = resolvePasswordResetConfirm({
-      status: res.status,
-      error: res.error as { error?: { request_id?: string } } | undefined,
-      retryAfterSeconds: res.retryAfterSeconds,
-    });
-
-    if (resolution.kind === "done") {
-      setPhase({ status: "done" });
-      return;
-    }
-    if (resolution.kind === "rate-limited") {
-      setPhase({
-        status: "rate-limited",
-        retryAfterSeconds: resolution.retryAfterSeconds,
-        requestId: resolution.requestId,
-      });
-      return;
-    }
-    setPhase({
-      status: "error",
-      messageKey: resolution.messageKey,
-      requestId: resolution.requestId,
-    });
+    setPhase(
+      phaseFromResolution(
+        resolvePasswordResetConfirm({
+          status: res.status,
+          error: res.error as { error?: { request_id?: string } } | undefined,
+          retryAfterSeconds: res.retryAfterSeconds,
+        }),
+      ),
+    );
   }
 
   return (
     <AuthLayout>
       <AuthHead title={t("auth.resetPassword.title")} subtitle={t("auth.resetPassword.subtitle")} />
-
-      {phase.status === "error" ? (
-        <Banner variant="danger" message={t(phase.messageKey)} requestId={phase.requestId} />
-      ) : null}
-      {phase.status === "rate-limited" ? (
-        <Banner
-          variant="warning"
-          message={t("auth.signIn.errors.rateLimited", { count: phase.retryAfterSeconds })}
-          requestId={phase.requestId}
-        />
-      ) : null}
-
+      <ResetErrorBanners phase={phase} />
       <form className="auth-fields" onSubmit={handleSubmit} noValidate>
         <div className="field">
           <label htmlFor="new_password">{t("auth.account.new.label")}</label>
@@ -160,16 +119,12 @@ export function ResetPassword(): React.JSX.Element {
             required
           />
         </div>
-        <BusyButton
-          className="btn-primary auth-submit"
-          type="submit"
-          busy={submitting}
-          disabled={rateLimited}
-        >
-          <SubmitLabel phase={phase} />
-        </BusyButton>
+        <ResetSubmitButton
+          phase={phase}
+          idleKey="auth.resetPassword.submit"
+          submittingKey="auth.resetPassword.submitting"
+        />
       </form>
-
       <p className="auth-note">
         <Link to="/forgot-password">{t("auth.resetPassword.requestNewLink")}</Link>
       </p>

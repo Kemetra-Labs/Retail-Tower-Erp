@@ -16,17 +16,21 @@ export interface SignInBody {
   password: string;
 }
 
+function parseRetryAfter(response: Response): number | undefined {
+  const header = response.headers.get("retry-after");
+  const seconds = header ? Number.parseInt(header, 10) : undefined;
+  return seconds !== undefined && !Number.isNaN(seconds) ? seconds : undefined;
+}
+
 /** POST /api/v1/auth/signin */
 export async function signIn(body: SignInBody) {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/signin", { body });
   // Parse Retry-After (seconds) on 429 so SF-1 can show a real countdown.
-  const retryAfter = response.headers.get("retry-after");
-  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
   return {
     status: response.status,
     data,
     error,
-    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
+    retryAfterSeconds: parseRetryAfter(response),
   };
 }
 
@@ -69,14 +73,7 @@ export async function requestPasswordReset(body: PasswordResetRequestBody) {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/request", {
     body,
   });
-  const retryAfter = response.headers.get("retry-after");
-  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
-  return {
-    status: response.status,
-    data,
-    error,
-    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
-  };
+  return { status: response.status, data, error, retryAfterSeconds: parseRetryAfter(response) };
 }
 
 interface PasswordResetConfirmBody {
@@ -92,14 +89,7 @@ export async function confirmPasswordReset(body: PasswordResetConfirmBody) {
   const { data, error, response } = await apiClient.POST("/api/v1/auth/password-reset/confirm", {
     body,
   });
-  const retryAfter = response.headers.get("retry-after");
-  const retryAfterSeconds = retryAfter ? Number.parseInt(retryAfter, 10) : undefined;
-  return {
-    status: response.status,
-    data,
-    error,
-    retryAfterSeconds: Number.isNaN(retryAfterSeconds) ? undefined : retryAfterSeconds,
-  };
+  return { status: response.status, data, error, retryAfterSeconds: parseRetryAfter(response) };
 }
 
 /** POST /api/v1/auth/refresh */

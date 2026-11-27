@@ -7,42 +7,26 @@
  * (no account enumeration).
  */
 import { Banner } from "@/components/Banner";
-import { BusyButton } from "@/components/BusyButton";
-import { type MessageKey, useT } from "@/i18n";
+import { useT } from "@/i18n";
 import { requestPasswordReset } from "@/lib/client";
 import { type FormEvent, useState } from "react";
 import { Link } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
-import { resolvePasswordResetRequest, validateResetEmail } from "./password-reset-flow";
-
-type Phase =
-  | { status: "idle" }
-  | { status: "submitting" }
-  | { status: "sent" }
-  | { status: "error"; messageKey: MessageKey; requestId?: string }
-  | { status: "rate-limited"; retryAfterSeconds: number; requestId?: string };
-
-function SubmitLabel({ phase }: Readonly<{ phase: Phase }>): React.JSX.Element {
-  const t = useT();
-  if (phase.status === "submitting") return <>{t("auth.forgotPassword.submitting")}</>;
-  if (phase.status === "rate-limited") {
-    return <>{t("auth.signIn.retryIn", { count: phase.retryAfterSeconds })}</>;
-  }
-  return <>{t("auth.forgotPassword.submit")}</>;
-}
+import { ResetErrorBanners, ResetSubmitButton } from "./ResetFeedback";
+import {
+  type ResetPhase,
+  phaseFromResolution,
+  resolvePasswordResetRequest,
+  validateResetEmail,
+} from "./password-reset-flow";
 
 export function ForgotPassword(): React.JSX.Element {
   const t = useT();
-  const [phase, setPhase] = useState<Phase>({ status: "idle" });
-
-  const submitting = phase.status === "submitting";
-  const rateLimited = phase.status === "rate-limited";
-  const disabled = submitting || rateLimited;
+  const [phase, setPhase] = useState<ResetPhase>({ status: "idle" });
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
-    const form = event.currentTarget;
-    const rawEmail = (form.elements.namedItem("email") as HTMLInputElement).value;
+    const rawEmail = (event.currentTarget.elements.namedItem("email") as HTMLInputElement).value;
     const validationError = validateResetEmail(rawEmail);
     if (validationError) {
       setPhase({ status: "error", messageKey: validationError });
@@ -51,29 +35,15 @@ export function ForgotPassword(): React.JSX.Element {
 
     setPhase({ status: "submitting" });
     const res = await requestPasswordReset({ email: rawEmail.trim() });
-    const resolution = resolvePasswordResetRequest({
-      status: res.status,
-      error: res.error as { error?: { request_id?: string } } | undefined,
-      retryAfterSeconds: res.retryAfterSeconds,
-    });
-
-    if (resolution.kind === "sent") {
-      setPhase({ status: "sent" });
-      return;
-    }
-    if (resolution.kind === "rate-limited") {
-      setPhase({
-        status: "rate-limited",
-        retryAfterSeconds: resolution.retryAfterSeconds,
-        requestId: resolution.requestId,
-      });
-      return;
-    }
-    setPhase({
-      status: "error",
-      messageKey: resolution.messageKey,
-      requestId: resolution.requestId,
-    });
+    setPhase(
+      phaseFromResolution(
+        resolvePasswordResetRequest({
+          status: res.status,
+          error: res.error as { error?: { request_id?: string } } | undefined,
+          retryAfterSeconds: res.retryAfterSeconds,
+        }),
+      ),
+    );
   }
 
   if (phase.status === "sent") {
@@ -97,7 +67,7 @@ export function ForgotPassword(): React.JSX.Element {
     );
   }
 
-  const invalid = phase.status === "error";
+  const disabled = phase.status === "submitting" || phase.status === "rate-limited";
 
   return (
     <AuthLayout>
@@ -105,18 +75,7 @@ export function ForgotPassword(): React.JSX.Element {
         title={t("auth.forgotPassword.title")}
         subtitle={t("auth.forgotPassword.subtitle")}
       />
-
-      {phase.status === "error" ? (
-        <Banner variant="danger" message={t(phase.messageKey)} requestId={phase.requestId} />
-      ) : null}
-      {phase.status === "rate-limited" ? (
-        <Banner
-          variant="warning"
-          message={t("auth.signIn.errors.rateLimited", { count: phase.retryAfterSeconds })}
-          requestId={phase.requestId}
-        />
-      ) : null}
-
+      <ResetErrorBanners phase={phase} />
       <form className="auth-fields" onSubmit={handleSubmit} noValidate>
         <div className="field">
           <label htmlFor="email">{t("auth.signIn.email.label")}</label>
@@ -129,20 +88,16 @@ export function ForgotPassword(): React.JSX.Element {
             autoComplete="email"
             placeholder="name@company.com"
             disabled={disabled}
-            aria-invalid={invalid}
+            aria-invalid={phase.status === "error"}
             required
           />
         </div>
-        <BusyButton
-          className="btn-primary auth-submit"
-          type="submit"
-          busy={submitting}
-          disabled={rateLimited}
-        >
-          <SubmitLabel phase={phase} />
-        </BusyButton>
+        <ResetSubmitButton
+          phase={phase}
+          idleKey="auth.forgotPassword.submit"
+          submittingKey="auth.forgotPassword.submitting"
+        />
       </form>
-
       <p className="auth-note">
         <Link to="/signin">{t("auth.forgotPassword.backToSignIn")}</Link>
       </p>
