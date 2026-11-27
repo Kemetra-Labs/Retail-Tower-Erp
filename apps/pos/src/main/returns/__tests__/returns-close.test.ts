@@ -522,7 +522,6 @@ describe('returns.readStatus: the server verdict, never inferred', () => {
         approval_id: null,
         verdict_source: 'provenance_read',
         reason: 'mismatch',
-        origin_user_unknown: true,
       });
       expect(h.audits.at(-1)?.payload).toMatchObject({ verdict: 'recorded_mismatch' });
       // It never confirms and never frees the sale.
@@ -804,7 +803,6 @@ describe('returns.close: only an affirmative fresh not_recorded, after the quiet
       return_id: returnId,
       approval_id: approvalId,
       read_verdict_at: h.state.now,
-      origin_user_unknown: true,
     });
     expect(closed?.acting_operator_id).toBe('op-manager');
     expect(closed?.approving_supervisor_id).toBe(OMAR);

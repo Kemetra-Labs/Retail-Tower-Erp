@@ -339,7 +339,23 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
       });
     },
   });
-  const service: ReturnsBridgeAPI = {
+  const service = buildReturnsBridge(core, payout, closer);
+  const stop = (): void => {
+    stopped = true;
+  };
+  const checkSaleLive = liveSaleCheck(lateCommits, authorizer, isStopped, deps.logger);
+  return { service, resolver, checkSaleLive, stop };
+}
+
+function buildReturnsBridge(
+  core: Pick<
+    ReturnsBridgeAPI,
+    'lookup' | 'quote' | 'submit' | 'resolve' | 'list' | 'resend' | 'escalate'
+  >,
+  payout: Pick<ReturnsBridgeAPI, 'payout' | 'reprintSlip'>,
+  closer: Pick<ReturnsBridgeAPI, 'readStatus' | 'close'>,
+): ReturnsBridgeAPI {
+  return {
     lookup: (req) => core.lookup(req),
     quote: (req) => core.quote(req),
     submit: (req) => core.submit(req),
@@ -352,11 +368,6 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     readStatus: (req) => closer.readStatus(req),
     close: (req) => closer.close(req),
   };
-  const stop = (): void => {
-    stopped = true;
-  };
-  const checkSaleLive = liveSaleCheck(lateCommits, authorizer, isStopped, deps.logger);
-  return { service, resolver, checkSaleLive, stop };
 }
 
 /**

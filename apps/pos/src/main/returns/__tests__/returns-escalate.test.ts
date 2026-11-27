@@ -198,7 +198,6 @@ describe('returns.escalate hands one unresolved return to support', () => {
       approval_id: approvalId,
       verdict_source: 'operator',
       reason: 'operator',
-      origin_user_unknown: true,
     });
     expect(audit?.acting_operator_id).toBe('op-manager');
     expect(audit?.approving_supervisor_id).toBe(OMAR);
@@ -720,6 +719,50 @@ describe('RT-1498 return_journal_origin atomic capture and four-eyes exclusion',
       approval_id: approvalId,
       verdict_source: 'operator',
       reason: 'operator',
+    });
+  });
+
+  it('refuses submit fail-closed when actorUserId is absent and writes nothing', async () => {
+    h = returnsHarness({ role: 'manager', actorUserId: () => null });
+    seedSyncedSale(h.db);
+
+    const res = await h.service.submit(ONE_A);
+    expect(res).toEqual({ kind: 'refused', reason: 'no_session', ret: null });
+    expect(h.db.exec('SELECT COUNT(*) FROM return_journal')[0]?.values[0]?.[0]).toBe(0);
+    expect(h.db.exec('SELECT COUNT(*) FROM return_journal_origin')[0]?.values[0]?.[0]).toBe(0);
+  });
+
+  it('preserves origin_user_unknown: true for a genuine pre-0073 legacy return with no origin row', async () => {
+    setup();
+    const legacyId = '0190f5a2-7b3c-7d4e-8f90-0000000000f1';
+    h.repo.insert({
+      returnId: legacyId,
+      scope: SCOPE,
+      saleId: 'sale-1',
+      saleNumber: SALE_NUMBER,
+      serverSaleRef: '0190f5a2-7b3c-7d4e-8f90-000000000001',
+      externalId: 'pos-pulse-return:0190f5a2-7b3c-7d4e-8f90-0000000000f1',
+      operatorId: 'op-legacy',
+      operatorSessionId: 'sess-legacy',
+      currencyCode: 'EGP',
+      quotedTotalMinor: 1500,
+      requestBodyJson: '{}',
+      lines: [{ lineRef: LINE_A, quantity: 1 }],
+      now: h.state.now,
+    });
+    h.repo.recordAttempt({ returnId: legacyId, now: h.state.now });
+    h.repo.markUnknown({ returnId: legacyId, now: h.state.now });
+
+    const approvalId = await approve(legacyId);
+    const res = await h.service.escalate({ returnId: legacyId, approvalId });
+    expect(res.kind).toBe('escalated');
+    const event = h.audits.find((a) => a.action_category === 'sale.return.needs_support');
+    expect(event?.payload).toEqual({
+      return_id: legacyId,
+      approval_id: approvalId,
+      verdict_source: 'operator',
+      reason: 'operator',
+      origin_user_unknown: true,
     });
   });
 });

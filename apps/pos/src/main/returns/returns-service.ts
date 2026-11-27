@@ -402,6 +402,10 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     const admitted = this.admit('submit');
     if (admitted.kind !== 'ok') return { ...admitted, ret: null };
     const { actor } = admitted;
+    const originUserId = actor.actorUserId;
+    if (originUserId === undefined) {
+      return { ...this.refuse(actor, 'submit', 'no_session'), ret: null };
+    }
     const priced = await this.priced(actor, 'submit', req);
     // Choke point (a): the first statement after the await — before any
     // branch, early exit or refusal, and so before the journal insert.
@@ -416,7 +420,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
       const ids: Ids = { saleId, saleRef: priced.sale.saleRef };
       return { ...this.refuse(actor, 'submit', conflict, ids), ret: null };
     }
-    const entry = this.journal(actor, priced.sale, priced.quote, req.lines);
+    const entry = this.journal(actor, originUserId, priced.sale, priced.quote, req.lines);
     // Choke point (b) runs inside the dispatcher, immediately before the POST.
     const outcome = await this.deps.dispatcher.send(entry, 'submit', actor);
     return this.submitResponseFor(actor, outcome);
@@ -463,6 +467,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
    */
   private journal(
     actor: AuthSnapshot,
+    originUserId: string,
     sale: LiveSale,
     quote: ReturnQuoteView,
     lines: readonly ReturnLineInput[],
@@ -490,9 +495,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
       (inserted) => {
         this.deps.audit.attempted(inserted);
         this.deps.recordLineDetails(returnId, lineDetails(sale.wire, quote));
-        if (actor.actorUserId !== undefined) {
-          this.deps.origins.recordOrigin(inserted.returnId, actor.actorUserId, inserted.createdAt);
-        }
+        this.deps.origins.recordOrigin(inserted.returnId, originUserId, inserted.createdAt);
       },
     );
     const entry = this.deps.repo.read(returnId);
