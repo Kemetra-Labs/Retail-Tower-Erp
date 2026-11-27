@@ -345,6 +345,15 @@ describe('registerShift IPC wiring (both flag states pass the same sources)', ()
     expect(h.notifyShiftClosed).toHaveBeenCalledTimes(1);
   });
 
+  it('RT-1498 S7: hands the IPC the unresolved-returns count of the paired terminal', () => {
+    const h = makeHarness();
+    h.getCurrentTerminalId.mockReturnValue(null);
+    registerShift(h.deps);
+    const counts = ipcDeps().unresolvedReturns as () => unknown;
+    // Unpaired: nothing of its own to warn about (the database is not read).
+    expect(counts()).toEqual({ unresolved: 0, awaitingSupport: 0 });
+  });
+
   it('registers the sync engine starter before the IPC handlers (original order)', () => {
     vi.stubEnv(FLAG, 'true');
     const order: string[] = [];

@@ -13,6 +13,7 @@ import { resolveSessionScope } from '../operator/resolve-session-scope.js';
 import type { SessionManager } from '../operator/session-manager.js';
 import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
 import type { DeviceRevocationStore, PairingStore } from '../pairing/store.js';
+import { unresolvedReturnsAtClose } from '../returns/returns-unresolved-count.js';
 import { createCurrentTerminalResolver } from '../sales-sync/current-terminal.js';
 import type { SafeStorageLike } from '../secrets/safe-storage.js';
 import {
@@ -176,6 +177,8 @@ export function registerShift(deps: ShiftDeps): void {
         }),
     // RT-443: the one store, shared with the approval service (audited there).
     managerPins,
+    // RT-1498 S7 (OD-196-7): a close warns about this terminal's unresolved returns; never blocks.
+    unresolvedReturns: unresolvedReturnsAtClose(db, () => pairingStore.getCurrentTerminalId()),
     // RT-772: the cashier's shift close is a safe-point trigger for an update install.
     onShiftClosed: () => {
       updateService.notifyShiftClosed();

@@ -52,6 +52,7 @@ import {
   type ShiftMovementReasonCode,
   type ShiftMovementRequest,
   type ShiftOpenRequest,
+  type UnresolvedReturnCounts,
 } from '../../shared/shift-cashup/types.js';
 import {
   composeShiftCashupService,
@@ -276,6 +277,8 @@ export interface RegisterShiftCashupIpcDeps
    * omitted (tests), one is created here.
    */
   managerPins?: ManagerPinStore;
+  /** RT-1498 S7: this terminal's unresolved returns, for the close answer's warning. */
+  unresolvedReturns?: () => UnresolvedReturnCounts;
 }
 
 /** The flag gate (see the module header). */
@@ -297,6 +300,7 @@ export function registerShiftCashupIpc(deps: RegisterShiftCashupIpcDeps): void {
     enrollment,
     logger: deps.logger,
     ...(deps.beforeOpen === undefined ? {} : { beforeOpen: deps.beforeOpen }),
+    ...(deps.unresolvedReturns === undefined ? {} : { unresolvedReturns: deps.unresolvedReturns }),
   });
   registerShiftCashupHandlers(deps.ipcMain, { bridge });
   deps.onSessionStarted(

@@ -47,6 +47,7 @@ import type {
   ShiftCashupBridgeAPI,
   ShiftCloseRequest,
   ShiftCloseResponse,
+  UnresolvedReturnCounts,
   ShiftCashupRefusal,
   ShiftCashupRefused,
   ShiftMovementRequest,
@@ -90,6 +91,11 @@ export interface ShiftCashupBridgeDeps {
    * freezes the cached policy or the fail-closed fallback).
    */
   beforeOpen?: () => Promise<void>;
+  /**
+   * RT-1498 S7 (RT-196 §3.8, OD-196-7): this terminal's unresolved returns, read after a close commits
+   * so the answer can warn about them. Never consulted before the close and never able to fail it.
+   */
+  unresolvedReturns?: () => UnresolvedReturnCounts;
 }
 
 /** The service's refusals as the renderer sees them (two generic on purpose). */
@@ -243,7 +249,24 @@ export function createShiftCashupBridge(deps: ShiftCashupBridgeDeps): ShiftCashu
       ...(approver === null ? {} : { approver }),
     });
     const answer = { kind: 'closed' as const, shiftId: closed.shiftId, closedAt: closed.closedAt };
-    return approver === null ? answer : { ...answer, varianceMinor: closed.varianceMinor };
+    const returns = unresolvedAtClose();
+    return {
+      ...answer,
+      ...(approver === null ? {} : { varianceMinor: closed.varianceMinor }),
+      ...(returns === null ? {} : { unresolvedReturns: returns }),
+    };
+  }
+
+  /** RT-1498 S7: the warning counts after a committed close; null when there is nothing to say. */
+  function unresolvedAtClose(): UnresolvedReturnCounts | null {
+    if (deps.unresolvedReturns === undefined) return null;
+    try {
+      const counts = deps.unresolvedReturns();
+      return counts.unresolved > 0 ? { ...counts } : null;
+    } catch {
+      deps.logger.warn({ op: 'close' }, 'shift_cashup:unresolved_returns_count_failed');
+      return null;
+    }
   }
 
   /** RT-388: the policy refresh before an open; its failure is never the open's. */

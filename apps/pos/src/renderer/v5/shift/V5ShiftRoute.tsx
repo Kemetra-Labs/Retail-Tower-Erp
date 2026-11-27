@@ -11,7 +11,7 @@ import type {
 import { CashMovementDialog, type MovementKind } from './CashMovementDialog';
 import { CloseShiftPanel, type ShiftClosed } from './CloseShiftPanel';
 import { callShift, useShiftStatus, useSingleFlight } from './shift-bridge';
-import { SHIFT_COPY, shiftRefusalMessage } from './shift-copy';
+import { SHIFT_COPY, shiftRefusalMessage, unresolvedReturnsWarning } from './shift-copy';
 import { parseShiftAmount } from './shift-format';
 import {
   amountOutOfRange,
@@ -172,17 +172,25 @@ function ShiftOutcome({ outcome }: Readonly<{ outcome: Outcome }>): JSX.Element 
     const text = outcome.movement === 'payIn' ? SHIFT_COPY.recordedIn : SHIFT_COPY.recordedOut;
     return <Notice tone="success">{text}</Notice>;
   }
-  const { varianceMinor, currencyCode } = outcome.closed;
+  const { varianceMinor, currencyCode, unresolvedReturns } = outcome.closed;
   return (
-    <Notice tone="success" testId="shift-closed-outcome">
-      <p>{SHIFT_COPY.closed}</p>
-      {varianceMinor !== undefined && (
-        <p data-testid="shift-variance">
-          {SHIFT_COPY.varianceLabel}:{' '}
-          <ShiftMoney minor={varianceMinor} currencyCode={currencyCode} />
-        </p>
+    <>
+      <Notice tone="success" testId="shift-closed-outcome">
+        <p>{SHIFT_COPY.closed}</p>
+        {varianceMinor !== undefined && (
+          <p data-testid="shift-variance">
+            {SHIFT_COPY.varianceLabel}:{' '}
+            <ShiftMoney minor={varianceMinor} currencyCode={currencyCode} />
+          </p>
+        )}
+      </Notice>
+      {/* RT-1498 S7 (OD-196-7): warn, never block. */}
+      {unresolvedReturns !== undefined && (
+        <Notice tone="warning" testId="shift-unresolved-returns">
+          {unresolvedReturnsWarning(unresolvedReturns)}
+        </Notice>
       )}
-    </Notice>
+    </>
   );
 }
 

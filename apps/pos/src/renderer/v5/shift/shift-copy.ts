@@ -2,6 +2,7 @@ import type { Role } from '../../../shared/operator/role';
 import type {
   ShiftCashupRefusal,
   ShiftMovementReasonCode,
+  UnresolvedReturnCounts,
 } from '../../../shared/shift-cashup/types';
 
 /**
@@ -212,6 +213,17 @@ export const MOVEMENT_REASON_LABELS: Readonly<Record<ShiftMovementReasonCode, st
 /** The user message for a typed refusal; anything outside the closed set is generic. */
 export function shiftRefusalMessage(reason: ShiftCashupRefusal): string {
   return Object.hasOwn(REFUSAL_COPY, reason) ? REFUSAL_COPY[reason] : SHIFT_COPY.unknownRefusal;
+}
+
+/**
+ * RT-1498 S7 (RT-196 §3.8, OD-196-7) — the warning after a close that left returns unresolved on this
+ * terminal. PROPOSED copy, pending owner review. Counts only; it keeps saying no cash was paid for them
+ * (RT-196 §3.8: «لا تصرف أي نقد» while a return is unknown) and never blocks or reverses the close.
+ */
+export function unresolvedReturnsWarning(counts: UnresolvedReturnCounts): string {
+  const support =
+    counts.awaitingSupport > 0 ? `، منها ${String(counts.awaitingSupport)} بانتظار الدعم` : '';
+  return `لم تتأكد بعد نتيجة ${String(counts.unresolved)} من المرتجعات على هذا الجهاز${support}. لم يُصرف لها أي نقد ولا تدخل في النقد المتوقع. راجعها في سجل المرتجعات.`;
 }
 
 /** RT-998 — the line for a cash apply main refused `shift_not_open`, by who is signed in. */

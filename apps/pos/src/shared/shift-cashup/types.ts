@@ -138,8 +138,19 @@ export type ShiftCloseResponse =
       closedAt: string;
       /** Only for an approved close of a non-zero variance (after the commit). */
       varianceMinor?: number;
+      /**
+       * RT-1498 S7 (RT-196 §3.8, OD-196-7): only when this terminal still has returns whose outcome is
+       * not settled. A warning: the close succeeded and Expected Cash never includes them.
+       */
+      unresolvedReturns?: UnresolvedReturnCounts;
     }
   | ShiftCashupRefused;
+
+/** RT-1498 S7: returns still unresolved at a close; `awaitingSupport` is a subset of `unresolved`. */
+export interface UnresolvedReturnCounts {
+  unresolved: number;
+  awaitingSupport: number;
+}
 
 export interface ShiftOpenShiftView {
   shiftId: string;
