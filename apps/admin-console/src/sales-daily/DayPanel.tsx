@@ -12,7 +12,7 @@
  */
 import { SectionIndex } from "@/components/SectionIndex";
 import { useT } from "@/i18n";
-import { type SalesKpis, metricDefinition } from "@/metrics/metricRegistry";
+import { type SalesKpis, isSystemMetric, metricDefinition } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
 import { useId, useState } from "react";
 import { Link } from "react-router";
@@ -74,7 +74,7 @@ function FigureList({
   const t = useT();
   const statusMetrics = showSystem
     ? STATUS_METRICS
-    : STATUS_METRICS.filter((m) => m !== "syncStatus" && m !== "erpPosting");
+    : STATUS_METRICS.filter((m) => !isSystemMetric(m));
   return (
     <dl className="daily-day__figures">
       {MONEY_METRICS.map((metric) => (

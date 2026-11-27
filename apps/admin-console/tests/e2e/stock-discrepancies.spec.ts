@@ -153,12 +153,22 @@ test("S1: tenant_admin → summary → store items verbatim → request fresh sn
   expect(triggerBody).toEqual({ storeId: S1 });
 });
 
-test("S2: store_manager sees the nav entry but no refresh button", async ({ page, t }) => {
+test("S2: store_manager has no nav entry and direct route shows no-access (D10b)", async ({
+  page,
+  t,
+}) => {
   await mockBase(page, "store_manager");
+  const hits: string[] = [];
+  await page.route("**/api/v1/catalog/erpnext-reconciliation/**", (r) => {
+    hits.push(r.request().url());
+    return r.fulfill(json({}));
+  });
   await page.goto(`/stock-discrepancies/${S1}`);
-  await expect(page.getByRole("link", { name: t("shell.nav.stockDiscrepancies") })).toBeVisible();
-  await expect(page.getByRole("cell", { name: "-3.000000" })).toBeVisible();
-  await expect(page.getByRole("button", { name: t("stock.refresh.action") })).toHaveCount(0);
+  await expect(page.getByRole("link", { name: t("shell.nav.stockDiscrepancies") })).toHaveCount(0);
+  await expect(
+    page.getByRole("heading", { level: 1, name: t("shell.systemNoAccess.title") }),
+  ).toBeVisible();
+  expect(hits).toEqual([]);
 });
 
 test("S3: cashier has no nav entry", async ({ page, t }) => {
@@ -169,7 +179,7 @@ test("S3: cashier has no nav entry", async ({ page, t }) => {
 });
 
 test("S4: per-store 404 renders not-found", async ({ page, t }) => {
-  await mockBase(page, "store_manager");
+  await mockBase(page, "owner");
   await page.route(
     `**/api/v1/catalog/erpnext-reconciliation/stores/${S2}/negative-on-hand**`,
     (r) => r.fulfill(json({ error: { code: "not_found", message: "Not found" } }, 404)),

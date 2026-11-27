@@ -133,6 +133,11 @@ export const METRICS: Readonly<Record<MetricId, MetricDefinition>> = {
 
 export const METRIC_IDS = Object.keys(METRICS) as readonly MetricId[];
 
+/** True for system-plumbing metrics hidden from business-only roles (RT-1612, D10). */
+export function isSystemMetric(id: MetricId): boolean {
+  return id === "syncStatus" || id === "erpPosting";
+}
+
 export function metricDefinition(id: MetricId): MetricDefinition {
   return METRICS[id];
 }

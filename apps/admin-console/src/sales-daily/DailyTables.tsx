@@ -20,6 +20,7 @@ import {
   METRIC_IDS,
   type MetricId,
   type SalesKpis,
+  isSystemMetric,
   metricDefinition,
 } from "@/metrics/metricRegistry";
 import { BusinessDate } from "@/sales/SaleParts";
@@ -46,8 +47,6 @@ interface TableSpec {
   cell: (kpis: SalesKpis | null, metric: MetricId) => React.ReactNode;
 }
 
-const SYSTEM_METRICS: ReadonlySet<MetricId> = new Set(["syncStatus", "erpPosting"]);
-
 function tablesFor(showSystem: boolean): readonly TableSpec[] {
   return [
     {
@@ -61,7 +60,7 @@ function tablesFor(showSystem: boolean): readonly TableSpec[] {
         ? "salesDaily.table.status.caption"
         : "salesDaily.table.shifts.caption",
       hintKey: showSystem ? "salesDaily.table.status.hint" : "salesDaily.table.shifts.hint",
-      metrics: showSystem ? STATUS_METRICS : STATUS_METRICS.filter((m) => !SYSTEM_METRICS.has(m)),
+      metrics: showSystem ? STATUS_METRICS : STATUS_METRICS.filter((m) => !isSystemMetric(m)),
       cell: (kpis, metric) => <StatusCell kpis={kpis} metric={metric} />,
     },
   ];
@@ -224,7 +223,7 @@ function ReportContext({
 /** What each column counts, from the console metric registry (RT-819). */
 function Definitions({ showSystem }: Readonly<{ showSystem: boolean }>): React.JSX.Element {
   const t = useT();
-  const ids = showSystem ? METRIC_IDS : METRIC_IDS.filter((id) => !SYSTEM_METRICS.has(id));
+  const ids = showSystem ? METRIC_IDS : METRIC_IDS.filter((id) => !isSystemMetric(id));
   return (
     <details className="daily-report__about">
       <summary>{t("salesDaily.about")}</summary>

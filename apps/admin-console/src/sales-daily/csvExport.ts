@@ -23,6 +23,7 @@ import {
   METRIC_IDS,
   type MetricId,
   type SalesKpis,
+  isSystemMetric,
   metricDefinition,
 } from "@/metrics/metricRegistry";
 import type { DayRow, ReportModel } from "./dailyLogic";
@@ -155,9 +156,7 @@ function periodRows(model: ReportModel, t: Translate): string[][] {
 }
 
 function definitionRows(t: Translate, includeSystemDetail: boolean): string[][] {
-  const ids = includeSystemDetail
-    ? METRIC_IDS
-    : METRIC_IDS.filter((id) => id !== "syncStatus" && id !== "erpPosting");
+  const ids = includeSystemDetail ? METRIC_IDS : METRIC_IDS.filter((id) => !isSystemMetric(id));
   return ids.map((id) => {
     const def = metricDefinition(id as MetricId);
     const text = [def.definitionKey, def.zoneRuleKey, def.unknown.meaningKey].map((k) => t(k));
