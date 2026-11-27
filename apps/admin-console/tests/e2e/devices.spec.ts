@@ -118,6 +118,8 @@ test("S1: owner → fleet (server order) → filters → detail tabs → Back ke
   await expect(rows.nth(0)).toContainText("Till 2");
   await expect(rows.nth(0)).toContainText(t("devices.attention.custody"));
   await expect(rows.nth(1)).toContainText("Till 1");
+  // Last seen sits behind the columns toggle (five columns by default).
+  await page.getByRole("button", { name: t("devices.list.showMore"), exact: true }).click();
   await expect(rows.nth(1).getByText(t("devices.lastSeen.notRecorded"))).toBeVisible();
   expect(queries[0].get("store_id")).toBeNull();
 
