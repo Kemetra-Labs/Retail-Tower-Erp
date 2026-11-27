@@ -166,6 +166,40 @@ const OWNER_AND_CANDIDATES: readonly (readonly [label: string, operator_id: stri
   ...CANDIDATES,
 ];
 
+describe('RT-309 D9 — an authority-conflict lock is never ended by a sign-in or takeover', () => {
+  function conflictLocked(): Harness {
+    const h = harness();
+    const record = h.sm.create(ownerSession());
+    h.sm.lockForAuthorityConflict(record.id, NOW);
+    return h;
+  }
+
+  it.each(OWNER_AND_CANDIDATES)(
+    'refuses %s at the preflight check and at the final admit; the session stays',
+    (_label, operator_id) => {
+      const h = conflictLocked();
+      const id = h.sm.getCurrent()?.id;
+      expect(admissionRefusal(h.admission, 'check', who(operator_id))).toEqual({
+        kind: 'refused',
+        category: 'state_invalid',
+      });
+      expect(h.admission.admit(who(operator_id))).toEqual({
+        kind: 'refused',
+        refusal: { kind: 'refused', category: 'state_invalid' },
+      });
+      expect(h.ends).toEqual([]);
+      expect(h.sm.getCurrent()?.id).toBe(id);
+      expect(h.sm.getCurrent()?.lock_cause).toBe('authority_conflict');
+    },
+  );
+
+  it.each(CANDIDATES)('an inactivity lock still lets %s switch in (unchanged)', (_label, op) => {
+    const h = lockedOwner();
+    expect(h.admission.admit(who(op))).toEqual({ kind: 'admitted' });
+    expect(h.ends.map((e) => e.cause)).toEqual(['superseded_at_lock']);
+  });
+});
+
 describe('RT-444 §4 — terminal holds nothing', () => {
   it.each(OWNER_AND_CANDIDATES)('admits %s', (_label, operator_id) => {
     const h = harness();

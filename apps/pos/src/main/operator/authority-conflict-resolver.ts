@@ -15,6 +15,8 @@ import {
   captureSendMark,
   endAdmissionTracked,
   mintAdmissionKey,
+  monotonicNowMs,
+  notifyGrantSeam,
   type AdmissionKey,
   type CashierAdmissionDeps,
   type OnlineAdmissionResult,
@@ -28,30 +30,37 @@ import { tillClockSkewed } from './till-clock.js';
  *
  * The offline reconcile answered `active_elsewhere`: the cashier is admitted on
  * another till, so this session was LOCKED with `lock_cause:
- * 'authority_conflict'` (it holds no authority; the ordinary unlock refuses
- * it). After a PIN check of the locked session's cashier (the 004 verifier and
- * its lockout), exactly two actions:
+ * 'authority_conflict'` (it holds no authority; the ordinary unlock and every
+ * sign-in refuse it). After a PIN check of the locked session's cashier (the
+ * 004 verifier and its lockout), exactly two actions:
  *
- *  - `take_over_here`: an online admission with `takeover: true` (the server
- *    ends the other till's admission; that till gets its own conflict on its
- *    next reconcile or heartbeat). Only a live `admitted` reopens THIS session:
- *    it becomes online-confirmed, is unlocked and its heartbeat is armed. The
- *    idempotency key is kept across a `no_connection` / 5xx retry, so a request
- *    that did reach the server replays instead of taking over twice;
+ *  - `take_over_here`: an online admission with `takeover: true`. Only a live,
+ *    contract-valid `admitted` reopens THIS session: it becomes
+ *    online-confirmed, then (and only then) the offline grant is published, the
+ *    session is unlocked and its heartbeat is armed;
  *  - `end_here`: the session ends `superseded_by_takeover`. The session-end
- *    rules hold the cart and any live tender (RT-116 §3.3, RT-352 / RT-442);
- *    nothing is reversed or discarded.
+ *    rules hold the cart and any live tender (RT-116 §3.3, RT-352 / RT-442).
  *
- * Fail closed everywhere: any other answer keeps the lock (a 403 ends the
- * session `account_disabled_mid_session`, as the reconcile's 403 does). An
- * `admitted` is never adopted when the session changed, the pairing changed,
- * a grant invalidation landed while it was in flight, or the till clock is
- * skewed: it is released with an `end` echoing its generation.
+ * The takeover request (its idempotency key, the send mark bound to it, and
+ * when it was FIRST sent) is kept until the server's answer is known, so:
+ *  - a retry after no answer replays the same request; the replayed
+ *    `server_time` is the original issuance, so the till clock is judged from
+ *    the FIRST send, and the admission's lease runs from the first send too;
+ *  - «إنهاء هنا» after an unanswered takeover first replays it to learn the
+ *    outcome: an `admitted` is released before the session ends; if the server
+ *    is still unreachable the session stays locked (no local end while the
+ *    server outcome is unknown).
+ *
+ * Fail closed: an `admitted` is never adopted (it is released, the session
+ * stays locked) when the session changed, the pairing or the grant-invalidation
+ * mark moved, `server_time` is not a valid timestamp, or the till clock is off
+ * by more than the tolerance. Because the window starts at the FIRST send, a
+ * replay on a correct till is never misread as skew; a detected skew is the
+ * till's own clock (RT-1312 F18): fix it, then take over again. A 403 ends the
+ * session `account_disabled_mid_session`.
  *
  * Audit (main-only, local): `operator.session.authority_conflict` with
- * `{resolution}` for each decision. Best-effort: the session state change is
- * the safety property. Logs carry the action and outcome only: never the PIN,
- * user id, admission id, key or generation.
+ * `{resolution}` for each decision. Logs carry the action and outcome only.
  */
 
 interface AuthorityConflictResolverDeps {
@@ -79,16 +88,36 @@ interface Target {
   user_id: string;
 }
 
+/** A takeover request whose server outcome is not known yet. */
+interface PendingTakeover {
+  session_id: string;
+  key: AdmissionKey;
+  /** The till wall clock when the request was FIRST sent (RT-1312 F18 window). */
+  first_sent_till_ms: number | undefined;
+  /** The monotonic clock just before the FIRST send: the lease runs from no earlier. */
+  first_requested_at_ms: number;
+}
+
+type Admitted = CashierAdmissionAdmitted & { requested_at_ms: number };
+type NotAdmitted = Exclude<OnlineAdmissionResult, { kind: 'admitted' }>;
+
 const RATE_LIMITED: ResolveConflictResponse = { kind: 'takeover_rate_limited' };
+/** Answers that say nothing about what the server did: the request stays pending. */
+const UNKNOWN_OUTCOME: ReadonlySet<string> = new Set(['no_connection', 'unavailable']);
+/** RFC 3339 `date-time` (the contract format of `server_time`). */
+const RFC3339 = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}(\.\d+)?(Z|[+-]\d{2}:\d{2})$/;
 
 function refuse(category: RefusalCategory): OperatorRefusal {
   return { kind: 'refused', category };
 }
 
+function validServerTime(value: string): boolean {
+  return RFC3339.test(value) && Number.isFinite(Date.parse(value));
+}
+
 export class AuthorityConflictResolver {
   private inFlight = false;
-  /** The takeover key, kept for a retry of the same session after no answer. */
-  private pendingKey: { session_id: string; key: AdmissionKey } | null = null;
+  private pending: PendingTakeover | null = null;
 
   constructor(private readonly deps: AuthorityConflictResolverDeps) {}
 
@@ -133,55 +162,90 @@ export class AuthorityConflictResolver {
     );
   }
 
-  private endHere(target: Target): ResolveConflictResponse {
-    this.pendingKey = null;
+  // ── end here ──────────────────────────────────────────────────────────────
+
+  private async endHere(target: Target): Promise<ResolveConflictResponse> {
+    const pending = this.pendingFor(target.session.id);
+    if (pending !== null) {
+      // An earlier takeover got no answer: learn what the server did first.
+      const settled = await this.settlePendingBeforeEnd(target, pending);
+      if (settled !== null) return settled;
+      if (!this.stillConflictLocked(target.session.id)) {
+        return this.refused('state_invalid', 'session_changed', 'end_here');
+      }
+    }
+    this.pending = null;
     this.audit(target.session, 'end_here');
     this.deps.sessionManager.endIfCurrent(target.session.id, 'superseded_by_takeover');
     this.log('end_here', 'resolved');
     return { kind: 'resolved', action: 'end_here' };
   }
 
+  /** Replay the pending takeover; null when its outcome is known (and an admission released). */
+  private async settlePendingBeforeEnd(
+    target: Target,
+    pending: PendingTakeover,
+  ): Promise<ResolveConflictResponse | null> {
+    const result = await this.send(target, pending);
+    if (UNKNOWN_OUTCOME.has(result.kind))
+      return this.refused('no_connection', result.kind, 'end_here');
+    if (result.kind === 'rate_limited') return RATE_LIMITED;
+    this.pending = null;
+    if (result.kind === 'admitted') this.release(target, result);
+    return null;
+  }
+
+  // ── take over here ────────────────────────────────────────────────────────
+
   private async takeOverHere(target: Target): Promise<ResolveConflictResponse> {
-    const key = this.keyFor(target.session.id);
-    const sentAtMs = this.deps.tillClockMs?.();
-    const result = await admitCashierOnline(this.deps.admission, {
-      user_id: target.user_id,
-      operator_id: target.session.operator_id,
-      takeover: true,
-      ...key,
-    });
+    const pending = this.pendingFor(target.session.id) ?? this.newPending(target.session.id);
+    this.pending = pending;
+    const result = await this.send(target, pending);
     if (result.kind !== 'admitted') return this.notAdmitted(target, result);
-    this.pendingKey = null;
-    const blocked = this.adoptionBlocker(target, key, result, sentAtMs);
+    const blocked = this.adoptionBlocker(target, pending, result);
+    this.pending = null;
     if (blocked !== null) {
       this.release(target, result);
       return this.refused(blocked, 'not_adopted', 'take_over_here');
     }
-    return this.adopt(target, result);
+    return this.adopt(target, pending, result);
   }
 
-  /** Re-use the key of an unanswered takeover of the same session; else mint one. */
-  private keyFor(session_id: string): AdmissionKey {
-    if (this.pendingKey?.session_id === session_id) return this.pendingKey.key;
-    const key = mintAdmissionKey(this.deps.admission);
-    this.pendingKey = { session_id, key };
-    return key;
+  private pendingFor(session_id: string): PendingTakeover | null {
+    return this.pending?.session_id === session_id ? this.pending : null;
   }
 
-  private notAdmitted(
-    target: Target,
-    result: Exclude<OnlineAdmissionResult, { kind: 'admitted' }>,
-  ): ResolveConflictResponse {
+  private newPending(session_id: string): PendingTakeover {
+    return {
+      session_id,
+      key: mintAdmissionKey(this.deps.admission),
+      first_sent_till_ms: this.deps.tillClockMs?.(),
+      first_requested_at_ms: monotonicNowMs(this.deps.admission),
+    };
+  }
+
+  /** The takeover request (a replay when the key was used before). The grant is NOT published here. */
+  private send(target: Target, pending: PendingTakeover): Promise<OnlineAdmissionResult> {
+    return admitCashierOnline(this.deps.admission, {
+      user_id: target.user_id,
+      operator_id: target.session.operator_id,
+      takeover: true,
+      ...pending.key,
+      publishAdmitted: false,
+    });
+  }
+
+  private notAdmitted(target: Target, result: NotAdmitted): ResolveConflictResponse {
     const outcome = result.kind;
-    if (outcome === 'no_connection' || outcome === 'unavailable') {
-      // The key stays: a retry replays a request that may have reached the server.
+    if (UNKNOWN_OUTCOME.has(outcome)) {
+      // The request stays pending: a retry (or «إنهاء هنا») replays it.
       return this.refused('no_connection', outcome, 'take_over_here');
     }
-    this.pendingKey = null;
     if (outcome === 'rate_limited') {
       this.log('take_over_here', 'rate_limited');
       return RATE_LIMITED;
     }
+    this.pending = null;
     if (outcome === 'refused') {
       // 403: the cashier is no longer eligible (10763 D8). The grant was invalidated.
       this.deps.sessionManager.endIfCurrent(target.session.id, 'account_disabled_mid_session');
@@ -192,22 +256,24 @@ export class AuthorityConflictResolver {
   /** Why an `admitted` may not be adopted; null when it may. */
   private adoptionBlocker(
     target: Target,
-    key: AdmissionKey,
-    result: CashierAdmissionAdmitted,
-    sentAtMs: number | undefined,
+    pending: PendingTakeover,
+    result: Admitted,
   ): RefusalCategory | null {
     if (!this.stillConflictLocked(target.session.id)) return 'state_invalid';
-    if (sendMarkMoved(this.deps.admission, key)) return 'state_invalid';
+    if (sendMarkMoved(this.deps.admission, pending.key)) return 'state_invalid';
+    if (!validServerTime(result.server_time)) return 'state_invalid';
     const clock = this.deps.tillClockMs;
-    if (clock !== undefined && sentAtMs !== undefined) {
-      if (tillClockSkewed(result.server_time, sentAtMs, clock())) return 'clock_skew';
+    const sentAt = pending.first_sent_till_ms;
+    if (clock !== undefined && sentAt !== undefined) {
+      if (tillClockSkewed(result.server_time, sentAt, clock())) return 'clock_skew';
     }
     return null;
   }
 
   private adopt(
     target: Target,
-    result: CashierAdmissionAdmitted & { requested_at_ms: number },
+    pending: PendingTakeover,
+    result: Admitted,
   ): ResolveConflictResponse {
     const id = target.session.id;
     const renewed = this.deps.sessionManager.renewAdmission(id, {
@@ -215,12 +281,19 @@ export class AuthorityConflictResolver {
       admission_ttl_seconds: result.admission_ttl_seconds,
       offline_grace_seconds: result.offline_grace_seconds,
       admission_generation: result.admission_generation,
-      admission_requested_at_ms: result.requested_at_ms,
+      // A replay's lease ran from the first send: never later than that.
+      admission_requested_at_ms: Math.min(pending.first_requested_at_ms, result.requested_at_ms),
     });
     if (!renewed) {
       this.release(target, result);
       return this.refused('state_invalid', 'not_adopted', 'take_over_here');
     }
+    // The grant is published only now, bound to the request's send mark.
+    notifyGrantSeam(this.deps.admission, result, {
+      user_id: target.user_id,
+      operator_id: target.session.operator_id,
+      ...pending.key.send_mark,
+    });
     this.audit(target.session, 'take_over_here');
     this.deps.sessionManager.unlock(this.now().toISOString(), { resolvesAuthorityConflict: true });
     this.deps.onTakenOver(id);
@@ -238,6 +311,8 @@ export class AuthorityConflictResolver {
       target.user_id,
     );
   }
+
+  // ── audit and logs ────────────────────────────────────────────────────────
 
   private audit(record: OperatorSessionRecord, resolution: Action): void {
     try {

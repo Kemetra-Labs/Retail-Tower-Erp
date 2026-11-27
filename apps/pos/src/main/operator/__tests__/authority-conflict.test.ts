@@ -474,12 +474,138 @@ describe('AuthorityConflictResolver — take over here', () => {
     expect(h.fake.endRequests).toHaveLength(1);
   });
 
-  it('a till clock off by more than the tolerance refuses clock_skew and releases the admission', async () => {
-    const h = resolverHarness(null, { tillClockMs: () => Date.parse('2026-10-04T12:00:00.000Z') });
+  it('a skewed till clock refuses clock_skew, releases, publishes no grant; after the fix a new takeover adopts', async () => {
+    let till = Date.parse('2026-10-04T12:00:00.000Z'); // 2 h ahead of ADMITTED.server_time
+    const h = resolverHarness(null, { tillClockMs: () => till });
     const res = await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
     await Promise.resolve();
     expect(res).toEqual({ kind: 'refused', category: 'clock_skew' });
     expect(h.sessions.getCurrent()?.lock_cause).toBe('authority_conflict');
     expect(h.fake.endRequests).toHaveLength(1);
+    expect(h.fake.admitted).toEqual([]);
+
+    till = Date.parse(ADMITTED.server_time) + 1_000; // the clock is fixed
+    const again = await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
+    expect(again).toEqual({ kind: 'resolved', action: 'take_over_here' });
+    expect(h.fake.admitCalls[1]?.idempotency_key).not.toBe(h.fake.admitCalls[0]?.idempotency_key);
+  });
+
+  it('a malformed server_time is never adopted: released, no grant, still locked', async () => {
+    const h = resolverHarness(null, { tillClockMs: () => Date.parse(ADMITTED.server_time) });
+    h.fake.setAdmit({ ...ADMITTED, server_time: 'not-a-time' });
+    const res = await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
+    await Promise.resolve();
+    expect(res).toEqual({ kind: 'refused', category: 'state_invalid' });
+    expect(h.sessions.getCurrent()?.lock_cause).toBe('authority_conflict');
+    expect(h.fake.admitted).toEqual([]);
+    expect(h.fake.endRequests).toHaveLength(1);
+  });
+
+  it('the grant is published only after adoption, never for an admitted it refuses', async () => {
+    const h = resolverHarness();
+    let seq = 0;
+    h.fake.deps.grantSeam = {
+      onCashierAdmitted: (e) => h.fake.admitted.push(e),
+      onCashierAdmissionInvalidated: () => undefined,
+      invalidationSeq: () => seq,
+    };
+    h.fake.setAdmit(() => {
+      seq += 1;
+      return ADMITTED;
+    });
+    await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
+    expect(h.fake.admitted).toEqual([]);
+  });
+
+  it('a replay more than 2 min after the first send on a correct till is adopted; the lease runs from the first send', async () => {
+    let till = Date.parse(ADMITTED.server_time) - 1_000;
+    let mono = 1_000;
+    const h = resolverHarness(null, { tillClockMs: () => till });
+    h.fake.deps.monotonicNow = () => mono;
+    h.fake.setAdmit({ kind: 'no_connection' });
+    expect(await h.resolver.resolve({ action: 'take_over_here', pin: '1234' })).toEqual({
+      kind: 'refused',
+      category: 'no_connection',
+    });
+    till += 10 * 60_000; // ten minutes later, the server replays the ORIGINAL issuance
+    mono += 10 * 60_000;
+    h.fake.setAdmit(ADMITTED);
+    const res = await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
+    expect(res).toEqual({ kind: 'resolved', action: 'take_over_here' });
+    expect(h.fake.admitCalls[1]?.idempotency_key).toBe(h.fake.admitCalls[0]?.idempotency_key);
+    expect(h.sessions.getCurrent()?.admission_requested_at_ms).toBe(1_000);
+  });
+});
+
+describe('AuthorityConflictResolver — end here after an unanswered takeover (coordinator decision)', () => {
+  async function unanswered(): Promise<ResolverHarness> {
+    const h = resolverHarness();
+    h.fake.setAdmit({ kind: 'no_connection' });
+    await h.resolver.resolve({ action: 'take_over_here', pin: '1234' });
+    return h;
+  }
+
+  it('replays the SAME request; an admitted is released, then the session ends', async () => {
+    const h = await unanswered();
+    h.fake.setAdmit(ADMITTED);
+    const res = await h.resolver.resolve({ action: 'end_here', pin: '1234' });
+    await Promise.resolve();
+    expect(res).toEqual({ kind: 'resolved', action: 'end_here' });
+    expect(h.fake.admitCalls).toHaveLength(2);
+    expect(h.fake.admitCalls[1]).toMatchObject({
+      takeover: true,
+      idempotency_key: h.fake.admitCalls[0]?.idempotency_key,
+    });
+    expect(h.fake.endRequests).toEqual([
+      { admission_id: ADMITTED.admission_id, admission_generation: ADMITTED.admission_generation },
+    ]);
+    expect(h.fake.admitted).toEqual([]);
+    expect(h.ends).toEqual(['superseded_by_takeover']);
+  });
+
+  it.each([[{ kind: 'refused' as const }], [{ kind: 'active_elsewhere' as const }]])(
+    'a definite %o: nothing to release, the session just ends',
+    async (answer) => {
+      const h = await unanswered();
+      h.fake.setAdmit(answer);
+      const res = await h.resolver.resolve({ action: 'end_here', pin: '1234' });
+      expect(res).toEqual({ kind: 'resolved', action: 'end_here' });
+      expect(h.fake.endRequests).toEqual([]);
+      expect(h.ends).toEqual(['superseded_by_takeover']);
+    },
+  );
+
+  it.each([[{ kind: 'no_connection' as const }], [{ kind: 'unavailable' as const }]])(
+    'still unknown (%o): stays locked, no local end, the cashier retries',
+    async (answer) => {
+      const h = await unanswered();
+      h.fake.setAdmit(answer);
+      const res = await h.resolver.resolve({ action: 'end_here', pin: '1234' });
+      expect(res).toEqual({ kind: 'refused', category: 'no_connection' });
+      expect(h.ends).toEqual([]);
+      expect(h.sessions.getCurrent()?.lock_cause).toBe('authority_conflict');
+
+      h.fake.setAdmit({ kind: 'refused' });
+      expect(await h.resolver.resolve({ action: 'end_here', pin: '1234' })).toEqual({
+        kind: 'resolved',
+        action: 'end_here',
+      });
+      expect(h.fake.admitCalls[2]?.idempotency_key).toBe(h.fake.admitCalls[0]?.idempotency_key);
+    },
+  );
+
+  it('a 429 on the replay keeps the lock and answers takeover_rate_limited', async () => {
+    const h = await unanswered();
+    h.fake.setAdmit({ kind: 'rate_limited' });
+    expect(await h.resolver.resolve({ action: 'end_here', pin: '1234' })).toEqual({
+      kind: 'takeover_rate_limited',
+    });
+    expect(h.ends).toEqual([]);
+  });
+
+  it('end here with no pending takeover sends nothing', async () => {
+    const h = resolverHarness();
+    await h.resolver.resolve({ action: 'end_here', pin: '1234' });
+    expect(h.fake.admitCalls).toEqual([]);
   });
 });

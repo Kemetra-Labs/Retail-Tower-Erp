@@ -376,6 +376,9 @@ export function registerPayments(deps: PaymentsDeps, core: PaymentsCore): void {
     ...paymentsWriteDeps,
     ...paymentsSettleDeps,
     paymentAttemptFsm,
+    // RT-309 D9: a conflict lock during the voucher redeem await fences the settle.
+    isAuthorityConflictLocked: () =>
+      operatorSessionManager.getCurrent()?.lock_cause === 'authority_conflict',
   });
   const paymentsCancel = createPaymentsCancelHandler({
     ...paymentsWriteDeps,

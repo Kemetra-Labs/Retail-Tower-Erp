@@ -118,6 +118,13 @@ export interface PaymentsConfirmHandlerDeps {
    * no gate; production always wires it, and with the shift flag off it allows.
    */
   cashShiftGate?: CashShiftGate;
+  /**
+   * RT-309 D9 — true while the current session is locked for an authority
+   * conflict (`lock_cause: 'authority_conflict'`). The voucher redeem sweep
+   * awaits the network; a conflict lock (or «إنهاء هنا») that lands meanwhile
+   * must not let the attempt settle. Absent: only a session change fences.
+   */
+  isAuthorityConflictLocked?: (() => boolean) | undefined;
 }
 
 export type PaymentsConfirmHandler = (
@@ -240,7 +247,15 @@ export function createPaymentsConfirmHandler(
     }
 
     return await sweepAndSettle({
-      deps: { linesRepo, paymentAttemptFsm, auditEmitter, clock, settlement },
+      deps: {
+        linesRepo,
+        paymentAttemptFsm,
+        auditEmitter,
+        clock,
+        settlement,
+        getCurrentSession,
+        isAuthorityConflictLocked: deps.isAuthorityConflictLocked,
+      },
       voucherDeps,
       row,
       session,
@@ -262,7 +277,13 @@ function holdsAppliedCash(
 interface SettleContext {
   deps: Pick<
     PaymentsConfirmHandlerDeps,
-    'linesRepo' | 'paymentAttemptFsm' | 'auditEmitter' | 'clock' | 'settlement'
+    | 'linesRepo'
+    | 'paymentAttemptFsm'
+    | 'auditEmitter'
+    | 'clock'
+    | 'settlement'
+    | 'getCurrentSession'
+    | 'isAuthorityConflictLocked'
   >;
   voucherDeps: VoucherDeps | null;
   row: PaymentAttemptRow;
@@ -323,6 +344,18 @@ async function sweepAndSettle(ctx: SettleContext): Promise<PaymentsConfirmRespon
     const sweep = await sweepVoucherLines(ctx, voucherLines);
     if (sweep.kind === 'failed') return sweep.response;
     redeemed = sweep.persisted;
+    // RT-309 D9: the sweep awaited the network. If the session lost its
+    // authority meanwhile (conflict-locked, ended, replaced), never settle it
+    // locally: fail the attempt and reverse what V-A redeemed (or leave it
+    // reversal_pending for the deferred resolver), as a failed settle does.
+    if (voucherDeps !== null && authorityLostDuring(ctx)) {
+      return await failAttemptWithCompensation({
+        ...voucherDeps,
+        ...compensationScope(ctx),
+        persistedRedemptions: redeemed,
+        failure_reason: 'operator_session_terminated',
+      });
+    }
   }
 
   let fsmOutcome: ConfirmOutcome;
@@ -346,6 +379,13 @@ async function sweepAndSettle(ctx: SettleContext): Promise<PaymentsConfirmRespon
 
   if (fsmOutcome.kind === 'refused') return { kind: 'refused', reason: fsmOutcome.reason };
   return { kind: 'ok', settled_at: fsmOutcome.settled_at };
+}
+
+/** RT-309 D9 — the confirming session is gone, replaced, or now conflict-locked. */
+function authorityLostDuring(ctx: SettleContext): boolean {
+  const now = ctx.deps.getCurrentSession();
+  if (now?.operator_session_id !== ctx.session.operator_session_id) return true;
+  return ctx.deps.isAuthorityConflictLocked?.() === true;
 }
 
 /** The attempt-level context every voucher compensation step needs. */
@@ -501,7 +541,18 @@ function isRedeemRefusalFailure(reason: string): reason is RedeemRefusalFailure 
 }
 
 /** Why an attempt is failed by the voucher paths of `payments.confirm`. */
-type ConfirmFailureReason = 'dependency_unavailable' | 'internal_error' | RedeemRefusalFailure;
+type ConfirmFailureReason =
+  | 'dependency_unavailable'
+  | 'internal_error'
+  | 'operator_session_terminated'
+  | RedeemRefusalFailure;
+
+/** The bridge refusal for a failure: a lost session answers `no_session` (not a RefusalReason). */
+function refusalReasonOf(
+  reason: ConfirmFailureReason,
+): Exclude<ConfirmFailureReason, 'operator_session_terminated'> | 'no_session' {
+  return reason === 'operator_session_terminated' ? 'no_session' : reason;
+}
 
 function redeemFailureReason(outcome: RedeemVoucherOutcome | null): ConfirmFailureReason {
   if (outcome?.kind !== 'refused') return 'dependency_unavailable';
@@ -610,7 +661,7 @@ async function failAttemptWithCompensation(
     await compensateRedemption(input, persisted, now);
   }
   if (failError !== null) throw failError;
-  return { kind: 'refused', reason: failure_reason };
+  return { kind: 'refused', reason: refusalReasonOf(failure_reason) };
 }
 
 function failAttempt(
