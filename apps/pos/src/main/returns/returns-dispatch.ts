@@ -349,12 +349,22 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
     this.deps.audit.attemptUnknown(this.current(entry), cause, op);
     if (cause === 'confirmation_mismatch' || cause === 'unreadable_body') {
       this.raiseSupport(this.current(entry), stamp.now, 'send_response');
-    } else if (
-      AUTH_FAILURE_CAUSES.has(cause) &&
-      this.deps.authFailures?.reached(entry.returnId) === true
-    ) {
+    } else if (AUTH_FAILURE_CAUSES.has(cause) && this.authFailureStreakReached(entry.returnId)) {
       // Read AFTER this attempt's cause audit, in the same transaction: it counts this failure.
       this.raiseSupport(this.current(entry), stamp.now, 'auth_failure');
+    }
+  }
+
+  /**
+   * Whether the auth-failure run reached the flag. A failing read is logged and counts as "not yet":
+   * it must never roll back this attempt's cause audit (the next failure checks again).
+   */
+  private authFailureStreakReached(returnId: string): boolean {
+    try {
+      return this.deps.authFailures?.reached(returnId) === true;
+    } catch {
+      this.deps.logger.warn({ return_id: returnId }, 'returns:auth_failure_check_failed');
+      return false;
     }
   }
 

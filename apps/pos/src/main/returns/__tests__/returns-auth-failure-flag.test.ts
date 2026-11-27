@@ -13,8 +13,14 @@
  */
 import { afterEach, beforeAll, describe, expect, it } from 'vitest';
 
+import type { DatabaseHandle } from '../../db/client.js';
+import { createReturnsAudit } from '../returns-audit.js';
+import { createAuthFailureStreak } from '../returns-causes.js';
+import { createReturnsClient } from '../returns-client.js';
+import { createReturnsDispatcher } from '../returns-dispatch.js';
 import { RETURN_QUIET_PERIOD_MS } from '../returns-quiet-period.js';
 import {
+  BASE_URL,
   LINE_A,
   MANAGER_ACTOR,
   SALE_ID,
@@ -197,5 +203,84 @@ describe('the automatic auth_failure flag (OD-196-6)', () => {
     }
     expect(kinds(returnId)).toEqual(['needs_support']);
     expect(categories(h.audits).filter((c) => c === 'sale.return.needs_support')).toHaveLength(1);
+  });
+});
+
+describe('the auth-failure run, read from the audit (createAuthFailureStreak)', () => {
+  /** A database handle whose one query answers `rows` (newest first, as the SQL orders them). */
+  function dbAnswering(rows: { cause: string | null; created_at: string }[]): DatabaseHandle {
+    return { prepare: () => ({ all: () => rows }) } as unknown as DatabaseHandle;
+  }
+  const at = (minutes: number): string => new Date(Date.UTC(2026, 9, 4, 9, minutes)).toISOString();
+  const QUIET = RETURN_QUIET_PERIOD_MS;
+
+  it('needs three authentication failures in a row spanning the period', () => {
+    const run = [
+      { cause: 'pre_replay_401', created_at: at(30) },
+      { cause: 'pre_replay_403', created_at: at(20) },
+      { cause: 'pre_replay_401', created_at: at(15) },
+      { cause: 'network', created_at: at(0) },
+    ];
+    expect(createAuthFailureStreak(dbAnswering(run), QUIET).reached('r')).toBe(true);
+    expect(createAuthFailureStreak(dbAnswering(run.slice(1)), QUIET).reached('r')).toBe(false);
+  });
+
+  it.each([
+    ['an unparseable time', [at(30), 'not-a-time', at(10)]],
+    ['a time that runs backwards', [at(0), at(10), at(30)]],
+  ])('%s never flags it (fail closed)', (_name, times) => {
+    const rows = times.map((created_at) => ({ cause: 'pre_replay_401', created_at }));
+    expect(createAuthFailureStreak(dbAnswering(rows), QUIET).reached('r')).toBe(false);
+  });
+
+  it('an unknown cause code ends the run', () => {
+    const rows = [
+      { cause: 'pre_replay_401', created_at: at(40) },
+      { cause: 'pre_replay_401', created_at: at(30) },
+      { cause: 'something_new', created_at: at(20) },
+      { cause: 'pre_replay_401', created_at: at(0) },
+    ];
+    expect(createAuthFailureStreak(dbAnswering(rows), QUIET).reached('r')).toBe(false);
+  });
+});
+
+describe('a failing auth-failure check never loses the attempt', () => {
+  it('logs, raises nothing, and keeps the cause audit of the attempt', async () => {
+    harness();
+    const returnId = await unknownReturn();
+    const warnings: string[] = [];
+    let seq = 0;
+    const dispatcher = createReturnsDispatcher({
+      authorizer: { recheck: () => null },
+      isStopped: () => false,
+      client: createReturnsClient({ baseUrl: BASE_URL, fetch: h.backend.fetch }),
+      repo: h.repo,
+      dispositions: h.dispositions,
+      authFailures: {
+        reached: () => {
+          throw new Error('db busy');
+        },
+      },
+      audit: createReturnsAudit({
+        sink: h.auditSink,
+        now: () => h.state.now,
+        newEventId: () => `evt-auth-${String((seq += 1))}`,
+      }),
+      now: () => h.state.now,
+      logger: { warn: (_obj, msg) => warnings.push(msg) },
+      transaction: <T>(fn: () => T): T => h.handle.transaction(fn)(),
+    });
+    h.backend.onReturn = () => jsonResponse(401, errorBody('x'));
+    const entry = h.repo.read(returnId);
+    if (entry === null) throw new Error('no journal row');
+
+    await dispatcher.send(entry, 'resend', MANAGER_ACTOR);
+
+    expect(warnings).toContain('returns:auth_failure_check_failed');
+    expect(kinds(returnId)).toEqual([]);
+    expect(h.audits.at(-1)).toMatchObject({
+      action_category: 'sale.return.attempt_unknown',
+      payload: { cause: 'pre_replay_401', operation: 'resend' },
+    });
   });
 });

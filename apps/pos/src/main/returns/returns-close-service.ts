@@ -339,9 +339,10 @@ class ReturnsCloseService implements ReturnsCloseAPI {
   /**
    * `recorded`, in one transaction. A return already CLOSED is a late commit: audited, and (RT-1553,
    * migration 0071) handed to support once, whatever the answer matched, which blocks the sale again;
-   * the closed row stays frozen, so it is never confirmed and never paid. This return, matched, writes
-   * nothing. Anything else (another return, a credit reversal) hands it to support from the read (no
-   * approval, Gap 2), once.
+   * the closed row stays frozen, so it is never confirmed and never paid. This return, matched, is
+   * confirmed (confirm-by-read; `resend` only if the row was no longer open, which the synchronous
+   * checks before this transaction make unreachable). Anything else (another return, a credit
+   * reversal) hands it to support from the read (no approval, Gap 2), once.
    */
   private recordedEffect(
     fresh: Fresh,

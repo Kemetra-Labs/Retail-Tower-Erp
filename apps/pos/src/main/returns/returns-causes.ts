@@ -49,6 +49,14 @@ export const AUTH_FAILURE_CAUSES: ReadonlySet<ReturnUnknownCause> = new Set([
   'pre_replay_403',
 ]);
 
+/**
+ * The newest attempts read per check. Newest-first by rowid, so SQLite stops once it has this many: the
+ * check never walks a return's whole history (it runs inside the unknown transition's write). A run
+ * longer than this is judged on its newest part only, which can only understate the span (fail closed);
+ * with resends minutes apart it is far longer than the quiet period needs.
+ */
+const STREAK_READ_LIMIT = 20;
+
 interface StreakRow {
   cause: string | null;
   created_at: string;
@@ -62,19 +70,20 @@ export function createAuthFailureStreak(db: DatabaseHandle, spanMs: number): Aut
            FROM audit_events
           WHERE action_category = 'sale.return.attempt_unknown'
             AND json_extract(payload, '$.return_id') = ?
-          ORDER BY rowid DESC`,
+          ORDER BY rowid DESC
+          LIMIT ${String(STREAK_READ_LIMIT)}`,
       ) as Stmt;
       // Newest first: the run ends at the first cause that is not an authentication failure.
-      const run: StreakRow[] = [];
+      const times: number[] = [];
       for (const row of statement.all(returnId) as StreakRow[]) {
         if (!isCause(row.cause) || !AUTH_FAILURE_CAUSES.has(row.cause)) break;
-        run.push(row);
+        const time = Date.parse(row.created_at);
+        // Fail closed: an unreadable time, or one later than the attempt after it, proves no span.
+        if (Number.isNaN(time) || time > (times.at(-1) ?? Infinity)) return false;
+        times.push(time);
       }
-      if (run.length < AUTH_FAILURE_ATTEMPTS) return false;
-      const newest = Date.parse(run[0]?.created_at ?? '');
-      const first = Date.parse(run.at(-1)?.created_at ?? '');
-      if (Number.isNaN(newest) || Number.isNaN(first)) return false;
-      return newest - first >= spanMs;
+      if (times.length < AUTH_FAILURE_ATTEMPTS) return false;
+      return (times[0] ?? 0) - (times.at(-1) ?? 0) >= spanMs;
     },
   };
 }
