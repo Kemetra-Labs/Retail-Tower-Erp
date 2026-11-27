@@ -24,7 +24,7 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { useT } from "@/i18n";
 import { Fragment, useEffect } from "react";
 import { useLocation, useNavigate, useSearchParams } from "react-router";
-import { CatalogCategoryChips, CatalogFilterBar } from "./CatalogFilterBar";
+import { CatalogFilterBar } from "./CatalogFilterBar";
 import { Unavailable } from "./CatalogPager";
 import { Results } from "./CatalogResults";
 import {
@@ -220,11 +220,6 @@ function CatalogContent({
         initialErrors={errors}
         onApply={applyFilters}
         onClear={clearFilters}
-      />
-      <CatalogCategoryChips
-        applied={filters}
-        categories={categories.categories}
-        onApply={applyFilters}
       />
       {query ? (
         <Results

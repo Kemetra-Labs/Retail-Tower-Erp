@@ -54,20 +54,33 @@ describe('offlineAuthorityExpired', () => {
     expect(offlineAuthorityExpired(offline(), { wall_ms: Number.NaN, mono_ms: 0 })).toBe(true);
   });
 
-  it.each([
-    ['online_confirmed', { authority: 'online_confirmed' }],
-    ['absent', {}],
-  ] as [string, Partial<OfflineAuthorityFields>][])(
-    'never bounds a session whose authority is %s',
-    (_label, authority) => {
-      expect(
-        offlineAuthorityExpired(
-          { ...authority, authority_valid_until_ms: 0, authority_deadline_mono_ms: 0 },
-          { wall_ms: WALL, mono_ms: MONO },
-        ),
-      ).toBe(false);
-    },
-  );
+  it('never bounds a session with no authority (a manager / admin session)', () => {
+    expect(
+      offlineAuthorityExpired(
+        { authority_valid_until_ms: 0, authority_deadline_mono_ms: 0 },
+        { wall_ms: WALL, mono_ms: MONO },
+      ),
+    ).toBe(false);
+  });
+
+  // RT-309 (D6): an online-confirmed session whose contact was lost is bounded by
+  // its contact-lost bound (`online-authority-bound.test.ts`). One with neither a
+  // bound nor a confirmed-contact stamp is refused (fail closed).
+  it('bounds an online-confirmed session by its contact-lost bound', () => {
+    expect(
+      offlineAuthorityExpired(
+        {
+          authority: 'online_confirmed',
+          authority_valid_until_ms: 0,
+          authority_deadline_mono_ms: 0,
+        },
+        { wall_ms: WALL, mono_ms: MONO },
+      ),
+    ).toBe(true);
+    expect(
+      offlineAuthorityExpired({ authority: 'online_confirmed' }, { wall_ms: WALL, mono_ms: MONO }),
+    ).toBe(true);
+  });
 });
 
 describe('newSaleBlock', () => {
@@ -80,7 +93,18 @@ describe('newSaleBlock', () => {
     );
     expect(newSaleBlock(offline(), late)).toBe('offline_authority_expired');
     expect(newSaleBlock(offline(), early)).toBeNull();
-    expect(newSaleBlock({ authority: 'online_confirmed' }, late)).toBeNull();
+    // RT-309 (D6): an online-confirmed session inside its stamped bound may start a sale.
+    expect(
+      newSaleBlock(
+        {
+          authority: 'online_confirmed',
+          authority_valid_until_ms: WALL + 10,
+          authority_deadline_mono_ms: MONO + 10,
+        },
+        late,
+      ),
+    ).toBeNull();
+    expect(newSaleBlock({}, late)).toBeNull();
   });
 });
 

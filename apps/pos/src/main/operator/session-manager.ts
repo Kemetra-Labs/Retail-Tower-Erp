@@ -4,7 +4,12 @@ import type { Role } from '../../shared/operator/role.js';
 import type { OperatorSessionBridgeView } from '../../shared/bridge-api.js';
 import type { SessionEndCause } from '../../shared/operator/session-end-cause.js';
 
-import { authorityClockOf, type AuthorityClock } from './offline-authority.js';
+import {
+  authorityClockOf,
+  MANAGER_SESSION_BOUND_MS,
+  onlineContactLostBound,
+  type AuthorityClock,
+} from './offline-authority.js';
 
 /**
  * 004-operator-session T028 — main-process session manager (in-memory).
@@ -116,12 +121,29 @@ export interface OperatorSessionRecord {
   /** See {@link CashierAdmissionFields.admission_requested_at_ms}. Main-only. */
   admission_requested_at_ms?: number;
   /**
-   * RT-308 (10763 D6) — set only on an `offline_grant` session: the grant's
-   * expiry, on the wall clock and on the monotonic clock. After it no NEW sale
-   * may start (`offline-authority.ts`). Main-only.
+   * RT-308 (10763 D6) — on an `offline_grant` session: the grant's expiry, on
+   * the wall clock and on the monotonic clock. RT-309 (D6): on an
+   * `online_confirmed` session, set only once its server contact is lost
+   * ({@link SessionManager.markContactLost}): the last confirmed contact plus
+   * `min(offline_grace, 72 h)`; cleared again by the next confirmed contact.
+   * After it no NEW sale may start (`offline-authority.ts`). Main-only.
    */
   authority_valid_until_ms?: number;
   authority_deadline_mono_ms?: number;
+  /**
+   * RT-309 (D6) — on an `online_confirmed` session: when its latest `admitted`
+   * (sign-in, takeover, heartbeat, reconcile) was received, on the wall and the
+   * monotonic clock. Main-only.
+   */
+  authority_confirmed_wall_ms?: number;
+  authority_confirmed_mono_ms?: number;
+  /**
+   * RT-309 (D6 item 2) — on a manager / admin session: 24 h from its online
+   * sign-in, on both clocks. Re-auth never extends it. After it no NEW sale may
+   * start. Main-only.
+   */
+  manager_valid_until_ms?: number;
+  manager_deadline_mono_ms?: number;
   /**
    * RT-113 P2 — set when the session lost its authority; it ends at its next
    * safe point. Main-only. The first cause wins.
@@ -182,6 +204,24 @@ function managerFieldsOf(
   return { manager_user_id: userId.toLowerCase(), manager_signed_in_at: new Date().toISOString() };
 }
 
+/**
+ * RT-309 (D6) — an `admitted` confirmed the session's server contact now: stamp
+ * it and clear any contact-lost bound (the session is connected again).
+ */
+function confirmContact(record: OperatorSessionRecord, now: AuthorityClock): void {
+  record.authority_confirmed_wall_ms = now.wall_ms;
+  record.authority_confirmed_mono_ms = now.mono_ms;
+  delete record.authority_valid_until_ms;
+  delete record.authority_deadline_mono_ms;
+}
+
+/** RT-309 (D6 item 2) — a manager / admin session's absolute 24 h from sign-in. */
+function stampManagerBound(record: OperatorSessionRecord, now: AuthorityClock): void {
+  if (record.role !== 'manager' && record.role !== 'admin') return;
+  record.manager_valid_until_ms = now.wall_ms + MANAGER_SESSION_BOUND_MS;
+  record.manager_deadline_mono_ms = now.mono_ms + MANAGER_SESSION_BOUND_MS;
+}
+
 /** RT-308 — an offline-admitted cashier session: its identity and its bound. */
 function applyOfflineAdmission(record: OperatorSessionRecord, o: OfflineAdmissionFields): void {
   record.user_id = o.user_id;
@@ -190,7 +230,22 @@ function applyOfflineAdmission(record: OperatorSessionRecord, o: OfflineAdmissio
   record.authority_deadline_mono_ms = o.deadline_mono_ms;
 }
 
+export interface SessionManagerOptions {
+  /**
+   * RT-309 (D6) — wall and monotonic "now" for the online bound. Production
+   * keeps the default (the wall clock and `performance.now()`, the same clocks
+   * the admission send stamp and the sale check use); tests may inject.
+   */
+  authorityClock?: () => AuthorityClock;
+}
+
 export class SessionManager {
+  private readonly authorityClock: () => AuthorityClock;
+
+  constructor(options: SessionManagerOptions = {}) {
+    this.authorityClock = options.authorityClock ?? (() => authorityClockOf());
+  }
+
   private current: OperatorSessionRecord | null = null;
   private lastEndCause: SessionEndCause | null = null;
   private readonly endCallbacks: SessionEndCallback[] = [];
@@ -234,6 +289,7 @@ export class SessionManager {
       locked_at: null,
     };
     Object.assign(record, managerFieldsOf(input));
+    stampManagerBound(record, this.authorityClock());
     if (input.recovery_of !== undefined && input.role !== 'cashier') {
       record.recovery_of = input.recovery_of;
     }
@@ -248,6 +304,7 @@ export class SessionManager {
       if (a.admission_requested_at_ms !== undefined) {
         record.admission_requested_at_ms = a.admission_requested_at_ms;
       }
+      confirmContact(record, this.authorityClock());
     } else if (input.offline_admission !== undefined && input.role === 'cashier') {
       applyOfflineAdmission(record, input.offline_admission);
     }
@@ -278,6 +335,34 @@ export class SessionManager {
     if (admission.admission_requested_at_ms !== undefined) {
       this.current.admission_requested_at_ms = admission.admission_requested_at_ms;
     }
+    // RT-309 (D6): every renewal confirms the server contact (an offline-admitted
+    // session adopted by the reconcile also drops its grant bound).
+    confirmContact(this.current, this.authorityClock());
+    return true;
+  }
+
+  /**
+   * RT-309 (D6) — the CURRENT online-confirmed session's server contact was
+   * lost (a heartbeat was not answered, or its answer did not confirm the
+   * admission): start its bound at the last confirmed contact plus
+   * `min(offline_grace, 72 h)`. Only when `session_id` still names it; never
+   * moves a bound already set (the first loss counts). Returns whether a bound
+   * now applies.
+   */
+  markContactLost(session_id: string): boolean {
+    const current = this.current;
+    if (current?.id !== session_id || current.authority !== 'online_confirmed') return false;
+    if (current.authority_valid_until_ms !== undefined) return true;
+    const bound = onlineContactLostBound(
+      {
+        confirmed_wall_ms: current.authority_confirmed_wall_ms,
+        confirmed_mono_ms: current.authority_confirmed_mono_ms,
+        offline_grace_seconds: current.offline_grace_seconds,
+      },
+      this.authorityClock(),
+    );
+    current.authority_valid_until_ms = bound.valid_until_ms;
+    current.authority_deadline_mono_ms = bound.deadline_mono_ms;
     return true;
   }
 
