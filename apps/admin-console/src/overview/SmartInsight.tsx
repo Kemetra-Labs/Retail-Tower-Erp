@@ -21,6 +21,7 @@
  * While the summary is not ready, or it has no single today, the note renders
  * nothing: the receipt row already carries the loading and error states.
  */
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import type { SalesSummary } from "@/lib/sales-summary-queries";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
@@ -44,16 +45,19 @@ const INSIGHT_TEXT = {
 function insightOf(
   summary: PanelState<SalesSummary>,
   critical: number | null,
+  showSystem: boolean,
 ): { kind: InsightKind; count?: number } | null {
   if (summary.status !== "ready") return null;
   const day = glanceDay(summary.data);
   if (day.state !== "ready" || !day.today) return null;
-  const failed = postingSplit(day.today).failed;
-  if (failed > 0) return { kind: "failedPosting", count: failed };
-  const repair = day.today.syncStatus.failedNeedsRepair;
-  if (repair > 0) return { kind: "needsRepair", count: repair };
+  if (showSystem) {
+    const failed = postingSplit(day.today).failed;
+    if (failed > 0) return { kind: "failedPosting", count: failed };
+    const repair = day.today.syncStatus.failedNeedsRepair;
+    if (repair > 0) return { kind: "needsRepair", count: repair };
+  }
   if (critical !== null && critical > 0) return { kind: "criticalStock", count: critical };
-  return { kind: "clear" };
+  return showSystem ? { kind: "clear" } : null;
 }
 
 export function SmartInsight({
@@ -67,7 +71,8 @@ export function SmartInsight({
   const titleId = useId();
   const lowStock = useLowStock(session);
   const critical = lowStock.status === "ready" ? lowStock.data.criticalCount : null;
-  const insight = insightOf(summary, critical);
+  const showSystem = canSeeSystemDetail(session.role);
+  const insight = insightOf(summary, critical, showSystem);
   if (!insight) return null;
   const cta =
     (insight.kind === "failedPosting" || insight.kind === "needsRepair") &&

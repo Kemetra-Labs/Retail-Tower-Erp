@@ -20,6 +20,7 @@ import { Banner } from "@/components/Banner";
  */
 import { Drawer } from "@/components/Drawer";
 import { ListState } from "@/components/ListState";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, useT } from "@/i18n";
 import type { ShipmentTransfer, ShipmentTransferReceipt } from "@/lib/inventory-queries";
 import { useState } from "react";
@@ -38,7 +39,12 @@ type StoreNames = ReadonlyMap<string, string>;
 function Summary({
   transfer,
   names,
-}: Readonly<{ transfer: ShipmentTransfer; names: StoreNames }>): React.JSX.Element {
+  showSystem,
+}: Readonly<{
+  transfer: ShipmentTransfer;
+  names: StoreNames;
+  showSystem: boolean;
+}>): React.JSX.Element {
   const t = useT();
   return (
     <dl className="transfers__ledger">
@@ -65,12 +71,14 @@ function Summary({
           </dd>
         </div>
       ))}
-      <div>
-        <dt>{t("transfers.detail.dispatchErp")}</dt>
-        <dd>
-          <LegBadge state={transfer.dispatchIntegrationState} />
-        </dd>
-      </div>
+      {showSystem ? (
+        <div>
+          <dt>{t("transfers.detail.dispatchErp")}</dt>
+          <dd>
+            <LegBadge state={transfer.dispatchIntegrationState} />
+          </dd>
+        </div>
+      ) : null}
       {transfer.reason ? (
         <div>
           <dt>{t("transfers.detail.reason")}</dt>
@@ -164,7 +172,10 @@ function LinesTable({ transfer }: Readonly<{ transfer: ShipmentTransfer }>): Rea
 }
 
 /** The receipt-level cells, on the first line of each receipt, spanning its lines. */
-function ReceiptCells({ receipt }: Readonly<{ receipt: ShipmentTransferReceipt }>) {
+function ReceiptCells({
+  receipt,
+  showSystem,
+}: Readonly<{ receipt: ShipmentTransferReceipt; showSystem: boolean }>) {
   const t = useT();
   const span = receipt.lines.length;
   return (
@@ -172,9 +183,11 @@ function ReceiptCells({ receipt }: Readonly<{ receipt: ShipmentTransferReceipt }
       <th scope="row" rowSpan={span}>
         <DateTime value={receipt.receivedAt} />
       </th>
-      <td rowSpan={span}>
-        <LegBadge state={receipt.integrationState} />
-      </td>
+      {showSystem ? (
+        <td rowSpan={span}>
+          <LegBadge state={receipt.integrationState} />
+        </td>
+      ) : null}
       <td rowSpan={span} className="inventory__wrap">
         {receipt.note ? (
           <bdi dir="auto">{receipt.note}</bdi>
@@ -186,11 +199,14 @@ function ReceiptCells({ receipt }: Readonly<{ receipt: ShipmentTransferReceipt }
   );
 }
 
-function ReceiptRowView({ row }: Readonly<{ row: ReceiptRow }>): React.JSX.Element {
+function ReceiptRowView({
+  row,
+  showSystem,
+}: Readonly<{ row: ReceiptRow; showSystem: boolean }>): React.JSX.Element {
   const t = useT();
   return (
     <tr className="data-table__row data-table__row--static">
-      {row.index === 0 ? <ReceiptCells receipt={row.receipt} /> : null}
+      {row.index === 0 ? <ReceiptCells receipt={row.receipt} showSystem={showSystem} /> : null}
       <td className="num">
         {row.lineSeq === undefined ? (
           <span className="inventory__unknown">{t("transfers.value.unknown")}</span>
@@ -209,7 +225,12 @@ function ReceiptRowView({ row }: Readonly<{ row: ReceiptRow }>): React.JSX.Eleme
 function ReceiptsTable({
   receipts,
   transfer,
-}: Readonly<{ receipts: ShipmentTransferReceipt[]; transfer: ShipmentTransfer }>) {
+  showSystem,
+}: Readonly<{
+  receipts: ShipmentTransferReceipt[];
+  transfer: ShipmentTransfer;
+  showSystem: boolean;
+}>) {
   const t = useT();
   const rows = receiptRowsOf(receipts, transfer);
   return (
@@ -217,7 +238,7 @@ function ReceiptsTable({
       <thead>
         <tr>
           <th scope="col">{t("transfers.receipts.col.receivedAt")}</th>
-          <th scope="col">{t("transfers.receipts.col.erp")}</th>
+          {showSystem ? <th scope="col">{t("transfers.receipts.col.erp")}</th> : null}
           <th scope="col">{t("transfers.receipts.col.note")}</th>
           <th scope="col" className="num">
             {t("transfers.receipts.col.line")}
@@ -230,7 +251,11 @@ function ReceiptsTable({
       </thead>
       <tbody>
         {rows.map((row) => (
-          <ReceiptRowView key={`${row.receipt.id}-${row.index}`} row={row} />
+          <ReceiptRowView
+            key={`${row.receipt.id}-${row.index}`}
+            row={row}
+            showSystem={showSystem}
+          />
         ))}
       </tbody>
     </CaptionedTable>
@@ -240,7 +265,12 @@ function ReceiptsTable({
 function ReceiptsSection({
   receipts,
   transfer,
-}: Readonly<{ receipts: PagedState<ShipmentTransferReceipt>; transfer: ShipmentTransfer }>) {
+  showSystem,
+}: Readonly<{
+  receipts: PagedState<ShipmentTransferReceipt>;
+  transfer: ShipmentTransfer;
+  showSystem: boolean;
+}>) {
   const t = useT();
   let body: React.JSX.Element;
   if (receipts.isLoading) {
@@ -258,7 +288,7 @@ function ReceiptsSection({
   } else {
     body = (
       <>
-        <ReceiptsTable receipts={receipts.rows} transfer={transfer} />
+        <ReceiptsTable receipts={receipts.rows} transfer={transfer} showSystem={showSystem} />
         <StaleError error={receipts.inlineError} onRetry={receipts.retry} />
         <LoadMore
           hasMore={receipts.hasMore}
@@ -291,12 +321,13 @@ function Detail({
   writes: TransferActionWrites;
 }>) {
   const t = useT();
+  const showSystem = canSeeSystemDetail(scope.role);
   const receipts = useShipmentTransferReceipts(scope, transfer.id);
   const [notice, setNotice] = useState<TransferAction | null>(null);
   return (
     <>
       {notice ? <Banner variant="success" message={t(`transfers.recorded.${notice}`)} /> : null}
-      <Summary transfer={transfer} names={names} />
+      <Summary transfer={transfer} names={names} showSystem={showSystem} />
       <TransferActions scope={scope} transfer={transfer} writes={writes} onRecorded={setNotice} />
       <section className="transfers__section" aria-labelledby="transfer-lines">
         <h3 id="transfer-lines" className="transfers__heading">
@@ -304,7 +335,7 @@ function Detail({
         </h3>
         <LinesTable transfer={transfer} />
       </section>
-      <ReceiptsSection receipts={receipts} transfer={transfer} />
+      <ReceiptsSection receipts={receipts} transfer={transfer} showSystem={showSystem} />
     </>
   );
 }

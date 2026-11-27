@@ -431,16 +431,14 @@ describe("Overview panels (RT-559, spec 009)", () => {
     expect(listErpnextNegativeOnHandStores).toHaveBeenCalledTimes(2);
   });
 
-  test("AC-8: a store-scoped user sees only their granted store, never another's name", async () => {
-    // Two-store tenant; the manager is granted A only, and the API answers for A.
+  test("AC-8: a store-scoped user sees only their granted store, never another's name, and no ERPNext stock-discrepancy row (D10b)", async () => {
+    // Two-store tenant; the manager is granted A only. Under D10b stock discrepancies are hidden and not read.
     activeContext.mockReturnValue(ctx("store_manager", { id: A, name: "Cairo Festival City" }));
-    listErpnextNegativeOnHandStores.mockImplementation(() =>
-      ok({ items: [summary(A, "Cairo Festival City", "fresh", 3)], nextCursor: null }),
-    );
     renderOverview();
-    await findRow(stockLabel("Cairo Festival City"));
-    await within(row(UNKNOWN)).findByText("Items: 1");
+    await within(await findRow(UNKNOWN)).findByText("Items: 1");
+    expect(screen.queryByText(stockLabel("Cairo Festival City"))).toBeNull();
     expect(screen.queryByText(/Alexandria Corniche/)).toBeNull();
+    expect(listErpnextNegativeOnHandStores).not.toHaveBeenCalled();
     for (const call of [...consoleListShiftCloses.mock.calls, ...listUnknownItems.mock.calls]) {
       expect(call[0]).toMatchObject({ store_id: A });
     }

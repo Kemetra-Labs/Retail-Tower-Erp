@@ -3,6 +3,7 @@ import { Banner } from "@/components/Banner";
 import { HeaderStatus } from "@/components/DetailPanel";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import type { DeviceDetail as Detail } from "@/lib/device-queries";
 import { useStoreOf } from "@/shift-closes/useShiftCloses";
@@ -55,6 +56,7 @@ interface LoadedProps {
   device: Detail;
   storeName?: string;
   timeZone?: string;
+  showSystem: boolean;
 }
 
 function DeviceHeading({ device, storeName, timeZone }: Readonly<LoadedProps>): React.JSX.Element {
@@ -109,7 +111,7 @@ function Loaded(props: Readonly<LoadedProps>): React.JSX.Element {
         aria-labelledby={tabIdOf(tab)}
       >
         {tab === "history" ? (
-          <DeviceHistory device={device} timeZone={timeZone} />
+          <DeviceHistory device={device} timeZone={timeZone} showSystem={props.showSystem} />
         ) : (
           <DeviceOverview device={device} storeName={storeName} timeZone={timeZone} now={now} />
         )}
@@ -189,5 +191,12 @@ export function DeviceDetail(): React.JSX.Element {
     );
   }
   if (!device) return <Notice>{null}</Notice>;
-  return <Loaded device={device} storeName={store.name} timeZone={store.timeZone} />;
+  return (
+    <Loaded
+      device={device}
+      storeName={store.name}
+      timeZone={store.timeZone}
+      showSystem={canSeeSystemDetail(scope.role)}
+    />
+  );
 }

@@ -14,6 +14,7 @@ import { GatedButton } from "@/components/GatedButton";
  * subtitle and carries the served period, zone(s) and read time as its facts.
  */
 import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import type { SalesSummaryErrorRender } from "@/lib/sales-summary-queries";
 import { Notice, Unavailable } from "@/sales/SalePager";
@@ -144,6 +145,7 @@ function Body({
       storeName={directory.nameOf(ref) ?? ref}
       storeId={model.scope === "store" ? ref : null}
       readStores={daily.summary.stores.length}
+      showSystem={canSeeSystemDetail(scope.role)}
     />
   );
 }

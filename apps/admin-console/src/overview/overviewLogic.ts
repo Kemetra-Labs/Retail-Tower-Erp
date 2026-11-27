@@ -9,6 +9,7 @@
  * - Recent activity (P-5) is deferred (OD-009-3, RT-567): owner and tenant_admin
  *   get a plain link to `/audit`, with no list and no counts.
  */
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { isValidZone } from "@/i18n/format";
 import type { ShiftCloseListQuery } from "@/lib/shift-close-queries";
 import {
@@ -101,7 +102,7 @@ export function shiftAttention({ storeId, timeZone, nowMs }: ShiftAttentionInput
 /** Roles `listAuditEvents` serves (spec 009 §5.1); the link mirrors the API. */
 export const AUDIT_READ_ROLES = ["owner", "tenant_admin"] as const;
 
-/** Whether to show the plain link to `/audit`. Not an authorization decision. */
+/** Whether to show the plain link to `/audit`. Driven by D10 (`canSeeSystemDetail`). */
 export function canOpenAudit(role: string | null | undefined): boolean {
-  return (AUDIT_READ_ROLES as readonly string[]).includes(role ?? "");
+  return canSeeSystemDetail(role);
 }

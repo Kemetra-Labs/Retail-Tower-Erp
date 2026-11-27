@@ -123,4 +123,9 @@ export const shell: MessagesOf<typeof ar> = {
   "platform.noAccess.title": "Not available",
   "platform.noAccess.body": "This page isn't available for your account.",
   "platform.noAccess.home": "Back to home",
+
+  // RT-1612 (D10): shared no-access state for system-plumbing routes (/audit, /stock-discrepancies).
+  "shell.systemNoAccess.title": "You can't open this page",
+  "shell.systemNoAccess.body":
+    "Only the owner or an organization administrator can open this page.",
 };

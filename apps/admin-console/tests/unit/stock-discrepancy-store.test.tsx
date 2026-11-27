@@ -285,7 +285,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
   });
 
   test("static ERPNext Desk guidance is shown", async () => {
-    activeContext.mockReturnValue(ctx("store_manager"));
+    activeContext.mockReturnValue(ctx("tenant_admin"));
     listErpnextNegativeOnHand.mockResolvedValue(page(snapshot(), [item()]));
     renderStore();
     const guidance = await screen.findByRole("complementary", { name: /erpnext desk/i });
@@ -295,12 +295,12 @@ describe("StockDiscrepancyStore (RT-178)", () => {
     expect(guidance.textContent).toMatch(/do not post a balancing entry blindly/i);
   });
 
-  test("AC6: refresh button hidden for store_manager", async () => {
+  test("D10b: store_manager sees the shared no-access state and API is not called", async () => {
     activeContext.mockReturnValue(ctx("store_manager"));
-    listErpnextNegativeOnHand.mockResolvedValue(page(snapshot(), [item()]));
     renderStore();
-    await screen.findByText("ITM-0001");
-    expect(screen.queryByRole("button", { name: /request fresh snapshot/i })).toBeNull();
+    expect(await screen.findByRole("heading", { name: /can't open this page/i })).toBeDefined();
+    expect(screen.getByText(/owner or an organization administrator/i)).toBeDefined();
+    expect(listErpnextNegativeOnHand).not.toHaveBeenCalled();
   });
 
   test.each(["owner", "tenant_admin"])(
@@ -356,7 +356,7 @@ describe("StockDiscrepancyStore (RT-178)", () => {
   });
 
   test("AC6: a 404 from the API renders as not-found", async () => {
-    activeContext.mockReturnValue(ctx("store_manager"));
+    activeContext.mockReturnValue(ctx("owner"));
     listErpnextNegativeOnHand.mockResolvedValue({
       status: 404,
       error: { error: { code: "not_found", message: "Not found", request_id: "req-404" } },

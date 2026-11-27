@@ -15,6 +15,7 @@
  * A 403/404 hides what it feeds (§6.2); a failure is an error with its request
  * id, never a zero.
  */
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { canReadDevices } from "@/devices/deviceLogic";
 import { consoleListDevices } from "@/lib/device-queries";
 import { type SaleItem, consoleListSales } from "@/lib/sale-queries";
@@ -55,7 +56,7 @@ export function useGlanceSummary(
 export function useActiveDevices(session: OverviewSession): PanelState<PageCount> {
   return usePanelQuery({
     key: overviewKey("devices", session),
-    gate: canReadDevices(session.role) ? "run" : "skip",
+    gate: canReadDevices(session.role) && canSeeSystemDetail(session.role) ? "run" : "skip",
     read: async () =>
       readResult(
         await consoleListDevices({

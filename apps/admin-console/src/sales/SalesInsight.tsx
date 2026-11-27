@@ -14,6 +14,7 @@
  * empty, error and loading states already speak, and a quiet list claims
  * nothing — never an "all clear" over a partial walk.
  */
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import { canUseSaleSyncOps } from "@/sale-sync/saleSyncLogic";
 import { useId } from "react";
@@ -52,7 +53,9 @@ export function SalesInsight({
 }>): React.JSX.Element | null {
   const t = useT();
   const titleId = useId();
-  if (list.isLoading || list.error || list.rows.length === 0) return null;
+  if (!canSeeSystemDetail(role) || list.isLoading || list.error || list.rows.length === 0) {
+    return null;
+  }
   const insight = salesInsightOf(list.rows);
   if (!insight) return null;
   const cta = canUseSaleSyncOps(role);

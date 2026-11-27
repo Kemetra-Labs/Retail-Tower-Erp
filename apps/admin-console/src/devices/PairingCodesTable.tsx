@@ -27,14 +27,21 @@ const KIND_KEYS: Record<string, MessageKey> = {
 
 const COLUMN_COUNT = 6;
 
-function ReplacesCell({ code }: Readonly<{ code: PairingCodeSummary }>): React.JSX.Element {
+function ReplacesCell({
+  code,
+  showDeviceId,
+}: Readonly<{ code: PairingCodeSummary; showDeviceId: boolean }>): React.JSX.Element {
   const t = useT();
   if (code.replacesDeviceId) {
     return (
       <Link to={`/devices/${code.replacesDeviceId}`}>
-        <bdi dir="ltr" className="device-impact__id">
-          {code.replacesDeviceId}
-        </bdi>
+        {showDeviceId ? (
+          <bdi dir="ltr" className="device-impact__id">
+            {code.replacesDeviceId}
+          </bdi>
+        ) : (
+          t("devices.history.openLinked")
+        )}
       </Link>
     );
   }
@@ -88,11 +95,13 @@ function CodeRow({
   code,
   directory,
   busy,
+  showDeviceId,
   onCancel,
 }: Readonly<{
   code: PairingCodeSummary;
   directory: StoreDirectory;
   busy: boolean;
+  showDeviceId: boolean;
   onCancel: (code: PairingCodeSummary, reissue?: boolean) => void;
 }>): React.JSX.Element {
   const t = useT();
@@ -106,7 +115,7 @@ function CodeRow({
       </td>
       <td>{directory.nameOf(code.storeId) ?? t("devices.list.unknownStore")}</td>
       <td>
-        <ReplacesCell code={code} />
+        <ReplacesCell code={code} showDeviceId={showDeviceId} />
       </td>
       <td>
         <LtrTime value={code.expiresAt} timeZone={directory.timeZoneOf(code.storeId)} />
@@ -144,11 +153,13 @@ export function CodesTable({
   directory,
   cancel,
   t,
+  showDeviceId = true,
 }: Readonly<{
   rows: readonly PairingCodeSummary[];
   directory: StoreDirectory;
   cancel: CancelFlow;
   t: T;
+  showDeviceId?: boolean;
 }>): React.JSX.Element {
   return (
     <TableScrollRegion>
@@ -174,6 +185,7 @@ export function CodesTable({
                   code={code}
                   directory={directory}
                   busy={cancel.pending}
+                  showDeviceId={showDeviceId}
                   onCancel={cancel.ask}
                 />
                 {cancel.confirming?.pairingCodeId === code.pairingCodeId ? (

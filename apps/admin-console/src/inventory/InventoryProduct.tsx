@@ -35,6 +35,7 @@ import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
 import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import type { OnHand, TrackingIdentity } from "@/lib/inventory-queries";
 import { ScopeMismatchBanner } from "@/shell/ScopeMismatchBanner";
@@ -155,10 +156,14 @@ function OnHandFigures({
       </TableScrollRegion>
       <Body>
         <p className="inventory__note">{t("inventory.onHand.note")}</p>
-        <dl className="inventory__figures">
-          <ErpBookEntry storeId={storeId} role={role} />
-        </dl>
-        <p className="inventory__note">{t("inventory.onHand.erpBookNote")}</p>
+        {canSeeSystemDetail(role) ? (
+          <>
+            <dl className="inventory__figures">
+              <ErpBookEntry storeId={storeId} role={role} />
+            </dl>
+            <p className="inventory__note">{t("inventory.onHand.erpBookNote")}</p>
+          </>
+        ) : null}
       </Body>
     </>
   );

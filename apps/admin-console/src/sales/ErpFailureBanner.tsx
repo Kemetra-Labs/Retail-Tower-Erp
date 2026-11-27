@@ -24,6 +24,7 @@
  */
 import { Banner } from "@/components/Banner";
 import { GatedButton } from "@/components/GatedButton";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { canReadErpStatus } from "@/erp-status/erpStatusLogic";
 import { DateTime, type T, useT } from "@/i18n";
 import type { SaleDetail } from "@/lib/sale-queries";
@@ -270,6 +271,7 @@ export function ErpFailureBanner({
 }: Readonly<{ detail: SaleDetail; role: string | null }>): React.JSX.Element | null {
   const scope = useSaleScope();
   const repair = usePostingRepair({ scope, saleRef: detail.summary.saleRef });
+  if (!canSeeSystemDetail(role)) return null;
   const views = failureViews(detail);
   if (views.length === 0 && !repair.outcome) return null;
   return (

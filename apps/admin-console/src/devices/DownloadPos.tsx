@@ -5,6 +5,7 @@ import { GatedButton } from "@/components/GatedButton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { useSupportSession } from "@/platform/session/useSupportSession";
 import { useRef } from "react";
@@ -163,7 +164,9 @@ export function DownloadPos(): React.JSX.Element {
           <output className="download-pos__status">
             {state.kind === "issued" ? t("devices.download.issued") : ""}
           </output>
-          {state.kind === "issued" ? <ReleaseLedger facts={state.facts} /> : null}
+          {state.kind === "issued" ? (
+            <ReleaseLedger facts={state.facts} showVersion={canSeeSystemDetail(scope.role)} />
+          ) : null}
           <Outcome state={state} onRetry={retry} />
         </PanelBody>
       </DetailPanel>

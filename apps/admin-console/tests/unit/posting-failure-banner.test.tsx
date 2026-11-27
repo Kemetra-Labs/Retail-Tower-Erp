@@ -105,7 +105,7 @@ describe("ERPNext posting-failure banner (RT-977 slice 2)", () => {
     expect(screen.getByText("<img src=x onerror=alert(1)>")).toBeDefined();
   });
 
-  test("category_only (store_manager): the category and time; who can repair; no reason, document or button", () => {
+  test("D10: store_manager sees no ERP failure banner at all", () => {
     activeContext.mockReturnValue(ctx("store_manager"));
     renderBanner(
       failedDetail(
@@ -118,14 +118,9 @@ describe("ERPNext posting-failure banner (RT-977 slice 2)", () => {
       ),
       "store_manager",
     );
-    const alert = banner();
-    expect(alert.textContent).toContain(
-      "ERPNext already has a document for this sale that does not match.",
-    );
-    expect(alert.textContent).toContain("An owner or a tenant admin can repair this posting.");
+    expect(screen.queryByRole("alert")).toBeNull();
     expect(document.body.textContent).not.toContain("ACC-SINV-1");
     expect(document.body.textContent).not.toContain(REASON);
-    expect(document.body.textContent).toContain("Stopped at");
     expect(screen.queryByRole("button")).toBeNull();
     expect(screen.queryByRole("link")).toBeNull();
   });

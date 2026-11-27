@@ -1,4 +1,5 @@
 import { type BandFacts, ListHeaderBand } from "@/components/ListHeaderBand";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, useT } from "@/i18n";
 import type { SaleItem, SaleListQuery } from "@/lib/sale-queries";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -95,13 +96,15 @@ function useArrivalDefault(
 function ListBody({
   model,
   list,
+  showSystem,
   onOpen,
 }: Readonly<{
   model: ListModel;
   list: SaleListState;
+  showSystem: boolean;
   onOpen: (row: SaleItem) => void;
 }>): React.JSX.Element | null {
-  if (model.query) return <Results list={list} onOpen={onOpen} />;
+  if (model.query) return <Results list={list} showSystem={showSystem} onOpen={onOpen} />;
   return model.valid ? <QueryPrompt /> : null;
 }
 
@@ -195,6 +198,7 @@ export function SaleList(): React.JSX.Element {
       </Shell>
     );
   }
+  const showSystem = canSeeSystemDetail(scope.role);
   return (
     <Shell scope={scope} facts={model.query ? facts : undefined}>
       <SalesInsight list={list} role={scope.role} />
@@ -203,6 +207,7 @@ export function SaleList(): React.JSX.Element {
         stores={directory.stores}
         activeStoreId={scope.activeStoreId}
         initialErrors={model.errors}
+        showSystem={showSystem}
         onApply={(next) => setSearch(filtersToSearch(next))}
         // Clear returns to the arrival default (active store, today), or to nothing.
         onClear={() => setSearch(fallback ? filtersToSearch(fallback) : new URLSearchParams())}
@@ -210,6 +215,7 @@ export function SaleList(): React.JSX.Element {
       <ListBody
         model={model}
         list={list}
+        showSystem={showSystem}
         onOpen={(row) => navigate(`/sales/${row.saleRef}`, { state: { list: location.search } })}
       />
     </Shell>

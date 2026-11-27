@@ -20,7 +20,11 @@ import { Notice, Pager, Unavailable } from "./SalePager";
 import { BusinessDate, DeviceName, RecordedName, SaleNumber, StatusChips } from "./SaleParts";
 import type { SaleError, SaleListState } from "./useSales";
 
-function saleColumns(t: T, timeZone: string | undefined): DataTableColumn<SaleItem>[] {
+function saleColumns(
+  t: T,
+  timeZone: string | undefined,
+  showSystem: boolean,
+): DataTableColumn<SaleItem>[] {
   return [
     {
       key: "saleNumber",
@@ -55,7 +59,7 @@ function saleColumns(t: T, timeZone: string | undefined): DataTableColumn<SaleIt
     {
       key: "status",
       header: t("sales.list.col.status"),
-      cell: (s) => <StatusChips sale={s} />,
+      cell: (s) => <StatusChips sale={s} showSystem={showSystem} />,
     },
   ];
 }
@@ -153,21 +157,31 @@ function Loaded({
 
 export function Results({
   list,
+  showSystem = true,
   onOpen,
-}: Readonly<{ list: SaleListState; onOpen: (row: SaleItem) => void }>): React.JSX.Element {
+}: Readonly<{
+  list: SaleListState;
+  showSystem?: boolean;
+  onOpen: (row: SaleItem) => void;
+}>): React.JSX.Element {
   return (
     <div className="section-panel sale-results">
-      <ResultState list={list} onOpen={onOpen} />
+      <ResultState list={list} showSystem={showSystem} onOpen={onOpen} />
     </div>
   );
 }
 
 function ResultState({
   list,
+  showSystem,
   onOpen,
-}: Readonly<{ list: SaleListState; onOpen: (row: SaleItem) => void }>): React.JSX.Element {
+}: Readonly<{
+  list: SaleListState;
+  showSystem: boolean;
+  onOpen: (row: SaleItem) => void;
+}>): React.JSX.Element {
   const t = useT();
-  const columns = saleColumns(t, list.storeTimezone);
+  const columns = saleColumns(t, list.storeTimezone, showSystem);
   if (list.isLoading) {
     return (
       <DataTableSkeleton

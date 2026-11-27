@@ -4,6 +4,7 @@ import { BusyButton } from "@/components/BusyButton";
 import { DataTableSkeleton } from "@/components/DataTableSkeleton";
 import { ListState } from "@/components/ListState";
 import { PageHeader } from "@/components/PageHeader";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
 /**
@@ -120,6 +121,7 @@ interface BodyProps {
   list: PairingCodeListState;
   directory: StoreDirectory;
   cancel: CancelFlow;
+  showDeviceId: boolean;
 }
 
 /**
@@ -132,7 +134,12 @@ function isAwaiting(list: PairingCodeListState, directory: StoreDirectory): bool
 }
 
 /** The table, or why there isn't one: loading, a refusal, or nothing pending. */
-function CodesBody({ list, directory, cancel }: Readonly<BodyProps>): React.JSX.Element {
+function CodesBody({
+  list,
+  directory,
+  cancel,
+  showDeviceId,
+}: Readonly<BodyProps>): React.JSX.Element {
   const t = useT();
   if (isAwaiting(list, directory)) {
     return (
@@ -155,7 +162,13 @@ function CodesBody({ list, directory, cancel }: Readonly<BodyProps>): React.JSX.
   }
   return (
     <>
-      <CodesTable rows={list.rows} directory={directory} cancel={cancel} t={t} />
+      <CodesTable
+        rows={list.rows}
+        directory={directory}
+        cancel={cancel}
+        t={t}
+        showDeviceId={showDeviceId}
+      />
       <Pager list={list} />
     </>
   );
@@ -224,7 +237,12 @@ export function PairingCodes(): React.JSX.Element {
       />
       <ResultNotice result={cancel.result} />
       <div ref={region} tabIndex={-1} className="device-codes-region">
-        <CodesBody list={list} directory={directory} cancel={cancel} />
+        <CodesBody
+          list={list}
+          directory={directory}
+          cancel={cancel}
+          showDeviceId={canSeeSystemDetail(scope.role)}
+        />
       </div>
       {pairing ? (
         <PairDrawer key={pairing.key} prefill={pairing.prefill} onClose={() => setPairing(false)} />

@@ -6,6 +6,7 @@ import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
 import { LoadErrorBanner } from "@/components/LoadErrorBanner";
 import { ReadingNote } from "@/components/ReadingNote";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, type T, useT } from "@/i18n";
 import type { DeviceSummary } from "@/lib/device-queries";
 import { type StoreDirectory, useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -65,6 +66,7 @@ function deviceColumns(
   now: number,
   saleQueues: DeviceHealthIndex,
   showDetails: boolean,
+  showSystem: boolean,
 ): DataTableColumn<DeviceSummary>[] {
   // RT-1312: joined by deviceId; a device absent from the device-health read is unavailable.
   const queueOf = (d: DeviceSummary) =>
@@ -73,7 +75,7 @@ function deviceColumns(
     {
       key: "device",
       header: t("devices.list.col.device"),
-      cell: (d) => <DeviceName label={d.label} deviceId={d.deviceId} />,
+      cell: (d) => <DeviceName label={d.label} deviceId={d.deviceId} showDeviceId={showSystem} />,
     },
     {
       key: "store",
@@ -88,14 +90,22 @@ function deviceColumns(
     {
       key: "attention",
       header: t("devices.list.col.attention"),
-      cell: (d) => <Attention device={d} now={now} strandedSales={hasStrandedSales(queueOf(d))} />,
+      cell: (d) => (
+        <Attention
+          device={d}
+          now={now}
+          strandedSales={showSystem && hasStrandedSales(queueOf(d))}
+        />
+      ),
     },
-    {
+  ];
+  if (showSystem) {
+    columns.push({
       key: "saleQueue",
       header: t("devices.saleQueue.col"),
       cell: (d) => <SaleQueueCell state={queueOf(d)} timeZone={directory.timeZoneOf(d.storeId)} />,
-    },
-  ];
+    });
+  }
   // Modern concept, rule 1: expiry and last seen are details on demand. The
   // Attention column already flags a passed expiry, and last seen is not
   // recorded for most devices yet (RT-370), so the default five columns carry
@@ -232,6 +242,7 @@ interface ResultsProps {
   filters: DeviceFilters;
   now: number;
   showDetails: boolean;
+  showSystem: boolean;
   onOpen: (row: DeviceSummary) => void;
   onClear: () => void;
 }
@@ -260,11 +271,12 @@ function ResultState({
   filters,
   now,
   showDetails,
+  showSystem,
   onOpen,
   onClear,
 }: Readonly<ResultsProps>): React.JSX.Element {
   const t = useT();
-  const columns = deviceColumns(t, directory, now, saleQueues, showDetails);
+  const columns = deviceColumns(t, directory, now, saleQueues, showDetails, showSystem);
   const pending = list.isLoading || awaitingRoster(list, directory);
   if (pending) {
     return (
@@ -322,8 +334,9 @@ export function DeviceList(): React.JSX.Element {
   const [showDetails, setShowDetails] = useState(false);
 
   const filters = filtersFromSearch(search);
+  const showSystem = canSeeSystemDetail(scope.role);
   const list = useDeviceList(scope, buildListQuery(filters));
-  const saleQueues = useDeviceHealthIndex(scope, filters);
+  const saleQueues = useDeviceHealthIndex(scope, filters, showSystem);
   const clearFilters = () => setSearch(new URLSearchParams());
 
   if (!scope.tenantId) {
@@ -365,7 +378,7 @@ export function DeviceList(): React.JSX.Element {
         <p>{t("devices.list.staleNote")}</p>
       </ReadingNote>
 
-      <DeviceInsight list={list} saleQueues={saleQueues} now={now} />
+      <DeviceInsight list={list} saleQueues={saleQueues} now={now} showSystem={showSystem} />
 
       <div className="device-columns">
         <button
@@ -379,7 +392,7 @@ export function DeviceList(): React.JSX.Element {
       </div>
 
       {/* Only beside rows: with no rows the list's own state already speaks. */}
-      {saleQueues.status === "failed" && list.rows.length > 0 ? (
+      {showSystem && saleQueues.status === "failed" && list.rows.length > 0 ? (
         <Banner
           variant="warning"
           message={t("devices.saleQueue.loadFailed")}
@@ -399,6 +412,7 @@ export function DeviceList(): React.JSX.Element {
         filters={filters}
         now={now}
         showDetails={showDetails}
+        showSystem={showSystem}
         onClear={clearFilters}
         onOpen={(row) => navigate(`/devices/${row.deviceId}`, { state: { list: location.search } })}
       />

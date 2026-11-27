@@ -8,6 +8,7 @@
 import { Banner } from "@/components/Banner";
 import { Drawer } from "@/components/Drawer";
 import { GatedButton } from "@/components/GatedButton";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { type MessageKey, useT } from "@/i18n";
 import type { DeviceDetail } from "@/lib/device-queries";
 import { useStoreDirectory } from "@/shift-closes/useShiftCloses";
@@ -263,13 +264,14 @@ function DeviceScope({
   storeName,
 }: Readonly<{ device: DeviceDetail; storeName?: string }>): React.JSX.Element {
   const t = useT();
+  const showDeviceId = canSeeSystemDetail(useDeviceScope().role);
   return (
     <>
       {device.label ? <bdi dir="auto">{device.label}</bdi> : t("devices.list.unlabelled")}
       {" · "}
       {storeName ? <bdi dir="auto">{storeName}</bdi> : t("devices.list.unknownStore")}
-      {/* Labels are not unique: an unlabelled device is told apart by its id. */}
-      {device.label ? null : (
+      {/* Labels are not unique: an unlabelled device is told apart by its id (D10a). */}
+      {device.label || !showDeviceId ? null : (
         <>
           {" · "}
           <bdi dir="ltr">{device.deviceId}</bdi>

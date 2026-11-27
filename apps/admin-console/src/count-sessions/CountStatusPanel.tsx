@@ -45,7 +45,12 @@ function Fact({
 export function CountStatusPanel({
   session,
   index,
-}: Readonly<{ session: CountSession; index: number }>): React.JSX.Element {
+  showSystem = true,
+}: Readonly<{
+  session: CountSession;
+  index: number;
+  showSystem?: boolean;
+}>): React.JSX.Element {
   const t = useT();
   const { approval, cancellation, cut } = session;
   const person = usePersonLabel([
@@ -61,7 +66,7 @@ export function CountStatusPanel({
         <p className="counts__state">
           <StateBadge state={session.state} />
         </p>
-        <ErpStatus state={session.state} />
+        {showSystem ? <ErpStatus state={session.state} /> : null}
         {isSelfApproved(session) ? (
           <div data-testid="count-self-approved">
             <Banner

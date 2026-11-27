@@ -67,14 +67,19 @@ function CopySha({
   );
 }
 
-export function ReleaseLedger({ facts }: Readonly<{ facts: ReleaseFacts }>): React.JSX.Element {
+export function ReleaseLedger({
+  facts,
+  showVersion = true,
+}: Readonly<{ facts: ReleaseFacts; showVersion?: boolean }>): React.JSX.Element {
   const t = useT();
   const shaRef = useRef<HTMLElement>(null);
   return (
     <dl className="surface__detail">
-      <LedgerField label={t("devices.download.field.version")} mono>
-        <bdi dir="ltr">{facts.version}</bdi>
-      </LedgerField>
+      {showVersion ? (
+        <LedgerField label={t("devices.download.field.version")} mono>
+          <bdi dir="ltr">{facts.version}</bdi>
+        </LedgerField>
+      ) : null}
       <LedgerField label={t("devices.download.field.fileName")} mono>
         <bdi dir="ltr">{facts.fileName}</bdi>
       </LedgerField>

@@ -370,7 +370,7 @@ describe("pipeline rail", () => {
     expect(await within(node("POS")).findByText("Trusted devices: 2 or more")).toBeTruthy();
   });
 
-  test("the rail's screens are linked beside it, only where the role may go", async () => {
+  test("the rail's screens are linked beside it, only where the role may go; hidden from store_manager (D10)", async () => {
     renderOverview();
     await within(node("ERPNext")).findByText(/Posted: 329 of 338/);
     const links = screen.getByRole("navigation", { name: "Sale pipeline screens" });
@@ -384,17 +384,19 @@ describe("pipeline rail", () => {
       "/sales-needing-repair",
     );
     cleanup();
+    consoleListDevices.mockClear();
     activeContext.mockReturnValue(ctx("store_manager", { id: CAIRO, name: "Cairo Festival City" }));
     renderOverview();
-    await within(node("ERPNext")).findByText(/Posted: 329 of 338/);
-    expect(screen.queryByRole("link", { name: "Repair sales" })).toBeNull();
-    expect(screen.queryByRole("link", { name: "Connection status" })).toBeNull();
+    await within(kpis()).findByText("52,318.50 EGP");
+    expect(screen.queryByRole("navigation", { name: "Sale pipeline screens" })).toBeNull();
+    expect(screen.queryByRole("list", { name: /Sale pipeline|POS.*Server.*ERPNext/i })).toBeNull();
+    expect(consoleListDevices).not.toHaveBeenCalled();
   });
 
-  test("a role that cannot read devices: the node is Not available, nothing is read", async () => {
+  test("a role that cannot read devices: the rail is hidden and nothing is read", async () => {
     activeContext.mockReturnValue(ctx("store_staff", { id: CAIRO, name: "Cairo Festival City" }));
     renderOverview();
-    expect(await within(node("POS")).findByText("Not available")).toBeTruthy();
+    expect(screen.queryByRole("navigation", { name: "Sale pipeline screens" })).toBeNull();
     expect(consoleListDevices).not.toHaveBeenCalled();
   });
 });

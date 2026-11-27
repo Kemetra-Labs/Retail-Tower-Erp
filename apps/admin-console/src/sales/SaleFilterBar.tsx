@@ -34,6 +34,8 @@ export interface SaleFilterBarProps {
   activeStoreId: string | null;
   /** Errors already present in the applied filters (a hand-edited URL). */
   initialErrors: FilterErrors;
+  /** D10: hide sync-status and ERPNext filters from non-system roles. */
+  showSystem?: boolean;
   onApply: (filters: SaleFilters) => void;
   onClear: () => void;
 }
@@ -41,6 +43,7 @@ export interface SaleFilterBarProps {
 type SetField = <K extends keyof SaleFilters>(key: K) => (value: SaleFilters[K]) => void;
 type Extra = "syncStatus" | "voided" | "returnState" | "erpState";
 const EXTRA: readonly Extra[] = ["syncStatus", "voided", "returnState", "erpState"];
+const BUSINESS_EXTRA: readonly Extra[] = ["voided", "returnState"];
 
 function zoneOf(stores: readonly StoreInfo[], storeId: string): string | undefined {
   return stores.find((s) => s.id === storeId)?.timezone;
@@ -127,18 +130,21 @@ const EXTRA_LABEL: Record<Extra, MessageKey> = {
 function ExtraFields({
   draft,
   set,
-}: Readonly<{ draft: SaleFilters; set: SetField }>): React.JSX.Element {
+  showSystem,
+}: Readonly<{ draft: SaleFilters; set: SetField; showSystem: boolean }>): React.JSX.Element {
   const t = useT();
   const options = useExtraOptions();
   return (
     <>
-      <Choice
-        id="sl-sync"
-        label={t(EXTRA_LABEL.syncStatus)}
-        value={draft.syncStatus}
-        options={options.syncStatus}
-        onChange={set("syncStatus")}
-      />
+      {showSystem ? (
+        <Choice
+          id="sl-sync"
+          label={t(EXTRA_LABEL.syncStatus)}
+          value={draft.syncStatus}
+          options={options.syncStatus}
+          onChange={set("syncStatus")}
+        />
+      ) : null}
       <Choice
         id="sl-voided"
         label={t(EXTRA_LABEL.voided)}
@@ -153,13 +159,15 @@ function ExtraFields({
         options={options.returnState}
         onChange={set("returnState")}
       />
-      <Choice
-        id="sl-erp"
-        label={t(EXTRA_LABEL.erpState)}
-        value={draft.erpState}
-        options={options.erpState}
-        onChange={set("erpState")}
-      />
+      {showSystem ? (
+        <Choice
+          id="sl-erp"
+          label={t(EXTRA_LABEL.erpState)}
+          value={draft.erpState}
+          options={options.erpState}
+          onChange={set("erpState")}
+        />
+      ) : null}
     </>
   );
 }
@@ -168,6 +176,7 @@ function ExtraFields({
 function useChips(
   applied: SaleFilters,
   stores: readonly StoreInfo[],
+  visibleExtra: readonly Extra[],
   onApply: (filters: SaleFilters) => void,
 ): FilterChip[] {
   const t = useT();
@@ -191,7 +200,7 @@ function useChips(
       onRemove: () => onApply({ ...applied, saleNumber: "" }),
     });
   }
-  for (const key of EXTRA) {
+  for (const key of visibleExtra) {
     const value = applied[key];
     const option = (options[key] as readonly { value: string; label: string }[]).find(
       (o) => o.value === value,
@@ -212,13 +221,15 @@ export function SaleFilterBar({
   stores,
   activeStoreId,
   initialErrors,
+  showSystem = true,
   onApply,
   onClear,
 }: Readonly<SaleFilterBarProps>): React.JSX.Element {
   const t = useT();
+  const visibleExtra = showSystem ? EXTRA : BUSINESS_EXTRA;
   const [draft, setDraft] = useState<SaleFilters>(() => initialDraft(applied, activeStoreId));
   const [errors, setErrors] = useState<FormErrors>(initialErrors);
-  const chips = useChips(applied, stores, onApply);
+  const chips = useChips(applied, stores, visibleExtra, onApply);
 
   // The URL is the source of truth: when the applied filters change from outside
   // (Back, a deep link, a removed chip, arrival) the draft follows. The form
@@ -257,14 +268,14 @@ export function SaleFilterBar({
 
   const zone = zoneOf(stores, draft.storeId);
   const message = (key: MessageKey | undefined) => (key ? t(key) : undefined);
-  const extraActive = EXTRA.filter((key) => applied[key] !== "").length;
+  const extraActive = visibleExtra.filter((key) => applied[key] !== "").length;
 
   return (
     <FilterBar
       label={t("sales.filter.label")}
       onSubmit={submit}
       onClear={clear}
-      extra={<ExtraFields draft={draft} set={set} />}
+      extra={<ExtraFields draft={draft} set={set} showSystem={showSystem} />}
       extraActive={extraActive}
       chips={chips}
       note={

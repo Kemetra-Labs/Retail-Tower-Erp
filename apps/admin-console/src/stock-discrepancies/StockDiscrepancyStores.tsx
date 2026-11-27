@@ -3,6 +3,8 @@ import { TableScrollRegion } from "@/components/DataTableScroll";
 import { DetailPanel } from "@/components/DetailPanel";
 import { ListHeaderBand } from "@/components/ListHeaderBand";
 import { ListState } from "@/components/ListState";
+import { SystemDetailNoAccess } from "@/components/SystemDetailNoAccess";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, useT } from "@/i18n";
 import type { StoreNegativeOnHandSummary } from "@/lib/stock-discrepancy-queries";
 /**
@@ -197,9 +199,14 @@ function StoresPanel({ data }: Readonly<{ data: StoresData }>): React.JSX.Elemen
   );
 }
 
-export function StockDiscrepancyStores(): React.JSX.Element {
+function StoresPage({
+  scope,
+  tenantName,
+}: Readonly<{
+  scope: ReturnType<typeof useDiscrepancyScope>["scope"];
+  tenantName: string | null;
+}>): React.JSX.Element {
   const t = useT();
-  const { scope, tenantName } = useDiscrepancyScope();
   const data = useNegativeOnHandStores(scope);
 
   if (!scope.tenantId) return <TenantScopePrompt />;
@@ -217,4 +224,11 @@ export function StockDiscrepancyStores(): React.JSX.Element {
       )}
     </div>
   );
+}
+
+export function StockDiscrepancyStores(): React.JSX.Element {
+  const { scope, role, tenantName } = useDiscrepancyScope();
+  if (!scope.tenantId) return <TenantScopePrompt />;
+  if (!canSeeSystemDetail(role)) return <SystemDetailNoAccess />;
+  return <StoresPage scope={scope} tenantName={tenantName} />;
 }

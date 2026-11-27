@@ -5,6 +5,7 @@ import { ListState } from "@/components/ListState";
 import { LoadErrorBanner } from "@/components/LoadErrorBanner";
 import { PageHeader } from "@/components/PageHeader";
 import { ReadingNote } from "@/components/ReadingNote";
+import { canSeeSystemDetail } from "@/context/effectiveRole";
 import { DateTime, Money, useT } from "@/i18n";
 import type { SaleDetail as Detail } from "@/lib/sale-queries";
 import { SaleSyncSections } from "@/sale-sync/SaleSyncSections";
@@ -72,7 +73,10 @@ function StoreName({ storeRef }: Readonly<{ storeRef: string }>): React.JSX.Elem
   return <>{store.ready ? t("sales.unknownStore") : null}</>;
 }
 
-function SummarySection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
+function SummarySection({
+  detail,
+  showSystem,
+}: Readonly<{ detail: Detail; showSystem: boolean }>): React.JSX.Element {
   const t = useT();
   const sale = detail.summary;
   const zone = detail.storeTimezone;
@@ -92,9 +96,11 @@ function SummarySection({ detail }: Readonly<{ detail: Detail }>): React.JSX.Ele
         <Field label={t("sales.field.occurredAt")}>
           <DateTime value={sale.occurredAt} timeZone={zone} />
         </Field>
-        <Field label={t("sales.field.receivedAt")}>
-          <DateTime value={sale.receivedAt} timeZone={zone} />
-        </Field>
+        {showSystem ? (
+          <Field label={t("sales.field.receivedAt")}>
+            <DateTime value={sale.receivedAt} timeZone={zone} />
+          </Field>
+        ) : null}
         <Field label={t("sales.field.settledAt")}>
           {detail.settledAt ? <DateTime value={detail.settledAt} timeZone={zone} /> : notRecorded}
         </Field>
@@ -177,6 +183,7 @@ function SaleReadingNote({ detail }: Readonly<{ detail: Detail }>): React.JSX.El
 function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
   const t = useT();
   const { role } = useSaleScope();
+  const showSystem = canSeeSystemDetail(role);
   const number = detail.summary.saleNumber;
   return (
     <div className="surface surface--v4">
@@ -188,23 +195,23 @@ function Loaded({ detail }: Readonly<{ detail: Detail }>): React.JSX.Element {
             : t("sales.detail.titleNoNumber")
         }
       >
-        <StatusChips sale={detail.summary} />
+        <StatusChips sale={detail.summary} showSystem={showSystem} />
         <p className="content__sub">
           {t.rich("sales.detail.zoneNote", {
             zone: <bdi dir="ltr">{detail.storeTimezone}</bdi>,
           })}
         </p>
       </PageHeader>
-      <ErpFailureBanner detail={detail} role={role} />
+      {showSystem ? <ErpFailureBanner detail={detail} role={role} /> : null}
       <SaleReadingNote detail={detail} />
       <DetailGrid>
-        <SummarySection detail={detail} />
+        <SummarySection detail={detail} showSystem={showSystem} />
         <PaymentsSection detail={detail} index={2} />
       </DetailGrid>
       <LinesSection detail={detail} index={3} />
       <ReturnsSection detail={detail} timeZone={detail.storeTimezone} index={4} />
       <DetailGrid>
-        <ErpSection detail={detail} index={5} />
+        {showSystem ? <ErpSection detail={detail} index={5} /> : null}
         <VoidSection detail={detail} timeZone={detail.storeTimezone} index={6} />
         <SaleSyncSections saleRef={detail.summary.saleRef} timeZone={detail.storeTimezone} />
         <ReceiptHeaderSection detail={detail} />
