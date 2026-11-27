@@ -131,8 +131,16 @@ describe('main/index.ts wires RT-215 (device revoked + pairing recovery)', () =>
   });
 
   it('stops the detector with the heartbeat on quit', () => {
+    // RT-309 (RT-893): the keeper composition lives in `bootstrap/cashier-admission-keeper.ts`.
     expect(source).toMatch(
-      /workerRegistry\.register\('cashier admission heartbeat', \(\) => \{\s*cashierAdmissionKeeper\.stop\(\);[\s\S]{0,120}deviceAuthDetector\.stop\(\);/,
+      /registerCashierAdmissionKeeper\(\{[^}]*\bworkerRegistry,[^}]*\bdeviceAuthDetector,/,
+    );
+    const keeperSource = readFileSync(
+      resolve(__dirname, '../bootstrap/cashier-admission-keeper.ts'),
+      'utf-8',
+    );
+    expect(keeperSource).toMatch(
+      /deps\.workerRegistry\.register\('cashier admission heartbeat', \(\) => \{\s*keeper\.stop\(\);[\s\S]{0,120}deps\.deviceAuthDetector\.stop\(\);/,
     );
   });
 

@@ -15,7 +15,7 @@ import {
   notifyGrantSeam,
   type CashierAdmissionDeps,
 } from './cashier-admission.js';
-import { OfflineReconciler } from './offline-reconcile.js';
+import { OfflineReconciler, type OfflineReconcileAuditHooks } from './offline-reconcile.js';
 import type {
   AuthorityLatchCause,
   OperatorSessionRecord,
@@ -149,8 +149,8 @@ export interface CashierAdmissionKeeperDeps {
    */
   isAtSafePoint: () => boolean;
   safePointRecheckMs?: number;
-  /** RT-309 (D8): the offline reconcile converted a session (see `offline-reconcile-audit.ts`). */
-  onOfflineReconciled?: (record: OperatorSessionRecord) => void;
+  /** RT-309 (D8): the offline reconcile's durable audit (`offline-reconcile-audit.ts`). */
+  offlineReconcileAudit?: OfflineReconcileAuditHooks;
   logger?: Pick<Logger, 'info' | 'warn'>;
 }
 
@@ -315,7 +315,7 @@ export class CashierAdmissionKeeper {
       onLiveAdmissionRenewed: (admission_id) => {
         if (this.armed?.admission_id === admission_id) this.reverifySoon(this.armed);
       },
-      onReconciled: deps.onOfflineReconciled,
+      audit: deps.offlineReconcileAudit,
     });
     deps.sessionManager.onStarted((record) => {
       this.onSessionStarted(record);

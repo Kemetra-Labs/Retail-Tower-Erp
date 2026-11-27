@@ -204,7 +204,16 @@ export type OperatorSigninOfflineAdmittedPayload = Record<string, never>;
  * event's attribution records who, where and which session; the payload adds
  * nothing (no grant field, admission id, user id or name).
  */
-export type OperatorSessionOfflineReconciledPayload = Record<string, never>;
+type OperatorSessionOfflineReconciledPayload = Record<string, never>;
+
+/**
+ * RT-309 — `operator.session.offline_reconcile_failed`: the reconcile got a
+ * definite answer that cannot establish authority, so new sales were blocked.
+ * The closed outcome only.
+ */
+interface OperatorSessionOfflineReconcileFailedPayload {
+  outcome: 'rejected' | 'idempotency_conflict';
+}
 
 /**
  * Why an offline sign-in was refused after the PIN matched. Closed set: the
@@ -964,6 +973,7 @@ export type AuditPayloadMap = {
   'operator.signin.offline_refused': OperatorSigninOfflineRefusedPayload;
   // RT-309 (RT-113 D8)
   'operator.session.offline_reconciled': OperatorSessionOfflineReconciledPayload;
+  'operator.session.offline_reconcile_failed': OperatorSessionOfflineReconcileFailedPayload;
   'cashier.pin.reset': CashierPinResetPayload;
   'cashier.pin.unlock': CashierPinUnlockPayload;
   'cashier.pin.provisioned': CashierPinProvisionedPayload;

@@ -5,13 +5,16 @@ import { AUDIT_ACTION_CATEGORIES } from '../../../../src/shared/audit/event-shap
 import { isCentralAuditCategory } from '../../../../src/main/audit/central-audit-categories.js';
 import { CashierAdmissionKeeper } from '../../../../src/main/operator/cashier-admission-keeper.js';
 import type { CashierAdmissionResult } from '../../../../src/main/operator/cashier-admission-client.js';
+import { authorityClockOf, newSaleBlock } from '../../../../src/main/operator/offline-authority.js';
 import {
   OfflineReconciler,
+  RECONCILE_GATE_MAX_SERVER_ERRORS,
   RECONCILE_RETRY_MS,
 } from '../../../../src/main/operator/offline-reconcile.js';
 import {
   OFFLINE_RECONCILED_CATEGORY,
-  createOfflineReconciledAudit,
+  OFFLINE_RECONCILE_FAILED_CATEGORY,
+  createOfflineReconcileAudit,
 } from '../../../../src/main/operator/offline-reconcile-audit.js';
 import {
   SessionManager,
@@ -26,11 +29,17 @@ import {
 } from '../../../../src/main/operator/__tests__/__helpers__/fake-cashier-admission.js';
 
 /**
- * RT-309 (RT-113 10763 D8, §3) — when the reconnect reconcile answers
- * `admitted` and the offline-admitted session becomes online-confirmed, main
- * writes exactly one `operator.session.offline_reconciled` audit event. The
- * event is main-owned and its payload is empty: no grant field, admission id,
- * user id, PIN or secret.
+ * RT-309 (RT-113 10763 D8, §3) — the offline reconcile's durable, main-owned
+ * audit:
+ *  - `admitted`: one `operator.session.offline_reconciled` record per
+ *    conversion, durable BEFORE the session becomes online-confirmed. If it
+ *    cannot be written the session keeps its offline bound and the admission is
+ *    released (Codex review, #928);
+ *  - an `admitted` whose request raced a grant invalidation is never adopted;
+ *  - a definite answer that cannot establish authority (400 / malformed 200,
+ *    409) blocks NEW sales and is audited as
+ *    `operator.session.offline_reconcile_failed`.
+ * Payloads carry no grant field, admission id, user id, PIN or secret.
  */
 
 const TERMINAL_ID = 'term-1';
@@ -40,33 +49,56 @@ interface Harness {
   sessions: SessionManager;
   fake: ReturnType<typeof fakeCashierAdmission>;
   reconciler: OfflineReconciler;
-  events: AuditEvent[];
+  /** The durable store: one row per event id (`INSERT OR IGNORE`). */
+  stored: Map<string, AuditEvent>;
+  events: () => AuditEvent[];
   adopted: string[];
+  warns: unknown[];
   pairing: { generation: number };
+  invalidation: { seq: number };
 }
 
-function harness(opts: { auditThrows?: boolean; terminalId?: string | null } = {}): Harness {
+interface HarnessOptions {
+  /** The first N writes fail before storing anything. */
+  failWrites?: number;
+  /** The first N writes store the row and then throw (written, reported failed). */
+  failAfterWrite?: number;
+  terminalId?: string | null;
+}
+
+function harness(opts: HarnessOptions = {}): Harness {
   const sessions = new SessionManager();
   const fake = fakeCashierAdmission();
   const pairing = { generation: 1 };
+  const invalidation = { seq: 0 };
   fake.deps.grantSeam = {
     onCashierAdmitted: (e) => fake.admitted.push(e),
     onCashierAdmissionInvalidated: (e) => fake.invalidated.push(e),
     pairingGeneration: () => pairing.generation,
+    invalidationSeq: () => invalidation.seq,
   };
-  const events: AuditEvent[] = [];
+  const stored = new Map<string, AuditEvent>();
   const adopted: string[] = [];
-  let n = 0;
-  const onReconciled = createOfflineReconciledAudit({
+  const warns: unknown[] = [];
+  let failBefore = opts.failWrites ?? 0;
+  let failAfter = opts.failAfterWrite ?? 0;
+  const audit = createOfflineReconcileAudit({
     audit: {
       emit: (e) => {
-        if (opts.auditThrows === true) throw new Error('disk full');
-        events.push(e);
+        if (failBefore > 0) {
+          failBefore -= 1;
+          throw new Error('disk full');
+        }
+        if (!stored.has(e.event_id)) stored.set(e.event_id, e);
+        if (failAfter > 0) {
+          failAfter -= 1;
+          throw new Error('lost acknowledgement');
+        }
       },
     },
     resolveTerminalId: () => (opts.terminalId === undefined ? TERMINAL_ID : opts.terminalId),
-    uuid: () => `evt-${String((n += 1))}`,
     now: () => new Date('2026-11-27T10:00:00.000Z'),
+    logger: { warn: (...a: unknown[]) => warns.push(a) },
   });
   const reconciler = new OfflineReconciler({
     sessionManager: sessions,
@@ -74,7 +106,7 @@ function harness(opts: { auditThrows?: boolean; terminalId?: string | null } = {
     onAdopted: (id) => adopted.push(id),
     onConflict: () => undefined,
     onLiveAdmissionRenewed: () => undefined,
-    onReconciled,
+    audit,
   });
   sessions.onStarted((r) => {
     reconciler.onSessionStarted(r);
@@ -82,7 +114,17 @@ function harness(opts: { auditThrows?: boolean; terminalId?: string | null } = {
   sessions.onEnded((r) => {
     reconciler.onSessionEnded(r);
   });
-  return { sessions, fake, reconciler, events, adopted, pairing };
+  return {
+    sessions,
+    fake,
+    reconciler,
+    stored,
+    events: () => [...stored.values()],
+    adopted,
+    warns,
+    pairing,
+    invalidation,
+  };
 }
 
 function signInOffline(sessions: SessionManager): OperatorSessionRecord {
@@ -113,6 +155,10 @@ function deferred(h: Harness): (r: CashierAdmissionResult) => void {
   };
 }
 
+function reconciledEvents(h: Harness): AuditEvent[] {
+  return h.events().filter((e) => e.action_category === OFFLINE_RECONCILED_CATEGORY);
+}
+
 beforeEach(() => {
   vi.useFakeTimers();
 });
@@ -121,23 +167,30 @@ afterEach(() => {
   vi.useRealTimers();
 });
 
-describe('the category', () => {
-  it('is registered, and stays POS-local (not uploaded to central audit)', () => {
+describe('the categories', () => {
+  it.each([OFFLINE_RECONCILED_CATEGORY, OFFLINE_RECONCILE_FAILED_CATEGORY])(
+    '%s is registered and stays POS-local (not uploaded to central audit)',
+    (category) => {
+      expect(AUDIT_ACTION_CATEGORIES).toContain(category);
+      expect(isCentralAuditCategory(category)).toBe(false);
+    },
+  );
+
+  it('have the planned names', () => {
     expect(OFFLINE_RECONCILED_CATEGORY).toBe('operator.session.offline_reconciled');
-    expect(AUDIT_ACTION_CATEGORIES).toContain(OFFLINE_RECONCILED_CATEGORY);
-    expect(isCentralAuditCategory(OFFLINE_RECONCILED_CATEGORY)).toBe(false);
+    expect(OFFLINE_RECONCILE_FAILED_CATEGORY).toBe('operator.session.offline_reconcile_failed');
   });
 });
 
-describe('admitted: exactly one event per conversion', () => {
+describe('admitted: one durable record per conversion, before the upgrade', () => {
   it('writes one event attributed to the session, its operator and this terminal, with an empty payload', async () => {
     const h = harness();
     const record = signInOffline(h.sessions);
     await advance(0);
     expect(h.sessions.getCurrent()?.authority).toBe('online_confirmed');
-    expect(h.events).toEqual([
+    expect(h.events()).toEqual([
       {
-        event_id: 'evt-1',
+        event_id: expect.any(String) as string,
         tenant_id: 't1',
         branch_id: 'b1',
         originating_terminal_id: TERMINAL_ID,
@@ -152,11 +205,26 @@ describe('admitted: exactly one event per conversion', () => {
     ]);
   });
 
+  it('the record is durable before the session is online-confirmed', async () => {
+    const h = harness();
+    let authorityAtWrite: string | undefined;
+    const sessions = h.sessions;
+    const original = h.stored.set.bind(h.stored);
+    h.stored.set = (k, v) => {
+      authorityAtWrite = sessions.getCurrent()?.authority;
+      return original(k, v);
+    };
+    signInOffline(sessions);
+    await advance(0);
+    expect(authorityAtWrite).toBe('offline_grant');
+    expect(sessions.getCurrent()?.authority).toBe('online_confirmed');
+  });
+
   it('the event carries no admission id, generation, user id, display name or key', async () => {
     const h = harness();
     signInOffline(h.sessions);
     await advance(0);
-    const text = JSON.stringify(h.events);
+    const text = JSON.stringify(h.events());
     for (const secret of [
       FAKE_ADMISSION_ID,
       FAKE_GENERATION,
@@ -169,53 +237,137 @@ describe('admitted: exactly one event per conversion', () => {
     }
   });
 
-  it('is written after a retry too, once, and never again for later ticks', async () => {
+  it('is written after a retry too, once, and never again for later ticks or a nudge', async () => {
     const h = harness();
     h.fake.setReconcile({ kind: 'no_connection' });
     signInOffline(h.sessions);
     await advance(0);
     await advance(RECONCILE_RETRY_MS);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
     h.fake.setReconcile({ ...ADMITTED });
     await advance(RECONCILE_RETRY_MS);
-    await advance(RECONCILE_RETRY_MS * 5);
-    expect(h.events).toHaveLength(1);
-  });
-
-  it('a drain nudge after the answer does not duplicate it (replay)', async () => {
-    const h = harness();
-    signInOffline(h.sessions);
-    await advance(0);
     h.reconciler.isSaleHeld(FAKE_USER_ID);
-    await advance(RECONCILE_RETRY_MS * 2);
-    expect(h.fake.reconcileCalls).toHaveLength(1);
-    expect(h.events).toHaveLength(1);
+    await advance(RECONCILE_RETRY_MS * 5);
+    expect(reconciledEvents(h)).toHaveLength(1);
   });
+});
 
-  it('an audit write that throws still adopts the session (the audit never changes the outcome)', async () => {
-    const h = harness({ auditThrows: true });
+describe('the record cannot be written: no upgrade without it (fail closed)', () => {
+  it('first insert fails: the session keeps its offline bound, the admission is released, then exactly one record once it is durable', async () => {
+    const h = harness({ failWrites: 1 });
     const record = signInOffline(h.sessions);
     await advance(0);
+    expect(h.sessions.getCurrent()?.authority).toBe('offline_grant');
+    expect(h.sessions.getCurrent()?.admission_id).toBeUndefined();
+    expect(h.adopted).toEqual([]);
+    expect(h.fake.endRequests).toEqual([
+      { admission_id: ADMITTED.admission_id, admission_generation: ADMITTED.admission_generation },
+    ]);
+    // The grant is not refreshed from an answer that was not adopted.
+    expect(h.fake.admitted).toEqual([]);
+    expect(reconciledEvents(h)).toEqual([]);
+    expect(JSON.stringify(h.warns)).toContain('operator.session.offline_reconciled.audit_failed');
+
+    await advance(RECONCILE_RETRY_MS);
     expect(h.sessions.getCurrent()?.authority).toBe('online_confirmed');
     expect(h.adopted).toEqual([record.id]);
+    expect(reconciledEvents(h)).toHaveLength(1);
   });
 
-  it('an unknown terminal id writes nothing but still adopts', async () => {
-    const h = harness({ terminalId: null });
-    const record = signInOffline(h.sessions);
+  it('a write that landed but reported failure is not duplicated by the retry (stable event id)', async () => {
+    const h = harness({ failAfterWrite: 1 });
+    signInOffline(h.sessions);
     await advance(0);
-    expect(h.events).toEqual([]);
+    expect(h.sessions.getCurrent()?.authority).toBe('offline_grant');
+    await advance(RECONCILE_RETRY_MS);
+    expect(h.sessions.getCurrent()?.authority).toBe('online_confirmed');
+    expect(reconciledEvents(h)).toHaveLength(1);
+  });
+
+  it('an unknown terminal id never upgrades the session', async () => {
+    const h = harness({ terminalId: null });
+    signInOffline(h.sessions);
+    await advance(0);
+    await advance(RECONCILE_RETRY_MS * 3);
+    expect(h.sessions.getCurrent()?.authority).toBe('offline_grant');
+    expect(h.adopted).toEqual([]);
+    expect(h.events()).toEqual([]);
+  });
+
+  it('repeated write failures release the sales gate after the bounded count (a sale is never stranded)', async () => {
+    const h = harness({ failWrites: 100 });
+    signInOffline(h.sessions);
+    await advance(0);
+    for (let i = 1; i < RECONCILE_GATE_MAX_SERVER_ERRORS; i += 1) {
+      expect(h.reconciler.isSaleHeld(FAKE_USER_ID)).toBe(true);
+      await advance(RECONCILE_RETRY_MS);
+    }
+    expect(h.reconciler.isSaleHeld(FAKE_USER_ID)).toBe(false);
+    expect(h.sessions.getCurrent()?.authority).toBe('offline_grant');
+  });
+});
+
+describe('an admitted that raced a grant invalidation is never adopted', () => {
+  it('a device 401 lands while the reconcile is in flight: released (end echoes its generation), retried, adopted later', async () => {
+    const h = harness();
+    const record = signInOffline(h.sessions);
+    const release = deferred(h);
+    await advance(0);
+    h.invalidation.seq += 1; // the grant seam invalidated grants meanwhile
+    release({ ...ADMITTED, admission_generation: 'gen-race' });
+    await advance(0);
+    expect(h.sessions.getCurrent()?.authority).toBe('offline_grant');
+    expect(h.adopted).toEqual([]);
+    expect(h.fake.admitted).toEqual([]);
+    expect(h.fake.endRequests).toEqual([
+      { admission_id: ADMITTED.admission_id, admission_generation: 'gen-race' },
+    ]);
+    expect(h.events()).toEqual([]);
+    h.fake.setReconcile({ ...ADMITTED });
+    await advance(RECONCILE_RETRY_MS);
     expect(h.adopted).toEqual([record.id]);
   });
 });
 
-describe('no event without a conversion', () => {
+describe('a definite answer that cannot establish authority blocks NEW sales and is audited', () => {
+  it.each(['rejected', 'idempotency_conflict'] as const)(
+    '%s with a still-valid grant: no new sale, the session keeps running, one failure record',
+    async (kind) => {
+      const h = harness();
+      const record = signInOffline(h.sessions);
+      expect(newSaleBlock(record, authorityClockOf())).toBeNull();
+      h.fake.setReconcile({ kind });
+      await advance(0);
+      expect(newSaleBlock(record, authorityClockOf())).toBe('offline_authority_expired');
+      expect(h.sessions.getCurrent()?.id).toBe(record.id);
+      expect(h.sessions.getCurrent()?.authority_latch).toBeUndefined();
+      expect(h.sessions.getCurrent()?.lock_state).toBe('active');
+      expect(h.events().map((e) => [e.action_category, e.payload])).toEqual([
+        [OFFLINE_RECONCILE_FAILED_CATEGORY, { outcome: kind }],
+      ]);
+      await advance(RECONCILE_RETRY_MS * 5);
+      expect(h.fake.reconcileCalls).toHaveLength(1);
+      expect(h.events()).toHaveLength(1);
+    },
+  );
+
+  it('the block applies even when its audit cannot be written', async () => {
+    const h = harness({ failWrites: 1 });
+    const record = signInOffline(h.sessions);
+    h.fake.setReconcile({ kind: 'rejected' });
+    await advance(0);
+    expect(newSaleBlock(record, authorityClockOf())).toBe('offline_authority_expired');
+    expect(JSON.stringify(h.warns)).toContain(
+      'operator.session.offline_reconcile_failed.audit_failed',
+    );
+  });
+});
+
+describe('no record without a decision', () => {
   it.each<CashierAdmissionResult>([
     { kind: 'active_elsewhere' },
     { kind: 'refused' },
     { kind: 'device_unauthorized' },
-    { kind: 'rejected' },
-    { kind: 'idempotency_conflict' },
     { kind: 'no_connection' },
     { kind: 'no_token' },
     { kind: 'unavailable' },
@@ -226,7 +378,7 @@ describe('no event without a conversion', () => {
     signInOffline(h.sessions);
     await advance(0);
     await advance(RECONCILE_RETRY_MS);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 
   it('an admitted for a session that ended before the answer (stale) writes nothing', async () => {
@@ -237,7 +389,7 @@ describe('no event without a conversion', () => {
     h.sessions.end('signed_out');
     release({ ...ADMITTED });
     await advance(0);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 
   it('an admitted for a session that was replaced writes nothing', async () => {
@@ -249,7 +401,7 @@ describe('no event without a conversion', () => {
     signInOffline(h.sessions);
     release({ ...ADMITTED });
     await advance(0);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 
   it('an admitted that arrives after a re-pair writes nothing', async () => {
@@ -260,7 +412,7 @@ describe('no event without a conversion', () => {
     h.pairing.generation = 2;
     release({ ...ADMITTED });
     await advance(0);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 
   it('an admitted after stop() (shutdown latch) writes nothing', async () => {
@@ -271,7 +423,7 @@ describe('no event without a conversion', () => {
     h.reconciler.stop();
     release({ ...ADMITTED });
     await advance(0);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 
   it('a session admitted online is never reconciled, so writes nothing', async () => {
@@ -292,53 +444,30 @@ describe('no event without a conversion', () => {
       },
     });
     await advance(RECONCILE_RETRY_MS);
-    expect(h.events).toEqual([]);
+    expect(h.events()).toEqual([]);
   });
 });
 
-describe('a write that is not made is logged (never silent), with no identifier', () => {
-  function recordOf(sessions: SessionManager): OperatorSessionRecord {
-    return signInOffline(sessions);
-  }
-
-  it.each([
-    ['the emit throws', 'operator.session.offline_reconciled.audit_failed', true, TERMINAL_ID],
-    ['the terminal is unknown', 'operator.session.offline_reconciled.no_terminal', false, null],
-  ] as const)('%s: warns %s', (_l, event, throws, terminal) => {
-    const warns: unknown[] = [];
-    const hook = createOfflineReconciledAudit({
-      audit: {
-        emit: () => {
-          if (throws) throw new Error('disk full');
-        },
-      },
-      resolveTerminalId: () => terminal,
-      logger: { warn: (...a: unknown[]) => warns.push(a) },
-    });
-    const record = recordOf(new SessionManager());
-    expect(() => {
-      hook(record);
-    }).not.toThrow();
-    expect(warns).toEqual([[{ event }, 'offline reconcile audit not written']]);
-    expect(JSON.stringify(warns)).not.toContain(record.id);
-    expect(JSON.stringify(warns)).not.toContain(OPERATOR_ID);
-  });
-});
-
-describe('the keeper wires the hook', () => {
-  it('passes onOfflineReconciled to its reconciler', async () => {
+describe('the keeper wires the hooks', () => {
+  it('passes offlineReconcileAudit to its reconciler', async () => {
     const sessions = new SessionManager();
     const fake = fakeCashierAdmission();
-    const seen: string[] = [];
+    const seen: Array<[string, string]> = [];
     const keeper = new CashierAdmissionKeeper({
       sessionManager: sessions,
       admission: fake.deps,
       isAtSafePoint: () => true,
-      onOfflineReconciled: (record) => seen.push(record.id),
+      offlineReconcileAudit: {
+        reconciled: (record, event_id) => {
+          seen.push([record.id, event_id]);
+          return true;
+        },
+        failed: () => undefined,
+      },
     });
     const record = signInOffline(sessions);
     await advance(0);
-    expect(seen).toEqual([record.id]);
+    expect(seen.map(([id]) => id)).toEqual([record.id]);
     expect(sessions.getCurrent()?.authority).toBe('online_confirmed');
     keeper.stop();
   });

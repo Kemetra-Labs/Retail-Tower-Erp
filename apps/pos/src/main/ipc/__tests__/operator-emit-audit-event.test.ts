@@ -489,6 +489,7 @@ describe('operator:emit-audit-event — main-only categories (RT-117 §A4 L1)', 
     'operator.signin.offline_refused',
     // RT-309: the reconnect reconcile conversion is recorded by main only.
     'operator.session.offline_reconciled',
+    'operator.session.offline_reconcile_failed',
     // RT-551: the sale-number day-rule switch is written only by finalize.
     'sale.number_day_rule.switched',
     // RT-15 S2/S4 — the return facts are written only by main's returns-audit

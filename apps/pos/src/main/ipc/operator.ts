@@ -132,6 +132,7 @@ const MAIN_ONLY_AUDIT_CATEGORIES: ReadonlySet<string> = new Set([
   'operator.signin.offline_refused',
   // RT-309 — emitted only by the offline reconcile on `admitted`.
   'operator.session.offline_reconciled',
+  'operator.session.offline_reconcile_failed',
   'pairing.device_revoked',
   'pairing.device_revoked_cleared',
   // RT-438 (MA-1) — manager PIN lifecycle, emitted only by the credential store.

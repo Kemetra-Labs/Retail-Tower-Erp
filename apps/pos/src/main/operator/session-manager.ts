@@ -4,6 +4,8 @@ import type { Role } from '../../shared/operator/role.js';
 import type { OperatorSessionBridgeView } from '../../shared/bridge-api.js';
 import type { SessionEndCause } from '../../shared/operator/session-end-cause.js';
 
+import { authorityClockOf, type AuthorityClock } from './offline-authority.js';
+
 /**
  * 004-operator-session T028 — main-process session manager (in-memory).
  *
@@ -276,6 +278,27 @@ export class SessionManager {
     if (admission.admission_requested_at_ms !== undefined) {
       this.current.admission_requested_at_ms = admission.admission_requested_at_ms;
     }
+    return true;
+  }
+
+  /**
+   * RT-309 — the offline reconcile could not establish authority for the
+   * CURRENT offline-admitted session (only when `session_id` still names it):
+   * end its offline bound now, so no NEW sale may start
+   * (`offline_authority_expired`). The current sale may still complete or be
+   * held and unlock still works; nothing ends. Never extends a bound.
+   */
+  expireOfflineAuthority(session_id: string, now: AuthorityClock = authorityClockOf()): boolean {
+    const current = this.current;
+    if (current?.id !== session_id || current.authority !== 'offline_grant') return false;
+    current.authority_valid_until_ms = Math.min(
+      current.authority_valid_until_ms ?? now.wall_ms,
+      now.wall_ms,
+    );
+    current.authority_deadline_mono_ms = Math.min(
+      current.authority_deadline_mono_ms ?? now.mono_ms,
+      now.mono_ms,
+    );
     return true;
   }
 
