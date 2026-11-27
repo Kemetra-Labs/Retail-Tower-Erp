@@ -136,6 +136,7 @@ import {
 import { createCashierAdmissionClient } from './operator/cashier-admission-client.js';
 import type { CashierAdmissionDeps } from './operator/cashier-admission.js';
 import { CashierAdmissionKeeper } from './operator/cashier-admission-keeper.js';
+import { createOfflineReconciledAudit } from './operator/offline-reconcile-audit.js';
 import { createOfflineGrantStore } from './operator/offline-grant-store.js';
 import {
   createOfflineGrantWiring,
@@ -1054,26 +1055,24 @@ singleInstanceReady
       logger: mainLogger,
     });
 
-    // RT-113 P2 — keep the online cashier admission live (heartbeat at ≤ TTL/2
-    // with a fresh key) and end it on sign-out / session end (best-effort).
-    // Lost authority (taken over elsewhere, 403, two consecutive device 401s)
-    // latches the session (cart.create, and an add to an empty cart, refuse
-    // `authority_conflict`) and ends
-    // it at its first safe point: no open sale with lines (the RT-117 lock
-    // summary is null) and no live tender on ANY cart of the session
-    // (`createSafePointProbe`, review of 024f07c items 2 and 5).
-    // Re-checked after every sale IPC call (sale-boundary-guard), on lock
-    // changes and by a backstop poll. Stopped on quit with the other workers (RT-198
-    // latch: nothing runs after stop).
+    // RT-113 P2 — keep the online cashier admission live (heartbeat at ≤ TTL/2, fresh key) and end
+    // it on sign-out / session end (best-effort). Lost authority (taken over elsewhere, 403, two
+    // device 401s) latches the session (cart.create, and an add to an empty cart, refuse
+    // `authority_conflict`) and ends it at its first safe point: no open sale with lines and no
+    // live tender on ANY cart of the session (`createSafePointProbe`, review of 024f07c items 2
+    // and 5). Re-checked after every sale IPC call, on lock changes and by a backstop poll.
+    // Stopped on quit (RT-198 latch). RT-309: a reconnect reconcile conversion is audited (D8).
+    const resolveTerminalId = (): string | null => pairingStore.getCurrentTerminalId();
     const isCashierAtSafePoint = createSafePointProbe({
       db,
       sessionManager: operatorSessionManager,
-      resolveTerminalId: () => pairingStore.getCurrentTerminalId(),
+      resolveTerminalId,
     });
     const cashierAdmissionKeeper = new CashierAdmissionKeeper({
       sessionManager: operatorSessionManager,
       admission: cashierAdmission,
       isAtSafePoint: isCashierAtSafePoint,
+      onOfflineReconciled: createOfflineReconciledAudit({ audit: auditEmitter, resolveTerminalId }),
       logger: mainLogger,
     });
     saleBoundaryProbe.recheck = () => {

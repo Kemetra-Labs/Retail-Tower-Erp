@@ -104,6 +104,12 @@ export interface OfflineReconcilerDeps {
    * the generation the session holds may be stale. The keeper verifies early.
    */
   onLiveAdmissionRenewed: (admission_id: string) => void;
+  /**
+   * RT-309 (10763 D8) — the session adopted the admission (it is now
+   * online-confirmed): write the conversion's audit event. Called exactly once
+   * per conversion, never for a released or stale answer. A throw is ignored.
+   */
+  onReconciled?: ((record: OperatorSessionRecord) => void) | undefined;
   logger?: Pick<Logger, 'info' | 'warn'> | undefined;
 }
 
@@ -347,7 +353,19 @@ export class OfflineReconciler {
     }
     notifyGrantSeam(this.deps.admission, result, who);
     this.finish(entry);
+    this.auditReconciled(entry);
     this.deps.onAdopted(entry.session_id);
+  }
+
+  /** RT-309 (D8): one audit event for the conversion; it never changes the outcome. */
+  private auditReconciled(entry: Entry): void {
+    const current = this.deps.sessionManager.getCurrent();
+    if (current?.id !== entry.session_id) return;
+    try {
+      this.deps.onReconciled?.(current);
+    } catch {
+      // The audit write must not change the outcome (the RT-444 precedent).
+    }
   }
 
   private conflict(

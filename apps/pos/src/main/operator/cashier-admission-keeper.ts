@@ -149,6 +149,8 @@ export interface CashierAdmissionKeeperDeps {
    */
   isAtSafePoint: () => boolean;
   safePointRecheckMs?: number;
+  /** RT-309 (D8): the offline reconcile converted a session (see `offline-reconcile-audit.ts`). */
+  onOfflineReconciled?: (record: OperatorSessionRecord) => void;
   logger?: Pick<Logger, 'info' | 'warn'>;
 }
 
@@ -313,6 +315,7 @@ export class CashierAdmissionKeeper {
       onLiveAdmissionRenewed: (admission_id) => {
         if (this.armed?.admission_id === admission_id) this.reverifySoon(this.armed);
       },
+      onReconciled: deps.onOfflineReconciled,
     });
     deps.sessionManager.onStarted((record) => {
       this.onSessionStarted(record);

@@ -41,6 +41,11 @@ export const AUDIT_ACTION_CATEGORIES = [
   // Open-set at the SQL layer (0004). Local only (no Backend-Core catalogue).
   'operator.signin.offline_admitted',
   'operator.signin.offline_refused',
+  // RT-309 (RT-113 10763 D8, §3) — the reconnect reconcile answered `admitted`
+  // and the offline-admitted session became online-confirmed. One event per
+  // conversion. Main-only. Payload empty. Open-set at the SQL layer (0004).
+  // Local only (no Backend-Core catalogue).
+  'operator.session.offline_reconciled',
   'cashier.pin.reset',
   'cashier.pin.unlock',
   // 019-cashier-pin-provisioning (R-2) — first-PIN create path; sibling to
