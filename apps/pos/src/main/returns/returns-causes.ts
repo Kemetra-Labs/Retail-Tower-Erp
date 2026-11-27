@@ -43,7 +43,7 @@ export interface AuthFailureStreak {
 }
 
 /** OD-196-6: three consecutive pre-replay authentication failures. */
-export const AUTH_FAILURE_ATTEMPTS = 3;
+const AUTH_FAILURE_ATTEMPTS = 3;
 export const AUTH_FAILURE_CAUSES: ReadonlySet<ReturnUnknownCause> = new Set([
   'pre_replay_401',
   'pre_replay_403',
