@@ -41,7 +41,8 @@
  */
 import type { ReturnUnknownCause, ReturnsRefusalReason } from '../../shared/returns/types.js';
 import { exponentFor } from '../sales-sync/create-sale-sync-client.js';
-import type { ConfirmVia, ReturnsAudit, SendOperation } from './returns-audit.js';
+import type { ConfirmVia } from '../../shared/audit/payload-schemas.js';
+import type { ReturnsAudit, SendOperation } from './returns-audit.js';
 import {
   isClosedState,
   type ReturnDispositionsRepository,
@@ -127,7 +128,7 @@ export interface ReturnsDispatchDeps {
    * RT-1498 (OD-196-6): whether a return's resends failed on authentication long enough to hand it to
    * support by itself. Absent: the automatic `auth_failure` flag is never raised.
    */
-  readonly authFailures?: Pick<AuthFailureStreak, 'reached'>;
+  readonly authFailures?: AuthFailureStreak;
   /** RT-1498 S4: the id of an automatic disposition (a UUID); defaults to a fresh UUIDv7. */
   readonly newDispositionId?: () => string;
   readonly audit: ReturnsAudit;
@@ -247,6 +248,8 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
     const attemptAt = this.deps.now();
     this.deps.repo.recordAttempt({ returnId: entry.returnId, now: attemptAt });
     this.deps.quiet?.markAttempt(entry.returnId, attemptAt);
+    // OD-196-6: the attempt's number, marked on the monotonic clock (the auth-failure span).
+    this.deps.authFailures?.markAttempt(entry.returnId, current.attemptCount + 1);
     // A5: the POST carries the rechecked snapshot's own envelope — no live
     // session or token read happens between the recheck and the wire.
     const outcome = await this.deps.client.recordReturn(
@@ -349,7 +352,10 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
     this.deps.audit.attemptUnknown(this.current(entry), cause, op);
     if (cause === 'confirmation_mismatch' || cause === 'unreadable_body') {
       this.raiseSupport(this.current(entry), stamp.now, 'send_response');
-    } else if (AUTH_FAILURE_CAUSES.has(cause) && this.authFailureStreakReached(entry.returnId)) {
+    } else if (
+      AUTH_FAILURE_CAUSES.has(cause) &&
+      this.authFailureStreakReached(this.current(entry))
+    ) {
       // Read AFTER this attempt's cause audit, in the same transaction: it counts this failure.
       this.raiseSupport(this.current(entry), stamp.now, 'auth_failure');
     }
@@ -359,11 +365,11 @@ class JournaledReturnsDispatcher implements JournaledDispatcher {
    * Whether the auth-failure run reached the flag. A failing read is logged and counts as "not yet":
    * it must never roll back this attempt's cause audit (the next failure checks again).
    */
-  private authFailureStreakReached(returnId: string): boolean {
+  private authFailureStreakReached(entry: JournalEntry): boolean {
     try {
-      return this.deps.authFailures?.reached(returnId) === true;
+      return this.deps.authFailures?.reached(entry.returnId, entry.attemptCount) === true;
     } catch {
-      this.deps.logger.warn({ return_id: returnId }, 'returns:auth_failure_check_failed');
+      this.deps.logger.warn({ return_id: entry.returnId }, 'returns:auth_failure_check_failed');
       return false;
     }
   }

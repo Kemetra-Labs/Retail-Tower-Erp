@@ -601,8 +601,11 @@ export interface SaleReturnConfirmedPayload {
   currency_code: string;
   replayed: boolean;
   /** RT-1498 (RT-196 §3.7): the send's own answer, or a status read that matched (confirm-by-read). */
-  via: 'send' | 'status_read';
+  via: ConfirmVia;
 }
+
+/** RT-1498 (RT-196 §3.7): what proved a return's confirmation. The one declaration of this union. */
+export type ConfirmVia = 'send' | 'status_read';
 
 /** `sale.return.payout_ready` — the confirmed cash refund may be paid out (S4 kicks). */
 export interface SaleReturnPayoutReadyPayload {

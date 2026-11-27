@@ -375,6 +375,66 @@ describe('returns.readStatus: the server verdict, never inferred', () => {
       expect(categories(h.audits).filter((c) => c === 'sale.return.confirmed')).toHaveLength(1);
     });
 
+    it.each([
+      [
+        'a different allocationRef',
+        (t: Record<string, unknown>) => ({
+          ...t,
+          allocationRef: '0192f5a2-3b4c-7d8e-9f01-00000000aaaa',
+        }),
+      ],
+      [
+        'an instrument the till never sent',
+        (t: Record<string, unknown>) => ({ ...t, instrument: 'cash' }),
+      ],
+      [
+        'no allocationRef',
+        (t: Record<string, unknown>) => ({ method: t['method'], amount: t['amount'] }),
+      ],
+    ] as [string, (t: Record<string, unknown>) => Record<string, unknown>][])(
+      'same key and total but %s: NOT confirmed, no payout_ready (only the exact replay may settle it)',
+      async (_name, alter) => {
+        setup();
+        const returnId = await recordedButUnknownReturn();
+        h.backend.onStatus = (call, backend) => {
+          const key = new URL(call.url).searchParams.get('externalId') ?? '';
+          const recorded = backend.recorded.get(key) as unknown as {
+            refundTenders: Record<string, unknown>[];
+          };
+          return jsonResponse(200, {
+            status: 'recorded',
+            creditLinked: false,
+            saleReturn: { ...recorded, refundTenders: recorded.refundTenders.map(alter) },
+          });
+        };
+
+        const res = await h.service.readStatus({ returnId });
+
+        expect(res).toMatchObject({ kind: 'recorded', outcome: 'resend' });
+        expect(h.repo.read(returnId)?.state).toBe('unknown');
+        expect(categories(h.audits)).not.toContain('sale.return.confirmed');
+        expect(categories(h.audits)).not.toContain('sale.return.payout_ready');
+        expect(kinds(returnId)).toEqual([]);
+      },
+    );
+
+    it('a recorded answer without readable refundTenders is never confirmed by the read', async () => {
+      setup();
+      const returnId = await recordedButUnknownReturn();
+      h.backend.onStatus = (call, backend) => {
+        const key = new URL(call.url).searchParams.get('externalId') ?? '';
+        const recorded = backend.recorded.get(key) as unknown as Record<string, unknown>;
+        return jsonResponse(200, {
+          status: 'recorded',
+          creditLinked: false,
+          saleReturn: { ...recorded, refundTenders: 'garbled' },
+        });
+      };
+      const res = await h.service.readStatus({ returnId });
+      expect(res).toMatchObject({ kind: 'recorded', outcome: 'resend' });
+      expect(h.repo.read(returnId)?.state).toBe('unknown');
+    });
+
     it('a send that confirms the return keeps via: send on its confirmed audit', async () => {
       setup();
       h.backend.onReturn = (call, backend) => backend.recordIdempotently(call);

@@ -8,7 +8,7 @@ import type {
 } from '../../shared/returns/types.js';
 import { ManagerPinDialog, useApprovalSubmit } from '../v5/void/ManagerPinDialog';
 import { attempt } from './returns-bridge.js';
-import { OUTCOME_COPY, refusalMessage } from './returns-messages.js';
+import { OUTCOME_COPY, STATUS_COPY, refusalMessage } from './returns-messages.js';
 
 /**
  * RT-1498 S4/S5 and the close slice — the manager-PIN sheet that resolves ONE unresolved return: hand it
@@ -20,6 +20,22 @@ import { OUTCOME_COPY, refusalMessage } from './returns-messages.js';
  * never reaches main's call; the journal is re-read after any answer main gave, including a lost one.
  */
 type ResolveAnswer = ReturnsEscalateResponse | ReturnsCloseResponse;
+
+/**
+ * A refusal's line. RT-1498 confirm-by-read: a close whose fresh server read found THIS return recorded
+ * confirms it and is refused as resolved; the row is then `confirmed`, so the manager reads the RT-196
+ * §3.9 `readConfirmed` line (approved copy), not the generic "already resolved".
+ */
+function refusedText(
+  disposition: 'close' | 'escalate',
+  answer: Extract<ResolveAnswer, { kind: 'refused' }>,
+): string {
+  const confirmedByRead =
+    disposition === 'close' &&
+    answer.reason === 'already_resolved' &&
+    answer.ret?.state === 'confirmed';
+  return confirmedByRead ? STATUS_COPY.readConfirmed : refusalMessage(answer.reason);
+}
 
 interface Props {
   readonly row: ReturnJournalView;
@@ -65,7 +81,7 @@ export function ResolveDialog({
       // The journal is the truth after any answer, including a lost one.
       onAnswered();
       if (typeof answer === 'symbol') return OUTCOME_COPY.callFailed;
-      if (answer.kind === 'refused') return refusalMessage(answer.reason);
+      if (answer.kind === 'refused') return refusedText(disposition, answer);
       onDone(row);
       return null;
     },

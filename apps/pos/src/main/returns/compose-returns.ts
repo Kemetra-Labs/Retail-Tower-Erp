@@ -223,7 +223,7 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     dispositions,
     quiet,
     // RT-1498 (OD-196-6): 3 consecutive pre-replay 401/403 resends over the quiet period → support.
-    authFailures: createAuthFailureStreak(deps.db, RETURN_QUIET_PERIOD_MS),
+    authFailures: createAuthFailureStreak(deps.db, RETURN_QUIET_PERIOD_MS, deps.clocks?.mono),
     audit,
     now,
     logger: deps.logger,

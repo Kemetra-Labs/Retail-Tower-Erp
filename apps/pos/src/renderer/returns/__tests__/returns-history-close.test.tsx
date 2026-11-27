@@ -594,6 +594,30 @@ describe('the close sheet binds the disposition', () => {
     expect(await screen.findByRole('alert')).toHaveTextContent(refusalMessage(reason));
   });
 
+  it('a close that the server read turned into a confirmation shows readConfirmed (RT-196 §3.9)', async () => {
+    const { bridge, user } = await open();
+    bridge.close.mockResolvedValueOnce({
+      kind: 'refused',
+      reason: 'already_resolved',
+      ret: { ...UNKNOWN, state: 'confirmed' },
+    });
+    await chooseManagerAndPin(user);
+    await user.click(commit());
+    expect(await screen.findByRole('alert')).toHaveTextContent(STATUS_COPY.readConfirmed);
+  });
+
+  it('an already_resolved close of a row that is not confirmed keeps the generic line', async () => {
+    const { bridge, user } = await open();
+    bridge.close.mockResolvedValueOnce({
+      kind: 'refused',
+      reason: 'already_resolved',
+      ret: UNKNOWN,
+    });
+    await chooseManagerAndPin(user);
+    await user.click(commit());
+    expect(await screen.findByRole('alert')).toHaveTextContent(refusalMessage('already_resolved'));
+  });
+
   it('a lost call is named, never success', async () => {
     const { bridge, user } = await open();
     bridge.close.mockRejectedValueOnce(new Error('locked'));

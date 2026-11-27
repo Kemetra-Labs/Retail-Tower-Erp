@@ -10,6 +10,7 @@
 import type { AuditEvent } from '../../shared/audit/event-shape.js';
 import type {
   AuditPayloadMap,
+  ConfirmVia,
   SaleReturnClosedNotRecordedPayload,
   SaleReturnLateCommitPayload,
   SaleReturnNeedsSupportPayload,
@@ -56,9 +57,6 @@ export type DrawerAuditOutcome =
 export type SlipAuditOutcome =
   | { readonly copy: boolean; readonly ok: true }
   | { readonly copy: boolean; readonly ok: false; readonly failureReason: string };
-
-/** What proved a confirmation (RT-196 §3.7): the send's own answer, or a status read. */
-export type ConfirmVia = 'send' | 'status_read';
 
 export interface ReturnsAudit {
   attempted(entry: JournalEntry): void;

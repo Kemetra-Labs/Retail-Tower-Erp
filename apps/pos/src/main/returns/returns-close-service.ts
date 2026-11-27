@@ -58,6 +58,7 @@ import {
   type ReturnDispositionsRepository,
 } from './returns-dispositions-repository.js';
 import { RETURN_SOURCE_SYSTEM } from './returns-quote.js';
+import { recordedTendersMatchRequest } from './returns-tender-match.js';
 import type { QuietPeriodCheck, ReturnQuietPeriod } from './returns-quiet-period.js';
 import {
   isDisposable,
@@ -390,6 +391,9 @@ class ReturnsCloseService implements ReturnsCloseAPI {
     if (outcome.kind !== 'recorded') return false;
     const totalMinor = matchingTotalMinor(entry, outcome.saleReturn);
     if (totalMinor === null) return false;
+    // The recorded allocations must be exactly the journaled ones (allocationRef included), or only
+    // the exact POST replay may settle it: no confirm, so no payout_ready (review round, Codex #1).
+    if (!recordedTendersMatchRequest(entry.requestBodyJson, outcome.refundTenders)) return false;
     return commitConfirmation(
       this.deps,
       {

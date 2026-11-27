@@ -206,41 +206,107 @@ describe('the automatic auth_failure flag (OD-196-6)', () => {
   });
 });
 
-describe('the auth-failure run, read from the audit (createAuthFailureStreak)', () => {
+describe('the auth-failure run: adjacent attempt numbers, monotonic span (createAuthFailureStreak)', () => {
+  type Row = { cause: string | null; attempt_no: unknown };
   /** A database handle whose one query answers `rows` (newest first, as the SQL orders them). */
-  function dbAnswering(rows: { cause: string | null; created_at: string }[]): DatabaseHandle {
+  function dbAnswering(rows: Row[]): DatabaseHandle {
     return { prepare: () => ({ all: () => rows }) } as unknown as DatabaseHandle;
   }
-  const at = (minutes: number): string => new Date(Date.UTC(2026, 9, 4, 9, minutes)).toISOString();
+  const MIN = 60_000;
   const QUIET = RETURN_QUIET_PERIOD_MS;
 
-  it('needs three authentication failures in a row spanning the period', () => {
-    const run = [
-      { cause: 'pre_replay_401', created_at: at(30) },
-      { cause: 'pre_replay_403', created_at: at(20) },
-      { cause: 'pre_replay_401', created_at: at(15) },
-      { cause: 'network', created_at: at(0) },
-    ];
-    expect(createAuthFailureStreak(dbAnswering(run), QUIET).reached('r')).toBe(true);
-    expect(createAuthFailureStreak(dbAnswering(run.slice(1)), QUIET).reached('r')).toBe(false);
+  /** A streak over `rows` whose attempts `marked` (attempt → minute) were sent by this process. */
+  function streak(rows: Row[], marked: Record<number, number>) {
+    let now = 0;
+    const s = createAuthFailureStreak(dbAnswering(rows), QUIET, () => now);
+    for (const [attempt, minute] of Object.entries(marked)) {
+      now = minute * MIN;
+      s.markAttempt('r', Number(attempt));
+    }
+    return s;
+  }
+  const auth = (attempt_no: unknown): Row => ({ cause: 'pre_replay_401', attempt_no });
+
+  it('needs three adjacent auth failures, marked here, spanning the period', () => {
+    const rows = [auth(5), auth(4), auth(3), { cause: 'network', attempt_no: 2 }];
+    expect(streak(rows, { 3: 0, 4: 8, 5: 15 }).reached('r', 5)).toBe(true);
+    expect(streak(rows, { 3: 0, 4: 8, 5: 14 }).reached('r', 5)).toBe(false);
+    expect(streak(rows.slice(1), { 3: 0, 4: 15 }).reached('r', 4)).toBe(false);
+  });
+
+  it('a gap in the attempt numbers (a lost audit) ends the run', () => {
+    const rows = [auth(6), auth(5), auth(3), auth(2)];
+    expect(streak(rows, { 2: 0, 3: 8, 5: 16, 6: 24 }).reached('r', 6)).toBe(false);
+  });
+
+  it('the run must end at the journal current attempt', () => {
+    const rows = [auth(4), auth(3), auth(2)];
+    expect(streak(rows, { 2: 0, 3: 8, 4: 16 }).reached('r', 5)).toBe(false);
   });
 
   it.each([
-    ['an unparseable time', [at(30), 'not-a-time', at(10)]],
-    ['a time that runs backwards', [at(0), at(10), at(30)]],
-  ])('%s never flags it (fail closed)', (_name, times) => {
-    const rows = times.map((created_at) => ({ cause: 'pre_replay_401', created_at }));
-    expect(createAuthFailureStreak(dbAnswering(rows), QUIET).reached('r')).toBe(false);
+    ['a string', '3'],
+    ['null', null],
+  ])('an attempt number that is %s ends the run', (_n, bad) => {
+    const rows = [auth(4), auth(bad), auth(2)];
+    expect(streak(rows, { 2: 0, 3: 8, 4: 16 }).reached('r', 4)).toBe(false);
+  });
+
+  it('attempts this process did not mark (sent before a restart) prove no span', () => {
+    const rows = [auth(5), auth(4), auth(3)];
+    expect(streak(rows, { 4: 0, 5: 16 }).reached('r', 5)).toBe(false);
   });
 
   it('an unknown cause code ends the run', () => {
-    const rows = [
-      { cause: 'pre_replay_401', created_at: at(40) },
-      { cause: 'pre_replay_401', created_at: at(30) },
-      { cause: 'something_new', created_at: at(20) },
-      { cause: 'pre_replay_401', created_at: at(0) },
-    ];
-    expect(createAuthFailureStreak(dbAnswering(rows), QUIET).reached('r')).toBe(false);
+    const rows = [auth(4), auth(3), { cause: 'something_new', attempt_no: 2 }, auth(1)];
+    expect(streak(rows, { 1: 0, 2: 8, 3: 16, 4: 24 }).reached('r', 4)).toBe(false);
+  });
+});
+
+describe('the flag needs elapsed time this process can show', () => {
+  it('a forward wall-clock step does not stand in for the period', async () => {
+    harness();
+    const returnId = await unknownReturn();
+    for (let i = 0; i < 3; i += 1) {
+      h.state.mono += 60_000; // one real minute...
+      h.state.now = new Date(Date.parse(h.state.now) + STEP).toISOString(); // ...the clock says 8
+      h.backend.onReturn = () => jsonResponse(401, errorBody('x'));
+      await h.service.resend({ returnId });
+    }
+    expect(kinds(returnId)).toEqual([]);
+  });
+
+  it('after a restart, failures sent before it do not count; three new ones over the period do', async () => {
+    harness();
+    const returnId = await unknownReturn();
+    await resendAnswering(401);
+    await resendAnswering(401);
+    const restarted = h.restart();
+    for (let i = 0; i < 2; i += 1) {
+      elapse(h, STEP);
+      h.backend.onReturn = () => jsonResponse(401, errorBody('x'));
+      await restarted.service.resend({ returnId });
+    }
+    expect(kinds(returnId)).toEqual([]);
+    elapse(h, STEP);
+    await restarted.service.resend({ returnId });
+    expect(kinds(returnId)).toEqual(['needs_support']);
+  });
+
+  it('a missing attempt audit (lost write) breaks the run', async () => {
+    harness();
+    const returnId = await unknownReturn();
+    await resendAnswering(401);
+    // The audit of attempt 3 is lost (its write fails): the run can only start after it.
+    h.state.failAudit = (e) => e.action_category === 'sale.return.attempt_unknown';
+    await resendAnswering(401);
+    h.state.failAudit = null;
+    expect(h.repo.read(returnId)?.attemptCount).toBe(3);
+    await resendAnswering(401);
+    await resendAnswering(401);
+    expect(kinds(returnId)).toEqual([]);
+    await resendAnswering(401);
+    expect(kinds(returnId)).toEqual(['needs_support']);
   });
 });
 
@@ -257,6 +323,7 @@ describe('a failing auth-failure check never loses the attempt', () => {
       repo: h.repo,
       dispositions: h.dispositions,
       authFailures: {
+        markAttempt: () => undefined,
         reached: () => {
           throw new Error('db busy');
         },

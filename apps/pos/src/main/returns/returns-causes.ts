@@ -32,14 +32,24 @@ interface Stmt {
 
 /**
  * RT-1498 (RT-196 §3.6, OD-196-6) — has this return's sending failed on authentication long enough to
- * hand it to support by itself? True when its newest `attempt_unknown` causes are an unbroken run of
- * pre-replay 401/403 (`AUTH_FAILURE_CAUSES`) of at least `AUTH_FAILURE_ATTEMPTS` attempts, and that run
- * spans at least `spanMs` from its first failure to its newest. Any other cause, a pre-replay 404 (the
- * gate is off, U-2) included, ends the run. The span is read from the persisted audit times, so it
- * survives a restart; an unparseable or backwards time never qualifies (fail closed: no flag).
+ * hand it to support by itself?
+ *
+ * The run: the return's `attempt_unknown` audits, newest first, whose `attempt_no` are ADJACENT and end
+ * at the journal's current attempt number, each with a pre-replay 401/403 cause (`AUTH_FAILURE_CAUSES`).
+ * A gap (an attempt whose audit is missing: a shutdown, a failed audit write), an invalid number, or any
+ * other cause (a pre-replay 404, the gate off, U-2, included) ends it.
+ *
+ * The span: ELAPSED time, never a wall-clock difference. Each attempt is marked in memory on the
+ * monotonic clock as it is sent (`markAttempt`); the run counts only attempts this process marked, and
+ * the flag needs `AUTH_FAILURE_ATTEMPTS` of them spanning at least `spanMs` of monotonic time. So a
+ * stepped wall clock proves nothing, and after a restart the flag waits for new failures (fail closed:
+ * an unproven span never raises it; the cost is a later flag, never a wrong one).
  */
 export interface AuthFailureStreak {
-  reached(returnId: string): boolean;
+  /** Attempt `attemptNo` of `returnId` is being sent now. */
+  markAttempt(returnId: string, attemptNo: number): void;
+  /** Whether the run ending at the journal's `currentAttemptNo` reached the flag. */
+  reached(returnId: string, currentAttemptNo: number): boolean;
 }
 
 /** OD-196-6: three consecutive pre-replay authentication failures. */
@@ -57,33 +67,70 @@ export const AUTH_FAILURE_CAUSES: ReadonlySet<ReturnUnknownCause> = new Set([
  */
 const STREAK_READ_LIMIT = 20;
 
+/** The most returns whose attempt marks are kept (the oldest is forgotten first). */
+const MAX_MARKED_RETURNS = 1000;
+
 interface StreakRow {
   cause: string | null;
-  created_at: string;
+  attempt_no: unknown;
 }
 
-export function createAuthFailureStreak(db: DatabaseHandle, spanMs: number): AuthFailureStreak {
+function isAuthFailure(cause: string | null): boolean {
+  return isCause(cause) && AUTH_FAILURE_CAUSES.has(cause);
+}
+
+export function createAuthFailureStreak(
+  db: DatabaseHandle,
+  spanMs: number,
+  mono: () => number = () => performance.now(),
+): AuthFailureStreak {
+  /** returnId → attempt number → the monotonic instant it was sent (this process only). */
+  const marks = new Map<string, Map<number, number>>();
+
+  /** The monotonic instants of the run, newest first (attempts this process did not mark end it). */
+  function runOf(returnId: string, currentAttemptNo: number): number[] {
+    const statement = db.prepare(
+      `SELECT json_extract(payload, '$.cause') AS cause,
+              json_extract(payload, '$.attempt_no') AS attempt_no
+         FROM audit_events
+        WHERE action_category = 'sale.return.attempt_unknown'
+          AND json_extract(payload, '$.return_id') = ?
+        ORDER BY rowid DESC
+        LIMIT ${String(STREAK_READ_LIMIT)}`,
+    ) as Stmt;
+    const sent = marks.get(returnId);
+    const run: number[] = [];
+    let expected = currentAttemptNo;
+    for (const row of statement.all(returnId) as StreakRow[]) {
+      if (row.attempt_no !== expected || !isAuthFailure(row.cause)) break;
+      const at = sent?.get(expected);
+      if (at === undefined) break;
+      run.push(at);
+      expected -= 1;
+    }
+    return run;
+  }
+
   return {
-    reached(returnId) {
-      const statement = db.prepare(
-        `SELECT json_extract(payload, '$.cause') AS cause, created_at
-           FROM audit_events
-          WHERE action_category = 'sale.return.attempt_unknown'
-            AND json_extract(payload, '$.return_id') = ?
-          ORDER BY rowid DESC
-          LIMIT ${String(STREAK_READ_LIMIT)}`,
-      ) as Stmt;
-      // Newest first: the run ends at the first cause that is not an authentication failure.
-      const times: number[] = [];
-      for (const row of statement.all(returnId) as StreakRow[]) {
-        if (!isCause(row.cause) || !AUTH_FAILURE_CAUSES.has(row.cause)) break;
-        const time = Date.parse(row.created_at);
-        // Fail closed: an unreadable time, or one later than the attempt after it, proves no span.
-        if (Number.isNaN(time) || time > (times.at(-1) ?? Infinity)) return false;
-        times.push(time);
+    markAttempt(returnId, attemptNo) {
+      const at = mono();
+      if (!Number.isSafeInteger(attemptNo) || !Number.isFinite(at)) return;
+      const sent = marks.get(returnId) ?? new Map<number, number>();
+      marks.delete(returnId); // re-insert: the newest return is the last to be forgotten
+      sent.set(attemptNo, at);
+      for (const n of sent.keys()) {
+        if (sent.size <= STREAK_READ_LIMIT) break;
+        sent.delete(n);
       }
-      if (times.length < AUTH_FAILURE_ATTEMPTS) return false;
-      return (times[0] ?? 0) - (times.at(-1) ?? 0) >= spanMs;
+      marks.set(returnId, sent);
+      const oldest = marks.size > MAX_MARKED_RETURNS ? marks.keys().next() : null;
+      if (oldest !== null && oldest.done !== true) marks.delete(oldest.value);
+    },
+
+    reached(returnId, currentAttemptNo) {
+      const run = runOf(returnId, currentAttemptNo);
+      if (run.length < AUTH_FAILURE_ATTEMPTS) return false;
+      return (run[0] ?? 0) - (run.at(-1) ?? 0) >= spanMs;
     },
   };
 }
