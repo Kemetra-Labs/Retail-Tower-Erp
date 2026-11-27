@@ -586,8 +586,9 @@ export interface SaleReturnResendRequestedPayload {
  * RT-1498 S4 — `sale.return.needs_support`: a return was handed to support. `approval_id` is the
  * spent RT-114 approval of a manager's raise, and null for an automatic one; `verdict_source` and
  * `reason` are the closed codes of the disposition row (migration 0070). Ids and codes only.
- * `origin_user_unknown` is true on a manager's raise: the return's originating `users.id` is not
- * captured (RT-196 §9), so four-eyes excluded only the requester.
+ * `origin_user_unknown` is true only for legacy pre-0073 returns whose originating `users.id` was
+ * not captured in `return_journal_origin` (RT-196 §9); when `approval_id` is non-null, four-eyes
+ * excluded only the requester.
  */
 export interface SaleReturnNeedsSupportPayload {
   return_id: string;
@@ -614,13 +615,14 @@ export interface SaleReturnStatusReadPayload {
 /**
  * RT-1498 close slice — `sale.return.closed_not_recorded`: a return was closed as "not recorded"
  * (migration 0070 `not_recorded_closed`). `approval_id` is the spent single-use approval;
- * `read_verdict_at` is when the server's fresh `not_recorded` answer arrived.
+ * `read_verdict_at` is when the server's fresh `not_recorded` answer arrived. `origin_user_unknown`
+ * is present (true) only for legacy pre-0073 returns with no `return_journal_origin` row.
  */
 export interface SaleReturnClosedNotRecordedPayload {
   return_id: string;
   approval_id: string;
   read_verdict_at: string;
-  origin_user_unknown: true;
+  origin_user_unknown?: true;
 }
 
 /**

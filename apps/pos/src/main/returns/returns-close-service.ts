@@ -65,6 +65,7 @@ import {
   spendResolveApproval,
   type ResolveApprovalSpender,
 } from './returns-resolve-approval.js';
+import type { ReturnOriginRepository } from './returns-origin-repository.js';
 import type { JournalEntry, ReturnsRepository } from './returns-repository.js';
 import { isOwnScope } from './returns-service.js';
 import type { StatusReadAvailability } from './returns-status-availability.js';
@@ -115,6 +116,8 @@ export interface ReturnsCloseServiceDeps {
   readonly newDispositionId: () => string;
   /** What `close` spends. Absent: a close refuses with `approval_invalid` (fail closed). */
   readonly escalation?: ResolveApprovalSpender;
+  /** RT-1498 (`0073_return_journal_origin`): read the return originator's `users.id`. */
+  readonly origins: Pick<ReturnOriginRepository, 'originUserIdOf'>;
 }
 
 type Operation = 'read_status' | 'close';
@@ -410,6 +413,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
   /** Inside the transaction: `needs_support` from a read that proved a mismatch (no approval). */
   private raiseSupport(fresh: Fresh): void {
     const { actor, entry, at } = fresh;
+    const originUserId = this.deps.origins.originUserIdOf(entry.returnId);
     this.deps.dispositions.insert({
       dispositionId: this.deps.newDispositionId(),
       returnId: entry.returnId,
@@ -426,7 +430,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
       approval_id: null,
       verdict_source: 'provenance_read',
       reason: 'mismatch',
-      origin_user_unknown: true,
+      ...(originUserId === null ? { origin_user_unknown: true } : {}),
     });
   }
 
@@ -571,7 +575,15 @@ class ReturnsCloseService implements ReturnsCloseAPI {
         quiet.kind === 'too_soon' ? 'reconcile_too_soon' : 'quiet_period_unproven',
       );
     }
-    const spent = spendResolveApproval(this.deps.escalation, actor, approvalId, current, 'close');
+    const originUserId = this.deps.origins.originUserIdOf(current.returnId);
+    const spent = spendResolveApproval(
+      this.deps.escalation,
+      actor,
+      approvalId,
+      current,
+      'close',
+      originUserId,
+    );
     if (spent.kind === 'refused') throw new CloseRefusal(spent.reason);
     this.deps.dispositions.insert({
       dispositionId: this.deps.newDispositionId(),
@@ -595,8 +607,7 @@ class ReturnsCloseService implements ReturnsCloseAPI {
         return_id: current.returnId,
         approval_id: approvalId,
         read_verdict_at: at,
-        // The return's originating users.id is not captured (RT-196 §9): four-eyes excluded only the requester.
-        origin_user_unknown: true,
+        ...(originUserId === null ? { origin_user_unknown: true } : {}),
       },
       spent.approverUserId,
     );

@@ -88,6 +88,12 @@ export interface ApprovalSubject {
    * `sales.created_by`.
    */
   sellerUserId?: string;
+  /**
+   * RT-1498 (migration 0073) — a return resolution's originating operator, as a
+   * lower-case `users.id`, when `return_journal_origin` recorded it. The
+   * approver is never this person either (four-eyes against the originator).
+   */
+  originUserId?: string;
 }
 
 /** Main's view of one kind's subject for this session, or null when not approvable. */
@@ -277,12 +283,19 @@ function approverAllowed(
   kind: ManagerActionKind,
   session: OperatorSessionRecord,
   approverUserId: string,
-  sellerUserId: string | undefined,
+  subject: Pick<ApprovalSubject, 'sellerUserId' | 'originUserId'>,
 ): boolean {
   if (isRecoveryKind(kind)) {
     return approverUserId === session.manager_user_id?.toLowerCase();
   }
-  if (kind === 'sale.void' && approverUserId === sellerUserId) return false;
+  if (kind === 'sale.void' && approverUserId === subject.sellerUserId) return false;
+  if (
+    kind === 'return.resolve_unknown' &&
+    subject.originUserId !== undefined &&
+    approverUserId === subject.originUserId.toLowerCase()
+  ) {
+    return false;
+  }
   return kind === 'session.self_unlock' || approverUserId !== requesterUserIdOf(session);
 }
 
@@ -479,7 +492,7 @@ export function createManagerApprovalService(
       }
       const reserved = tries.reserve(key);
 
-      const checked = await verifyApprover(input, session, scope, before.sellerUserId);
+      const checked = await verifyApprover(input, session, scope, before);
       if (checked.kind !== 'verified') {
         // Only a wrong PIN spends the try; a refused approver gives it back.
         const count = checked.kind === 'pin_rejected' ? reserved : tries.release(key);
@@ -553,7 +566,7 @@ export function createManagerApprovalService(
     input: ManagerApprovalRequest,
     session: OperatorSessionRecord,
     scope: ManagerPinScope,
-    sellerUserId: string | undefined,
+    subject: ApprovalSubject,
   ): Promise<{ kind: 'verified'; approver: VerifiedApprover } | ApproverRefusal> {
     const verdict = await deps.managerPins.verify({
       scope,
@@ -566,7 +579,7 @@ export function createManagerApprovalService(
     });
     if (verdict.kind === 'invalid') return { kind: 'pin_rejected' };
     if (verdict.kind !== 'verified') return { kind: 'approver_refused' };
-    if (!approverAllowed(input.action_kind, session, verdict.userId, sellerUserId)) {
+    if (!approverAllowed(input.action_kind, session, verdict.userId, subject)) {
       return { kind: 'approver_refused' };
     }
     return { kind: 'verified', approver: { userId: verdict.userId, role: verdict.role } };

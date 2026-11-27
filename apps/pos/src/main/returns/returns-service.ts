@@ -73,6 +73,7 @@ import {
   type ReturnDispositionsRepository,
 } from './returns-dispositions-repository.js';
 import { isDisposable, spendResolveApproval } from './returns-resolve-approval.js';
+import type { ReturnOriginRepository } from './returns-origin-repository.js';
 import { assessSale, buildRecordReturnBody, quoteReturn, viewLines } from './returns-quote.js';
 import type { LineDetail } from './returns-payout-repository.js';
 import type { LateCommitDetector } from './returns-late-commit.js';
@@ -162,6 +163,10 @@ export interface ReturnsServiceDeps {
     readonly approvals: Pick<ManagerApprovalService, 'consume' | 'evidence'>;
     readonly userId: () => string | null;
   };
+  /**
+   * RT-1498 (`0073_return_journal_origin`): stores/reads the `users.id` that journaled each return.
+   */
+  readonly origins: Pick<ReturnOriginRepository, 'recordOrigin' | 'originUserIdOf'>;
 }
 
 /** How many journal rows `returns.list` shows. */
@@ -457,7 +462,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
    * before anything is sent (AC8).
    */
   private journal(
-    actor: ReturnActor,
+    actor: AuthSnapshot,
     sale: LiveSale,
     quote: ReturnQuoteView,
     lines: readonly ReturnLineInput[],
@@ -485,6 +490,9 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
       (inserted) => {
         this.deps.audit.attempted(inserted);
         this.deps.recordLineDetails(returnId, lineDetails(sale.wire, quote));
+        if (actor.actorUserId !== undefined) {
+          this.deps.origins.recordOrigin(inserted.returnId, actor.actorUserId, inserted.createdAt);
+        }
       },
     );
     const entry = this.deps.repo.read(returnId);
@@ -620,7 +628,8 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     if (fresh === null) throw new EscalateRefusal('return_not_found');
     const stateRefusal = this.escalateStateRefusal(fresh);
     if (stateRefusal !== null) throw new EscalateRefusal(stateRefusal);
-    const approverUserId = this.spendEscalationApproval(actor, approvalId, fresh);
+    const originUserId = this.deps.origins.originUserIdOf(fresh.returnId);
+    const approverUserId = this.spendEscalationApproval(actor, approvalId, fresh, originUserId);
     this.deps.dispositions.insert({
       dispositionId: this.deps.newDispositionId(),
       returnId: fresh.returnId,
@@ -639,9 +648,7 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
         approval_id: approvalId,
         verdict_source: 'operator',
         reason: 'operator',
-        // The return's originating users.id is not captured (RT-196 §9): four-eyes excluded only
-        // the requester.
-        origin_user_unknown: true,
+        ...(originUserId === null ? { origin_user_unknown: true } : {}),
       },
       approverUserId,
     );
@@ -656,8 +663,16 @@ class ReturnsService implements ReturnsCoreAPI, ReturnsResendAPI {
     actor: AuthSnapshot,
     approvalId: string,
     fresh: JournalEntry,
+    originUserId: string | null,
   ): string {
-    const spent = spendResolveApproval(this.deps.escalation, actor, approvalId, fresh, 'escalate');
+    const spent = spendResolveApproval(
+      this.deps.escalation,
+      actor,
+      approvalId,
+      fresh,
+      'escalate',
+      originUserId,
+    );
     if (spent.kind === 'refused') throw new EscalateRefusal(spent.reason);
     return spent.approverUserId;
   }

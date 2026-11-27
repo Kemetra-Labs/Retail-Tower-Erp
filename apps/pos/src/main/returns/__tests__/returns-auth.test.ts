@@ -242,4 +242,35 @@ describe('createReturnsAuthorizer.current — the immutable snapshot (RT-197 A5)
     expect(Object.isFrozen(admitted.actor.scope)).toBe(true);
     expect(auth.recheck(admitted.actor)).toBe('session_changed');
   });
+
+  it('RT-1498: captures getActorUserId (or session user_id) and detects user-id changes on recheck', () => {
+    const live = { envelope: ENVELOPE, userId: 'User-A' };
+    const auth = createReturnsAuthorizer({
+      isEnabled: () => true,
+      getSession: () => sessionFor('manager'),
+      getActorUserId: () => live.userId,
+      isSessionLocked: () => false,
+      getEnvelope: () => live.envelope,
+    });
+    const admitted = auth.current();
+    if (admitted.kind !== 'ok') throw new Error('expected an admitted manager');
+    expect(admitted.actor.actorUserId).toBe('user-a');
+    expect(auth.recheck(admitted.actor)).toBeNull();
+
+    live.userId = 'USER-A';
+    expect(auth.recheck(admitted.actor)).toBeNull();
+
+    live.userId = 'User-B';
+    expect(auth.recheck(admitted.actor)).toBe('session_changed');
+
+    const fallbackAuth = createReturnsAuthorizer({
+      isEnabled: () => true,
+      getSession: () => ({ ...sessionFor('manager'), user_id: 'User-Session' }),
+      getActorUserId: () => '   ',
+      isSessionLocked: () => false,
+      getEnvelope: () => ENVELOPE,
+    });
+    const fallback = fallbackAuth.current();
+    expect(fallback).toMatchObject({ kind: 'ok', actor: { actorUserId: 'user-session' } });
+  });
 });

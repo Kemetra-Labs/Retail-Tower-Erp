@@ -84,6 +84,11 @@ export interface ResolveApprovalDeps {
    * last probe was answered with a verdict, not a 404). Fail closed: the default is false.
    */
   readonly closeAvailable?: (entry: JournalEntry) => boolean;
+  /**
+   * RT-1498 (`0073_return_journal_origin`): read the return originator's `users.id`, or null for
+   * legacy pre-0073 rows. When non-null, four-eyes excludes that originator too.
+   */
+  readonly originUserIdOf: (returnId: string) => string | null;
 }
 
 function isOwnScope(
@@ -120,7 +125,9 @@ export function createReturnResolveApprovalResolver(
     const earlier = deps.dispositions.stateOf(entry.returnId);
     if (named.disposition === 'escalate' ? earlier !== null : isClosedState(earlier)) return null;
     if (named.disposition === 'close' && !closeAvailable(entry)) return null;
-    return resolveSubjectOf(entry, named.disposition);
+    const base = resolveSubjectOf(entry, named.disposition);
+    const originUserId = normalizeOriginUserId(deps.originUserIdOf(entry.returnId));
+    return originUserId === null ? base : { ...base, originUserId };
   };
 }
 
@@ -142,12 +149,38 @@ export type SpendResolveApproval =
  * (four-eyes). Call it INSIDE the transaction that writes the disposition, so any later refusal rolls
  * the spend back. Fail closed: with no spender, or no live user id, it refuses `approval_invalid`.
  */
+function normalizeOriginUserId(originUserId: string | null | undefined): string | null {
+  if (typeof originUserId !== 'string') return null;
+  const trimmed = originUserId.trim().toLowerCase();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function resolveGrantVerified(
+  approvals: Pick<ManagerApprovalService, 'evidence'>,
+  approvalId: string,
+  reasonCode: string | undefined,
+  disposition: ResolveDisposition,
+  userId: string,
+  originUserId: string | null | undefined,
+): string | null {
+  if (reasonCode !== `${disposition}_unknown`) return null;
+  const evidence = approvals.evidence(approvalId);
+  if (evidence === null) return null;
+  if (evidence.requesterUserId?.toLowerCase() !== userId) return null;
+  const approverLower = evidence.approverUserId.toLowerCase();
+  if (approverLower === userId) return null;
+  const normalizedOrigin = normalizeOriginUserId(originUserId);
+  if (normalizedOrigin !== null && approverLower === normalizedOrigin) return null;
+  return evidence.approverUserId;
+}
+
 export function spendResolveApproval(
   spender: ResolveApprovalSpender | undefined,
   actor: { readonly operatorId: string; readonly scope: ReturnScope },
   approvalId: string,
   entry: JournalEntry,
   disposition: ResolveDisposition,
+  originUserId: string | null,
 ): SpendResolveApproval {
   const userId = spender?.userId()?.toLowerCase() ?? null;
   if (spender === undefined || userId === null)
@@ -164,12 +197,14 @@ export function spendResolveApproval(
     },
   });
   if (consumed.kind === 'refused') return { kind: 'refused', reason: consumed.reason };
-  const evidence = spender.approvals.evidence(approvalId);
-  const granted =
-    evidence !== null &&
-    consumed.reasonCode === `${disposition}_unknown` &&
-    evidence.requesterUserId?.toLowerCase() === userId &&
-    evidence.approverUserId.toLowerCase() !== userId;
-  if (!granted) return { kind: 'refused', reason: 'approval_invalid' };
-  return { kind: 'spent', approverUserId: evidence.approverUserId };
+  const approverUserId = resolveGrantVerified(
+    spender.approvals,
+    approvalId,
+    consumed.reasonCode,
+    disposition,
+    userId,
+    originUserId,
+  );
+  if (approverUserId === null) return { kind: 'refused', reason: 'approval_invalid' };
+  return { kind: 'spent', approverUserId };
 }

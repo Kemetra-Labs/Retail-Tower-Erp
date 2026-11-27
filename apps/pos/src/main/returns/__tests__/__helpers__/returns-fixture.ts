@@ -501,6 +501,11 @@ export interface HarnessOptions {
     readonly handle: DatabaseHandle;
     readonly state: HarnessState;
   }) => ComposeReturnsDeps['escalation'];
+  /** RT-1498 (`0073`): optional live operator `users.id` reader wired into `composeReturns`. */
+  readonly actorUserId?: (context: {
+    readonly handle: DatabaseHandle;
+    readonly state: HarnessState;
+  }) => string | null;
 }
 
 export interface HarnessState {
@@ -634,6 +639,10 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
   const escalation = options.escalation?.({ handle, state });
   const escalationOf = (): Pick<ComposeReturnsDeps, 'escalation'> =>
     escalation === undefined ? {} : { escalation };
+  const actorUserIdOf = (): Pick<ComposeReturnsDeps, 'getActorUserId'> =>
+    options.actorUserId === undefined
+      ? {}
+      : { getActorUserId: () => options.actorUserId?.({ handle, state }) ?? null };
   let killLatest: () => void = () => undefined;
   const lives = new Lives();
   const compose = (): ComposedReturns => {
@@ -653,6 +662,7 @@ export function returnsHarness(options: HarnessOptions = {}): ReturnsHarness {
           ? null
           : { ...sessionFor(state.role), terminal_id: state.terminalId };
       },
+      ...actorUserIdOf(),
       isSessionLocked: () => state.locked,
       auditSink: whileAlive(auditSink, life),
       logger: {

@@ -129,6 +129,7 @@ function setup(role: 'manager' | 'admin' | 'cashier' = 'manager'): ReturnsHarnes
             dispositions: createReturnDispositionsRepository(handle),
             terminalId: () => state.terminalId,
             closeAvailable: () => availability.isAvailable(),
+            originUserIdOf: () => null,
           }),
         },
         now: () => state.now,
@@ -1620,6 +1621,148 @@ describe('automatic late-commit detection (RT-1553)', () => {
       await h.checkSaleLive('sale-without-returns');
 
       expect(h.backend.statusCalls()).toHaveLength(reads);
+    });
+  });
+});
+
+describe('RT-1498 return_journal_origin on close and mismatch', () => {
+  const SARA = '0190f5a2-3b4c-7d8e-9f01-00000000000c';
+  const SARA_REF = 'ref-sara';
+
+  it('captures originator atomically, refuses originator PIN & spend, and omits origin_user_unknown on close audit', async () => {
+    const { createReturnOriginRepository } = await import('../returns-origin-repository.js');
+    const { spendResolveApproval } = await import('../returns-resolve-approval.js');
+    const closePins: Pick<ManagerPinStore, 'verify' | 'list'> = {
+      verify: (input) => {
+        if (input.pin !== PIN) return Promise.resolve({ kind: 'invalid' });
+        if (input.managerRef === SARA_REF)
+          return Promise.resolve({ kind: 'verified', userId: SARA, role: 'manager' });
+        if (input.managerRef === MONA_REF)
+          return Promise.resolve({ kind: 'verified', userId: MONA, role: 'manager' });
+        if (input.managerRef === OMAR_REF)
+          return Promise.resolve({ kind: 'verified', userId: OMAR, role: 'manager' });
+        return Promise.resolve({ kind: 'invalid' });
+      },
+      list: (input) => pins.list(input),
+    };
+    userId = SARA;
+    availability = createStatusReadAvailability();
+    h = returnsHarness({
+      role: 'manager',
+      statusAvailability: availability,
+      actorUserId: () => userId,
+      escalation: ({ handle, state }) => {
+        const origins = createReturnOriginRepository(handle);
+        approvals = createManagerApprovalService({
+          db: handle,
+          getSession: () => ({
+            id: `sess-${state.role ?? 'manager'}`,
+            operator_id: `op-${state.role ?? 'manager'}`,
+            display_name: 'Manager',
+            role: state.role ?? 'manager',
+            tenant_id: SCOPE.tenantId,
+            branch_id: SCOPE.branchId,
+            started_at: state.now,
+            backend_session_id: 'b-1',
+            last_activity_at: state.now,
+            lock_state: 'active',
+            locked_at: null,
+            manager_user_id: userId ?? SARA,
+          }),
+          isSessionLocked: () => state.locked,
+          currentTerminalId: () => state.terminalId,
+          managerPins: closePins,
+          resolvers: {
+            [RETURN_RESOLVE_ACTION_KIND]: createReturnResolveApprovalResolver({
+              repo: createReturnsRepository(handle),
+              dispositions: createReturnDispositionsRepository(handle),
+              terminalId: () => state.terminalId,
+              closeAvailable: () => availability.isAvailable(),
+              originUserIdOf: (id) => origins.originUserIdOf(id),
+            }),
+          },
+          now: () => state.now,
+        });
+        return { approvals, userId: () => userId };
+      },
+    });
+    seedSyncedSale(h.db);
+
+    const returnId = await unknownReturn();
+    expect(createReturnOriginRepository(h.handle).originUserIdOf(returnId)).toBe(SARA);
+
+    // Move to requester Mona, elapse quiet period, readStatus -> not_recorded.
+    userId = MONA;
+    elapse(h, QUIET + 1_000);
+    const read = await h.service.readStatus({ returnId });
+    expect(read).toMatchObject({ kind: 'not_recorded', close: { ready: true } });
+
+    // Originator Sara's PIN is refused via approval_unavailable.
+    const denied = await approvals.request({
+      action_kind: RETURN_RESOLVE_ACTION_KIND,
+      subject_ref: resolveSubjectRef(returnId, 'close'),
+      reason_code: 'close_unknown',
+      approver_ref: SARA_REF,
+      pin: PIN,
+    });
+    expect(denied).toEqual({ kind: 'refused', reason: 'approval_unavailable' });
+
+    // Omar approves, spendResolveApproval refuses if originUserId is passed as Omar, and a fresh approval closes cleanly with true origin Sara.
+    const badSpendApproval = await approve(returnId, 'close');
+    const entry = h.repo.read(returnId);
+    if (entry === null) throw new Error('expected journal entry');
+    expect(
+      spendResolveApproval(
+        { approvals, userId: () => userId },
+        { operatorId: 'op-manager', scope: SCOPE },
+        badSpendApproval,
+        entry,
+        'close',
+        OMAR,
+      ),
+    ).toEqual({ kind: 'refused', reason: 'approval_invalid' });
+
+    const approvalId = await approve(returnId, 'close');
+    const closed = await h.service.close({ returnId, approvalId });
+    expect(closed.kind).toBe('closed');
+    const event = h.audits.find((a) => a.action_category === 'sale.return.closed_not_recorded');
+    expect(event?.payload).toEqual({
+      return_id: returnId,
+      approval_id: approvalId,
+      read_verdict_at: h.state.now,
+    });
+  });
+
+  it('omits origin_user_unknown on mismatch needs_support when return originator is known', async () => {
+    const { createReturnOriginRepository } = await import('../returns-origin-repository.js');
+    userId = SARA;
+    availability = createStatusReadAvailability();
+    h = returnsHarness({
+      role: 'manager',
+      statusAvailability: availability,
+      actorUserId: () => userId,
+    });
+    seedSyncedSale(h.db);
+
+    const returnId = await recordedButUnknownReturn();
+    expect(createReturnOriginRepository(h.handle).originUserIdOf(returnId)).toBe(SARA);
+
+    h.backend.onStatus = (call, backend) => {
+      const key = new URL(call.url).searchParams.get('externalId') ?? '';
+      return jsonResponse(200, {
+        status: 'recorded',
+        creditLinked: true,
+        saleReturn: backend.recorded.get(key),
+      });
+    };
+    const res = await h.service.readStatus({ returnId });
+    expect(res).toMatchObject({ kind: 'recorded', outcome: 'support' });
+    const event = h.audits.find((a) => a.action_category === 'sale.return.needs_support');
+    expect(event?.payload).toEqual({
+      return_id: returnId,
+      approval_id: null,
+      verdict_source: 'provenance_read',
+      reason: 'mismatch',
     });
   });
 });

@@ -114,6 +114,7 @@ function setup(role: 'manager' | 'admin' | 'cashier' = 'manager'): ReturnsHarnes
             repo: createReturnsRepository(handle),
             dispositions: createReturnDispositionsRepository(handle),
             terminalId: () => state.terminalId,
+            originUserIdOf: () => null,
           }),
         },
         now: () => state.now,
@@ -630,5 +631,95 @@ describe('the commit is one unit', () => {
     expect(h.dispositions.listFor(returnId)).toEqual([]);
     expect(spent(approvalId)).toBe(false);
     expect(categories(h.audits)).not.toContain('sale.return.needs_support');
+  });
+});
+
+describe('RT-1498 return_journal_origin atomic capture and four-eyes exclusion', () => {
+  const SARA = '0190f5a2-3b4c-7d8e-9f01-00000000000c';
+  const SARA_REF = 'ref-sara';
+
+  it('captures originator on journal, refuses originator PIN, and omits origin_user_unknown when resolved by a third manager', async () => {
+    const { createReturnOriginRepository } = await import('../returns-origin-repository.js');
+    userId = SARA;
+    let originResolver: ReturnType<typeof createReturnResolveApprovalResolver> | null = null;
+    const withOriginPins: Pick<ManagerPinStore, 'verify' | 'list'> = {
+      verify: (input) => {
+        if (input.pin !== PIN) return Promise.resolve({ kind: 'invalid' });
+        if (input.managerRef === SARA_REF)
+          return Promise.resolve({ kind: 'verified', userId: SARA, role: 'manager' });
+        if (input.managerRef === MONA_REF)
+          return Promise.resolve({ kind: 'verified', userId: MONA, role: 'manager' });
+        if (input.managerRef === OMAR_REF)
+          return Promise.resolve({ kind: 'verified', userId: OMAR, role: 'manager' });
+        return Promise.resolve({ kind: 'invalid' });
+      },
+      list: (input) => pins.list(input),
+    };
+
+    h = returnsHarness({
+      role: 'manager',
+      actorUserId: () => userId,
+      escalation: ({ handle, state }) => {
+        const repo = createReturnsRepository(handle);
+        const origins = createReturnOriginRepository(handle);
+        originResolver = createReturnResolveApprovalResolver({
+          repo,
+          dispositions: createReturnDispositionsRepository(handle),
+          terminalId: () => state.terminalId,
+          originUserIdOf: (id) => origins.originUserIdOf(id),
+        });
+        approvals = createManagerApprovalService({
+          db: handle,
+          getSession: () => ({
+            id: `sess-${state.role ?? 'manager'}`,
+            operator_id: `op-${state.role ?? 'manager'}`,
+            display_name: 'Manager',
+            role: state.role ?? 'manager',
+            tenant_id: SCOPE.tenantId,
+            branch_id: SCOPE.branchId,
+            started_at: state.now,
+            backend_session_id: 'b-1',
+            last_activity_at: state.now,
+            lock_state: 'active',
+            locked_at: null,
+            manager_user_id: userId ?? SARA,
+          }),
+          isSessionLocked: () => state.locked,
+          currentTerminalId: () => state.terminalId,
+          managerPins: withOriginPins,
+          resolvers: { [RETURN_RESOLVE_ACTION_KIND]: originResolver },
+          now: () => state.now,
+        });
+        return { approvals, userId: () => userId };
+      },
+    });
+    seedSyncedSale(h.db);
+
+    const returnId = await unknownReturn();
+    const origins = createReturnOriginRepository(h.handle);
+    expect(origins.originUserIdOf(returnId)).toBe(SARA);
+
+    // Switch active session to Mona and try using Sara's PIN → refused (originator four-eyes).
+    userId = MONA;
+    const denied = await approvals.request({
+      action_kind: RETURN_RESOLVE_ACTION_KIND,
+      subject_ref: resolveSubjectRef(returnId, 'escalate'),
+      reason_code: 'escalate_unknown',
+      approver_ref: SARA_REF,
+      pin: PIN,
+    });
+    expect(denied).toEqual({ kind: 'refused', reason: 'approval_unavailable' });
+
+    // Third manager Omar approves and Mona commits escalate → audit omits origin_user_unknown.
+    const approvalId = await approve(returnId, 'escalate', { approver: OMAR_REF });
+    const res = await h.service.escalate({ returnId, approvalId });
+    expect(res.kind).toBe('escalated');
+    const event = h.audits.find((a) => a.action_category === 'sale.return.needs_support');
+    expect(event?.payload).toEqual({
+      return_id: returnId,
+      approval_id: approvalId,
+      verdict_source: 'operator',
+      reason: 'operator',
+    });
   });
 });

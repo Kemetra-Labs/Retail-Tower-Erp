@@ -33,6 +33,7 @@ import {
   type ResolveDisposition,
 } from '../returns-resolve-approval.js';
 import { createReturnsRepository, type JournalEntry } from '../returns-repository.js';
+import { createReturnOriginRepository } from '../returns-origin-repository.js';
 import { LINE_A, SALE_REF, SCOPE } from './__helpers__/returns-fixture.js';
 
 const TERMINAL = SCOPE.terminalId;
@@ -86,6 +87,7 @@ beforeEach(async () => {
       guard: () => undefined,
     });
   }
+  const origins = createReturnOriginRepository(db);
   approvals = createManagerApprovalService({
     db,
     getSession: () => current,
@@ -98,6 +100,7 @@ beforeEach(async () => {
         dispositions: createReturnDispositionsRepository(db),
         terminalId: () => TERMINAL,
         closeAvailable: () => closeAvailable,
+        originUserIdOf: (id) => origins.originUserIdOf(id),
       }),
     },
     now: () => T0,
@@ -269,5 +272,83 @@ describe('a return that cannot take the disposition is not approvable', () => {
     journalUnknown();
     closeAvailable = false;
     expect(await ask('close')).toEqual({ kind: 'refused', reason: 'approval_invalid' });
+  });
+});
+
+describe('RT-1498 originator four-eyes on manager -> manager returns', () => {
+  const SARA = { userId: '0190f5a2-3b4c-7d8e-9f01-00000000000c', pin: '112233' };
+
+  it('refuses the originator PIN via approval_unavailable and allows a third manager', async () => {
+    const { createReturnOriginRepository } = await import('../returns-origin-repository.js');
+    const { spendResolveApproval } = await import('../returns-resolve-approval.js');
+
+    await pins.enrol({
+      scope: SCOPE,
+      userId: SARA.userId,
+      displayName: SARA.userId,
+      sealed: await pins.seal(SARA.pin),
+      now: T0,
+      onlineAt: T0,
+      guard: () => undefined,
+    });
+
+    journalUnknown();
+    const db = handleFor(raw);
+    const repo = createReturnsRepository(db);
+    const origins = createReturnOriginRepository(db);
+    // Omar originated this return; Mona now requests resolution.
+    origins.recordOrigin(RETURN_ID, OMAR.userId, T0);
+
+    const scopedApprovals = createManagerApprovalService({
+      db,
+      getSession: () => current,
+      isSessionLocked: () => false,
+      currentTerminalId: () => TERMINAL,
+      managerPins: pins,
+      resolvers: {
+        [RETURN_RESOLVE_ACTION_KIND]: createReturnResolveApprovalResolver({
+          repo,
+          dispositions: createReturnDispositionsRepository(db),
+          terminalId: () => TERMINAL,
+          closeAvailable: () => closeAvailable,
+          originUserIdOf: (id) => origins.originUserIdOf(id),
+        }),
+      },
+      now: () => T0,
+    });
+
+    // Using originator Omar's PIN is refused with approval_unavailable.
+    const denied = await scopedApprovals.request({
+      action_kind: RETURN_RESOLVE_ACTION_KIND,
+      subject_ref: resolveSubjectRef(RETURN_ID, 'escalate'),
+      reason_code: 'escalate_unknown',
+      approver_ref: managerRef(OMAR.userId),
+      pin: OMAR.pin,
+    });
+    expect(denied).toEqual({ kind: 'refused', reason: 'approval_unavailable' });
+
+    // Third manager Sara succeeds.
+    const granted = await scopedApprovals.request({
+      action_kind: RETURN_RESOLVE_ACTION_KIND,
+      subject_ref: resolveSubjectRef(RETURN_ID, 'escalate'),
+      reason_code: 'escalate_unknown',
+      approver_ref: managerRef(SARA.userId),
+      pin: SARA.pin,
+    });
+    expect(granted.kind).toBe('approved');
+    if (granted.kind !== 'approved') throw new Error('expected approval');
+
+    // Defense in depth at spend time: passing Sara as the originator refuses the spend as approval_invalid.
+    const entry = repo.read(RETURN_ID);
+    if (entry === null) throw new Error('expected journal entry');
+    const spentBadOrigin = spendResolveApproval(
+      { approvals: scopedApprovals, userId: () => MONA.userId },
+      { operatorId: current.operator_id, scope: entry.scope },
+      granted.approvalId,
+      entry,
+      'escalate',
+      SARA.userId,
+    );
+    expect(spentBadOrigin).toEqual({ kind: 'refused', reason: 'approval_invalid' });
   });
 });
