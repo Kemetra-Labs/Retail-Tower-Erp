@@ -78,10 +78,17 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
     expect(post(ROUTE)["x-runtime-note"]).toMatch(/RT-1362 S2/);
   });
 
-  it("is a POST with the HUMAN cookieAuth scheme only and no request body", () => {
+  it("is a POST with the HUMAN cookieAuth scheme only and an optional strict body carrying only hostLabel", () => {
     expect(Object.keys(doc.paths?.[ROUTE] ?? {})).toEqual(["post"]);
     expect(post(ROUTE).security).toEqual([{ cookieAuth: [] }]);
-    expect(post(ROUTE).requestBody).toBeUndefined();
+    expect(post(ROUTE).requestBody).toMatchObject({
+      required: false,
+      content: { "application/json": { schema: { $ref: "#/components/schemas/RequestConnectorCredentialRotation" } } },
+    });
+    const body = schema("RequestConnectorCredentialRotation");
+    expect(body.additionalProperties).toBe(false);
+    expect(Object.keys(body.properties ?? {})).toEqual(["hostLabel"]);
+    expect(body.required ?? []).toEqual([]);
     expect((post(ROUTE).parameters ?? []).map((p) => p.$ref)).toEqual([
       "#/components/parameters/TenantId",
       "#/components/parameters/ConnectorInstanceId",
@@ -103,6 +110,8 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
       "registration_disabled",
       "provisioning_in_progress",
       "site_not_bound",
+      "host_mismatch",
+      "host_not_bound",
     ]);
   });
 
@@ -121,7 +130,7 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
 
   it("does not widen the shared Error enum (the pinned Connector contract must stay green)", () => {
     const shared = (schema("Error").properties?.["error"] as unknown as { properties: { code: { enum: string[] } } }).properties.code.enum;
-    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "site_not_bound", "already_open"]) {
+    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "site_not_bound", "host_mismatch", "host_not_bound", "already_open"]) {
       expect(shared).not.toContain(code);
     }
   });
