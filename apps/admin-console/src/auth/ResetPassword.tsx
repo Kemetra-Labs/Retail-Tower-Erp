@@ -10,15 +10,13 @@
 import { Banner } from "@/components/Banner";
 import { useT } from "@/i18n";
 import { confirmPasswordReset } from "@/lib/client";
-import { type FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import { Link, useSearchParams } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
 import { PasswordInput } from "./PasswordInput";
-import { ResetErrorBanners, ResetSubmitButton } from "./ResetFeedback";
+import { ResetErrorBanners, ResetSubmitButton, useResetSubmission } from "./ResetFeedback";
 import {
-  type ResetPhase,
   extractResetToken,
-  phaseFromResolution,
   resolvePasswordResetConfirm,
   validateResetPasswordForm,
 } from "./password-reset-flow";
@@ -27,7 +25,7 @@ export function ResetPassword(): React.JSX.Element {
   const [params] = useSearchParams();
   const token = extractResetToken(params);
   const t = useT();
-  const [phase, setPhase] = useState<ResetPhase>({ status: "idle" });
+  const { phase, setPhase, run, disabled } = useResetSubmission("auth.resetPassword.errors.failed");
 
   if (token.length === 0) {
     return (
@@ -60,7 +58,6 @@ export function ResetPassword(): React.JSX.Element {
     );
   }
 
-  const disabled = phase.status === "submitting" || phase.status === "rate-limited";
   const invalid = phase.status === "error";
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
@@ -74,17 +71,9 @@ export function ResetPassword(): React.JSX.Element {
       setPhase({ status: "error", messageKey: validationError });
       return;
     }
-
-    setPhase({ status: "submitting" });
-    const res = await confirmPasswordReset({ token, new_password: newPassword });
-    setPhase(
-      phaseFromResolution(
-        resolvePasswordResetConfirm({
-          status: res.status,
-          error: res.error as { error?: { request_id?: string } } | undefined,
-          retryAfterSeconds: res.retryAfterSeconds,
-        }),
-      ),
+    await run(
+      () => confirmPasswordReset({ token, new_password: newPassword }),
+      resolvePasswordResetConfirm,
     );
   }
 

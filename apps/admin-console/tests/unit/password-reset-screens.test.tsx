@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
@@ -222,5 +222,119 @@ describe("ResetPassword screen (RT-1497)", () => {
     const alert = await screen.findByRole("alert");
     expect(alert.textContent).toContain("invalid or expired");
     expect(alert.textContent).toContain("req-rp-400");
+  });
+
+  test("catches transport rejection on confirm without staying stuck in submitting", async () => {
+    setLocale("en");
+    vi.mocked(client.confirmPasswordReset).mockRejectedValue(new Error("network down"));
+    renderReset("/reset-password?t=tok-net");
+
+    fireEvent.change(screen.getByLabelText("New password"), { target: { value: "ValidPass1!" } });
+    fireEvent.change(screen.getByLabelText("Confirm new password"), {
+      target: { value: "ValidPass1!" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Save new password" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not update the password right now.");
+    expect(
+      (screen.getByRole("button", { name: "Save new password" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+    expect(client.confirmPasswordReset).toHaveBeenCalledTimes(1);
+  });
+
+  test("restores the confirmation form after Retry-After countdown expires", async () => {
+    vi.useFakeTimers();
+    try {
+      setLocale("en");
+      vi.mocked(client.confirmPasswordReset).mockResolvedValue({
+        status: 429,
+        retryAfterSeconds: 2,
+      } as never);
+      renderReset("/reset-password?t=tok-429");
+
+      fireEvent.change(screen.getByLabelText("New password"), { target: { value: "ValidPass1!" } });
+      fireEvent.change(screen.getByLabelText("Confirm new password"), {
+        target: { value: "ValidPass1!" },
+      });
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Save new password" }));
+      });
+
+      const lockedBtn = screen.getByRole("button", {
+        name: /Try again in 2s/,
+      }) as HTMLButtonElement;
+      expect(lockedBtn.disabled).toBe(true);
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(screen.getByRole("button", { name: /Try again in 1s/ })).toBeDefined();
+
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      const restored = screen.getByRole("button", {
+        name: "Save new password",
+      }) as HTMLButtonElement;
+      expect(restored.disabled).toBe(false);
+      expect(client.confirmPasswordReset).toHaveBeenCalledTimes(1);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("ForgotPassword catches transport rejection and re-enables form after Retry-After", async () => {
+    setLocale("en");
+    vi.mocked(client.requestPasswordReset).mockRejectedValueOnce(new Error("offline"));
+    renderForgot();
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ops@store.eg" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert.textContent).toContain("Could not send the request right now.");
+    expect(
+      (screen.getByRole("button", { name: "Send reset link" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
+
+    vi.useFakeTimers();
+    try {
+      vi.mocked(client.requestPasswordReset).mockResolvedValueOnce({
+        status: 429,
+        retryAfterSeconds: 2,
+      } as never);
+      await act(async () => {
+        fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+      });
+      expect(
+        (screen.getByRole("button", { name: /Try again in 2s/ }) as HTMLButtonElement).disabled,
+      ).toBe(true);
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      await act(async () => {
+        await vi.advanceTimersByTimeAsync(1000);
+      });
+      expect(
+        (screen.getByRole("button", { name: "Send reset link" }) as HTMLButtonElement).disabled,
+      ).toBe(false);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  test("429 without Retry-After (0s) does not lock the form", async () => {
+    setLocale("en");
+    vi.mocked(client.requestPasswordReset).mockResolvedValueOnce({ status: 429 } as never);
+    renderForgot();
+
+    fireEvent.change(screen.getByLabelText("Email"), { target: { value: "ops@store.eg" } });
+    fireEvent.click(screen.getByRole("button", { name: "Send reset link" }));
+
+    await screen.findByRole("alert");
+    expect(
+      (screen.getByRole("button", { name: "Send reset link" }) as HTMLButtonElement).disabled,
+    ).toBe(false);
   });
 });

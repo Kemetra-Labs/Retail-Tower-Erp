@@ -9,20 +9,17 @@
 import { Banner } from "@/components/Banner";
 import { useT } from "@/i18n";
 import { requestPasswordReset } from "@/lib/client";
-import { type FormEvent, useState } from "react";
+import type { FormEvent } from "react";
 import { Link } from "react-router";
 import { AuthHead, AuthLayout } from "./AuthLayout";
-import { ResetErrorBanners, ResetSubmitButton } from "./ResetFeedback";
-import {
-  type ResetPhase,
-  phaseFromResolution,
-  resolvePasswordResetRequest,
-  validateResetEmail,
-} from "./password-reset-flow";
+import { ResetErrorBanners, ResetSubmitButton, useResetSubmission } from "./ResetFeedback";
+import { resolvePasswordResetRequest, validateResetEmail } from "./password-reset-flow";
 
 export function ForgotPassword(): React.JSX.Element {
   const t = useT();
-  const [phase, setPhase] = useState<ResetPhase>({ status: "idle" });
+  const { phase, setPhase, run, disabled } = useResetSubmission(
+    "auth.forgotPassword.errors.failed",
+  );
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>): Promise<void> {
     event.preventDefault();
@@ -32,18 +29,7 @@ export function ForgotPassword(): React.JSX.Element {
       setPhase({ status: "error", messageKey: validationError });
       return;
     }
-
-    setPhase({ status: "submitting" });
-    const res = await requestPasswordReset({ email: rawEmail.trim() });
-    setPhase(
-      phaseFromResolution(
-        resolvePasswordResetRequest({
-          status: res.status,
-          error: res.error as { error?: { request_id?: string } } | undefined,
-          retryAfterSeconds: res.retryAfterSeconds,
-        }),
-      ),
-    );
+    await run(() => requestPasswordReset({ email: rawEmail.trim() }), resolvePasswordResetRequest);
   }
 
   if (phase.status === "sent") {
@@ -66,8 +52,6 @@ export function ForgotPassword(): React.JSX.Element {
       </AuthLayout>
     );
   }
-
-  const disabled = phase.status === "submitting" || phase.status === "rate-limited";
 
   return (
     <AuthLayout>

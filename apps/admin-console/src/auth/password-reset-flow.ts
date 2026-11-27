@@ -25,7 +25,7 @@ export type ResetPhase =
   | { status: "error"; messageKey: MessageKey; requestId?: string }
   | { status: "rate-limited"; retryAfterSeconds: number; requestId?: string };
 
-type ResetResolution = { kind: "sent" } | { kind: "done" } | ResetFailure;
+export type ResetResolution = { kind: "sent" } | { kind: "done" } | ResetFailure;
 
 interface ResetErrorKeys {
   badRequest: MessageKey;
