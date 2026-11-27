@@ -34,6 +34,8 @@ CURRENT_TOKEN = "dp2_token"
 CURRENT_ID = "dp2_credential_id"
 CURRENT_ISSUED = "dp2_credential_issued_at"
 CURRENT_EXPIRES = "dp2_credential_expires_at"
+# CURRENT's issuedAt as Backend-Core sent it (ISO-8601 UTC): the unambiguous fence of a stage.
+CURRENT_ISSUED_UTC = "dp2_current_credential_issued_at_utc"
 REGISTRATION_ID = "dp2_connector_registration_id"
 PENDING_TOKEN = "dp2_pending_token"
 PENDING_ID = "dp2_pending_credential_id"
@@ -185,16 +187,23 @@ def _decide(values: dict, credential_id: str, issued_at: str) -> str:
 		pending_issued_at=values.get(PENDING_ISSUED) or None,
 		new_id=credential_id,
 		new_issued_at=issued_at,
-		current_issued_at=_current_issued_utc(values.get(CURRENT_ISSUED)),
+		current_issued_at=_current_issued_utc(values),
 	)
 
 
-def _current_issued_utc(stored) -> str | None:
-	"""CURRENT's ``issuedAt`` as ISO-8601 UTC. The field is a Frappe Datetime in the system time zone (as
-	``bind_credential`` and a promotion write it), so it is read back in that zone. In the one ambiguous
-	hour of a DST fall-back the earlier instant is taken (``fold=0``): CURRENT then looks earlier, so the
-	rule can only let an old write through (which falls back to CURRENT on its 401), never refuse a newer
-	credential. ``None`` when unset or unreadable."""
+def _current_issued_utc(values: dict) -> str | None:
+	"""CURRENT's ``issuedAt`` as ISO-8601 UTC, the fence of a stage.
+
+	The UTC string Backend-Core sent (``dp2_current_credential_issued_at_utc``, written by every bind
+	and promotion) when it is set. Otherwise (a credential bound before this field existed) the site-local
+	Frappe Datetime, read back in the system time zone; in the ambiguous hour of a DST fall-back the
+	LATER instant is taken (``fold=1``), so the fence is stricter, never looser: at worst a newer
+	credential is refused once and the rotation re-pulls, but an older one is never staged. ``None`` when
+	neither is set or readable."""
+	exact = values.get(CURRENT_ISSUED_UTC)
+	if parse_utc(exact) is not None:
+		return exact
+	stored = values.get(CURRENT_ISSUED)
 	if not stored:
 		return None
 	from zoneinfo import ZoneInfo
@@ -206,7 +215,7 @@ def _current_issued_utc(stored) -> str | None:
 		zone = ZoneInfo(get_system_timezone())
 	except Exception:  # an unreadable stored time is no fence: the PENDING compare still applies
 		return None
-	aware = local.replace(tzinfo=zone) if local.tzinfo is None else local
+	aware = local.replace(tzinfo=zone, fold=1) if local.tzinfo is None else local
 	return aware.astimezone(UTC).isoformat()
 
 
@@ -334,6 +343,7 @@ def promote_pending(pending: PendingCredential) -> bool:
 	}
 	if parse_utc(pending.issued_at) is not None:
 		updates[CURRENT_ISSUED] = _site_naive(pending.issued_at)
+		updates[CURRENT_ISSUED_UTC] = pending.issued_at  # the exact fence, in the same unit
 	if parse_utc(pending.expires_at) is not None:
 		updates[CURRENT_EXPIRES] = _site_naive(pending.expires_at)
 

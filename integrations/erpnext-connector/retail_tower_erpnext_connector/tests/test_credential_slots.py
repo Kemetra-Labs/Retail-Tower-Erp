@@ -406,7 +406,8 @@ def frappe_db(monkeypatch):
 	utils = types.ModuleType("frappe.utils")
 	utils.get_datetime = lambda value: value if isinstance(value, datetime) else datetime.fromisoformat(value)
 	utils.convert_utc_to_system_timezone = lambda value: value  # the stand-in site runs in UTC
-	utils.get_system_timezone = lambda: "UTC"
+	db.zone = "UTC"
+	utils.get_system_timezone = lambda: db.zone
 	password = types.ModuleType("frappe.utils.password")
 	password.set_encrypted_password = lambda dt, dn, pwd, fieldname: db.auth.__setitem__(fieldname, pwd)
 	password.remove_encrypted_password = lambda dt, dn, fieldname: db.auth.pop(fieldname, None)
@@ -521,6 +522,37 @@ def test_after_a_promotion_an_earlier_credential_is_refused_by_the_current_fence
 	assert _stage(credential_id="cred-A", issued_at=T0) == STALE  # the late retry of A
 	assert "dp2_pending_token" not in frappe_db.auth and frappe_db.auth["dp2_token"] == NEWER
 	assert _stage(credential_id="cred-C", issued_at="2026-11-27T10:00:00.000003Z") == WRITE
+
+
+def test_promotion_writes_the_exact_utc_issue_time_of_current(frappe_db):
+	_stage(credential_id="cred-B", issued_at=T1, secret=NEWER)
+	frappe_db.commit()
+	credential_slots.promote_pending(PendingCredential("cred-B", NEWER, T1, "2027-02-25T10:00:00Z"))
+	assert frappe_db.singles["dp2_current_credential_issued_at_utc"] == T1
+
+
+# America/New_York falls back on 2026-11-01: local 01:30 is both 05:30Z (EDT) and 06:30Z (EST).
+_NY_AMBIGUOUS_LOCAL = "2026-11-01T01:30:00"
+
+
+def test_in_a_fall_back_hour_the_exact_utc_fence_refuses_an_older_credential(frappe_db):
+	frappe_db.zone = "America/New_York"
+	frappe_db.singles.update(
+		dp2_credential_issued_at=_NY_AMBIGUOUS_LOCAL,  # what the local Datetime shows for 06:30Z
+		dp2_current_credential_issued_at_utc="2026-11-01T06:30:00Z",
+	)
+	assert _stage(credential_id="cred-older", issued_at="2026-11-01T06:15:00Z") == STALE
+	assert "dp2_pending_token" not in frappe_db.auth
+	assert _stage(credential_id="cred-newer", issued_at="2026-11-01T06:31:00Z") == WRITE
+
+
+def test_a_legacy_ambiguous_local_time_resolves_to_the_later_instant(frappe_db):
+	# Bound before the UTC field existed: only the local Datetime. The stricter reading (06:30Z, not
+	# 05:30Z) keeps the older 06:15Z credential out; at worst a newer one re-pulls once.
+	frappe_db.zone = "America/New_York"
+	frappe_db.singles["dp2_credential_issued_at"] = _NY_AMBIGUOUS_LOCAL
+	assert _stage(credential_id="cred-older", issued_at="2026-11-01T06:15:00Z") == STALE
+	assert _stage(credential_id="cred-newer", issued_at="2026-11-01T06:31:00Z") == WRITE
 
 
 def test_a_promotion_that_fails_part_way_leaves_both_slots_intact(frappe_db):

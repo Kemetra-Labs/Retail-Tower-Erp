@@ -57,6 +57,7 @@ class TestCredentialSlotsOnASite(unittest.TestCase):
 				"dp2_token": "*" * len(OLD),
 				"dp2_connector_registration_id": REGISTRATION,
 				"dp2_credential_id": "cred-old",
+				"dp2_current_credential_issued_at_utc": None,
 				"dp2_pending_token": None,
 				"dp2_pending_credential_id": None,
 				"dp2_pending_credential_issued_at": None,
@@ -110,14 +111,19 @@ class TestCredentialSlotsOnASite(unittest.TestCase):
 		self.assertEqual(self.secret_of("dp2_token"), NEW)
 		self.assertIsNone(self.secret_of("dp2_pending_token"))
 		self.assertEqual(self._single("dp2_credential_id"), "cred-new")
+		self.assertEqual(self._single("dp2_current_credential_issued_at_utc"), T1)  # the exact fence
 		self.assertFalse(self._single("dp2_pending_credential_id"))
 		self.assertEqual(self.slots.reload_current_token(), NEW)
 
 	def test_an_earlier_credential_is_never_staged_after_a_later_one_was_promoted(self):
-		# The CURRENT fence is read back from the Datetime field in the site's time zone.
+		# The CURRENT fence is the exact UTC issue time the promotion wrote.
 		self._stage(credential_id="cred-B", issued_at="2026-11-27T10:05:00Z", secret=NEWER)
 		self.assertTrue(self.slots.promote_pending(self.slots.read_pending(frappe.get_doc(SETTINGS))))
+		self.assertEqual(self._single("dp2_current_credential_issued_at_utc"), "2026-11-27T10:05:00Z")
 		self.assertEqual(self._stage(credential_id="cred-A", issued_at=T1), self.slots.STALE)
+		self.assertEqual(  # one second before CURRENT, by the exact fence
+			self._stage(credential_id="cred-A2", issued_at="2026-11-27T10:04:59Z"), self.slots.STALE
+		)
 		self.assertIsNone(self.secret_of("dp2_pending_token"))
 		self.assertEqual(
 			self._stage(credential_id="cred-C", issued_at="2026-11-27T10:06:00Z"), self.slots.WRITE

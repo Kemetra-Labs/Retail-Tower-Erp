@@ -380,6 +380,9 @@ def bind_credential(args: dict, secret: str | None) -> dict:
 	settings.dp2_credential_id = args["credential_id"]
 	settings.dp2_credential_issued_at = _site_naive(args["issued_at"])
 	settings.dp2_credential_expires_at = _site_naive(args["expires_at"])
+	# RT-1362 S3: the exact UTC issue time, the fence a later rotation's pending-slot write compares with
+	# (the site-local Datetime above is ambiguous in a DST fall-back hour).
+	settings.dp2_current_credential_issued_at_utc = args["issued_at"]
 	settings.save()
 	_commit()
 	return {"ok": True}

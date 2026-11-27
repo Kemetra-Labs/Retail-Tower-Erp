@@ -60,6 +60,7 @@ APPROVED_SETTINGS_FIELDS = frozenset(
 		"dp2_credential_issued_at",
 		"dp2_credential_expires_at",
 		"dp2_credential_warn_days",
+		"dp2_current_credential_issued_at_utc",
 		"dp2_pending_token",
 		"dp2_pending_credential_id",
 		"dp2_pending_credential_issued_at",
