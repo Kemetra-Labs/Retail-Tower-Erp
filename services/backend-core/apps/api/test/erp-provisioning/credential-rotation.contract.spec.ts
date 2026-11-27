@@ -102,13 +102,26 @@ describe("RT-1362 S1 platformRequestConnectorCredentialRotation contract", () =>
       "not_managed",
       "registration_disabled",
       "provisioning_in_progress",
-      "not_provisioned",
+      "site_not_bound",
     ]);
+  });
+
+  it("identifies the rotated site by the stored binding, additively (owner decision RT-1362 c19104)", () => {
+    const request = schema("ProvisioningRequest") as Schema & {
+      properties?: Record<string, { type?: string; minLength?: number; maxLength?: number; pattern?: string }>;
+    };
+    const siteRef = request.properties?.["erpnextSiteRef"];
+    expect(siteRef).toMatchObject({ type: "string", minLength: 1, maxLength: 255 });
+    expect(siteRef?.pattern).toBeUndefined();
+    expect(request.required).not.toContain("erpnextSiteRef");
+    // The pinned Connector reads these by subscript: they stay required, and the siteName rule is unchanged.
+    expect(request.required).toEqual(expect.arrayContaining(["siteName", "template", "locale", "connectorRegistrationId"]));
+    expect(request.properties?.["siteName"]?.pattern).toBe("^t[0-9a-f]{20}[a-z0-9.-]*$");
   });
 
   it("does not widen the shared Error enum (the pinned Connector contract must stay green)", () => {
     const shared = (schema("Error").properties?.["error"] as unknown as { properties: { code: { enum: string[] } } }).properties.code.enum;
-    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "not_provisioned", "already_open"]) {
+    for (const code of ["rotation_unavailable", "not_managed", "registration_disabled", "provisioning_in_progress", "site_not_bound", "already_open"]) {
       expect(shared).not.toContain(code);
     }
   });

@@ -181,26 +181,41 @@ info:
 
 
     **Credential rotation (`credential.rotate`), version 1.2.0-draft.** Jira
-    RT-1362 slice S1 (owner approval on RT-1362 comment 19102; RT-1432
-    decisions D1, D2 amended, D4). A `credential.rotate` request is created by
+    RT-1362 slice S1 (owner approval on RT-1362 comment 19102; adopted
+    registrations included by the owner decision on RT-1362 comment 19104;
+    RT-1432 decisions D1, D2 amended, D4). A `credential.rotate` request is created by
     Backend-Core only: by its scheduler, 14 days before the managed
     credential's expiry, or by a platform admin through
     `platformRequestConnectorCredentialRotation` ("rotate now"), due
     immediately. At most one `credential.rotate` request is open per
     registration; a second trigger returns the open one. An open
     `store.provision` request does not block it.
-      - **Which registrations.** Only a managed registration whose
-        `tenant.provision` request has `succeeded` gets one. The request
-        repeats that provisioning request's `connectorRegistrationId`,
-        `siteName`, `template`, `locale` and `environment` (informational for
-        the provisioner, which still verifies the site), no `legalName`, and
-        `stores: []`; nothing on the site is re-provisioned. A registration
-        that is managed but has no succeeded `tenant.provision` request (for
-        example one made by hand and adopted with
-        `platformAdoptConnectorRegistration`, whose site name does not follow
-        the `siteName` rule) gets none: "rotate now" refuses it with `409
-        not_provisioned` and the scheduler skips it. How such a registration is
-        rotated is an open decision for a later contract change (RT-1362).
+      - **Which registrations.** A registration is eligible when it is managed
+        (`managed_by` = provisioner), enabled, and bound to a site: either its
+        `tenant.provision` request has `succeeded`, or it was adopted with
+        `platformAdoptConnectorRegistration` (a hand-made registration, for
+        example the lab one, whose site was never provisioned here). A managed
+        registration that is neither (its `tenant.provision` request ended
+        `failed_permanent`, `compensated` or `cancelled`, so no site was ever
+        bound to it, and it was not adopted) gets none: "rotate now" refuses
+        it with `409 site_not_bound` and the scheduler skips it.
+      - **Which site.** Rotation keys on the registration's STORED SITE BINDING,
+        never on `tenant.provision` fields. The request carries it as
+        `erpnextSiteRef` (the registration's recorded ERP site reference),
+        always present on `credential.rotate`; the provisioner locates the
+        site by it. `siteName`, `template` and `locale` stay required on every
+        request for compatibility with the pinned Connector, but on
+        `credential.rotate` they are compatibility fields that the provisioner
+        must never use to find or change the site: `siteName` is the
+        tenant-derived name (the `siteName` rule, which can differ from the
+        real site of an adopted registration), and `template` and `locale`
+        are those of the registration's succeeded `tenant.provision` request,
+        or, for an adopted registration, the deployment's current
+        provisioning template and locale. The request also carries
+        `connectorRegistrationId` and `environment`, no `legalName`, and
+        `stores: []`; nothing on the site is re-provisioned. Making these
+        fields optional per kind is a follow-up contract change that must land
+        together with the Connector change (RT-1362 S3).
       - **Activation (compatibility gate).** A provisioner released before
         RT-1362 S3 skips every kind except `tenant.provision`, so a
         `credential.rotate` request would stay open. Backend-Core therefore
@@ -209,15 +224,23 @@ info:
         only after a provisioner that handles the kind is deployed on the ERP
         host. While it is off, the scheduler creates nothing and "rotate now"
         refuses with `409 rotation_unavailable`; no request is left open.
-      - **One completion sequence.** The provisioner sends `claimed`, makes the
+      - **One completion sequence.** The provisioner sends `claimed`, then
+        VERIFIES THE SITE BEFORE ANYTHING IS REVOKED: the site named by
+        `erpnextSiteRef` exists on this host and its Connector Settings already
+        name `connectorRegistrationId`. A missing site or a mismatch is a
+        `conflict` step outcome (then a `conflict` outcome), and the credential
+        call is never made, so nothing is revoked. Otherwise it makes the
         credential call (the `credential.rotate` rule above), writes the new
         secret in-process into the site's Connector Settings, sends
         `credential_bound`, confirms that the Connector's next authenticated
-        call succeeds, sends `verified`, then the `succeeded` outcome. For this
-        kind the status model's `succeeded` means only that the credential
-        issued by the request has been presented: no store map is
-        acknowledged, and the outcome `result` reports the site as found, with
-        `stores: []`.
+        call succeeds, and sends `verified`. That is the end: the provisioner
+        sends NO `succeeded` outcome for this kind (an adopted site cannot
+        supply `ProvisioningResult`), because Backend-Core records `succeeded`
+        itself (below). The outcome call is used on this kind only for a
+        failure (`permanently_rejected` or `conflict`, with a `reason`). For
+        this kind the status model's `succeeded` means only that the
+        credential issued by the request has been presented; no store map is
+        acknowledged.
       - **Done check and late reports.** Backend-Core records `succeeded` in the
         same transaction that first accepts a request authenticated with the
         credential this request issued, so a rotation is done as soon as the
@@ -225,11 +248,11 @@ info:
         and the request is never offered again. That usually happens before
         the provisioner's last reports arrive, so on a `credential.rotate`
         request that is already `succeeded`:
-          - a step acknowledgement (`credential_bound` or `verified`) or a
-            `succeeded` outcome from the provisioner principal that held the
-            request's last lease is answered `200` (an outcome under the usual
-            `Idempotency-Key` rule), is recorded for the audit trail, and
-            changes nothing;
+          - a step acknowledgement (`credential_bound` or `verified`) from the
+            provisioner principal that held the request's last lease is
+            answered `200`, is recorded for the audit trail, and changes
+            nothing (a `succeeded` outcome sent anyway is treated the same way,
+            under the usual `Idempotency-Key` rule);
           - any other step, outcome or caller gets `409 lease_lost`, and the
             credential call gets the `404` above.
         On a `credential.rotate` request neither refusal is a `dependency`
@@ -972,11 +995,12 @@ paths:
           3. A registration whose `tenant.provision` request is still open is
              refused: `409 provisioning_in_progress` (that request issues the
              credential).
-          4. A managed registration with no succeeded `tenant.provision`
-             request (for example a hand-made registration adopted with
-             `platformAdoptConnectorRegistration`) is refused: `409
-             not_provisioned` (see "Credential rotation" in the file
-             description; an open decision).
+          4. A managed registration that is not bound to a site (its
+             `tenant.provision` request ended `failed_permanent`,
+             `compensated` or `cancelled` and it was not adopted) is refused:
+             `409 site_not_bound`. An ADOPTED registration is eligible, like a
+             provisioned one (owner decision, RT-1362 comment 19104; see
+             "Credential rotation" in the file description).
           5. While a `credential.rotate` request of the registration is open
              (not `succeeded`, `failed_permanent`, `compensated` or
              `cancelled`), whoever or whatever created it (this operation,
@@ -1305,6 +1329,8 @@ components:
             tenant id with the hyphens removed, then `-`, then the deployment
             environment (for example `t0b9a3f0e6c5d4e2a8d52-pilot`). The provisioner verifies it; a mismatch or a site
             with this name that carries another tenant's marker is `conflict`.
+            On `credential.rotate` it is a compatibility field only: the site
+            is identified by `erpnextSiteRef`.
         template:
           $ref: "#/components/schemas/Template"
         locale:
@@ -1323,6 +1349,16 @@ components:
         environment:
           type: string
           enum: [dev, staging, pilot, prod]
+        erpnextSiteRef:
+          type: string
+          minLength: 1
+          maxLength: 255
+          description: >
+            Version 1.2.0-draft (RT-1362 S1). The registration's stored ERP site
+            reference (its site binding). Always present on `credential.rotate`,
+            where it, not `siteName`, identifies the site the provisioner works
+            on (an adopted registration's site need not follow the `siteName`
+            rule). Absent on the other kinds.
         attemptFloor:
           type: integer
           minimum: 0
@@ -1750,15 +1786,16 @@ components:
           properties:
             code:
               type: string
-              enum: [rotation_unavailable, not_managed, registration_disabled, provisioning_in_progress, not_provisioned]
+              enum: [rotation_unavailable, not_managed, registration_disabled, provisioning_in_progress, site_not_bound]
               description: >
                 `rotation_unavailable`: rotation is not switched on for this
                 deployment (no provisioner that handles `credential.rotate`).
                 `not_managed`: the registration is not managed by the
                 provisioner. `registration_disabled`: it is disabled.
                 `provisioning_in_progress`: its `tenant.provision` request is
-                still open. `not_provisioned`: it has no succeeded
-                `tenant.provision` request.
+                still open. `site_not_bound`: it is bound to no site (its
+                `tenant.provision` request did not succeed and it was not
+                adopted).
             message:
               type: string
               description: Human-readable summary. No sensitive data.
@@ -1947,9 +1984,9 @@ components:
         deployed). `not_managed` (409): the registration is not managed by the
         provisioner. `registration_disabled` (409): it is disabled.
         `provisioning_in_progress` (409): its `tenant.provision` request is
-        still open. `not_provisioned` (409): it is managed but has no
-        succeeded `tenant.provision` request (an adopted hand-made
-        registration). Deterministic, nothing is changed and no request is
+        still open. `site_not_bound` (409): it is managed but bound to no site
+        (its `tenant.provision` request ended `failed_permanent`,
+        `compensated` or `cancelled`, and it was not adopted). Deterministic, nothing is changed and no request is
         written.
       content:
         application/json:
