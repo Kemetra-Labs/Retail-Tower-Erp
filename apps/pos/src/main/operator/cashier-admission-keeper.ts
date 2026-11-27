@@ -589,6 +589,19 @@ export class CashierAdmissionKeeper {
   }
 
   private onAdmitted(armed: Armed, result: CashierAdmissionAdmitted, seq: number): void {
+    if (this.sendMarkChanged(armed)) {
+      // RT-309 (Codex #929): a re-pair or a grant invalidation (a device 401, a
+      // 403, `active_elsewhere`) landed while this heartbeat was in flight. The
+      // answer may predate it, so it renews nothing (fail closed): the contact
+      // counts as lost and the admission is verified again soon.
+      this.deps.logger?.warn(
+        { event: 'operator.cashier_admission.heartbeat.stale_admitted' },
+        'cashier admission answer raced an invalidation; not renewed',
+      );
+      this.deps.sessionManager.markContactLost(armed.session_id);
+      this.scheduleNext(armed, this.earlyVerifyCapMs(armed));
+      return;
+    }
     armed.failures = 0;
     notifyGrantSeam(this.deps.admission, result, armed);
     if (result.admission_id !== armed.admission_id) {
@@ -631,6 +644,8 @@ export class CashierAdmissionKeeper {
     // RT-113 OD5 + Codex P1 4183383053: EVERY device 401 invalidates every
     // offline grant (fail closed), with this heartbeat's send mark.
     notifyGrantSeam(this.deps.admission, result, armed);
+    // RT-309 (D6): the admission was not confirmed: the contact-lost bound starts.
+    this.deps.sessionManager.markContactLost(armed.session_id);
     this.scheduleNext(armed, deviceConfirmCapMs(armed));
   }
 
@@ -639,6 +654,9 @@ export class CashierAdmissionKeeper {
    * Either way the retry lands before the deadline (Codex P2 4179771036).
    */
   private onNotAnswered(armed: Armed, result: CashierAdmissionResult): void {
+    // RT-309 (D6): any answer that does not confirm the admission (unreachable,
+    // 5xx, 429, no token, 400, 409) starts the contact-lost bound.
+    this.deps.sessionManager.markContactLost(armed.session_id);
     if (!BACKOFF_KINDS.has(result.kind)) {
       armed.failures = 0;
       this.scheduleNext(armed, this.nextCapMs(armed, heartbeatIntervalMs(armed.ttl_seconds)));
@@ -648,6 +666,16 @@ export class CashierAdmissionKeeper {
     // A `rate_limited` answer's backoff is a floor for the early verification.
     const floor = result.kind === 'rate_limited' ? backoffCapMs(armed) : 0;
     this.scheduleNext(armed, this.nextCapMs(armed, backoffCapMs(armed), floor));
+  }
+
+  /** RT-309: true when the pairing or the grant invalidation marker moved since the heartbeat was SENT. */
+  private sendMarkChanged(armed: Armed): boolean {
+    const now = captureSendMark(this.deps.admission);
+    const pairingMoved =
+      armed.pairing_generation !== undefined && now.pairing_generation !== armed.pairing_generation;
+    const invalidated =
+      armed.invalidation_seq !== undefined && now.invalidation_seq !== armed.invalidation_seq;
+    return pairingMoved || invalidated;
   }
 
   /** Lose authority: no new sale, no more heartbeats; end at the first safe point. */
