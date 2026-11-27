@@ -190,7 +190,36 @@ export function readSaleReturnBody(json: unknown): WireSaleReturn | null {
  */
 export type WireReturnStatus =
   | { status: 'not_recorded' }
-  | { status: 'recorded'; creditLinked: boolean; saleReturn: WireSaleReturn };
+  | {
+      status: 'recorded';
+      creditLinked: boolean;
+      saleReturn: WireSaleReturn;
+      /**
+       * RT-1498 confirm-by-read: the recorded `saleReturn.refundTenders` (the allocations, with the
+       * `allocationRef`, `originalTenderRef` and `instrument` they were recorded with), or null when
+       * they are absent or unreadable. Read only here, never on the send path.
+       */
+      refundTenders: WireRecordedTender[] | null;
+    };
+
+/** One recorded refund allocation (`RefundTender`), as the server holds it. */
+export interface WireRecordedTender {
+  method: string;
+  amount: string;
+  allocationRef?: string | undefined;
+  originalTenderRef?: string | undefined;
+  instrument?: string | undefined;
+}
+
+const readRecordedTenders = arrayOf(
+  readObject<WireRecordedTender>({
+    method: str,
+    amount: str,
+    allocationRef: optional(str),
+    originalTenderRef: optional(str),
+    instrument: optional(str),
+  }),
+);
 
 const readRecordedStatus = readObject<{ creditLinked: boolean; saleReturn: WireSaleReturn }>({
   creditLinked: bool,
@@ -203,7 +232,12 @@ export function readReturnStatusBody(json: unknown): WireReturnStatus | null {
   if (json['status'] === 'not_recorded') return { status: 'not_recorded' };
   if (json['status'] !== 'recorded') return null;
   const recorded = readWith(json, readRecordedStatus);
-  return recorded === null ? null : { status: 'recorded', ...recorded };
+  if (recorded === null) return null;
+  const saleReturn = json['saleReturn'];
+  const refundTenders = isRecord(saleReturn)
+    ? readWith(saleReturn['refundTenders'], readRecordedTenders)
+    : null;
+  return { status: 'recorded', ...recorded, refundTenders };
 }
 
 /** The needed `RefundExecution` fields, or null when any is missing or mistyped. */

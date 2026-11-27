@@ -197,6 +197,11 @@ describe('what the read shows (the server’s words, never an inference)', () =>
       refusalMessage('quiet_period_unproven'),
     ],
     [
+      'a recorded return that is this one: the read confirmed it (RT-196 §3.9 readConfirmed)',
+      { kind: 'recorded', ret: UNKNOWN, outcome: 'confirmed' },
+      STATUS_COPY.readConfirmed,
+    ],
+    [
       'a recorded return that is this one: resend to confirm',
       { kind: 'recorded', ret: UNKNOWN, outcome: 'resend' },
       STATUS_COPY.readRecordedResend,
@@ -289,6 +294,7 @@ describe('what the read shows (the server’s words, never an inference)', () =>
   it('a read that wrote no hold (recorded, no verdict, closed) does not say so', async () => {
     const answers: ReturnsReadStatusResponse[] = [
       { kind: 'recorded', ret: UNKNOWN, outcome: 'resend' },
+      { kind: 'recorded', ret: UNKNOWN, outcome: 'confirmed' },
       { kind: 'inconclusive', ret: UNKNOWN, cause: 'server' },
     ];
     for (const answer of answers) {
@@ -586,6 +592,30 @@ describe('the close sheet binds the disposition', () => {
     await chooseManagerAndPin(user);
     await user.click(commit());
     expect(await screen.findByRole('alert')).toHaveTextContent(refusalMessage(reason));
+  });
+
+  it('a close that the server read turned into a confirmation shows readConfirmed (RT-196 §3.9)', async () => {
+    const { bridge, user } = await open();
+    bridge.close.mockResolvedValueOnce({
+      kind: 'refused',
+      reason: 'already_resolved',
+      ret: { ...UNKNOWN, state: 'confirmed' },
+    });
+    await chooseManagerAndPin(user);
+    await user.click(commit());
+    expect(await screen.findByRole('alert')).toHaveTextContent(STATUS_COPY.readConfirmed);
+  });
+
+  it('an already_resolved close of a row that is not confirmed keeps the generic line', async () => {
+    const { bridge, user } = await open();
+    bridge.close.mockResolvedValueOnce({
+      kind: 'refused',
+      reason: 'already_resolved',
+      ret: UNKNOWN,
+    });
+    await chooseManagerAndPin(user);
+    await user.click(commit());
+    expect(await screen.findByRole('alert')).toHaveTextContent(refusalMessage('already_resolved'));
   });
 
   it('a lost call is named, never success', async () => {

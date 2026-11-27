@@ -18,7 +18,11 @@ import { createSaleVoidRepository } from '../sale-void/sale-void-repository.js';
 import { DEFAULT_CURRENCY_CODE } from '../sales-sync/create-sale-sync-client.js';
 import { createSaleSyncStateRepo } from '../sales-sync/sale-sync-state-repo.js';
 import { createReturnsAudit, type ReturnsAuditSink } from './returns-audit.js';
-import { createReturnCauseReader, type ReturnCauseReader } from './returns-causes.js';
+import {
+  createAuthFailureStreak,
+  createReturnCauseReader,
+  type ReturnCauseReader,
+} from './returns-causes.js';
 import { DRAIN_MARGIN_MS } from '../sales-sync/settled-within.js';
 import {
   createReturnsClient,
@@ -45,7 +49,11 @@ import {
   type JournalEntry,
   type ReturnScope,
 } from './returns-repository.js';
-import { createReturnQuietPeriod, type QuietPeriodClocks } from './returns-quiet-period.js';
+import {
+  RETURN_QUIET_PERIOD_MS,
+  createReturnQuietPeriod,
+  type QuietPeriodClocks,
+} from './returns-quiet-period.js';
 import { createReturnsResolver, type ReturnsResolver } from './returns-resolver.js';
 import {
   createReturnsAuthorizer,
@@ -214,6 +222,8 @@ export function composeReturns(deps: ComposeReturnsDeps): ComposedReturns {
     repo,
     dispositions,
     quiet,
+    // RT-1498 (OD-196-6): 3 consecutive pre-replay 401/403 resends over the quiet period → support.
+    authFailures: createAuthFailureStreak(deps.db, RETURN_QUIET_PERIOD_MS, deps.clocks?.mono),
     audit,
     now,
     logger: deps.logger,
