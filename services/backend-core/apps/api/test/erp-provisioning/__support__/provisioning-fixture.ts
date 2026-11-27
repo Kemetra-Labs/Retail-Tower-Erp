@@ -19,9 +19,16 @@ export class ProvisioningTestModule {}
 
 export const SYSTEM_ACTOR = "00000000-0000-7000-8000-000000001357";
 
-/** Remove every provisioning artifact between tests (the step log refuses row DELETE, so TRUNCATE). */
+/**
+ * Remove every provisioning artifact between tests. The step log refuses row DELETE, so it is TRUNCATEd. The request
+ * table is emptied with DELETE instead: since migration 0136 (RT-1362 S2) `auth_tokens_pending_rotation_request_fk`
+ * references it, and PostgreSQL refuses to TRUNCATE a table another table's foreign key references. A pending
+ * credential is removed first, because that FK restricts the delete of its request.
+ */
 export async function resetProvisioning(admin: Pool): Promise<void> {
-  await admin.query(`TRUNCATE erp_provisioning_step_log, erp_provisioning_request`);
+  await admin.query(`TRUNCATE erp_provisioning_step_log`);
+  await admin.query(`DELETE FROM auth_tokens WHERE pending_rotation_request_id IS NOT NULL`);
+  await admin.query(`DELETE FROM erp_provisioning_request`);
   await admin.query(`DELETE FROM erp_provisioner_credential`);
   await admin.query(`DELETE FROM auth_tokens WHERE scope = 'connector_provisioner'`);
   const owned = `SELECT id FROM connector_registration WHERE managed_by IS NOT NULL OR erpnext_site_ref IN ('manual-site', 'hand-made-site') OR erpnext_site_ref ~ '^t[0-9a-f]{20}-'`;

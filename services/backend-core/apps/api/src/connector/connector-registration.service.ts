@@ -64,8 +64,16 @@ type IssueResult =
   | { kind: "not_found" }
   | { kind: "conflict" };
 
-/** At most one unrevoked connector credential per registration (migration 0021). */
-const ACTIVE_CONNECTOR_CREDENTIAL_UNIQUE = "uq_auth_tokens_active_connector_credential";
+/**
+ * At most one unrevoked connector credential per registration (0021, `uq_auth_tokens_active_connector_credential`),
+ * and at most one CURRENT one (0140, RT-1362 S2: the same rule narrowed to credentials with no pending-rotation
+ * marker). Both indexes exist now and either can report the violation of a second issue, so both names map to the
+ * 409; once a later PR drops the 0021 index, only the 0140 name remains.
+ */
+const CURRENT_CONNECTOR_CREDENTIAL_UNIQUE: ReadonlySet<string> = new Set([
+  "uq_auth_tokens_current_connector_credential",
+  "uq_auth_tokens_active_connector_credential",
+]);
 
 const INSTANCE_COLS =
   "id, display_name, erpnext_site_ref, environment, created_at, disabled_at";
@@ -221,7 +229,7 @@ export class ConnectorRegistrationService {
           });
         } catch (err) {
           const pgErr = err as { code?: string; constraint?: string };
-          if (pgErr.code === "23505" && pgErr.constraint === ACTIVE_CONNECTOR_CREDENTIAL_UNIQUE) {
+          if (pgErr.code === "23505" && pgErr.constraint !== undefined && CURRENT_CONNECTOR_CREDENTIAL_UNIQUE.has(pgErr.constraint)) {
             return { kind: "conflict" };
           }
           throw err;
