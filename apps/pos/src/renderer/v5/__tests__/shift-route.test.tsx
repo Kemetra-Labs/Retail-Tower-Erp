@@ -9,7 +9,12 @@ import '@testing-library/jest-dom/vitest';
 
 import type { ShiftCloseResponse, ShiftStatusResponse } from '../../../shared/shift-cashup/types';
 import { V5ShiftRoute } from '../shift/V5ShiftRoute';
-import { SHIFT_COPY, shiftRefusalMessage } from '../shift/shift-copy';
+import {
+  SHIFT_COPY,
+  UNRESOLVED_RETURNS_UNAVAILABLE,
+  shiftRefusalMessage,
+  unresolvedReturnsWarning,
+} from '../shift/shift-copy';
 import { PARKED_SALES_PATH } from '../park/ParkedSalesRoute';
 import { PARK_COPY, terminalParkedCount } from '../park/park-copy';
 import {
@@ -381,7 +386,51 @@ describe('V5ShiftRoute — the blind-count close', () => {
     const outcome = await screen.findByTestId('shift-closed-outcome');
     expect(outcome).toHaveTextContent(SHIFT_COPY.closed);
     expect(screen.queryByTestId('shift-variance')).not.toBeInTheDocument();
+    expect(screen.queryByTestId('shift-unresolved-returns')).not.toBeInTheDocument();
     expect(await screen.findByLabelText(FLOAT_FIELD)).toBeInTheDocument();
+  });
+
+  it.each([
+    [{ unresolved: 2, awaitingSupport: 0 }, 'لم تتأكد بعد نتيجة 2 من المرتجعات'],
+    [{ unresolved: 3, awaitingSupport: 1 }, 'منها 1 بانتظار الدعم'],
+  ])(
+    'RT-1498 S7: a close that left returns unresolved (%o) succeeds and warns',
+    async (counts, fragment) => {
+      const { bridge, panel } = await startClose();
+      bridge.status.mockResolvedValue({ kind: 'status', status: statusView() });
+      bridge.close.mockResolvedValue({
+        kind: 'closed',
+        shiftId: 'shift-1',
+        closedAt: '2026-10-06T16:00:00.000Z',
+        unresolvedReturns: counts,
+      });
+      type(SHIFT_COPY.countLabel, '515');
+      press(SHIFT_COPY.closeCommit, panel);
+      expect(await screen.findByTestId('shift-closed-outcome')).toHaveTextContent(
+        SHIFT_COPY.closed,
+      );
+      const warning = screen.getByTestId('shift-unresolved-returns');
+      expect(warning).toHaveTextContent(unresolvedReturnsWarning(counts));
+      expect(warning).toHaveTextContent(fragment);
+      expect(warning).toHaveAttribute('data-tone', 'warning');
+    },
+  );
+
+  it('RT-1498 S7: a close whose returns could not be counted succeeds and says so (never "none")', async () => {
+    const { bridge, panel } = await startClose();
+    bridge.status.mockResolvedValue({ kind: 'status', status: statusView() });
+    bridge.close.mockResolvedValue({
+      kind: 'closed',
+      shiftId: 'shift-1',
+      closedAt: '2026-10-06T16:00:00.000Z',
+      unresolvedReturnsUnavailable: true,
+    });
+    type(SHIFT_COPY.countLabel, '515');
+    press(SHIFT_COPY.closeCommit, panel);
+    expect(await screen.findByTestId('shift-closed-outcome')).toHaveTextContent(SHIFT_COPY.closed);
+    const warning = screen.getByTestId('shift-unresolved-returns');
+    expect(warning).toHaveTextContent(UNRESOLVED_RETURNS_UNAVAILABLE);
+    expect(warning).toHaveAttribute('data-tone', 'warning');
   });
 
   it('does not send an invalid count', async () => {

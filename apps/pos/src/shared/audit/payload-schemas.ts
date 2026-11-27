@@ -48,6 +48,20 @@ export interface ShiftClosePayload {
   declared_count_state: 'numeric' | 'matched';
 }
 
+// ─── shift.close.unresolved_returns ───────────────────────────────────────
+
+/**
+ * RT-1498 S7 (RT-196 §3.8, OD-196-7: counts in the close summary AND the close audit). Written by main
+ * after a close committed with returns still unresolved on this terminal. Counts only: no return id,
+ * no amount. `awaiting_support` is a subset of `unresolved_returns`. POS-local (never uploaded).
+ */
+interface ShiftCloseUnresolvedReturnsPayload {
+  shift_id: string;
+  closed_at: string;
+  unresolved_returns: number;
+  awaiting_support: number;
+}
+
 // ─── shift.forced_close ────────────────────────────────────────────────────
 
 export const FORCED_CLOSE_REASONS = [
@@ -948,6 +962,7 @@ export type AuditPayloadMap = {
   'shift.open': ShiftOpenPayload;
   'shift.close': ShiftClosePayload;
   'shift.forced_close': ShiftForcedClosePayload;
+  'shift.close.unresolved_returns': ShiftCloseUnresolvedReturnsPayload;
   'operator.session.takeover': OperatorSessionTakeoverPayload;
   // RT-117 (RT-116 §7.3)
   'operator.session.locked': OperatorSessionLockedPayload;

@@ -13,6 +13,13 @@ import { resolveSessionScope } from '../operator/resolve-session-scope.js';
 import type { SessionManager } from '../operator/session-manager.js';
 import type { DeviceAuthDetector } from '../pairing/device-auth-detector.js';
 import type { DeviceRevocationStore, PairingStore } from '../pairing/store.js';
+import { AuditEmitter } from '../audit/audit-emitter.js';
+import { bindAuditEventsStoreDb } from '../audit/audit-events-store.js';
+import {
+  createUnresolvedReturnsCloseAudit,
+  unresolvedReturnsAtClose,
+} from '../returns/returns-unresolved-count.js';
+import { uuidv7 } from '../returns/uuidv7.js';
 import { createCurrentTerminalResolver } from '../sales-sync/current-terminal.js';
 import type { SafeStorageLike } from '../secrets/safe-storage.js';
 import {
@@ -176,6 +183,18 @@ export function registerShift(deps: ShiftDeps): void {
         }),
     // RT-443: the one store, shared with the approval service (audited there).
     managerPins,
+    // RT-1498 S7 (OD-196-7): a close warns about this terminal's unresolved returns; never blocks.
+    unresolvedReturns: unresolvedReturnsAtClose(db, () => pairingStore.getCurrentTerminalId()),
+    // ...and records those counts in the POS-local audit (`shift.close.unresolved_returns`).
+    recordUnresolvedReturns: createUnresolvedReturnsCloseAudit({
+      emit: (event) => {
+        new AuditEmitter(bindAuditEventsStoreDb(db)).emit(event);
+      },
+      session: () => operatorSessionManager.getCurrent(),
+      terminalId: () => pairingStore.getCurrentTerminalId(),
+      now: () => new Date().toISOString(),
+      newEventId: () => uuidv7(),
+    }),
     // RT-772: the cashier's shift close is a safe-point trigger for an update install.
     onShiftClosed: () => {
       updateService.notifyShiftClosed();

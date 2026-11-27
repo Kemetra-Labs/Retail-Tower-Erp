@@ -52,6 +52,7 @@ import {
   type ShiftMovementReasonCode,
   type ShiftMovementRequest,
   type ShiftOpenRequest,
+  type UnresolvedReturnCounts,
 } from '../../shared/shift-cashup/types.js';
 import {
   composeShiftCashupService,
@@ -59,6 +60,7 @@ import {
 } from '../shift-cashup/compose-shift-cashup.js';
 import {
   createShiftCashupBridge,
+  type ShiftCashupBridgeDeps,
   type ShiftCashupBridgeLogger,
 } from '../shift-cashup/shift-cashup-bridge.js';
 import {
@@ -276,6 +278,10 @@ export interface RegisterShiftCashupIpcDeps
    * omitted (tests), one is created here.
    */
   managerPins?: ManagerPinStore;
+  /** RT-1498 S7: this terminal's unresolved returns, for the close answer's warning. */
+  unresolvedReturns?: () => UnresolvedReturnCounts;
+  /** RT-1498 S7: records those counts in the POS-local audit after the close commits. */
+  recordUnresolvedReturns?: ShiftCashupBridgeDeps['recordUnresolvedReturns'];
 }
 
 /** The flag gate (see the module header). */
@@ -297,6 +303,10 @@ export function registerShiftCashupIpc(deps: RegisterShiftCashupIpcDeps): void {
     enrollment,
     logger: deps.logger,
     ...(deps.beforeOpen === undefined ? {} : { beforeOpen: deps.beforeOpen }),
+    ...(deps.unresolvedReturns === undefined ? {} : { unresolvedReturns: deps.unresolvedReturns }),
+    ...(deps.recordUnresolvedReturns === undefined
+      ? {}
+      : { recordUnresolvedReturns: deps.recordUnresolvedReturns }),
   });
   registerShiftCashupHandlers(deps.ipcMain, { bridge });
   deps.onSessionStarted(
