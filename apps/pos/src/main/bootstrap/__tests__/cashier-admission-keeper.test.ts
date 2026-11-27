@@ -9,6 +9,7 @@ import { registerCashierAdmissionKeeper } from '../cashier-admission-keeper.js';
 import { CashierAdmissionKeeper } from '../../operator/cashier-admission-keeper.js';
 import { SessionManager } from '../../operator/session-manager.js';
 import {
+  ADMITTED,
   FAKE_USER_ID,
   fakeCashierAdmission,
 } from '../../operator/__tests__/__helpers__/fake-cashier-admission.js';
@@ -101,6 +102,42 @@ describe('registerCashierAdmissionKeeper', () => {
     expect(w.events.map((e) => [e.action_category, e.payload])).toEqual([
       ['operator.session.authority_conflict', { resolution: 'end_here' }],
     ]);
+  });
+
+  it('RT-309 D9: resolveConflict take_over_here adopts the same session and the keeper arms its heartbeat', async () => {
+    const w = wire();
+    w.fake.setReconcile({ kind: 'active_elsewhere' });
+    // The till clock check (RT-1312 F18) runs in production wiring: answer with the till's time.
+    w.fake.setAdmit(() => ({ ...ADMITTED, server_time: new Date().toISOString() }));
+    const record = w.sessions.create({
+      operator_id: 'user_clerk_1',
+      display_name: 'Mona',
+      role: 'cashier',
+      tenant_id: 't1',
+      branch_id: 'b1',
+      backend_session_id: '',
+      offline_admission: {
+        user_id: FAKE_USER_ID,
+        valid_until_ms: Date.now() + 3_600_000,
+        deadline_mono_ms: performance.now() + 3_600_000,
+      },
+    });
+    await vi.advanceTimersByTimeAsync(0);
+    const resolve = w.handlers.get(SESSION_LOCK_IPC_CHANNELS.RESOLVE_CONFLICT);
+
+    await expect(resolve?.({}, { action: 'take_over_here', pin: '1234' })).resolves.toEqual({
+      kind: 'resolved',
+      action: 'take_over_here',
+    });
+    expect(w.sessions.getCurrent()?.id).toBe(record.id);
+    expect(w.sessions.getCurrent()?.authority).toBe('online_confirmed');
+    expect(w.fake.admitCalls).toHaveLength(1);
+    expect(w.fake.admitCalls[0]).toMatchObject({ takeover: true });
+
+    // The keeper armed the adopted admission: its heartbeat (takeover: false) follows.
+    await vi.advanceTimersByTimeAsync(24 * 60 * 60 * 1000);
+    expect(w.fake.admitCalls.length).toBeGreaterThan(1);
+    expect(w.fake.admitCalls[1]).toMatchObject({ takeover: false });
   });
 
   it.each([

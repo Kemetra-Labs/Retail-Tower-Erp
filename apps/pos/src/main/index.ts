@@ -1053,8 +1053,7 @@ singleInstanceReady
     // RT-113 P2 / RT-1312 F17 / RT-309 — the cashier admission keeper (bootstrap module).
     const cashierAdmissionKeeper = registerCashierAdmissionKeeper({
       ipcMain: guardedIpcMain, // RT-309 D9: + the conflict lock's resolveConflict
-      verifyCashierPin: (operator_id, pin) =>
-        operatorCashierSignInHandler.verifyPin(operator_id, pin),
+      verifyCashierPin: (op, pin) => operatorCashierSignInHandler.verifyPin(op, pin),
       db,
       sessionManager: operatorSessionManager,
       pairingStore,
