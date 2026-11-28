@@ -1,8 +1,10 @@
 import { TenantAiPlanSection } from "@/ai-entitlements/TenantAiPlanSection";
+import { aiPlanViewFor } from "@/ai-entitlements/aiAccess";
 import { TenantBrandingLink } from "@/branding/TenantBrandingLink";
 import { TenantPolicySection } from "@/cash-policy/TenantPolicySection";
 import { PageHeader } from "@/components/PageHeader";
 import { useActiveContextValue } from "@/context/ActiveContextProvider";
+import { roleCodeOf } from "@/context/effectiveRole";
 import { useT } from "@/i18n";
 import { TenantTrackedSellingSection } from "@/tracked-selling/TenantTrackedSellingSection";
 import { Link } from "react-router";
@@ -25,8 +27,9 @@ import "./settings.css";
  * cards (rule 5) with the wider surface spacing (rule 1). The two destinations
  * the page already had — the branding page and the account page — sit in one
  * quick-links bar at the top, mirroring the Overview's quick-actions bar; the
- * three inline sections sit each in its own card below, unchanged inside
- * (they are shared with the tenant detail page, so their bodies are not
+ * three inline sections sit each in its own card below (the AI-plan card only
+ * when the section would render, by the same gate the section uses), unchanged
+ * inside (they are shared with the tenant detail page, so their bodies are not
  * restyled here). The page performs no action of its own and makes no read of
  * its own, so it carries no smart insight (rule 4 needs a read the page
  * already makes; the sections read independently) and no new toggle.
@@ -35,6 +38,13 @@ export function SettingsPage(): React.JSX.Element {
   const t = useT();
   const { context } = useActiveContextValue();
   const tenantId = context?.active_tenant?.id;
+  // The AI-plan section renders null when it is off (a production build) or
+  // the role has no AI view, so the card follows the same gate instead of
+  // leaning on the `:empty` rule in settings.css (kept as a belt-and-braces).
+  // `enabled` is passed through so the gate and the section cannot drift.
+  const aiPlanEnabled = import.meta.env.DEV;
+  const showAiPlan =
+    aiPlanEnabled && aiPlanViewFor(roleCodeOf(context)) !== undefined;
 
   return (
     <div className="surface settings-surface">
@@ -68,9 +78,14 @@ export function SettingsPage(): React.JSX.Element {
           <div className="section-panel settings-card">
             <TenantPolicySection tenantId={tenantId} />
           </div>
-          <div className="section-panel settings-card">
-            <TenantAiPlanSection tenantId={tenantId} />
-          </div>
+          {showAiPlan ? (
+            <div className="section-panel settings-card">
+              <TenantAiPlanSection
+                tenantId={tenantId}
+                enabled={aiPlanEnabled}
+              />
+            </div>
+          ) : null}
           <div className="section-panel settings-card">
             <TenantTrackedSellingSection tenantId={tenantId} />
           </div>

@@ -75,6 +75,10 @@
   min-inline-size: 0;
 }
 
+/* The card shell is the shared `.section-panel` (see ReportsIndex); this rule
+ * keeps only what a report card adds: the v4 panel radius (20px, where the
+ * panel's own radius is 12px) and the one resting elevation, the wider
+ * padding, and the column layout. */
 .reports-card {
   display: flex;
   flex: 1;
@@ -82,9 +86,7 @@
   gap: var(--space-2);
   min-inline-size: 0;
   padding: var(--space-5) var(--space-6);
-  border: 1px solid var(--color-border);
   border-radius: var(--radius-panel);
-  background: var(--color-surface);
   box-shadow: var(--shadow-resting);
   color: var(--color-text);
   text-decoration: none;

@@ -2,11 +2,17 @@ import { cleanup, render, screen } from "@testing-library/react";
 import { MemoryRouter } from "react-router";
 import { afterEach, beforeEach, describe, expect, test, vi } from "vitest";
 
-const ctx = vi.hoisted(() => ({ tenant: "t1" as string | null }));
+const ctx = vi.hoisted(() => ({
+  tenant: "t1" as string | null,
+  role: "owner" as string,
+}));
 vi.mock("@/context/ActiveContextProvider", () => ({
   useActiveContextValue: () => ({
     context: ctx.tenant
-      ? { active_tenant: { id: ctx.tenant, name: "Northstar Retail" } }
+      ? {
+          active_tenant: { id: ctx.tenant, name: "Northstar Retail" },
+          active_role_code: ctx.role,
+        }
       : { active_tenant: null },
   }),
 }));
@@ -28,6 +34,7 @@ import { SettingsPage } from "@/settings/SettingsPage";
 
 beforeEach(() => {
   ctx.tenant = "t1";
+  ctx.role = "owner";
 });
 afterEach(cleanup);
 
@@ -57,6 +64,13 @@ describe("SettingsPage", () => {
     // quick-links bar at the top; each inline section sits in its own card.
     expect(screen.getByRole("heading", { level: 2, name: "Quick links" })).toBeDefined();
     expect(document.querySelectorAll(".settings-card")).toHaveLength(3);
+  });
+
+  test("a role with no AI-plan view gets no AI-plan card", () => {
+    ctx.role = "store_staff";
+    renderPage();
+    expect(screen.queryByText("ai-plan-section")).toBeNull();
+    expect(document.querySelectorAll(".settings-card")).toHaveLength(2);
   });
 
   test("without an active tenant it points at the tenant list", () => {
